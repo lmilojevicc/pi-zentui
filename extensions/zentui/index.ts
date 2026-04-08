@@ -1,10 +1,15 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { colorize, ensureConfigExists, loadConfig, type PolishedTuiConfig } from "./config";
-import { emptyGitStatus, readGitStatus, type GitStatusSummary } from "./git";
-import { readRuntimeInfo, type RuntimeInfo } from "./runtime";
-import { patchUserMessageComponent, PolishedEditor } from "./ui";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	KeybindingsManager,
+	Theme,
+} from "@mariozechner/pi-coding-agent";
+import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { type PolishedTuiConfig, colorize, ensureConfigExists, loadConfig } from "./config";
+import { type GitStatusSummary, emptyGitStatus, readGitStatus } from "./git";
+import { type RuntimeInfo, readRuntimeInfo } from "./runtime";
+import { PolishedEditor, patchUserMessageComponent } from "./ui";
 
 type FooterState = GitStatusSummary & {
 	busy: boolean;
@@ -40,7 +45,9 @@ function formatProviderLabel(provider: string | undefined): string {
 		"openai-codex": "OpenAI",
 	};
 
-	return known[provider] ?? provider.replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+	return (
+		known[provider] ?? provider.replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+	);
 }
 
 function getUsageTotals(ctx: ExtensionContext): UsageTotals {
@@ -73,7 +80,8 @@ function buildContextLabel(ctx: ExtensionContext): string {
 
 	if (!usage || !contextWindow || contextWindow <= 0) return "--";
 
-	const percent = usage.percent === null ? "?" : `${Math.max(0, Math.min(999, Math.round(usage.percent)))}%`;
+	const percent =
+		usage.percent === null ? "?" : `${Math.max(0, Math.min(999, Math.round(usage.percent)))}%`;
 	return `${percent}/${formatCount(contextWindow)}`;
 }
 
@@ -101,7 +109,11 @@ function getRuntimeColorToken(runtime: RuntimeInfo | undefined): string {
 	}
 }
 
-function formatRuntimeSegment(theme: any, runtime: RuntimeInfo | undefined, mutedColor: string): string {
+function formatRuntimeSegment(
+	theme: Pick<Theme, "fg">,
+	runtime: RuntimeInfo | undefined,
+	mutedColor: string,
+): string {
 	if (!runtime) return "";
 	const label = runtime.version ? `${runtime.symbol} ${runtime.version}` : runtime.symbol;
 	return `${colorize(theme, mutedColor, "via")} ${colorize(theme, getRuntimeColorToken(runtime), label)}`;
@@ -143,7 +155,10 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
-		const [gitStatus, runtime] = await Promise.all([readGitStatus(ctx.cwd), readRuntimeInfo(ctx.cwd)]);
+		const [gitStatus, runtime] = await Promise.all([
+			readGitStatus(ctx.cwd),
+			readRuntimeInfo(ctx.cwd),
+		]);
 		Object.assign(state, gitStatus);
 		state.runtime = runtime;
 	};
@@ -184,7 +199,11 @@ export default function (pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					const innerWidth = Math.max(1, width - 2);
-					const cwdLabel = colorize(theme, currentConfig.colors.cwdText, formatCwdLabel(ctx.cwd, currentConfig.icons.cwd));
+					const cwdLabel = colorize(
+						theme,
+						currentConfig.colors.cwdText,
+						formatCwdLabel(ctx.cwd, currentConfig.icons.cwd),
+					);
 					const branch = state.branch;
 					const contextUsage = ctx.getContextUsage();
 					const contextColor =
@@ -196,7 +215,8 @@ export default function (pi: ExtensionAPI) {
 									: currentConfig.colors.contextNormal
 							: currentConfig.colors.contextNormal;
 					const gitColor = (text: string) => colorize(theme, currentConfig.colors.git, text);
-					const gitStatusColor = (text: string) => colorize(theme, currentConfig.colors.gitStatus, text);
+					const gitStatusColor = (text: string) =>
+						colorize(theme, currentConfig.colors.gitStatus, text);
 					const gitIcon = gitColor(currentConfig.icons.git);
 					const allStatus = [
 						state.conflicted > 0 ? currentConfig.icons.conflicted : "",
@@ -208,22 +228,22 @@ export default function (pi: ExtensionAPI) {
 						state.staged > 0 ? currentConfig.icons.staged : "",
 						state.untracked > 0 ? currentConfig.icons.untracked : "",
 					].join("");
-					const aheadBehind = state.ahead > 0 && state.behind > 0
-						? currentConfig.icons.diverged
-						: state.ahead > 0
-							? currentConfig.icons.ahead
-							: state.behind > 0
-								? currentConfig.icons.behind
-								: "";
-					const statusBlock = allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
+					const aheadBehind =
+						state.ahead > 0 && state.behind > 0
+							? currentConfig.icons.diverged
+							: state.ahead > 0
+								? currentConfig.icons.ahead
+								: state.behind > 0
+									? currentConfig.icons.behind
+									: "";
+					const statusBlock =
+						allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
 					const branchLabel = branch
 						? `${colorize(theme, "text", "on")} ${gitIcon} ${gitColor(branch)}${statusBlock ? ` ${statusBlock}` : ""}`
 						: "";
 					const runtimeLabel = formatRuntimeSegment(theme, state.runtime, "text");
 
-					const left = [cwdLabel, branchLabel, runtimeLabel]
-						.filter(Boolean)
-						.join(" ");
+					const left = [cwdLabel, branchLabel, runtimeLabel].filter(Boolean).join(" ");
 					const right = [
 						colorize(theme, contextColor, state.contextLabel),
 						colorize(theme, currentConfig.colors.tokens, state.tokenLabel),
@@ -232,11 +252,12 @@ export default function (pi: ExtensionAPI) {
 
 					const leftWidth = visibleWidth(left);
 					const rightWidth = visibleWidth(right);
-					const content = leftWidth >= innerWidth
-						? truncateToWidth(left, innerWidth)
-						: leftWidth + 1 + rightWidth <= innerWidth
-							? `${left}${" ".repeat(innerWidth - leftWidth - rightWidth)}${right}`
-							: left;
+					const content =
+						leftWidth >= innerWidth
+							? truncateToWidth(left, innerWidth)
+							: leftWidth + 1 + rightWidth <= innerWidth
+								? `${left}${" ".repeat(innerWidth - leftWidth - rightWidth)}${right}`
+								: left;
 					return [` ${content} `];
 				},
 			};
@@ -249,20 +270,29 @@ export default function (pi: ExtensionAPI) {
 		let currentEditor: PolishedEditor | undefined;
 		let autocompleteFixed = false;
 
-		const editorFactory = (tui: any, theme: any, keybindings: any) => {
+		type AutocompleteEditorInternals = {
+			autocompleteProvider?: unknown;
+		};
+
+		const editorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
 			const editor = new PolishedEditor(
 				tui,
 				theme,
 				keybindings,
 				ctx.ui.theme,
-				() => [ctx.ui.theme.fg("accent", state.modelLabel), ctx.ui.theme.fg("text", state.providerLabel)].join(ctx.ui.theme.fg("borderMuted", "  ")),
+				() =>
+					[
+						ctx.ui.theme.fg("accent", state.modelLabel),
+						ctx.ui.theme.fg("text", state.providerLabel),
+					].join(ctx.ui.theme.fg("borderMuted", "  ")),
 				() => pi.getThinkingLevel(),
 			);
 			currentEditor = editor;
 
 			const originalHandleInput = editor.handleInput.bind(editor);
 			editor.handleInput = (data: string) => {
-				if (!autocompleteFixed && !(editor as any).autocompleteProvider) {
+				const editorInternals = editor as unknown as AutocompleteEditorInternals;
+				if (!autocompleteFixed && !editorInternals.autocompleteProvider) {
 					autocompleteFixed = true;
 					ctx.ui.setEditorComponent(editorFactory);
 					currentEditor?.handleInput(data);

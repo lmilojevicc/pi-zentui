@@ -1,6 +1,6 @@
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export type ColorSpec = string;
 
@@ -124,7 +124,11 @@ function hexToAnsi(hex: string, isBackground = false): string {
 	return `\x1b[${isBackground ? 48 : 38};2;${r};${g};${b}m`;
 }
 
-export function colorize(theme: any, color: ColorSpec, text: string): string {
+type ThemeLike = {
+	fg(color: string, text: string): string;
+};
+
+export function colorize(theme: ThemeLike, color: ColorSpec, text: string): string {
 	if (themeColorTokens.has(color)) {
 		return theme.fg(color, text);
 	}
