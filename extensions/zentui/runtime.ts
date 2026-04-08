@@ -31,10 +31,18 @@ function hasAnyEntry(entries: string[], names: string[]): boolean {
 	return names.some((name) => entries.includes(name));
 }
 
-async function runVersion(command: string, args: string[] = [], cwd?: string): Promise<string | undefined> {
+async function runVersion(
+	command: string,
+	args: string[] = [],
+	cwd?: string,
+): Promise<string | undefined> {
 	try {
-		const { stdout, stderr } = await execFileAsync(command, args, { cwd, timeout: VERSION_TIMEOUT_MS });
-		const text = `${typeof stdout === "string" ? stdout : String(stdout)}\n${typeof stderr === "string" ? stderr : String(stderr)}`.trim();
+		const { stdout, stderr } = await execFileAsync(command, args, {
+			cwd,
+			timeout: VERSION_TIMEOUT_MS,
+		});
+		const text =
+			`${typeof stdout === "string" ? stdout : String(stdout)}\n${typeof stderr === "string" ? stderr : String(stderr)}`.trim();
 		return text || undefined;
 	} catch {
 		return undefined;
@@ -88,7 +96,15 @@ const runtimes: RuntimeCandidate[] = [
 	{
 		name: "python",
 		symbol: "",
-		detect: (cwd) => hasAnyFile(cwd, ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile", ".python-version"]),
+		detect: (cwd) =>
+			hasAnyFile(cwd, [
+				"pyproject.toml",
+				"requirements.txt",
+				"setup.py",
+				"setup.cfg",
+				"Pipfile",
+				".python-version",
+			]),
 		version: async () => {
 			const python3 = await runVersion("python3", ["--version"]);
 			const python3Match = python3?.match(/Python\s+([0-9][^\s]*)/i);
@@ -152,6 +168,13 @@ const runtimes: RuntimeCandidate[] = [
 	},
 ];
 
+export function detectRuntime(cwd: string, entries: string[]): RuntimeCandidate | undefined {
+	for (const runtime of runtimes) {
+		if (runtime.detect(cwd, entries)) return runtime;
+	}
+	return undefined;
+}
+
 export async function readRuntimeInfo(cwd: string): Promise<RuntimeInfo | undefined> {
 	let entries: string[] = [];
 	try {
@@ -160,14 +183,11 @@ export async function readRuntimeInfo(cwd: string): Promise<RuntimeInfo | undefi
 		entries = [];
 	}
 
-	for (const runtime of runtimes) {
-		if (!runtime.detect(cwd, entries)) continue;
-		return {
-			name: runtime.name,
-			symbol: runtime.symbol,
-			version: await runtime.version(cwd),
-		};
-	}
-
-	return undefined;
+	const runtime = detectRuntime(cwd, entries);
+	if (!runtime) return undefined;
+	return {
+		name: runtime.name,
+		symbol: runtime.symbol,
+		version: await runtime.version(cwd),
+	};
 }
