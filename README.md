@@ -4,7 +4,7 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://github.co
 
 ## Screenshots
 
-![Zentui](assets/zentui.png)
+![Zentui](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/zentui.png)
 
 ## What is this?
 
@@ -66,11 +66,10 @@ Detects project type and shows runtime version:
 
 ```bash
 # From npm
-pi install npm:Zentui
+pi install npm:pi-zentui
 
 # From git
-pi install git:github.com/milo/Zentui
-
+pi install git:github.com/lmilojevicc/pi-zentui
 ```
 
 ## Config
@@ -127,6 +126,27 @@ This means Zentui works with any Pi theme — it uses your theme's colors by def
 
 - [Pi](https://github.com/badlogic/pi-mono) coding agent
 - A [Nerd Font](https://www.nerdfonts.com/) for icons
+
+## Development
+
+If you use [mise](https://mise.jdx.dev/):
+
+```bash
+mise install
+mise run setup
+mise run verify
+mise run fmt
+mise run ci
+```
+
+Without mise:
+
+```bash
+npm install
+npm run verify
+npm run fmt
+npm run pack:check
+```
 
 ## Credits
 
