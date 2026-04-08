@@ -1,6 +1,6 @@
 {
 	"name": "pi-zentui",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "A Starship-inspired statusline and Opencode-style TUI for Pi.",
 	"type": "module",
 	"license": "MIT",
@@ -12,8 +12,15 @@
 	"bugs": {
 		"url": "https://github.com/lmilojevicc/pi-zentui/issues"
 	},
-	"keywords": ["pi-package", "pi-extension", "starship", "tui"],
-	"files": ["extensions"],
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"starship",
+		"tui"
+	],
+	"files": [
+		"extensions"
+	],
 	"scripts": {
 		"lint": "biome check .",
 		"typecheck": "tsc --noEmit",
@@ -30,7 +37,9 @@
 		"@mariozechner/pi-tui": "*"
 	},
 	"pi": {
-		"extensions": ["./extensions"],
+		"extensions": [
+			"./extensions"
+		],
 		"image": "https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/zentui.png"
 	},
 	"publishConfig": {
