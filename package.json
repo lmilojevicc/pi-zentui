@@ -1,0 +1,32 @@
+{
+  "name": "zentui",
+  "version": "0.1.0",
+  "description": "Starship-inspired Pi TUI extension.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "starship",
+    "tui"
+  ],
+  "files": [
+    "extensions",
+    "assets",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2"
+  }
+}
