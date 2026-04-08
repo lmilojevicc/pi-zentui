@@ -1,31 +1,60 @@
-import { CustomEditor, UserMessageComponent } from "@mariozechner/pi-coding-agent";
-import { Container, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import {
+	CustomEditor,
+	type KeybindingsManager,
+	type Theme,
+	UserMessageComponent,
+} from "@mariozechner/pi-coding-agent";
+import {
+	type Component,
+	Container,
+	type EditorTheme,
+	type TUI,
+	truncateToWidth,
+	visibleWidth,
+} from "@mariozechner/pi-tui";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 const originalUserMessageRender = UserMessageComponent.prototype.render;
 
-let currentUiTheme: any;
+type AutocompleteEditorInternals = {
+	autocompleteList?: Pick<Component, "render">;
+	isShowingAutocomplete?: () => boolean;
+};
+
+let currentUiTheme: Theme | undefined;
+
+const TRUECOLOR_BACKGROUND_ANSI = /\x1b\[48;2;\d+;\d+;\d+m/g;
+const INDEXED_BACKGROUND_ANSI = /\x1b\[48;5;\d+m/g;
+const SIMPLE_BACKGROUND_ANSI = /\x1b\[(?:4\d|10[0-7]|49)m/g;
 
 function stripBackgroundAnsi(text: string): string {
 	return text
-		.replace(/\x1b\[48;2;\d+;\d+;\d+m/g, "")
-		.replace(/\x1b\[48;5;\d+m/g, "")
-		.replace(/\x1b\[(?:4\d|10[0-7]|49)m/g, "");
+		.replace(TRUECOLOR_BACKGROUND_ANSI, "")
+		.replace(INDEXED_BACKGROUND_ANSI, "")
+		.replace(SIMPLE_BACKGROUND_ANSI, "");
 }
 
-function fillStyledLine(content: string, width: number, background?: (text: string) => string): string {
+function fillStyledLine(
+	content: string,
+	width: number,
+	background?: (text: string) => string,
+): string {
 	const truncated = truncateToWidth(stripBackgroundAnsi(content), width, "");
 	const padWidth = Math.max(0, width - visibleWidth(truncated));
-	const pad = padWidth > 0 ? (background ? background(" ".repeat(padWidth)) : " ".repeat(padWidth)) : "";
+	const pad =
+		padWidth > 0 ? (background ? background(" ".repeat(padWidth)) : " ".repeat(padWidth)) : "";
 	return `${truncated}${pad}`;
 }
 
-export function patchUserMessageComponent(uiTheme: any): void {
+export function patchUserMessageComponent(uiTheme: Theme): void {
 	currentUiTheme = uiTheme;
 
-	(UserMessageComponent.prototype as any).render = function (width: number): string[] {
+	const prototype = UserMessageComponent.prototype as {
+		render(width: number): string[];
+	};
+	prototype.render = function (this: UserMessageComponent, width: number): string[] {
 		if (!currentUiTheme) {
 			return originalUserMessageRender.call(this, width);
 		}
@@ -48,7 +77,8 @@ export function patchUserMessageComponent(uiTheme: any): void {
 
 		const framedLines = [border, ...styledLines, border];
 		framedLines[0] = OSC133_ZONE_START + framedLines[0];
-		framedLines[framedLines.length - 1] = framedLines[framedLines.length - 1] + OSC133_ZONE_END + OSC133_ZONE_FINAL;
+		framedLines[framedLines.length - 1] =
+			framedLines[framedLines.length - 1] + OSC133_ZONE_END + OSC133_ZONE_FINAL;
 		return [...leadingLines, ...framedLines];
 	};
 }
@@ -56,14 +86,14 @@ export function patchUserMessageComponent(uiTheme: any): void {
 export class PolishedEditor extends CustomEditor {
 	private readonly getModelMeta: () => string;
 	private readonly getThinkingLevel: () => string | undefined;
-	private readonly uiTheme: any;
+	private readonly uiTheme: Theme;
 	private readonly reset = "\x1b[0m";
 
 	constructor(
-		tui: any,
-		theme: any,
-		keybindings: any,
-		uiTheme: any,
+		tui: TUI,
+		theme: EditorTheme,
+		keybindings: KeybindingsManager,
+		uiTheme: Theme,
 		getModelMeta: () => string,
 		getThinkingLevel: () => string | undefined,
 	) {
@@ -83,18 +113,29 @@ export class PolishedEditor extends CustomEditor {
 	render(width: number): string[] {
 		const innerWidth = Math.max(1, width - 2);
 		const rendered = super.render(innerWidth);
+		const editorInternals = this as unknown as AutocompleteEditorInternals;
 		const isShowingAutocomplete =
-			typeof (this as any).isShowingAutocomplete === "function" ? Boolean((this as any).isShowingAutocomplete()) : false;
+			typeof editorInternals.isShowingAutocomplete === "function"
+				? Boolean(editorInternals.isShowingAutocomplete())
+				: false;
 
 		if (rendered.length < 2) {
 			return super.render(width);
 		}
 
-		const autocompleteList = (this as any).autocompleteList;
+		const { autocompleteList } = editorInternals;
 		const autocompleteCount =
-			isShowingAutocomplete && typeof autocompleteList?.render === "function" ? autocompleteList.render(innerWidth).length : 0;
-		const editorFrame = autocompleteCount > 0 && autocompleteCount < rendered.length ? rendered.slice(0, -autocompleteCount) : rendered;
-		const autocompleteLines = autocompleteCount > 0 && autocompleteCount < rendered.length ? rendered.slice(-autocompleteCount) : [];
+			isShowingAutocomplete && typeof autocompleteList?.render === "function"
+				? autocompleteList.render(innerWidth).length
+				: 0;
+		const editorFrame =
+			autocompleteCount > 0 && autocompleteCount < rendered.length
+				? rendered.slice(0, -autocompleteCount)
+				: rendered;
+		const autocompleteLines =
+			autocompleteCount > 0 && autocompleteCount < rendered.length
+				? rendered.slice(-autocompleteCount)
+				: [];
 
 		if (editorFrame.length < 2) {
 			return rendered;

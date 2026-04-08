@@ -1,32 +1,48 @@
 {
-  "name": "zentui",
-  "version": "0.1.0",
-  "description": "Starship-inspired Pi TUI extension.",
-  "type": "module",
-  "license": "MIT",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "starship",
-    "tui"
-  ],
-  "files": [
-    "extensions",
-    "assets",
-    "README.md"
-  ],
-  "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
-  },
-  "pi": {
-    "extensions": [
-      "./extensions"
-    ]
-  },
-  "devDependencies": {
-    "@types/node": "^25.5.2",
-    "typescript": "^6.0.2"
-  }
+	"name": "pi-zentui",
+	"version": "0.1.0",
+	"description": "A Starship-inspired statusline and Opencode-style TUI for Pi.",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/lmilojevicc/pi-zentui.git"
+	},
+	"homepage": "https://github.com/lmilojevicc/pi-zentui#readme",
+	"bugs": {
+		"url": "https://github.com/lmilojevicc/pi-zentui/issues"
+	},
+	"keywords": ["pi-package", "pi-extension", "starship", "tui"],
+	"files": ["extensions"],
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"fmt": "biome format --write .",
+		"fmt:check": "biome format --check .",
+		"verify": "npm run lint && npm run typecheck && npm run test",
+		"pack:check": "npm pack --dry-run",
+		"prepublishOnly": "npm run verify && npm run pack:check"
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-ai": "*",
+		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*"
+	},
+	"pi": {
+		"extensions": ["./extensions"],
+		"image": "https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/zentui.png"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@mariozechner/pi-ai": "^0.65.2",
+		"@mariozechner/pi-coding-agent": "^0.65.2",
+		"@mariozechner/pi-tui": "^0.65.2",
+		"@types/node": "^25.5.2",
+		"typescript": "^6.0.2",
+		"vitest": "^3.2.4"
+	}
 }
