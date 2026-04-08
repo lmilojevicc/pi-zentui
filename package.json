@@ -1,6 +1,6 @@
 {
 	"name": "pi-zentui",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "A Starship-inspired statusline and Opencode-style TUI for Pi.",
 	"type": "module",
 	"license": "MIT",
