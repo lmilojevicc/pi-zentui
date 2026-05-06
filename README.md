@@ -129,23 +129,28 @@ This means Zentui works with any Pi theme — it uses your theme's colors by def
 
 ## Development
 
-If you use [mise](https://mise.jdx.dev/):
-
-```bash
-mise install
-mise run setup
-mise run verify
-mise run fmt
-mise run ci
-```
-
-Without mise:
-
 ```bash
 npm install
 npm run verify
 npm run fmt
 npm run pack:check
+```
+
+### Test in Pi
+
+The project keeps Pi core packages as peer dependencies for runtime and dev dependencies for
+typechecking. To avoid accidentally running the local `node_modules/.bin/pi` shim, the dev scripts use
+the globally installed Pi binary by default:
+
+```bash
+npm run pi:dev
+npm run pi:install-local
+```
+
+Override the binary if your Pi install is somewhere else:
+
+```bash
+PI_BIN=/path/to/pi npm run pi:dev
 ```
 
 ## Credits
