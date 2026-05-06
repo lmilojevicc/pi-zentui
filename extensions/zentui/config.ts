@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export type ColorSpec = string;
+export type ToolOutputStyle = "compact" | "truncated" | "full";
 
 export type PolishedTuiConfig = {
 	icons: {
@@ -30,6 +31,9 @@ export type PolishedTuiConfig = {
 		tokens: ColorSpec;
 		cost: ColorSpec;
 		separator: ColorSpec;
+	};
+	tools: {
+		style: ToolOutputStyle;
 	};
 };
 
@@ -110,6 +114,9 @@ export const defaultConfig: PolishedTuiConfig = {
 		cost: "success",
 		separator: "borderMuted",
 	},
+	tools: {
+		style: "compact",
+	},
 };
 
 function isHexColor(value: string): boolean {
@@ -127,6 +134,18 @@ function hexToAnsi(hex: string, isBackground = false): string {
 type ThemeLike = {
 	fg(color: string, text: string): string;
 };
+
+type ConfigRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is ConfigRecord {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseToolOutputStyle(value: unknown): ToolOutputStyle {
+	return value === "truncated" || value === "full" || value === "compact"
+		? value
+		: defaultConfig.tools.style;
+}
 
 export function colorize(theme: ThemeLike, color: ColorSpec, text: string): string {
 	if (themeColorTokens.has(color)) {
@@ -148,20 +167,34 @@ export function ensureConfigExists(): void {
 	}
 }
 
+export function mergeConfig(parsed: unknown): PolishedTuiConfig {
+	const config = isRecord(parsed) ? parsed : {};
+	const icons = isRecord(config.icons) ? (config.icons as Partial<PolishedTuiConfig["icons"]>) : {};
+	const colors = isRecord(config.colors)
+		? (config.colors as Partial<PolishedTuiConfig["colors"]>)
+		: {};
+	const tools = isRecord(config.tools) ? (config.tools as Partial<PolishedTuiConfig["tools"]>) : {};
+
+	return {
+		icons: {
+			...defaultConfig.icons,
+			...icons,
+		},
+		colors: {
+			...defaultConfig.colors,
+			...colors,
+		},
+		tools: {
+			...defaultConfig.tools,
+			style: parseToolOutputStyle(tools.style),
+		},
+	};
+}
+
 export function loadConfig(): PolishedTuiConfig {
 	try {
 		if (!existsSync(configPath)) return defaultConfig;
-		const parsed = JSON.parse(readFileSync(configPath, "utf8")) as Partial<PolishedTuiConfig>;
-		return {
-			icons: {
-				...defaultConfig.icons,
-				...(parsed.icons ?? {}),
-			},
-			colors: {
-				...defaultConfig.colors,
-				...(parsed.colors ?? {}),
-			},
-		};
+		return mergeConfig(JSON.parse(readFileSync(configPath, "utf8")));
 	} catch {
 		return defaultConfig;
 	}

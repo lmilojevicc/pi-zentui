@@ -19,6 +19,7 @@ import {
 	renderDiff,
 } from "@mariozechner/pi-coding-agent";
 import { Box, type Component, Container, Spacer, Text } from "@mariozechner/pi-tui";
+import { type ToolOutputStyle, loadConfig } from "./config";
 
 type BuiltInDefinitions = ReturnType<typeof createBuiltInDefinitions>;
 type ToolArgs = Record<string, unknown>;
@@ -54,6 +55,8 @@ type CompactRenderResult = (
 
 type OutputMode = "one-line" | "preview" | "full";
 type ExpandedOutputMode = Exclude<OutputMode, "one-line">;
+type ExpandedBoxStatus = "pending" | "success" | "error";
+type ToolBackground = Parameters<Theme["bg"]>[0];
 
 const PREVIEW_LINES = 12;
 const OUTPUT_MODES: OutputMode[] = ["one-line", "preview", "full"];
@@ -179,6 +182,22 @@ function nextOutputMode(mode: OutputMode): OutputMode {
 	return OUTPUT_MODES[(OUTPUT_MODES.indexOf(mode) + 1) % OUTPUT_MODES.length] ?? "one-line";
 }
 
+function outputModeForToolStyle(style: ToolOutputStyle): OutputMode {
+	switch (style) {
+		case "full":
+			return "full";
+		case "truncated":
+			return "preview";
+		default:
+			return "one-line";
+	}
+}
+
+function configuredOutputMode(expanded: boolean): OutputMode {
+	const configured = outputModeForToolStyle(loadConfig().tools.style);
+	return configured === "one-line" && expanded ? "preview" : configured;
+}
+
 function syncOutputModeWithPiToggle(expanded: boolean) {
 	if (expanded === observedPiExpanded) return;
 	observedPiExpanded = expanded;
@@ -226,10 +245,10 @@ function highlightShellCommand(command: unknown, theme: Theme): string {
 	}
 }
 
-function renderExpandedBox(content: string, theme: Theme) {
-	// @tintinweb/pi-tasks does not define custom renderers, so pi wraps it in
-	// the default tool shell. Successful task tool output uses toolSuccessBg.
-	const box = new Box(3, 1, (text: string) => theme.bg("toolSuccessBg", text));
+function renderExpandedBox(content: string, theme: Theme, status: ExpandedBoxStatus) {
+	const background: ToolBackground =
+		status === "error" ? "toolErrorBg" : status === "pending" ? "toolPendingBg" : "toolSuccessBg";
+	const box = new Box(3, 1, (text: string) => theme.bg(background, text));
 	box.addChild(new Text(content, 0, 0));
 	return box;
 }
@@ -374,7 +393,8 @@ function compactResult(
 		const expandedText = renderExpanded(result, theme, context, error, mode);
 		if (!expandedText || expandedText.trim() === "") return new Text("", 0, 0);
 
-		const box = renderExpandedBox(expandedText, theme);
+		const status: ExpandedBoxStatus = error ? "error" : isPartial ? "pending" : "success";
+		const box = renderExpandedBox(expandedText, theme, status);
 		if (!gapBeforeExpanded) return box;
 
 		const container = new Container();
@@ -459,7 +479,7 @@ function registerCompactBuiltIn(
 export function registerCompactTools(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		observedPiExpanded = ctx.ui.getToolsExpanded();
-		outputMode = observedPiExpanded ? "preview" : "one-line";
+		outputMode = configuredOutputMode(observedPiExpanded);
 	});
 
 	registerCompactBuiltIn(
@@ -476,7 +496,12 @@ export function registerCompactTools(pi: ExtensionAPI) {
 		compactResult(summarizeRead, renderReadExpanded),
 	);
 
-	registerCompactBuiltIn(pi, "bash", compactBashCall, compactResult(summarizeBash));
+	registerCompactBuiltIn(
+		pi,
+		"bash",
+		compactBashCall,
+		compactResult(summarizeBash, renderBashExpanded),
+	);
 
 	registerCompactBuiltIn(
 		pi,

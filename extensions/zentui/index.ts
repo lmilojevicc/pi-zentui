@@ -10,10 +10,9 @@ import { registerCompactTools } from "./compact-tools";
 import { type PolishedTuiConfig, colorize, ensureConfigExists, loadConfig } from "./config";
 import { type GitStatusSummary, emptyGitStatus, readGitStatus } from "./git";
 import { type RuntimeInfo, readRuntimeInfo } from "./runtime";
-import { PolishedEditor, patchUserMessageComponent } from "./ui";
+import { PolishedEditor, patchUserMessageComponent, restoreUserMessageComponent } from "./ui";
 
 type FooterState = GitStatusSummary & {
-	busy: boolean;
 	modelLabel: string;
 	providerLabel: string;
 	contextLabel: string;
@@ -131,7 +130,6 @@ export default function (pi: ExtensionAPI) {
 	registerCompactTools(pi);
 
 	const state: FooterState = {
-		busy: false,
 		modelLabel: "no-model",
 		providerLabel: "Unknown",
 		contextLabel: "--",
@@ -270,15 +268,8 @@ export default function (pi: ExtensionAPI) {
 	const installEditor = (ctx: ExtensionContext) => {
 		syncState(ctx);
 
-		let currentEditor: PolishedEditor | undefined;
-		let autocompleteFixed = false;
-
-		type AutocompleteEditorInternals = {
-			autocompleteProvider?: unknown;
-		};
-
-		const editorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
-			const editor = new PolishedEditor(
+		const editorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
+			new PolishedEditor(
 				tui,
 				theme,
 				keybindings,
@@ -290,22 +281,6 @@ export default function (pi: ExtensionAPI) {
 					].join(ctx.ui.theme.fg("borderMuted", "  ")),
 				() => pi.getThinkingLevel(),
 			);
-			currentEditor = editor;
-
-			const originalHandleInput = editor.handleInput.bind(editor);
-			editor.handleInput = (data: string) => {
-				const editorInternals = editor as unknown as AutocompleteEditorInternals;
-				if (!autocompleteFixed && !editorInternals.autocompleteProvider) {
-					autocompleteFixed = true;
-					ctx.ui.setEditorComponent(editorFactory);
-					currentEditor?.handleInput(data);
-					return;
-				}
-				originalHandleInput(data);
-			};
-
-			return editor;
-		};
 
 		ctx.ui.setEditorComponent(editorFactory);
 	};
@@ -324,14 +299,16 @@ export default function (pi: ExtensionAPI) {
 		installUi(ctx);
 	});
 
+	pi.on("session_shutdown", async () => {
+		restoreUserMessageComponent();
+	});
+
 	pi.on("agent_start", async (_event, ctx) => {
-		state.busy = true;
 		syncState(ctx);
 		refresh();
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
-		state.busy = false;
 		syncState(ctx);
 		scheduleProjectRefresh(ctx);
 		refresh();
