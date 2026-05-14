@@ -1,0 +1,20 @@
+{
+  "skill_name": "developing-pi-extensions",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a pi extension that blocks dangerous bash commands and edits to .env files, can be hot-reloaded during development, and includes a quick way to test it.",
+      "expected_output": "Chooses an auto-discovered extension path, reads/follows pi extension docs/examples, uses ExtensionAPI with tool_call, handles ctx.hasUI/non-interactive mode, returns block reasons, and validates with pi -e or /reload."
+    },
+    {
+      "id": 2,
+      "prompt": "Build a pi custom tool extension that registers a notes_search tool with an action enum, truncates large output, and renders a compact result in the TUI.",
+      "expected_output": "Uses registerTool/defineTool, Type.Object plus StringEnum, execute(toolCallId, params, signal, onUpdate, ctx), truncation utilities, details for state/rendering, and renderCall/renderResult with pi-tui components."
+    },
+    {
+      "id": 3,
+      "prompt": "Add a /pick-model-preset command to pi with an interactive selector and persistent preset state across sessions/forks.",
+      "expected_output": "Uses registerCommand, ctx.ui.custom/select patterns, checks ctx.hasUI, stores/reconstructs state via session entries or tool-result details, and reads relevant TUI/session docs/examples before coding."
+    }
+  ]
+}
