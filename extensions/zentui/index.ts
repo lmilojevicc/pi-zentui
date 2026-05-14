@@ -1,16 +1,16 @@
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	KeybindingsManager,
 	Theme,
-} from "@mariozechner/pi-coding-agent";
-import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type PolishedTuiConfig, colorize, ensureConfigExists, loadConfig } from "./config";
 import { type GitStatusSummary, emptyGitStatus, readGitStatus } from "./git";
 import { type StopProjectRefreshInterval, startProjectRefreshInterval } from "./project-refresh";
 import { type RuntimeInfo, readRuntimeInfo } from "./runtime";
-import { PolishedEditor, patchUserMessageComponent, restoreUserMessageComponent } from "./ui";
+import { PolishedEditor } from "./ui";
 
 type FooterState = GitStatusSummary & {
 	modelLabel: string;
@@ -145,6 +145,25 @@ export default function (pi: ExtensionAPI) {
 
 	const refresh = () => requestFooterRender?.();
 
+	const cleanupUi = (ctx?: ExtensionContext) => {
+		stopProjectRefreshInterval();
+		stopProjectRefreshInterval = () => {};
+		projectRefreshInFlight = false;
+		projectRefreshPending = false;
+		requestFooterRender = undefined;
+		if (ctx?.hasUI) {
+			ctx.ui.setFooter(undefined);
+			ctx.ui.setEditorComponent(undefined);
+		}
+	};
+
+	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
+		if (!ctx.hasUI) return;
+		syncState(ctx);
+		if (project) scheduleProjectRefresh(ctx);
+		refresh();
+	};
+
 	const syncState = (ctx: ExtensionContext) => {
 		const totals = getUsageTotals(ctx);
 		state.modelLabel = ctx.model?.id ?? "no-model";
@@ -198,6 +217,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				invalidate() {},
 				render(width: number): string[] {
+					if (width <= 0) return [""];
 					const innerWidth = Math.max(1, width - 2);
 					const cwdLabel = colorize(
 						theme,
@@ -254,11 +274,12 @@ export default function (pi: ExtensionAPI) {
 					const rightWidth = visibleWidth(right);
 					const content =
 						leftWidth >= innerWidth
-							? truncateToWidth(left, innerWidth)
+							? truncateToWidth(left, innerWidth, "")
 							: leftWidth + 1 + rightWidth <= innerWidth
 								? `${left}${" ".repeat(innerWidth - leftWidth - rightWidth)}${right}`
-								: left;
-					return [` ${content} `];
+								: truncateToWidth(left, innerWidth, "");
+					const framed = width > 2 ? ` ${truncateToWidth(content, width - 2, "")} ` : content;
+					return [truncateToWidth(framed, width, "")];
 				},
 			};
 		});
@@ -285,9 +306,9 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const installUi = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return;
 		ensureConfigExists();
 		currentConfig = loadConfig();
-		patchUserMessageComponent(ctx.ui.theme);
 		installFooter(ctx);
 		installEditor(ctx);
 		stopProjectRefreshInterval();
@@ -303,43 +324,31 @@ export default function (pi: ExtensionAPI) {
 		installUi(ctx);
 	});
 
-	pi.on("session_shutdown", async () => {
-		stopProjectRefreshInterval();
-		stopProjectRefreshInterval = () => {};
-		restoreUserMessageComponent();
+	pi.on("session_shutdown", async (_event, ctx) => {
+		cleanupUi(ctx);
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
-		syncState(ctx);
-		refresh();
+		refreshInteractiveState(ctx);
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
-		syncState(ctx);
-		scheduleProjectRefresh(ctx);
-		refresh();
+		refreshInteractiveState(ctx, true);
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
-		syncState(ctx);
-		refresh();
+		refreshInteractiveState(ctx);
 	});
 
 	pi.on("message_end", async (_event, ctx) => {
-		syncState(ctx);
-		scheduleProjectRefresh(ctx);
-		refresh();
+		refreshInteractiveState(ctx, true);
 	});
 
 	pi.on("tool_execution_end", async (_event, ctx) => {
-		syncState(ctx);
-		scheduleProjectRefresh(ctx);
-		refresh();
+		refreshInteractiveState(ctx, true);
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
-		syncState(ctx);
-		scheduleProjectRefresh(ctx);
-		refresh();
+		refreshInteractiveState(ctx, true);
 	});
 }

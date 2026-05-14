@@ -1,6 +1,6 @@
 # Zentui
 
-A Starship-inspired statusline and Opencode-style TUI for [Pi](https://github.com/badlogic/pi-mono).
+A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 
 ## Screenshots
 
@@ -11,7 +11,7 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://github.co
 Zentui brings two popular aesthetics to Pi:
 
 - **[Starship](https://starship.rs/) footer** — shows your current directory, git branch, git status indicators, and runtime/version detection in a compact, icon-rich format
-- **[Opencode](https://github.com/opencode-ai/opencode) editor and messages** — clean bordered input box with accent rail, transparent previous messages, and model/provider display inside the editor frame
+- **[Opencode](https://github.com/opencode-ai/opencode) editor** — clean bordered input box with accent rail and model/provider display inside the editor frame
 
 ## Features
 
@@ -28,7 +28,6 @@ Zentui brings two popular aesthetics to Pi:
 - Bordered input box with accent-colored left rail
 - Model name and provider displayed inside the editor frame
 - Thinking level indicator when enabled
-- Matching style for previous user messages
 
 ### Git Status Icons
 
@@ -127,7 +126,7 @@ This means Zentui works with any Pi theme — it uses your theme's colors by def
 
 ## Requirements
 
-- [Pi](https://github.com/badlogic/pi-mono) coding agent
+- [Pi](https://pi.dev) coding agent 0.74 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for icons
 
 ## Development

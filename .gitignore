@@ -2,6 +2,9 @@ node_modules/
 .DS_Store
 npm-debug.log*
 .mise.local.toml
+.pi/goals/
+.pi/subagent-schedules/
+.pi/tasks/
 bun.lock
 bun.lockb
 *.tgz
