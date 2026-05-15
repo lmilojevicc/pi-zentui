@@ -20,7 +20,7 @@ Zentui brings two popular aesthetics to Pi:
 - `󰝰 dirname` — current directory with icon
 - `on  branch` — git branch with icon
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
-- `via  v5.5.0` — runtime detection with version and logo color for Starship Nerd Font runtime/language modules
+- `via  v5.5.0` — runtime detection with version and Starship terminal styles for Nerd Font runtime/language modules
 - Right side shows context usage, token counts, and cost
 
 ### Editor (Opencode-inspired)
@@ -46,7 +46,7 @@ Zentui brings two popular aesthetics to Pi:
 
 ### Runtime Detection
 
-Detects Starship Nerd Font runtime/language modules, uses the Starship Nerd Font symbols, and colors each runtime with its official brand color where available:
+Detects Starship Nerd Font runtime/language modules, uses the Starship Nerd Font symbols, and styles each runtime with Starship's terminal style strings (for example, Node.js uses `bold green`, so your terminal colorscheme supplies the actual green):
 
 | Runtime/language | Detection examples                                           |
 | ---------------- | ------------------------------------------------------------ |

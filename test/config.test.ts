@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorize, mergeConfig } from "../extensions/zentui/config";
+import { colorize, mergeConfig, renderTerminalStyle } from "../extensions/zentui/config";
 
 describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds", () => {
@@ -19,6 +19,21 @@ describe("mergeConfig", () => {
 		expect(
 			mergeConfig({ projectRefreshIntervalMs: Number.POSITIVE_INFINITY }).projectRefreshIntervalMs,
 		).toBe(30_000);
+	});
+});
+
+describe("renderTerminalStyle", () => {
+	it("renders Starship bold green with terminal palette ANSI codes", () => {
+		expect(renderTerminalStyle("bold green", " v22.0.0")).toBe("\u001b[1;32m v22.0.0\u001b[0m");
+	});
+
+	it("supports 256-color, fg aliases, dimmed, and Starship hex styles", () => {
+		expect(renderTerminalStyle("bold 149", "C")).toBe("\u001b[1;38;5;149mC\u001b[0m");
+		expect(renderTerminalStyle("bold fg:202", "Haxe")).toBe("\u001b[1;38;5;202mHaxe\u001b[0m");
+		expect(renderTerminalStyle("red dimmed", "Java")).toBe("\u001b[31;2mJava\u001b[0m");
+		expect(renderTerminalStyle("bold #FFAFF3", "Gleam")).toBe(
+			"\u001b[1;38;2;255;175;243mGleam\u001b[0m",
+		);
 	});
 });
 

@@ -6,7 +6,13 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { type PolishedTuiConfig, colorize, ensureConfigExists, loadConfig } from "./config";
+import {
+	type PolishedTuiConfig,
+	colorize,
+	ensureConfigExists,
+	loadConfig,
+	renderTerminalStyle,
+} from "./config";
 import { type GitStatusSummary, emptyGitStatus, readGitStatus } from "./git";
 import { type StopProjectRefreshInterval, startProjectRefreshInterval } from "./project-refresh";
 import { type RuntimeInfo, readRuntimeInfo } from "./runtime";
@@ -92,7 +98,7 @@ function formatRuntimeSegment(
 ): string {
 	if (!runtime) return "";
 	const label = runtime.version ? `${runtime.symbol} ${runtime.version}` : runtime.symbol;
-	return `${colorize(theme, mutedColor, "via")} ${colorize(theme, runtime.color, label)}`;
+	return `${colorize(theme, mutedColor, "via")} ${renderTerminalStyle(runtime.style, label)}`;
 }
 
 function formatCwdLabel(cwd: string, cwdIcon: string): string {

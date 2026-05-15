@@ -8,10 +8,10 @@ const VERSION_TIMEOUT_MS = 2500;
 export type RuntimeMetadata = {
 	name: string;
 	symbol: string;
-	color: `#${string}`;
+	style: string;
 };
 
-export type RuntimeInfo = Pick<RuntimeMetadata, "name" | "symbol" | "color"> & {
+export type RuntimeInfo = Pick<RuntimeMetadata, "name" | "symbol" | "style"> & {
 	version?: string;
 };
 
@@ -149,7 +149,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "buf",
 			symbol: "",
-			color: "#0E5DF5",
+			style: "bold blue",
 		},
 		{ files: ["buf.yaml", "buf.gen.yaml", "buf.work.yaml"] },
 		versionFromCommands([{ command: "buf", args: ["--version"] }]),
@@ -158,7 +158,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "bun",
 			symbol: "",
-			color: "#FBF0DF",
+			style: "bold red",
 		},
 		{ files: ["bun.lock", "bun.lockb"] },
 		async () => prefixVersion(await runVersion("bun", ["--version"])),
@@ -167,7 +167,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "deno",
 			symbol: "",
-			color: "#000000",
+			style: "green bold",
 		},
 		{
 			files: ["deno.json", "deno.jsonc", "deno.lock"],
@@ -178,7 +178,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "cmake",
 			symbol: "",
-			color: "#064F8C",
+			style: "bold blue",
 		},
 		{ files: ["CMakeLists.txt", "CMakeCache.txt"] },
 		versionFromCommands([{ command: "cmake", args: ["--version"] }]),
@@ -187,7 +187,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "cpp",
 			symbol: "",
-			color: "#00599C",
+			style: "bold 149",
 		},
 		{ extensions: ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "tcc"] },
 		versionFromCommands([
@@ -200,7 +200,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "c",
 			symbol: "",
-			color: "#A8B9CC",
+			style: "bold 149",
 		},
 		{ extensions: ["c", "h"] },
 		versionFromCommands([
@@ -213,7 +213,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "cobol",
 			symbol: "",
-			color: "#0033A1",
+			style: "bold blue",
 		},
 		{ extensions: ["cbl", "cob", "CBL", "COB"] },
 		versionFromCommands([{ command: "cobc", args: ["--version"] }]),
@@ -222,7 +222,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "conda",
 			symbol: "",
-			color: "#44A833",
+			style: "bold green",
 		},
 		{
 			env: (env) => Boolean(env.CONDA_DEFAULT_ENV?.trim()) && !env.PIXI_ENVIRONMENT_NAME,
@@ -232,7 +232,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "crystal",
 			symbol: "",
-			color: "#000000",
+			style: "bold red",
 		},
 		{ extensions: ["cr"], files: ["shard.yml"] },
 		versionFromCommands([{ command: "crystal", args: ["--version"] }]),
@@ -241,7 +241,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "dart",
 			symbol: "",
-			color: "#0175C2",
+			style: "bold blue",
 		},
 		{
 			extensions: ["dart"],
@@ -254,7 +254,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "dotnet",
 			symbol: "",
-			color: "#512BD4",
+			style: "bold blue",
 		},
 		{
 			extensions: ["csproj", "fsproj", "xproj"],
@@ -272,7 +272,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "elixir",
 			symbol: "",
-			color: "#4B275F",
+			style: "bold purple",
 		},
 		{ files: ["mix.exs"] },
 		versionFromCommands([
@@ -283,7 +283,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "elm",
 			symbol: "",
-			color: "#1293D8",
+			style: "cyan bold",
 		},
 		{
 			extensions: ["elm"],
@@ -296,7 +296,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "erlang",
 			symbol: "",
-			color: "#A90533",
+			style: "bold red",
 		},
 		{ files: ["rebar.config", "erlang.mk"] },
 		versionFromCommands([{ command: "erl", args: ["-version"] }]),
@@ -305,7 +305,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "fennel",
 			symbol: "",
-			color: "#2CA02C",
+			style: "bold green",
 		},
 		{ extensions: ["fnl"] },
 		versionFromCommands([{ command: "fennel", args: ["--version"] }]),
@@ -314,7 +314,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "fortran",
 			symbol: "",
-			color: "#734F96",
+			style: "bold purple",
 		},
 		{
 			extensions: [
@@ -349,7 +349,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "gleam",
 			symbol: "",
-			color: "#FFAFF3",
+			style: "bold #FFAFF3",
 		},
 		{ extensions: ["gleam"], files: ["gleam.toml"] },
 		versionFromCommands([{ command: "gleam", args: ["--version"] }]),
@@ -358,7 +358,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "golang",
 			symbol: "",
-			color: "#72C9D8",
+			style: "bold cyan",
 		},
 		{ files: ["go.mod"] },
 		async () => extractVersion(await runVersion("go", ["version"]), /go version go([0-9][^\s]*)/i),
@@ -367,7 +367,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "gradle",
 			symbol: "",
-			color: "#02303A",
+			style: "bold bright-cyan",
 		},
 		{ files: ["build.gradle", "build.gradle.kts"], folders: ["gradle"] },
 		versionFromCommands([
@@ -378,7 +378,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "guix_shell",
 			symbol: "",
-			color: "#FFBF2D",
+			style: "yellow bold",
 		},
 		{ env: (env) => Boolean(env.GUIX_ENVIRONMENT?.trim()) },
 	),
@@ -386,7 +386,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "haskell",
 			symbol: "",
-			color: "#5D4F85",
+			style: "bold purple",
 		},
 		{ extensions: ["hs", "cabal", "hs-boot"], files: ["stack.yaml", "cabal.project"] },
 		versionFromCommands([{ command: "ghc", args: ["--numeric-version"] }]),
@@ -395,7 +395,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "haxe",
 			symbol: "",
-			color: "#EA8220",
+			style: "bold fg:202",
 		},
 		{
 			extensions: ["hx", "hxml"],
@@ -408,7 +408,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "helm",
 			symbol: "",
-			color: "#0F1689",
+			style: "bold white",
 		},
 		{ files: ["helmfile.yaml", "Chart.yaml"] },
 		versionFromCommands([{ command: "helm", args: ["version", "--short"] }]),
@@ -417,7 +417,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "java",
 			symbol: "",
-			color: "#007396",
+			style: "red dimmed",
 		},
 		{ files: [".java-version"] },
 		async () => {
@@ -432,7 +432,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "julia",
 			symbol: "",
-			color: "#9558B2",
+			style: "bold purple",
 		},
 		{ extensions: ["jl"], files: ["Project.toml", "Manifest.toml"] },
 		versionFromCommands([{ command: "julia", args: ["--version"] }]),
@@ -441,7 +441,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "kotlin",
 			symbol: "",
-			color: "#7F52FF",
+			style: "bold blue",
 		},
 		{ extensions: ["kt", "kts"] },
 		versionFromCommands([{ command: "kotlin", args: ["-version"] }]),
@@ -450,7 +450,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "lua",
 			symbol: "",
-			color: "#000080",
+			style: "bold blue",
 		},
 		{
 			extensions: ["lua"],
@@ -478,7 +478,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "maven",
 			symbol: "",
-			color: "#C71A36",
+			style: "bold bright-cyan",
 		},
 		{ files: ["pom.xml"] },
 		versionFromCommands([
@@ -489,7 +489,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "meson",
 			symbol: "󰔷",
-			color: "#39207C",
+			style: "blue bold",
 		},
 		{
 			env: (env) => env.MESON_DEVENV === "1" && Boolean(env.MESON_PROJECT_NAME?.trim()),
@@ -499,7 +499,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "mojo",
 			symbol: "󰈸",
-			color: "#FF552A",
+			style: "bold 208",
 		},
 		{ extensions: ["mojo", "🔥"] },
 		versionFromCommands([{ command: "mojo", args: ["--version"] }]),
@@ -508,7 +508,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "nim",
 			symbol: "",
-			color: "#FFE953",
+			style: "bold yellow",
 		},
 		{ extensions: ["nim", "nims", "nimble"], files: ["nim.cfg"] },
 		versionFromCommands([{ command: "nim", args: ["--version"] }]),
@@ -517,7 +517,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "nix_shell",
 			symbol: "",
-			color: "#5277C3",
+			style: "bold blue",
 		},
 		{ env: (env) => env.IN_NIX_SHELL === "pure" || env.IN_NIX_SHELL === "impure" },
 	),
@@ -525,7 +525,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "nodejs",
 			symbol: "",
-			color: "#5FA04E",
+			style: "bold green",
 		},
 		{
 			files: ["package.json", ".node-version", ".nvmrc"],
@@ -537,7 +537,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "python",
 			symbol: "",
-			color: "#3776AB",
+			style: "yellow bold",
 		},
 		{
 			files: [
@@ -562,7 +562,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "rust",
 			symbol: "󱘗",
-			color: "#000000",
+			style: "bold red",
 		},
 		{ files: ["Cargo.toml"] },
 		async () => extractVersion(await runVersion("rustc", ["--version"]), /rustc\s+([0-9][^\s]*)/i),
@@ -571,7 +571,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "ruby",
 			symbol: "",
-			color: "#CC342D",
+			style: "bold red",
 		},
 		{ files: ["Gemfile", ".ruby-version"] },
 		async () => extractVersion(await runVersion("ruby", ["--version"]), /ruby\s+([0-9][^\s]*)/i),
@@ -580,7 +580,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "php",
 			symbol: "",
-			color: "#777BB4",
+			style: "147 bold",
 		},
 		{ files: ["composer.json"] },
 		async () => extractVersion(await runVersion("php", ["--version"]), /PHP\s+([0-9][^\s]*)/i),
@@ -589,7 +589,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "ocaml",
 			symbol: "",
-			color: "#EC6813",
+			style: "bold yellow",
 		},
 		{
 			extensions: ["opam", "ml", "mli", "re", "rei"],
@@ -602,7 +602,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "odin",
 			symbol: "󰟢",
-			color: "#3882D2",
+			style: "bold bright-blue",
 		},
 		{ extensions: ["odin"] },
 		versionFromCommands([{ command: "odin", args: ["version"] }]),
@@ -611,7 +611,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "opa",
 			symbol: "",
-			color: "#506060",
+			style: "bold blue",
 		},
 		{ extensions: ["rego"] },
 		versionFromCommands([{ command: "opa", args: ["version"] }]),
@@ -620,7 +620,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "perl",
 			symbol: "",
-			color: "#0073A1",
+			style: "bold 149",
 		},
 		{
 			extensions: ["pl", "pm", "pod"],
@@ -640,7 +640,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "pixi",
 			symbol: "󰏗",
-			color: "#FCD006",
+			style: "yellow bold",
 		},
 		{
 			files: ["pixi.toml", "pixi.lock"],
@@ -652,7 +652,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "pulumi",
 			symbol: "",
-			color: "#8A3391",
+			style: "bold 5",
 		},
 		{ files: ["Pulumi.yaml", "Pulumi.yml"] },
 		versionFromCommands([{ command: "pulumi", args: ["version"] }]),
@@ -661,7 +661,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "purescript",
 			symbol: "",
-			color: "#14161A",
+			style: "bold white",
 		},
 		{ extensions: ["purs"], files: ["spago.dhall", "spago.yaml", "spago.lock"] },
 		versionFromCommands([{ command: "purs", args: ["--version"] }]),
@@ -670,7 +670,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "raku",
 			symbol: "󱖊",
-			color: "#0000FF",
+			style: "bold 149",
 		},
 		{ extensions: ["p6", "pm6", "pod6", "raku", "rakumod"], files: ["META6.json"] },
 		versionFromCommands([{ command: "raku", args: ["--version"] }]),
@@ -679,7 +679,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "red",
 			symbol: "󱍼",
-			color: "#B32629",
+			style: "red bold",
 		},
 		{ extensions: ["red", "reds"] },
 		versionFromCommands([{ command: "red", args: ["--version"] }]),
@@ -688,7 +688,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "rlang",
 			symbol: "󰟔",
-			color: "#276DC3",
+			style: "blue bold",
 		},
 		{
 			extensions: ["R", "Rd", "Rmd", "Rproj", "Rsx"],
@@ -701,7 +701,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "scala",
 			symbol: "",
-			color: "#DC322F",
+			style: "red dimmed",
 		},
 		{
 			extensions: ["sbt", "scala"],
@@ -714,7 +714,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "solidity",
 			symbol: "",
-			color: "#363636",
+			style: "bold blue",
 		},
 		{ extensions: ["sol"] },
 		versionFromCommands([{ command: "solc", args: ["--version"] }]),
@@ -723,7 +723,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "spack",
 			symbol: "",
-			color: "#0F3A80",
+			style: "bold blue",
 		},
 		{ env: (env) => Boolean(env.SPACK_ENV?.trim()) },
 	),
@@ -731,7 +731,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "swift",
 			symbol: "",
-			color: "#F05138",
+			style: "bold 202",
 		},
 		{ extensions: ["swift"], files: ["Package.swift"] },
 		versionFromCommands([
@@ -742,7 +742,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "terraform",
 			symbol: "",
-			color: "#844FBA",
+			style: "bold 105",
 		},
 		{ extensions: ["tf", "tfplan", "tfstate"], folders: [".terraform"] },
 		versionFromCommands([
@@ -754,7 +754,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "typst",
 			symbol: "",
-			color: "#239DAD",
+			style: "bold #0093A7",
 		},
 		{ extensions: ["typ"], files: ["template.typ"] },
 		versionFromCommands([{ command: "typst", args: ["--version"] }]),
@@ -763,7 +763,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "vagrant",
 			symbol: "",
-			color: "#1868F2",
+			style: "cyan bold",
 		},
 		{ files: ["Vagrantfile"] },
 		versionFromCommands([{ command: "vagrant", args: ["--version"] }]),
@@ -772,7 +772,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "vlang",
 			symbol: "",
-			color: "#5D87BF",
+			style: "blue bold",
 		},
 		{ extensions: ["v"], files: ["v.mod", "vpkg.json", ".vpkg-lock.json"] },
 		versionFromCommands([{ command: "v", args: ["version"] }]),
@@ -781,7 +781,7 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "xmake",
 			symbol: "",
-			color: "#8BC34A",
+			style: "bold green",
 		},
 		{ files: ["xmake.lua"] },
 		versionFromCommands([{ command: "xmake", args: ["--version"] }]),
@@ -790,17 +790,17 @@ const runtimes: RuntimeCandidate[] = [
 		{
 			name: "zig",
 			symbol: "",
-			color: "#F7A41D",
+			style: "bold yellow",
 		},
 		{ extensions: ["zig"], files: ["build.zig"] },
 		versionFromCommands([{ command: "zig", args: ["version"] }]),
 	),
 ];
 
-export const runtimeMetadata: RuntimeMetadata[] = runtimes.map(({ name, symbol, color }) => ({
+export const runtimeMetadata: RuntimeMetadata[] = runtimes.map(({ name, symbol, style }) => ({
 	name,
 	symbol,
-	color,
+	style,
 }));
 
 const priorityRuntimeOrder = ["xmake", "maven", "gradle"] as const;
@@ -854,7 +854,7 @@ export async function readRuntimeInfo(cwd: string): Promise<RuntimeInfo | undefi
 	return {
 		name: runtime.name,
 		symbol: runtime.symbol,
-		color: runtime.color,
+		style: runtime.style,
 		version: await runtime.version(cwd),
 	};
 }

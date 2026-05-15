@@ -23,37 +23,41 @@ function makeProject(entries: Array<{ path: string; dir?: boolean }>): {
 }
 
 describe("runtimeMetadata", () => {
-	it("covers Starship Nerd Font runtime and language modules with icons and official colors", () => {
+	it("covers Starship Nerd Font runtime and language modules with icons and Starship styles", () => {
 		const byName = new Map(runtimeMetadata.map((runtime) => [runtime.name, runtime]));
 
 		expect([...byName.keys()].sort()).toEqual(starshipRuntimeModules());
 		expect(byName.get("bun")).toMatchObject({
 			symbol: "",
-			color: "#FBF0DF",
+			style: "bold red",
 		});
 		expect(byName.get("deno")).toMatchObject({
 			symbol: "",
-			color: "#000000",
+			style: "green bold",
 		});
 		expect(byName.get("golang")).toMatchObject({
 			symbol: "",
-			color: "#72C9D8",
+			style: "bold cyan",
 		});
 		expect(byName.get("java")).toMatchObject({
 			symbol: "",
-			color: "#007396",
+			style: "red dimmed",
+		});
+		expect(byName.get("nodejs")).toMatchObject({
+			symbol: "",
+			style: "bold green",
 		});
 		expect(byName.get("opa")).toMatchObject({
 			symbol: "",
-			color: "#506060",
+			style: "bold blue",
 		});
 		expect(byName.get("zig")).toMatchObject({
 			symbol: "",
-			color: "#F7A41D",
+			style: "bold yellow",
 		});
 		for (const runtime of runtimeMetadata) {
-			expect(Object.keys(runtime).sort()).toEqual(["color", "name", "symbol"]);
-			expect(runtime.color).toMatch(/^#[0-9A-F]{6}$/);
+			expect(Object.keys(runtime).sort()).toEqual(["name", "style", "symbol"]);
+			expect(runtime.style).not.toMatch(/^#[0-9A-F]{6}$/);
 		}
 	});
 });
@@ -71,7 +75,7 @@ describe("detectRuntime", () => {
 		const runtime = detectRuntime(project.cwd, project.names);
 		if (!runtime) throw new Error("expected runtime");
 		expect(runtime.name).toBe("deno");
-		expect(runtime.color).toBe("#000000");
+		expect(runtime.style).toBe("green bold");
 	});
 
 	it("keeps existing node priority when node and go markers both exist", () => {
@@ -111,36 +115,36 @@ describe("detectRuntime", () => {
 	});
 
 	it.each([
-		["buf", "buf.yaml", "#0E5DF5"],
-		["c", "hello.c", "#A8B9CC"],
-		["cpp", "hello.cpp", "#00599C"],
-		["elixir", "mix.exs", "#4B275F"],
-		["gleam", "gleam.toml", "#FFAFF3"],
-		["julia", "Project.toml", "#9558B2"],
-		["opa", "policy.rego", "#506060"],
-		["pixi", "pixi.toml", "#FCD006"],
-		["swift", "Package.swift", "#F05138"],
-		["xmake", "xmake.lua", "#8BC34A"],
-		["zig", "build.zig", "#F7A41D"],
-	])("detects %s projects from Starship markers", (name, marker, color) => {
+		["buf", "buf.yaml", "bold blue"],
+		["c", "hello.c", "bold 149"],
+		["cpp", "hello.cpp", "bold 149"],
+		["elixir", "mix.exs", "bold purple"],
+		["gleam", "gleam.toml", "bold #FFAFF3"],
+		["julia", "Project.toml", "bold purple"],
+		["opa", "policy.rego", "bold blue"],
+		["pixi", "pixi.toml", "yellow bold"],
+		["swift", "Package.swift", "bold 202"],
+		["xmake", "xmake.lua", "bold green"],
+		["zig", "build.zig", "bold yellow"],
+	])("detects %s projects from Starship markers", (name, marker, style) => {
 		const project = makeProject([{ path: marker }]);
 		const runtime = detectRuntime(project.cwd, project.names);
 		if (!runtime) throw new Error("expected runtime");
 		expect(runtime.name).toBe(name);
-		expect(runtime.color).toBe(color);
+		expect(runtime.style).toBe(style);
 	});
 
 	it.each([
-		["conda", { CONDA_DEFAULT_ENV: "py312" }, "#44A833"],
-		["guix_shell", { GUIX_ENVIRONMENT: "/gnu/store/profile" }, "#FFBF2D"],
-		["meson", { MESON_DEVENV: "1", MESON_PROJECT_NAME: "zentui" }, "#39207C"],
-		["nix_shell", { IN_NIX_SHELL: "pure" }, "#5277C3"],
-		["spack", { SPACK_ENV: "dev" }, "#0F3A80"],
-	])("detects %s from Starship environment markers", (name, env, color) => {
+		["conda", { CONDA_DEFAULT_ENV: "py312" }, "bold green"],
+		["guix_shell", { GUIX_ENVIRONMENT: "/gnu/store/profile" }, "yellow bold"],
+		["meson", { MESON_DEVENV: "1", MESON_PROJECT_NAME: "zentui" }, "blue bold"],
+		["nix_shell", { IN_NIX_SHELL: "pure" }, "bold blue"],
+		["spack", { SPACK_ENV: "dev" }, "bold blue"],
+	])("detects %s from Starship environment markers", (name, env, style) => {
 		const project = makeProject([]);
 		const runtime = detectRuntime(project.cwd, project.names, env);
 		if (!runtime) throw new Error("expected runtime");
 		expect(runtime.name).toBe(name);
-		expect(runtime.color).toBe(color);
+		expect(runtime.style).toBe(style);
 	});
 });
