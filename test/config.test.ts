@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { colorize, mergeConfig, renderTerminalStyle } from "../extensions/zentui/config";
+import { mergeConfig } from "../extensions/zentui/config";
+import { colorize, renderTerminalStyle } from "../extensions/zentui/style";
 
 describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds", () => {
@@ -52,7 +53,7 @@ describe("colorize", () => {
 		expect(colorize(theme, "#89b4fa", "hello")).toBe("\u001b[38;2;137;180;250mhello\u001b[39m");
 	});
 
-	it("falls back to text token for unknown colors", () => {
-		expect(colorize(theme, "wat", "hello")).toBe("<text>hello</text>");
+	it("passes unknown colors through theme.fg directly", () => {
+		expect(colorize(theme, "wat", "hello")).toBe("<wat>hello</wat>");
 	});
 });
