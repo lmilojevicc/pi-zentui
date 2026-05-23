@@ -13,6 +13,21 @@ export type { ThemeLike };
 export const EDITOR_ACCENT_STYLE = "blue";
 export const EDITOR_BORDER_STYLE = "bright-black";
 
+export type SourceStyleFallback = {
+	theme: ColorSpec;
+	terminal: ColorSpec;
+};
+
+export const EDITOR_ACCENT_FALLBACK: SourceStyleFallback = {
+	theme: "accent",
+	terminal: EDITOR_ACCENT_STYLE,
+};
+
+export const EDITOR_BORDER_FALLBACK: SourceStyleFallback = {
+	theme: "borderMuted",
+	terminal: EDITOR_BORDER_STYLE,
+};
+
 function isHexColor(value: string): boolean {
 	return /^#(?:[0-9a-fA-F]{6})$/.test(value);
 }
@@ -267,6 +282,17 @@ export function renderStyleForSource(
 		: renderThemeStyle(theme, style, text);
 }
 
+export function renderStyleForSourceOrFallback(
+	theme: ThemeLike,
+	source: ColorSource,
+	style: ColorSpec | undefined,
+	fallback: ColorSpec | SourceStyleFallback,
+	text: string,
+): string {
+	const fallbackStyle = typeof fallback === "string" ? fallback : fallback[source];
+	return renderStyleForSource(theme, source, style ?? fallbackStyle, text);
+}
+
 export function renderEditorAccent(text: string): string {
 	return renderTerminalStyle(EDITOR_ACCENT_STYLE, text);
 }
@@ -276,7 +302,7 @@ export function renderEditorBorder(text: string): string {
 }
 
 export function renderAccentLine(theme: ThemeLike, source: ColorSource, text: string): string {
-	return source === "terminal" ? renderEditorAccent(text) : safeThemeFg(theme, "accent", text);
+	return renderStyleForSourceOrFallback(theme, source, undefined, EDITOR_ACCENT_FALLBACK, text);
 }
 
 export function renderChromeBorder(
@@ -285,6 +311,11 @@ export function renderChromeBorder(
 	terminalFallbackStyle: ColorSpec,
 	text: string,
 ): string {
-	if (source === "terminal") return renderTerminalStyle(terminalFallbackStyle, text);
-	return safeThemeFg(theme, "borderMuted", text);
+	return renderStyleForSourceOrFallback(
+		theme,
+		source,
+		undefined,
+		{ theme: "borderMuted", terminal: terminalFallbackStyle },
+		text,
+	);
 }

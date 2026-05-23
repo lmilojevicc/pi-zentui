@@ -144,6 +144,23 @@ function configWithColorSources(
 	};
 }
 
+function configWithColors(
+	colors: Partial<PolishedTuiConfig["colors"]>,
+	colorSources: Partial<PolishedTuiConfig["colorSources"]> = {},
+): PolishedTuiConfig {
+	return {
+		...defaultConfig,
+		colors: {
+			...defaultConfig.colors,
+			...colors,
+		},
+		colorSources: {
+			...defaultConfig.colorSources,
+			...colorSources,
+		},
+	};
+}
+
 function stripPromptMarks(line: string): string {
 	return line.replaceAll(/\x1b]133;[ABC]\x07/g, "").replaceAll(/\x1b\[[0-9;]*m/g, "");
 }
@@ -522,7 +539,7 @@ describe("Pi docs compliance", () => {
 			{} as never,
 			makeTheme(),
 			() => defaultConfig,
-			() => "claude-sonnet  Anthropic",
+			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "off",
 		);
 
@@ -539,7 +556,7 @@ describe("Pi docs compliance", () => {
 			{} as never,
 			makeTaggedTheme(),
 			() => defaultConfig,
-			() => "[accent]claude-sonnet[text] Anthropic",
+			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "high",
 		);
 
@@ -548,6 +565,8 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[borderMuted]────");
 		expect(rendered).toContain("[muted]high");
 		expect(rendered).toContain("[accent]│");
+		expect(rendered).toContain("[accent]claude-sonnet");
+		expect(rendered).toContain("[text]Anthropic");
 	});
 
 	it("keeps terminal editor chrome available when configured", () => {
@@ -557,7 +576,7 @@ describe("Pi docs compliance", () => {
 			{} as never,
 			makeTaggedTheme(),
 			() => configWithColorSources({ editor: "terminal" }),
-			() => "\u001b[34mclaude-sonnet\u001b[0m[text] Anthropic",
+			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "high",
 		);
 
@@ -565,6 +584,68 @@ describe("Pi docs compliance", () => {
 
 		expect(rendered).toContain("\u001b[90m────");
 		expect(rendered).toContain("\u001b[34m│\u001b[0m");
+		expect(rendered).toContain("\u001b[34mclaude-sonnet\u001b[0m");
+		expect(rendered).toContain("[text]Anthropic");
+	});
+
+	it("renders custom editor accent, border, model, provider, and thinking colors", () => {
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() =>
+				configWithColors({
+					editorAccent: "warning",
+					editorBorder: "error",
+					editorModel: "success",
+					editorProvider: "syntaxKeyword",
+					editorThinking: "thinkingText",
+					editorThinkingHigh: "thinkingHigh",
+				}),
+			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
+			() => "high",
+		);
+
+		const rendered = editor.render(120).join("\n");
+
+		expect(rendered).toContain("[warning]│");
+		expect(rendered).toContain("[error]────");
+		expect(rendered).toContain("[success]claude-sonnet");
+		expect(rendered).toContain("[syntaxKeyword]Anthropic");
+		expect(rendered).toContain("[thinkingHigh]high");
+	});
+
+	it("uses the shared editorThinking color when a level-specific color is absent", () => {
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => configWithColors({ editorThinking: "thinkingText" }),
+			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
+			() => "low",
+		);
+
+		const rendered = editor.render(120).join("\n");
+
+		expect(rendered).toContain("[thinkingText]low");
+	});
+
+	it("applies custom editor accent and border colors to previous user messages", () => {
+		installUserMessageStyle(
+			() => makeTaggedTheme(),
+			() =>
+				configWithColors({
+					editorAccent: "warning",
+					editorBorder: "error",
+				}),
+		);
+
+		const rendered = new UserMessageComponent("hello").render(80).join("\n");
+
+		expect(rendered).toContain("[warning]│");
+		expect(rendered).toContain("[error]────");
 	});
 
 	it("registers the Zentui settings command", () => {

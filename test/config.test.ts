@@ -16,8 +16,10 @@ describe("mergeConfig", () => {
 		const config = mergeConfig({});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
 		expect(config.colors.gitBranch).toBe("bold purple");
-		expect(config.colors.contextNormal).toBe("dimmed");
-		expect(config.colors.tokens).toBe("dimmed");
+		expect(config.colors.contextNormal).toBe("bright-black");
+		expect(config.colors.tokens).toBe("bright-black");
+		expect(config.colors.editorAccent).toBeUndefined();
+		expect(config.colors.editorBorder).toBeUndefined();
 		expect(config.colorSources).toEqual({
 			starship: "theme",
 			editor: "theme",
@@ -49,6 +51,34 @@ describe("mergeConfig", () => {
 		);
 	});
 
+	it("accepts optional editor and user-message chrome color overrides", () => {
+		const config = mergeConfig({
+			colors: {
+				editorAccent: "bold purple",
+				editorBorder: "#89b4fa",
+				editorModel: "accent",
+				editorProvider: "text",
+				editorThinking: "muted",
+				editorThinkingMinimal: "thinkingMinimal",
+				editorThinkingLow: "thinkingLow",
+				editorThinkingMedium: "thinkingMedium",
+				editorThinkingHigh: "thinkingHigh",
+				editorThinkingXhigh: "thinkingXhigh",
+			},
+		});
+
+		expect(config.colors.editorAccent).toBe("bold purple");
+		expect(config.colors.editorBorder).toBe("#89b4fa");
+		expect(config.colors.editorModel).toBe("accent");
+		expect(config.colors.editorProvider).toBe("text");
+		expect(config.colors.editorThinking).toBe("muted");
+		expect(config.colors.editorThinkingMinimal).toBe("thinkingMinimal");
+		expect(config.colors.editorThinkingLow).toBe("thinkingLow");
+		expect(config.colors.editorThinkingMedium).toBe("thinkingMedium");
+		expect(config.colors.editorThinkingHigh).toBe("thinkingHigh");
+		expect(config.colors.editorThinkingXhigh).toBe("thinkingXhigh");
+	});
+
 	it("ignores invalid known values at runtime instead of trusting zentui.json", () => {
 		const config = mergeConfig({
 			projectRefreshIntervalMs: "fast",
@@ -60,6 +90,9 @@ describe("mergeConfig", () => {
 				cwd: 123,
 				gitStatus: "not-a-color",
 				separator: "dimmed",
+				editorAccent: "neon",
+				editorBorder: "also-neon",
+				editorThinkingHigh: "thinkingHigh",
 			},
 			colorSources: {
 				starship: "neon",
@@ -73,6 +106,9 @@ describe("mergeConfig", () => {
 		expect(config.colors.cwd).toBe(defaultConfig.colors.cwd);
 		expect(config.colors.gitStatus).toBe(defaultConfig.colors.gitStatus);
 		expect(config.colors.separator).toBe("dimmed");
+		expect(config.colors.editorAccent).toBeUndefined();
+		expect(config.colors.editorBorder).toBeUndefined();
+		expect(config.colors.editorThinkingHigh).toBe("thinkingHigh");
 		expect(config.colorSources).toEqual({
 			starship: "theme",
 			editor: "terminal",

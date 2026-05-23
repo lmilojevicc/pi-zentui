@@ -25,9 +25,9 @@ Zentui brings two popular aesthetics to Pi:
 
 ### Editor (Opencode-inspired)
 
-- Bordered input box with theme accent rail and thinking-level border color
+- Bordered input box with configurable accent rail and border colors
 - Model name and provider displayed inside the editor frame
-- Thinking level indicator when enabled
+- Configurable model, provider, and thinking-level indicator colors
 - Prompt-box-style user messages matching the ZentUI input chrome
 
 ### Git Status Icons
@@ -49,65 +49,65 @@ Zentui brings two popular aesthetics to Pi:
 
 Detects Starship Nerd Font runtime/language modules, uses the Starship Nerd Font symbols, and keeps Starship-style defaults such as `bold green` for Node.js. By default Zentui maps those styles through your active Pi theme; switch the Starship/footer color source to `terminal` in `/zentui` if you want your terminal colorscheme to supply the exact ANSI colors.
 
-| Runtime/language | Detection examples                                           |
-| ---------------- | ------------------------------------------------------------ |
-| Buf              | `buf.yaml`, `buf.gen.yaml`, `buf.work.yaml`                  |
-| Bun              | `bun.lock`, `bun.lockb`                                      |
-| C                | `.c`, `.h` files                                             |
-| C++              | `.cpp`, `.cc`, `.cxx`, `.hpp` files                          |
-| CMake            | `CMakeLists.txt`, `CMakeCache.txt`                           |
-| COBOL            | `.cbl`, `.cob` files                                         |
-| Conda            | `CONDA_DEFAULT_ENV` environment                              |
-| Crystal          | `.cr` files, `shard.yml`                                     |
-| Dart             | `.dart` files, `pubspec.yaml`, `.dart_tool/`                 |
-| Deno             | `deno.json`, `deno.jsonc`, `deno.lock`                       |
-| .NET             | `.csproj`, `.fsproj`, `global.json`, `Directory.Build.*`     |
-| Elixir           | `mix.exs`                                                    |
-| Elm              | `.elm` files, `elm.json`, `elm-stuff/`                       |
-| Erlang           | `rebar.config`, `erlang.mk`                                  |
-| Fennel           | `.fnl` files                                                 |
-| Fortran          | `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.f18`, `fpm.toml`     |
-| Gleam            | `.gleam` files, `gleam.toml`                                 |
-| Go               | `go.mod`                                                     |
-| Gradle           | `build.gradle`, `build.gradle.kts`, `gradle/`                |
-| Guix shell       | `GUIX_ENVIRONMENT` environment                               |
-| Haskell          | `.hs`, `.cabal`, `stack.yaml`, `cabal.project`               |
-| Haxe             | `.hx`, `.hxml`, `haxelib.json`, `.haxerc`                    |
-| Helm             | `helmfile.yaml`, `Chart.yaml`                                |
-| Java             | `.java-version`                                              |
-| Julia            | `.jl` files, `Project.toml`, `Manifest.toml`                 |
-| Kotlin           | `.kt`, `.kts` files                                          |
-| Lua              | `.lua` files, `stylua.toml`, `.luarc.json`, `lua/` dir       |
-| Maven            | `pom.xml`                                                    |
-| Meson            | `MESON_DEVENV=1` and `MESON_PROJECT_NAME` environment        |
-| Mojo             | `.mojo` files                                                |
-| Nim              | `.nim`, `.nims`, `.nimble`, `nim.cfg`                        |
-| Nix shell        | `IN_NIX_SHELL=pure` or `IN_NIX_SHELL=impure` environment     |
-| Node.js          | `package.json`, `.nvmrc`, `.node-version`                    |
-| OCaml            | `.opam`, `.ml`, `.mli`, `dune`, `_opam/`, `esy.lock/`        |
-| Odin             | `.odin` files                                                |
-| OPA/Rego         | `.rego` files                                                |
-| Perl             | `.pl`, `.pm`, `Makefile.PL`, `cpanfile`, `META.*`            |
-| PHP              | `composer.json`                                              |
+| Runtime/language | Detection examples                                            |
+| ---------------- | ------------------------------------------------------------- |
+| Buf              | `buf.yaml`, `buf.gen.yaml`, `buf.work.yaml`                   |
+| Bun              | `bun.lock`, `bun.lockb`                                       |
+| C                | `.c`, `.h` files                                              |
+| C++              | `.cpp`, `.cc`, `.cxx`, `.hpp` files                           |
+| CMake            | `CMakeLists.txt`, `CMakeCache.txt`                            |
+| COBOL            | `.cbl`, `.cob` files                                          |
+| Conda            | `CONDA_DEFAULT_ENV` environment                               |
+| Crystal          | `.cr` files, `shard.yml`                                      |
+| Dart             | `.dart` files, `pubspec.yaml`, `.dart_tool/`                  |
+| Deno             | `deno.json`, `deno.jsonc`, `deno.lock`                        |
+| .NET             | `.csproj`, `.fsproj`, `global.json`, `Directory.Build.*`      |
+| Elixir           | `mix.exs`                                                     |
+| Elm              | `.elm` files, `elm.json`, `elm-stuff/`                        |
+| Erlang           | `rebar.config`, `erlang.mk`                                   |
+| Fennel           | `.fnl` files                                                  |
+| Fortran          | `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.f18`, `fpm.toml`      |
+| Gleam            | `.gleam` files, `gleam.toml`                                  |
+| Go               | `go.mod`                                                      |
+| Gradle           | `build.gradle`, `build.gradle.kts`, `gradle/`                 |
+| Guix shell       | `GUIX_ENVIRONMENT` environment                                |
+| Haskell          | `.hs`, `.cabal`, `stack.yaml`, `cabal.project`                |
+| Haxe             | `.hx`, `.hxml`, `haxelib.json`, `.haxerc`                     |
+| Helm             | `helmfile.yaml`, `Chart.yaml`                                 |
+| Java             | `.java-version`                                               |
+| Julia            | `.jl` files, `Project.toml`, `Manifest.toml`                  |
+| Kotlin           | `.kt`, `.kts` files                                           |
+| Lua              | `.lua` files, `stylua.toml`, `.luarc.json`, `lua/` dir        |
+| Maven            | `pom.xml`                                                     |
+| Meson            | `MESON_DEVENV=1` and `MESON_PROJECT_NAME` environment         |
+| Mojo             | `.mojo` files                                                 |
+| Nim              | `.nim`, `.nims`, `.nimble`, `nim.cfg`                         |
+| Nix shell        | `IN_NIX_SHELL=pure` or `IN_NIX_SHELL=impure` environment      |
+| Node.js          | `package.json`, `.nvmrc`, `.node-version`                     |
+| OCaml            | `.opam`, `.ml`, `.mli`, `dune`, `_opam/`, `esy.lock/`         |
+| Odin             | `.odin` files                                                 |
+| OPA/Rego         | `.rego` files                                                 |
+| Perl             | `.pl`, `.pm`, `Makefile.PL`, `cpanfile`, `META.*`             |
+| PHP              | `composer.json`                                               |
 | Pixi             | `pixi.toml`, `pixi.lock`, `PIXI_ENVIRONMENT_NAME` environment |
-| Pulumi           | `Pulumi.yaml`, `Pulumi.yml`                                  |
-| PureScript       | `.purs` files, `spago.dhall`, `spago.yaml`, `spago.lock`     |
-| Python           | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile`  |
-| R                | `.R`, `.Rmd`, `.Rproj`, `DESCRIPTION`, `.Rproj.user/`        |
-| Raku             | `.raku`, `.rakumod`, `.p6`, `.pm6`, `META6.json`             |
-| Red              | `.red`, `.reds` files                                        |
-| Ruby             | `Gemfile`, `.ruby-version`                                   |
+| Pulumi           | `Pulumi.yaml`, `Pulumi.yml`                                   |
+| PureScript       | `.purs` files, `spago.dhall`, `spago.yaml`, `spago.lock`      |
+| Python           | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile`   |
+| R                | `.R`, `.Rmd`, `.Rproj`, `DESCRIPTION`, `.Rproj.user/`         |
+| Raku             | `.raku`, `.rakumod`, `.p6`, `.pm6`, `META6.json`              |
+| Red              | `.red`, `.reds` files                                         |
+| Ruby             | `Gemfile`, `.ruby-version`                                    |
 | Rust             | `Cargo.toml`                                                  |
-| Scala            | `.scala`, `.sbt`, `build.sbt`, `.metals/`                    |
-| Solidity         | `.sol` files                                                 |
-| Spack            | `SPACK_ENV` environment                                      |
-| Swift            | `.swift` files, `Package.swift`                              |
-| Terraform        | `.tf`, `.tfplan`, `.tfstate`, `.terraform/`                  |
-| Typst            | `.typ` files, `template.typ`                                 |
-| Vagrant          | `Vagrantfile`                                                |
-| V                | `.v` files, `v.mod`, `vpkg.json`                             |
-| Xmake            | `xmake.lua`                                                  |
-| Zig              | `.zig` files, `build.zig`                                    |
+| Scala            | `.scala`, `.sbt`, `build.sbt`, `.metals/`                     |
+| Solidity         | `.sol` files                                                  |
+| Spack            | `SPACK_ENV` environment                                       |
+| Swift            | `.swift` files, `Package.swift`                               |
+| Terraform        | `.tf`, `.tfplan`, `.tfstate`, `.terraform/`                   |
+| Typst            | `.typ` files, `template.typ`                                  |
+| Vagrant          | `Vagrantfile`                                                 |
+| V                | `.v` files, `v.mod`, `vpkg.json`                              |
+| Xmake            | `xmake.lua`                                                   |
+| Zig              | `.zig` files, `build.zig`                                     |
 
 ## Install
 
@@ -121,73 +121,66 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Config
 
-Zentui uses built-in defaults when no config file exists. User settings live at:
+User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` currently patches only color-source settings.
 
-```
-~/.pi/agent/zentui.json
-```
-
-Zentui treats this file as user-owned and compatibility-sensitive: invalid known values fall back to runtime defaults, unknown keys are ignored at runtime, and `/zentui` patches only the settings it changes instead of rewriting the whole file.
-
-### Runtime defaults
+Default config values — copy this and change any value you want:
 
 ```json
 {
-  "projectRefreshIntervalMs": 30000,
-  "icons": {
-    "cwd": "󰝰",
-    "git": "",
-    "ahead": "↑",
-    "behind": "↓",
-    "diverged": "⇕",
-    "conflicted": "=",
-    "untracked": "?",
-    "stashed": "$",
-    "modified": "!",
-    "staged": "+",
-    "renamed": "»",
-    "deleted": "✘",
-    "typechanged": "T"
-  },
-  "colors": {
-    "cwd": "bold cyan",
-    "gitBranch": "bold purple",
-    "gitStatus": "bold red",
-    "contextNormal": "dimmed",
-    "contextWarning": "bold yellow",
-    "contextError": "bold red",
-    "tokens": "dimmed",
-    "cost": "bold green",
-    "separator": "dimmed",
-    "runtimePrefix": ""
-  },
-  "colorSources": {
-    "starship": "theme",
-    "editor": "theme",
-    "userMessages": "theme"
-  }
+	"projectRefreshIntervalMs": 30000,
+	"icons": {
+		"cwd": "󰝰",
+		"git": "",
+		"ahead": "↑",
+		"behind": "↓",
+		"diverged": "⇕",
+		"conflicted": "=",
+		"untracked": "?",
+		"stashed": "$",
+		"modified": "!",
+		"staged": "+",
+		"renamed": "»",
+		"deleted": "✘",
+		"typechanged": "T"
+	},
+	"colors": {
+		"cwd": "bold cyan",
+		"gitBranch": "bold purple",
+		"gitStatus": "bold red",
+		"contextNormal": "bright-black",
+		"contextWarning": "bold yellow",
+		"contextError": "bold red",
+		"tokens": "bright-black",
+		"cost": "bold green",
+		"separator": "bright-black",
+		"runtimePrefix": "",
+		"editorAccent": "accent",
+		"editorBorder": "borderMuted",
+		"editorModel": "accent",
+		"editorProvider": "text",
+		"editorThinking": "muted",
+		"editorThinkingMinimal": "thinkingMinimal",
+		"editorThinkingLow": "thinkingLow",
+		"editorThinkingMedium": "thinkingMedium",
+		"editorThinkingHigh": "thinkingHigh",
+		"editorThinkingXhigh": "thinkingXhigh"
+	},
+	"colorSources": {
+		"starship": "theme",
+		"editor": "theme",
+		"userMessages": "theme"
+	}
 }
 ```
 
-`projectRefreshIntervalMs` controls how often Zentui refreshes project status (git/runtime) while Pi is idle. Set it to `0` to disable polling; invalid values or values below 5000 ms fall back to `30000`.
-
-### Color values
-
-Use `/zentui` inside Pi to switch color sources between Pi theme colors and terminal colors:
-
-- `starship` — footer/runtime/git/context/cost colors
-- `editor + previous messages` — input editor and previous user-message rails/borders
-
-Both settings default to `theme`. The config still stores editor and previous user-message sources separately as `editor` and `userMessages`, but `/zentui` changes them together so the prompt chrome stays consistent.
-
-Color values can use terminal-palette style strings, hex colors, or Pi theme color tokens:
-
-- Named terminal colors: `bold purple`, `yellow`, `bright-cyan`
-- 256-color / hex: `bold 149`, `fg:202`, `#89b4fa`
-- Backgrounds and modifiers: `bg:blue fg:bright-green`, `underline bg:#bf5700`
-- Pi theme tokens: `accent`, `borderMuted`, `syntaxKeyword`
-
-Use the `colors` config key for these values.
+- Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`).
+- `projectRefreshIntervalMs`: project status polling interval; `0` disables polling.
+- `icons`: every shown icon key is configurable; omit any key to use the Zentui default.
+- `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
+- The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
+- `editorAccent` styles the active editor rail and previous user-message rail.
+- `editorBorder` styles the active editor and previous user-message top/bottom border color only; the border glyph stays `─`.
+- `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 ## Requirements
 

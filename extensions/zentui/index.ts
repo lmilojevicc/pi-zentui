@@ -19,7 +19,6 @@ import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle } from "./selector-border";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { type FooterState, createInitialState, syncState } from "./state";
-import { renderAccentLine, safeThemeFg } from "./style";
 import { PolishedEditor } from "./ui";
 import { installUserMessageStyle } from "./user-message";
 
@@ -81,15 +80,10 @@ export default function (pi: ExtensionAPI) {
 					keybindings,
 					ctx.ui.theme,
 					getCurrentConfig,
-					() =>
-						[
-							renderAccentLine(
-								ctx.ui.theme,
-								getCurrentConfig().colorSources.editor,
-								state.modelLabel,
-							),
-							safeThemeFg(ctx.ui.theme, "text", state.providerLabel),
-						].join(safeThemeFg(ctx.ui.theme, "borderMuted", "  ")),
+					() => ({
+						modelLabel: state.modelLabel,
+						providerLabel: state.providerLabel,
+					}),
 					getThinkingLevel,
 				),
 		);

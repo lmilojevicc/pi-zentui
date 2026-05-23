@@ -6,7 +6,11 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
-import { EDITOR_BORDER_STYLE, renderAccentLine, renderChromeBorder } from "./style";
+import {
+	EDITOR_ACCENT_FALLBACK,
+	EDITOR_BORDER_FALLBACK,
+	renderStyleForSourceOrFallback,
+} from "./style";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -92,7 +96,17 @@ function renderPromptBoxLine(
 	config: PolishedTuiConfig,
 ): string {
 	if (width <= 0) return "";
-	const rail = `${theme ? renderAccentLine(theme, config.colorSources.userMessages, "│") : "│"} `;
+	const rail = `${
+		theme
+			? renderStyleForSourceOrFallback(
+					theme,
+					config.colorSources.userMessages,
+					config.colors.editorAccent,
+					EDITOR_ACCENT_FALLBACK,
+					"│",
+				)
+			: "│"
+	} `;
 	const contentWidth = Math.max(0, width - visibleWidth(rail));
 	return truncateToWidth(`${rail}${fillLine(line, contentWidth)}`, width, "");
 }
@@ -108,7 +122,17 @@ function renderZentuiUserMessage(
 	if (width <= 0) return [""];
 
 	const railWidth = visibleWidth(
-		`${theme ? renderAccentLine(theme, config.colorSources.userMessages, "│") : "│"} `,
+		`${
+			theme
+				? renderStyleForSourceOrFallback(
+						theme,
+						config.colorSources.userMessages,
+						config.colors.editorAccent,
+						EDITOR_ACCENT_FALLBACK,
+						"│",
+					)
+				: "│"
+		} `,
 	);
 	const contentWidth = Math.max(1, width - railWidth);
 	const renderer = new Markdown(text, 0, 0, makeMarkdownTheme(theme), {
@@ -117,10 +141,11 @@ function renderZentuiUserMessage(
 	const body = renderer.render(contentWidth);
 	const contentLines = body.length > 0 ? body : [""];
 	const border = theme
-		? renderChromeBorder(
+		? renderStyleForSourceOrFallback(
 				theme,
 				config.colorSources.userMessages,
-				EDITOR_BORDER_STYLE,
+				config.colors.editorBorder,
+				EDITOR_BORDER_FALLBACK,
 				"─".repeat(width),
 			)
 		: "─".repeat(width);

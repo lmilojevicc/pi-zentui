@@ -7,11 +7,21 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
-import { EDITOR_BORDER_STYLE, renderAccentLine, renderChromeBorder, safeThemeFg } from "./style";
+import {
+	EDITOR_ACCENT_FALLBACK,
+	EDITOR_BORDER_FALLBACK,
+	renderStyleForSourceOrFallback,
+	safeThemeFg,
+} from "./style";
 
 type AutocompleteEditorInternals = {
 	autocompleteList?: Pick<Component, "render">;
 	isShowingAutocomplete?: () => boolean;
+};
+
+type EditorMeta = {
+	modelLabel: string;
+	providerLabel: string;
 };
 
 function clampRenderedLines(lines: string[], width: number): string[] {
@@ -20,7 +30,7 @@ function clampRenderedLines(lines: string[], width: number): string[] {
 }
 
 export class PolishedEditor extends CustomEditor {
-	private readonly getModelMeta: () => string;
+	private readonly getModelMeta: () => EditorMeta;
 	private readonly getThinkingLevel: () => string | undefined;
 	private readonly getConfig: () => PolishedTuiConfig;
 	private readonly uiTheme: Theme;
@@ -32,7 +42,7 @@ export class PolishedEditor extends CustomEditor {
 		keybindings: KeybindingsManager,
 		uiTheme: Theme,
 		getConfig: () => PolishedTuiConfig,
-		getModelMeta: () => string,
+		getModelMeta: () => EditorMeta,
 		getThinkingLevel: () => string | undefined,
 	) {
 		super(tui, theme, keybindings, { paddingX: 0 });
@@ -47,6 +57,23 @@ export class PolishedEditor extends CustomEditor {
 		const truncated = truncateToWidth(content, Math.max(0, width), "");
 		const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
 		return `${truncated}${pad}`;
+	}
+
+	private editorThinkingStyle(config: PolishedTuiConfig, level: string): string | undefined {
+		switch (level.toLowerCase()) {
+			case "minimal":
+				return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+			case "low":
+				return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+			case "medium":
+				return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+			case "high":
+				return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+			case "xhigh":
+				return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+			default:
+				return config.colors.editorThinking;
+		}
 	}
 
 	render(width: number): string[] {
@@ -84,26 +111,61 @@ export class PolishedEditor extends CustomEditor {
 			return clampRenderedLines(rendered, width);
 		}
 
+		const config = this.getConfig();
+		const colorSource = config.colorSources.editor;
 		const editorLines = editorFrame.slice(1, -1);
-		const metaParts = [this.getModelMeta()];
+		const { modelLabel, providerLabel } = this.getModelMeta();
+		const model = renderStyleForSourceOrFallback(
+			this.uiTheme,
+			colorSource,
+			config.colors.editorModel,
+			EDITOR_ACCENT_FALLBACK,
+			modelLabel,
+		);
+		const provider = renderStyleForSourceOrFallback(
+			this.uiTheme,
+			colorSource,
+			config.colors.editorProvider,
+			"text",
+			providerLabel,
+		);
+		const modelMeta = [model, provider]
+			.filter(Boolean)
+			.join(safeThemeFg(this.uiTheme, "borderMuted", "  "));
+		const metaParts = [modelMeta];
 		const thinkingLevel = this.getThinkingLevel();
 		if (thinkingLevel && thinkingLevel !== "off") {
-			metaParts.push(safeThemeFg(this.uiTheme, "muted", thinkingLevel));
+			metaParts.push(
+				renderStyleForSourceOrFallback(
+					this.uiTheme,
+					colorSource,
+					this.editorThinkingStyle(config, thinkingLevel),
+					"muted",
+					thinkingLevel,
+				),
+			);
 		}
 		const meta = metaParts.filter(Boolean).join(safeThemeFg(this.uiTheme, "border", "  "));
 
-		const colorSource = this.getConfig().colorSources.editor;
-		const rail = `${renderAccentLine(this.uiTheme, colorSource, "│")}${this.reset} `;
-		const top = renderChromeBorder(
+		const rail = `${renderStyleForSourceOrFallback(
 			this.uiTheme,
 			colorSource,
-			EDITOR_BORDER_STYLE,
+			config.colors.editorAccent,
+			EDITOR_ACCENT_FALLBACK,
+			"│",
+		)}${this.reset} `;
+		const top = renderStyleForSourceOrFallback(
+			this.uiTheme,
+			colorSource,
+			config.colors.editorBorder,
+			EDITOR_BORDER_FALLBACK,
 			"─".repeat(width),
 		);
-		const bottom = renderChromeBorder(
+		const bottom = renderStyleForSourceOrFallback(
 			this.uiTheme,
 			colorSource,
-			EDITOR_BORDER_STYLE,
+			config.colors.editorBorder,
+			EDITOR_BORDER_FALLBACK,
 			"─".repeat(width),
 		);
 		const lines = ["", ...editorLines, "", meta];

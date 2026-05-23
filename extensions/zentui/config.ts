@@ -43,6 +43,16 @@ export type PolishedTuiConfig = {
 		cost: ColorSpec;
 		separator: ColorSpec;
 		runtimePrefix: ColorSpec;
+		editorAccent?: ColorSpec;
+		editorBorder?: ColorSpec;
+		editorModel?: ColorSpec;
+		editorProvider?: ColorSpec;
+		editorThinking?: ColorSpec;
+		editorThinkingMinimal?: ColorSpec;
+		editorThinkingLow?: ColorSpec;
+		editorThinkingMedium?: ColorSpec;
+		editorThinkingHigh?: ColorSpec;
+		editorThinkingXhigh?: ColorSpec;
 	};
 	colorSources: ColorSourcesConfig;
 };
@@ -70,12 +80,12 @@ export const defaultConfig: PolishedTuiConfig = {
 		cwd: "bold cyan",
 		gitBranch: "bold purple",
 		gitStatus: "bold red",
-		contextNormal: "dimmed",
+		contextNormal: "bright-black",
 		contextWarning: "bold yellow",
 		contextError: "bold red",
-		tokens: "dimmed",
+		tokens: "bright-black",
 		cost: "bold green",
-		separator: "dimmed",
+		separator: "bright-black",
 		runtimePrefix: "",
 	},
 	colorSources: {
@@ -168,6 +178,16 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		cost: colorValue(record, "cost"),
 		separator: colorValue(record, "separator"),
 		runtimePrefix: colorValue(record, "runtimePrefix"),
+		editorAccent: colorValue(record, "editorAccent"),
+		editorBorder: colorValue(record, "editorBorder"),
+		editorModel: colorValue(record, "editorModel"),
+		editorProvider: colorValue(record, "editorProvider"),
+		editorThinking: colorValue(record, "editorThinking"),
+		editorThinkingMinimal: colorValue(record, "editorThinkingMinimal"),
+		editorThinkingLow: colorValue(record, "editorThinkingLow"),
+		editorThinkingMedium: colorValue(record, "editorThinkingMedium"),
+		editorThinkingHigh: colorValue(record, "editorThinkingHigh"),
+		editorThinkingXhigh: colorValue(record, "editorThinkingXhigh"),
 	});
 }
 
