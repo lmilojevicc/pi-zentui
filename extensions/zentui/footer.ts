@@ -3,6 +3,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
 import { collectExtensionStatusSegments } from "./extension-status";
 import { formatCwdLabel, formatRuntimeSegment } from "./format";
+import { renderGitModules } from "./git-modules";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -161,7 +162,7 @@ export function installFooter(
 					config.colors.cwd,
 					formatCwdLabel(ctx.cwd, config.icons.cwd),
 				);
-				const branch = state.branch;
+				const gitLabel = renderGitModules(theme, colorSource, config, state);
 				const contextUsage = ctx.getContextUsage();
 				const contextColor =
 					contextUsage?.percent !== null && contextUsage?.percent !== undefined
@@ -171,36 +172,6 @@ export function installFooter(
 								? config.colors.contextWarning
 								: config.colors.contextNormal
 						: config.colors.contextNormal;
-				const gitColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitBranch, text);
-				const gitStatusColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitStatus, text);
-				const gitIcon = config.icons.git ? gitColor(config.icons.git) : "";
-				const allStatus = [
-					state.conflicted > 0 ? config.icons.conflicted : "",
-					state.stashed ? config.icons.stashed : "",
-					state.deleted > 0 ? config.icons.deleted : "",
-					state.renamed > 0 ? config.icons.renamed : "",
-					state.modified > 0 ? config.icons.modified : "",
-					state.typechanged > 0 ? config.icons.typechanged : "",
-					state.staged > 0 ? config.icons.staged : "",
-					state.untracked > 0 ? config.icons.untracked : "",
-				].join("");
-				const aheadBehind =
-					state.ahead > 0 && state.behind > 0
-						? config.icons.diverged
-						: state.ahead > 0
-							? config.icons.ahead
-							: state.behind > 0
-								? config.icons.behind
-								: "";
-				const statusBlock =
-					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
-				const branchLabel = branch
-					? [...["on", gitIcon, gitColor(branch)].filter(Boolean), statusBlock]
-							.filter(Boolean)
-							.join(" ")
-					: "";
 				const runtimeLabel = formatRuntimeSegment(
 					theme,
 					state.runtime,
@@ -208,7 +179,7 @@ export function installFooter(
 					colorSource,
 				);
 
-				const left = [cwdLabel, branchLabel, runtimeLabel].filter(Boolean).join(" ");
+				const left = [cwdLabel, gitLabel, runtimeLabel].filter(Boolean).join(" ");
 				const right = [
 					renderStyleForSource(theme, colorSource, contextColor, state.contextLabel),
 					renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel),

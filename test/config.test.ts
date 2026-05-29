@@ -20,6 +20,12 @@ describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds and Starship styles", () => {
 		const config = mergeConfig({});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
+		expect(config.gitBranch).toEqual({
+			enable: true,
+			truncation_length: Number.MAX_SAFE_INTEGER,
+			truncation_symbol: "…",
+		});
+		expect(config.gitStatus).toEqual({ enable: true });
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
@@ -40,6 +46,52 @@ describe("mergeConfig", () => {
 	it("accepts custom project refresh intervals and 0 to disable polling", () => {
 		expect(mergeConfig({ projectRefreshIntervalMs: 60_000 }).projectRefreshIntervalMs).toBe(60_000);
 		expect(mergeConfig({ projectRefreshIntervalMs: 0 }).projectRefreshIntervalMs).toBe(0);
+	});
+
+	it("accepts git branch and git status module config", () => {
+		const config = mergeConfig({
+			gitBranch: {
+				enable: false,
+				truncation_length: 50,
+				truncation_symbol: "...",
+			},
+			gitStatus: { enable: false },
+		});
+
+		expect(config.gitBranch).toEqual({
+			enable: false,
+			truncation_length: 50,
+			truncation_symbol: "...",
+		});
+		expect(config.gitStatus).toEqual({ enable: false });
+	});
+
+	it("normalizes invalid git module config", () => {
+		expect(
+			mergeConfig({
+				gitBranch: {
+					enable: "false",
+					truncation_length: -1,
+					truncation_symbol: 42,
+				},
+				gitStatus: { enable: "no" },
+			}).gitBranch,
+		).toEqual({
+			enable: true,
+			truncation_length: Number.MAX_SAFE_INTEGER,
+			truncation_symbol: "…",
+		});
+		expect(mergeConfig({ gitStatus: { enable: "no" } }).gitStatus).toEqual({ enable: true });
+		expect(mergeConfig({ gitBranch: { truncation_length: 1.6 } }).gitBranch.truncation_length).toBe(
+			2,
+		);
+		expect(
+			mergeConfig({ gitBranch: { truncation_length: Number.MAX_SAFE_INTEGER * 2 } }).gitBranch
+				.truncation_length,
+		).toBe(Number.MAX_SAFE_INTEGER);
+		expect(mergeConfig({ gitBranch: { truncation_length: 0 } }).gitBranch.truncation_length).toBe(
+			0,
+		);
 	});
 
 	it("ignores invalid project refresh intervals", () => {

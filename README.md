@@ -130,6 +130,14 @@ Default config values — copy this and change any value you want:
 ```json
 {
 	"projectRefreshIntervalMs": 30000,
+	"gitBranch": {
+		"enable": true,
+		"truncation_length": 50,
+		"truncation_symbol": "…"
+	},
+	"gitStatus": {
+		"enable": true
+	},
 	"icons": {
 		"cwd": "󰝰",
 		"git": "",
@@ -182,6 +190,8 @@ Default config values — copy this and change any value you want:
 
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`).
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling.
+- `gitBranch`: controls the git branch module (`on  main`). `enable: false` hides the branch module. `truncation_length` is the branch-name display width to keep before appending `truncation_symbol`; runtime default is effectively unlimited, while the example uses `50` as a practical starting point.
+- `gitStatus`: controls the git status module (`[!?↑]`). `enable: false` hides status indicators.
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. `/zentui` lists only statuses that are currently active.
