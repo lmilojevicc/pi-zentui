@@ -1,6 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+	type GitBranchModuleConfig,
+	type GitStatusModuleConfig,
+	defaultGitBranchModuleConfig,
+	defaultGitStatusModuleConfig,
+	normalizeGitBranchModuleConfig,
+	normalizeGitStatusModuleConfig,
+} from "./git-module-config";
 import { isSupportedColorSpec } from "./style";
 
 export type ColorSpec = string;
@@ -24,6 +32,8 @@ const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
 
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
+	gitBranch: GitBranchModuleConfig;
+	gitStatus: GitStatusModuleConfig;
 	icons: {
 		cwd: string;
 		git: string;
@@ -70,6 +80,8 @@ export const configPath = join(getAgentDir(), "zentui.json");
 
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
+	gitBranch: defaultGitBranchModuleConfig,
+	gitStatus: defaultGitStatusModuleConfig,
 	icons: {
 		cwd: "󰝰",
 		git: "",
@@ -281,8 +293,12 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const extensionStatuses = isRecord(config.extensionStatuses)
 		? normalizeExtensionStatuses(config.extensionStatuses as Record<string, unknown>)
 		: defaultConfig.extensionStatuses;
+	const gitBranch = normalizeGitBranchModuleConfig(config.gitBranch);
+	const gitStatus = normalizeGitStatusModuleConfig(config.gitStatus);
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
+		gitBranch: { ...gitBranch },
+		gitStatus: { ...gitStatus },
 		icons: {
 			...defaultConfig.icons,
 			...icons,
