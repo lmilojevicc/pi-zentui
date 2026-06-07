@@ -140,6 +140,13 @@ export default function (pi: ExtensionAPI) {
 		activeTheme = undefined;
 	};
 
+	const syncInteractiveState = (_event: unknown, ctx: ExtensionContext) => {
+		refreshInteractiveState(ctx);
+	};
+	const syncInteractiveAndProjectState = (_event: unknown, ctx: ExtensionContext) => {
+		refreshInteractiveState(ctx, true);
+	};
+
 	pi.on("session_start", async (_event, ctx) => {
 		installUi(ctx);
 	});
@@ -164,31 +171,12 @@ export default function (pi: ExtensionAPI) {
 		cleanupUi(ctx);
 	});
 
-	pi.on("agent_start", async (_event, ctx) => {
-		refreshInteractiveState(ctx);
-	});
-
-	pi.on("agent_end", async (_event, ctx) => {
-		refreshInteractiveState(ctx, true);
-	});
-
-	pi.on("model_select", async (_event, ctx) => {
-		refreshInteractiveState(ctx);
-	});
-
-	pi.on("thinking_level_select", async (_event, ctx) => {
-		refreshInteractiveState(ctx);
-	});
-
-	pi.on("message_end", async (_event, ctx) => {
-		refreshInteractiveState(ctx, true);
-	});
-
-	pi.on("tool_execution_end", async (_event, ctx) => {
-		refreshInteractiveState(ctx, true);
-	});
-
-	pi.on("session_compact", async (_event, ctx) => {
-		refreshInteractiveState(ctx, true);
-	});
+	pi.on("agent_start", syncInteractiveState);
+	pi.on("agent_end", syncInteractiveAndProjectState);
+	pi.on("model_select", syncInteractiveState);
+	pi.on("thinking_level_select", syncInteractiveState);
+	pi.on("message_end", syncInteractiveAndProjectState);
+	pi.on("tool_execution_end", syncInteractiveAndProjectState);
+	pi.on("session_compact", syncInteractiveAndProjectState);
+	pi.on("session_tree", syncInteractiveAndProjectState);
 }

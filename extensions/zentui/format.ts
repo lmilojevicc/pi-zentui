@@ -11,9 +11,11 @@ export type UsageTotals = {
 };
 
 export function formatCount(value: number): string {
-	if (value < 1000) return `${value}`;
+	if (value < 1000) return value.toString();
 	if (value < 10_000) return `${(value / 1000).toFixed(1)}k`;
-	return `${Math.round(value / 1000)}k`;
+	if (value < 1_000_000) return `${Math.round(value / 1000)}k`;
+	if (value < 10_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	return `${Math.round(value / 1_000_000)}M`;
 }
 
 export function formatProviderLabel(provider: string | undefined): string {
@@ -38,19 +40,23 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	let output = 0;
 	let cost = 0;
 
-	for (const entry of ctx.sessionManager.getBranch()) {
+	const entries = ctx.sessionManager.getEntries?.() ?? ctx.sessionManager.getBranch();
+	for (const entry of entries) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		const message = entry.message as AssistantMessage;
-		input += message.usage?.input ?? 0;
-		output += message.usage?.output ?? 0;
-		cost += message.usage?.cost?.total ?? 0;
+		const usage = (entry.message as AssistantMessage).usage;
+		input += usage?.input ?? 0;
+		output += usage?.output ?? 0;
+		cost += usage?.cost?.total ?? 0;
 	}
 
 	return { input, output, cost };
 }
 
 export function buildTokenLabel(totals: UsageTotals): string {
-	return `↑${formatCount(totals.input)} ↓${formatCount(totals.output)}`;
+	const parts: string[] = [];
+	if (totals.input) parts.push(`↑${formatCount(totals.input)}`);
+	if (totals.output) parts.push(`↓${formatCount(totals.output)}`);
+	return parts.length > 0 ? parts.join(" ") : "↑0 ↓0";
 }
 
 export function buildCostLabel(totals: UsageTotals): string {
