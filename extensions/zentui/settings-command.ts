@@ -10,10 +10,13 @@ import {
 import {
 	type ColorSource,
 	type ColorSourcesConfig,
+	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
+	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
@@ -26,6 +29,7 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 	"middle",
 	"right",
 ];
+const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 type FeatureState = "enabled" | "disabled";
 
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
@@ -44,6 +48,7 @@ type SettingsCommandDeps = {
 	) => { applied: boolean; reason?: string };
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
+	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
 };
@@ -93,6 +98,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 };
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
+type ThirdPartyStatusSettingKind = "placement" | "colorMode";
 
 function isColorSource(value: string): value is ColorSource {
 	return value === "theme" || value === "terminal";
@@ -180,6 +186,24 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 	return matches.length > 0 ? matches : null;
 }
 
+function thirdPartyStatusSettingId(key: string, kind: ThirdPartyStatusSettingKind): string {
+	return `${thirdPartyStatusSettingPrefix}${kind}:${key}`;
+}
+
+function thirdPartyStatusSettingFromId(
+	id: string,
+): { kind: ThirdPartyStatusSettingKind; key: string } | undefined {
+	if (!id.startsWith(thirdPartyStatusSettingPrefix)) return undefined;
+	const rest = id.slice(thirdPartyStatusSettingPrefix.length);
+	const separatorIndex = rest.indexOf(":");
+	if (separatorIndex < 0) return undefined;
+
+	const kind = rest.slice(0, separatorIndex);
+	if (kind !== "placement" && kind !== "colorMode") return undefined;
+
+	return { kind, key: rest.slice(separatorIndex + 1) };
+}
+
 function buildItems(
 	section: SettingsSection,
 	config: PolishedTuiConfig,
@@ -220,22 +244,26 @@ function buildItems(
 		];
 	}
 
-	return statuses.map(([key, value]) => {
+	return statuses.flatMap(([key, value]) => {
 		const sanitizedText = sanitizeExtensionStatusText(value);
-		return {
-			id: `${thirdPartyStatusSettingPrefix}${key}`,
-			label: key,
-			description: sanitizedText ? `Current status: ${sanitizedText}` : undefined,
-			currentValue: getExtensionStatusPlacement(config, key),
-			values: extensionStatusPlacementValues,
-		};
+		const description = sanitizedText ? `Current status: ${sanitizedText}` : undefined;
+		return [
+			{
+				id: thirdPartyStatusSettingId(key, "placement"),
+				label: `${key} placement`,
+				description,
+				currentValue: getExtensionStatusPlacement(config, key),
+				values: extensionStatusPlacementValues,
+			},
+			{
+				id: thirdPartyStatusSettingId(key, "colorMode"),
+				label: `${key} color`,
+				description,
+				currentValue: getExtensionStatusColorMode(config, key),
+				values: extensionStatusColorModeValues,
+			},
+		];
 	});
-}
-
-function thirdPartyStatusKeyFromSettingId(id: string): string | undefined {
-	return id.startsWith(thirdPartyStatusSettingPrefix)
-		? id.slice(thirdPartyStatusSettingPrefix.length)
-		: undefined;
 }
 
 function nextSection(section: SettingsSection): SettingsSection {
@@ -356,12 +384,33 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									return;
 								}
 
-								const thirdPartyStatusKey = thirdPartyStatusKeyFromSettingId(id);
-								if (thirdPartyStatusKey && isExtensionStatusPlacement(newValue)) {
-									deps.setExtensionStatusPlacement(thirdPartyStatusKey, newValue);
+								const thirdPartyStatusSetting = thirdPartyStatusSettingFromId(id);
+								if (
+									thirdPartyStatusSetting?.kind === "placement" &&
+									isExtensionStatusPlacement(newValue)
+								) {
+									deps.setExtensionStatusPlacement(thirdPartyStatusSetting.key, newValue);
 									settingsList.updateValue(id, newValue);
 									deps.requestRender();
-									ctx.ui.notify(`Third-party status ${thirdPartyStatusKey}: ${newValue}`, "info");
+									ctx.ui.notify(
+										`Third-party status ${thirdPartyStatusSetting.key} placement: ${newValue}`,
+										"info",
+									);
+									tui.requestRender();
+									return;
+								}
+
+								if (
+									thirdPartyStatusSetting?.kind === "colorMode" &&
+									isExtensionStatusColorMode(newValue)
+								) {
+									deps.setExtensionStatusColorMode(thirdPartyStatusSetting.key, newValue);
+									settingsList.updateValue(id, newValue);
+									deps.requestRender();
+									ctx.ui.notify(
+										`Third-party status ${thirdPartyStatusSetting.key} color: ${newValue}`,
+										"info",
+									);
 									tui.requestRender();
 								}
 							} catch (error) {

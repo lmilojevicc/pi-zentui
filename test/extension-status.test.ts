@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type PolishedTuiConfig, defaultConfig } from "../extensions/zentui/config";
 import {
 	collectExtensionStatusSegments,
+	sanitizeExtensionStatusOriginalText,
 	sanitizeExtensionStatusText,
 } from "../extensions/zentui/extension-status";
 
@@ -17,6 +18,10 @@ function configWithExtensionStatuses(
 				...defaultConfig.extensionStatuses.placements,
 				...(extensionStatuses.placements ?? {}),
 			},
+			colorModes: {
+				...defaultConfig.extensionStatuses.colorModes,
+				...(extensionStatuses.colorModes ?? {}),
+			},
 		},
 	};
 }
@@ -30,6 +35,24 @@ describe("sanitizeExtensionStatusText", () => {
 
 	it("returns an empty string when no visible status remains", () => {
 		expect(sanitizeExtensionStatusText("\x1b[31m\x1b[0m\n\t")).toBe("");
+	});
+});
+
+describe("sanitizeExtensionStatusOriginalText", () => {
+	it("preserves SGR color while stripping unsafe control sequences", () => {
+		expect(sanitizeExtensionStatusOriginalText("\x1b[31mred\x1b[0m\nnext\tline")).toBe(
+			"\x1b[31mred\x1b[0m next line",
+		);
+		expect(sanitizeExtensionStatusOriginalText("\x1b]133;A\x07prompt\x1b]133;B\x07")).toBe(
+			"prompt",
+		);
+		expect(sanitizeExtensionStatusOriginalText("\x1b[32mok\x1b[0m\x1b[2K")).toBe(
+			"\x1b[32mok\x1b[0m",
+		);
+	});
+
+	it("returns an empty string when no visible original status remains", () => {
+		expect(sanitizeExtensionStatusOriginalText("\x1b[31m\x1b[0m\n\t")).toBe("");
 	});
 });
 
@@ -75,5 +98,26 @@ describe("collectExtensionStatusSegments", () => {
 
 		expect(segments.left.map((segment) => segment.key)).toEqual(["alpha", "zeta"]);
 		expect(segments.left.map((segment) => segment.text)).toEqual(["a", "z"]);
+	});
+
+	it("keeps original ANSI color only for statuses configured as original", () => {
+		const config = configWithExtensionStatuses({
+			colorModes: {
+				alpha: "original",
+				beta: "zentui",
+			},
+		});
+		const segments = collectExtensionStatusSegments(
+			new Map([
+				["alpha", "\x1b[31mred\x1b[0m"],
+				["beta", "\x1b[32mgreen\x1b[0m"],
+			]),
+			config,
+		);
+
+		expect(segments.right).toEqual([
+			{ key: "alpha", text: "\x1b[31mred\x1b[0m", placement: "right", colorMode: "original" },
+			{ key: "beta", text: "green", placement: "right", colorMode: "zentui" },
+		]);
 	});
 });

@@ -7,12 +7,14 @@ import type {
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
 	type ColorSourcesConfig,
+	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
 	ensureConfigExists,
 	loadConfig,
 	saveColorSourcesPatch,
+	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
 	saveUiFeaturesPatch,
 } from "./config";
@@ -344,6 +346,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		setExtensionStatusPlacement(key: string, placement: ExtensionStatusPlacement) {
 			currentConfig = saveExtensionStatusPlacement(key, placement);
+		},
+		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
+			currentConfig = saveExtensionStatusColorMode(key, colorMode);
 		},
 		requestRender() {
 			refresh();

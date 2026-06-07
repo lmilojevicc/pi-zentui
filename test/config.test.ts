@@ -6,6 +6,7 @@ import {
 	defaultConfig,
 	mergeConfig,
 	saveColorSourcesPatch,
+	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
 	saveUiFeaturesPatch,
 } from "../extensions/zentui/config";
@@ -43,6 +44,7 @@ describe("mergeConfig", () => {
 		expect(config.extensionStatuses).toEqual({
 			defaultPlacement: "right",
 			placements: {},
+			colorModes: {},
 		});
 	});
 
@@ -76,7 +78,7 @@ describe("mergeConfig", () => {
 		);
 	});
 
-	it("accepts extension status placement config", () => {
+	it("accepts extension status placement and color mode config", () => {
 		const config = mergeConfig({
 			extensionStatuses: {
 				defaultPlacement: "middle",
@@ -84,6 +86,10 @@ describe("mergeConfig", () => {
 					alpha: "left",
 					beta: "off",
 					gamma: "right",
+				},
+				colorModes: {
+					alpha: "original",
+					beta: "zentui",
 				},
 			},
 		});
@@ -94,6 +100,10 @@ describe("mergeConfig", () => {
 				alpha: "left",
 				beta: "off",
 				gamma: "right",
+			},
+			colorModes: {
+				alpha: "original",
+				beta: "zentui",
 			},
 		});
 	});
@@ -108,15 +118,22 @@ describe("mergeConfig", () => {
 						beta: "center",
 						gamma: 1,
 					},
+					colorModes: {
+						alpha: "original",
+						beta: "muted",
+						gamma: 1,
+					},
 				},
 			}).extensionStatuses,
 		).toEqual({
 			defaultPlacement: "right",
 			placements: { alpha: "left" },
+			colorModes: { alpha: "original" },
 		});
 		expect(mergeConfig({ extensionStatuses: { placements: "none" } }).extensionStatuses).toEqual({
 			defaultPlacement: "right",
 			placements: {},
+			colorModes: {},
 		});
 	});
 
@@ -395,6 +412,79 @@ describe("mergeConfig", () => {
 		}
 	});
 
+	it("saves extension status color mode when creating zentui.json", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveExtensionStatusColorMode("plugin.key", "original", path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.extensionStatuses.colorModes).toEqual({ "plugin.key": "original" });
+			expect(raw).toEqual({
+				extensionStatuses: {
+					colorModes: {
+						"plugin.key": "original",
+					},
+				},
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("saves extension status color mode without erasing placement config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				`${JSON.stringify(
+					{
+						unknown: true,
+						colors: { futureKey: "future" },
+						extensionStatuses: {
+							defaultPlacement: "left",
+							futureKey: "future",
+							placements: {
+								alpha: "right",
+								invalid: "center",
+							},
+							colorModes: {
+								alpha: "zentui",
+								invalid: "muted",
+							},
+						},
+					},
+					null,
+					2,
+				)}\n`,
+			);
+
+			const config = saveExtensionStatusColorMode("beta", "original", path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.extensionStatuses).toEqual({
+				defaultPlacement: "left",
+				placements: { alpha: "right" },
+				colorModes: { alpha: "zentui", beta: "original" },
+			});
+			expect(raw.unknown).toBe(true);
+			expect(raw.colors.futureKey).toBe("future");
+			expect(raw.extensionStatuses.futureKey).toBe("future");
+			expect(raw.extensionStatuses.placements).toEqual({
+				alpha: "right",
+				invalid: "center",
+			});
+			expect(raw.extensionStatuses.colorModes).toEqual({
+				alpha: "zentui",
+				invalid: "muted",
+				beta: "original",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("saves extension status placement without erasing unknown user config", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
 		const path = join(dir, "zentui.json");
@@ -425,6 +515,7 @@ describe("mergeConfig", () => {
 			expect(config.extensionStatuses).toEqual({
 				defaultPlacement: "left",
 				placements: { alpha: "right", beta: "off" },
+				colorModes: {},
 			});
 			expect(raw.unknown).toBe(true);
 			expect(raw.colors.futureKey).toBe("future");

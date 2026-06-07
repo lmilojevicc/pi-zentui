@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
-import { collectExtensionStatusSegments } from "./extension-status";
+import { type ExtensionStatusSegment, collectExtensionStatusSegments } from "./extension-status";
 import { formatCwdLabel, formatRuntimeSegment } from "./format";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
@@ -218,14 +218,16 @@ export function installFooter(
 					footerData.getExtensionStatuses(),
 					config,
 				);
-				const renderExtensionStatus = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.extensionStatus, text);
+				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
+					segment.colorMode === "original"
+						? segment.text
+						: renderStyleForSource(theme, colorSource, config.colors.extensionStatus, segment.text);
 				const content = composeFooterContent(
 					left,
 					right,
-					extensionStatuses.left.map((segment) => renderExtensionStatus(segment.text)),
-					extensionStatuses.middle.map((segment) => renderExtensionStatus(segment.text)),
-					extensionStatuses.right.map((segment) => renderExtensionStatus(segment.text)),
+					extensionStatuses.left.map(renderExtensionStatus),
+					extensionStatuses.middle.map(renderExtensionStatus),
+					extensionStatuses.right.map(renderExtensionStatus),
 					separator,
 					innerWidth,
 				);

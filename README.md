@@ -200,7 +200,8 @@ Default config values — copy this and change any value you want:
 	},
 	"extensionStatuses": {
 		"defaultPlacement": "right",
-		"placements": {}
+		"placements": {},
+		"colorModes": {}
 	}
 }
 ```

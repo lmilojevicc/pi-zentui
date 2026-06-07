@@ -1387,6 +1387,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
 		);
@@ -1423,6 +1424,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
 		);
@@ -1462,6 +1464,7 @@ describe("Pi docs compliance", () => {
 				},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {
 					renderRequests += 1;
 				},
@@ -1501,6 +1504,7 @@ describe("Pi docs compliance", () => {
 				},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
 		);
@@ -1530,6 +1534,7 @@ describe("Pi docs compliance", () => {
 				},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
 		);
@@ -1567,6 +1572,7 @@ describe("Pi docs compliance", () => {
 				}),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
 		);
@@ -1611,6 +1617,7 @@ describe("Pi docs compliance", () => {
 					},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
+					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -1667,6 +1674,7 @@ describe("Pi docs compliance", () => {
 					setUiFeatures: () => ({ applied: true }),
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
+					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -1730,6 +1738,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -1780,6 +1789,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
 				},
@@ -1843,6 +1853,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -1897,6 +1908,7 @@ describe("Pi docs compliance", () => {
 						["beta", "B"],
 					]),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -1951,6 +1963,7 @@ describe("Pi docs compliance", () => {
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
 				},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -2006,6 +2019,7 @@ describe("Pi docs compliance", () => {
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
 				},
+				setExtensionStatusColorMode() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
 				},
@@ -2067,6 +2081,7 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,

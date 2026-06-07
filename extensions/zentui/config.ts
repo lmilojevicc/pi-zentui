@@ -19,10 +19,14 @@ export type UiFeaturesConfig = {
 };
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
+export type ExtensionStatusColorMode = "zentui" | "original";
+
+const DEFAULT_EXTENSION_STATUS_COLOR_MODE: ExtensionStatusColorMode = "zentui";
 
 export type ExtensionStatusesConfig = {
 	defaultPlacement: ExtensionStatusPlacement;
 	placements: Record<string, ExtensionStatusPlacement>;
+	colorModes: Record<string, ExtensionStatusColorMode>;
 };
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
@@ -123,6 +127,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	extensionStatuses: {
 		defaultPlacement: "right",
 		placements: {},
+		colorModes: {},
 	},
 };
 
@@ -251,6 +256,10 @@ export function isExtensionStatusPlacement(value: unknown): value is ExtensionSt
 	return value === "off" || value === "left" || value === "middle" || value === "right";
 }
 
+export function isExtensionStatusColorMode(value: unknown): value is ExtensionStatusColorMode {
+	return value === "zentui" || value === "original";
+}
+
 function normalizeExtensionStatuses(record: Record<string, unknown>): ExtensionStatusesConfig {
 	const defaultPlacement = isExtensionStatusPlacement(record.defaultPlacement)
 		? record.defaultPlacement
@@ -263,10 +272,19 @@ function normalizeExtensionStatuses(record: Record<string, unknown>): ExtensionS
 				),
 			)
 		: {};
+	const colorModes = isRecord(record.colorModes)
+		? Object.fromEntries(
+				Object.entries(record.colorModes).filter(
+					(entry): entry is [string, ExtensionStatusColorMode] =>
+						isExtensionStatusColorMode(entry[1]),
+				),
+			)
+		: {};
 
 	return {
 		defaultPlacement,
 		placements,
+		colorModes,
 	};
 }
 
@@ -345,6 +363,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		extensionStatuses: {
 			defaultPlacement: extensionStatuses.defaultPlacement,
 			placements: { ...extensionStatuses.placements },
+			colorModes: { ...extensionStatuses.colorModes },
 		},
 	};
 }
@@ -354,6 +373,13 @@ export function getExtensionStatusPlacement(
 	key: string,
 ): ExtensionStatusPlacement {
 	return config.extensionStatuses.placements[key] ?? config.extensionStatuses.defaultPlacement;
+}
+
+export function getExtensionStatusColorMode(
+	config: PolishedTuiConfig,
+	key: string,
+): ExtensionStatusColorMode {
+	return config.extensionStatuses.colorModes[key] ?? DEFAULT_EXTENSION_STATUS_COLOR_MODE;
 }
 
 export function loadConfig(): PolishedTuiConfig {
@@ -420,6 +446,34 @@ export function saveExtensionStatusPlacement(
 	record.extensionStatuses = {
 		...existingExtensionStatuses,
 		placements: existingPlacements,
+	};
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveExtensionStatusColorMode(
+	key: string,
+	colorMode: ExtensionStatusColorMode,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existingExtensionStatuses = isRecord(record.extensionStatuses)
+		? { ...(record.extensionStatuses as Record<string, unknown>) }
+		: {};
+	const existingColorModes = isRecord(existingExtensionStatuses.colorModes)
+		? { ...(existingExtensionStatuses.colorModes as Record<string, unknown>) }
+		: {};
+
+	Object.defineProperty(existingColorModes, key, {
+		value: colorMode,
+		enumerable: true,
+		configurable: true,
+		writable: true,
+	});
+
+	record.extensionStatuses = {
+		...existingExtensionStatuses,
+		colorModes: existingColorModes,
 	};
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
