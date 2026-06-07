@@ -85,3 +85,13 @@ For local Pi testing:
 npm run pi:dev
 npm run pi:install-local
 ```
+
+## Commit style
+
+Use conventional commit messages that match the existing history:
+
+```text
+feat: add user-facing capability
+```
+
+Keep the subject lowercase after the type, imperative, and concise. Do not use a trailing period.
