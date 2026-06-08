@@ -143,7 +143,8 @@ Default config values — copy this and change any value you want:
 		"staged": "+",
 		"renamed": "»",
 		"deleted": "✘",
-		"typechanged": "T"
+		"typechanged": "T",
+		"cacheHit": "󰆼"
 	},
 	"colors": {
 		"cwd": "bold cyan",

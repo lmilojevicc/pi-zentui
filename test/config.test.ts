@@ -20,6 +20,7 @@ describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds and Starship styles", () => {
 		const config = mergeConfig({});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
+		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
@@ -145,6 +146,7 @@ describe("mergeConfig", () => {
 			icons: {
 				cwd: 42,
 				git: "git",
+				cacheHit: "CH",
 			},
 			colors: {
 				cwd: 123,
@@ -163,6 +165,7 @@ describe("mergeConfig", () => {
 		expect(config.projectRefreshIntervalMs).toBe(defaultConfig.projectRefreshIntervalMs);
 		expect(config.icons.cwd).toBe(defaultConfig.icons.cwd);
 		expect(config.icons.git).toBe("git");
+		expect(config.icons.cacheHit).toBe("CH");
 		expect(config.colors.cwd).toBe(defaultConfig.colors.cwd);
 		expect(config.colors.gitStatus).toBe(defaultConfig.colors.gitStatus);
 		expect(config.colors.separator).toBe("dimmed");

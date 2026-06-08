@@ -1,6 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	type UsageTotals,
 	buildContextLabel,
 	buildCostLabel,
 	buildTokenLabel,
@@ -31,11 +30,11 @@ export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
 	};
 }
 
-export function syncState(state: FooterState, ctx: ExtensionContext): void {
+export function syncState(state: FooterState, ctx: ExtensionContext, cacheHitIcon: string): void {
 	const totals = getUsageTotals(ctx);
 	state.modelLabel = ctx.model?.id ?? "no-model";
 	state.providerLabel = formatProviderLabel(ctx.model?.provider);
 	state.contextLabel = buildContextLabel(ctx);
-	state.tokenLabel = buildTokenLabel(totals);
+	state.tokenLabel = buildTokenLabel(totals, cacheHitIcon);
 	state.costLabel = buildCostLabel(totals);
 }

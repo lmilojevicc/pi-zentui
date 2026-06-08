@@ -40,6 +40,8 @@ export default function (pi: ExtensionAPI) {
 	const getActiveTheme = () => activeTheme;
 	const getCurrentConfig = () => currentConfig;
 	const getThinkingLevel = () => pi.getThinkingLevel();
+	const syncFooterState = (ctx: ExtensionContext) =>
+		syncState(state, ctx, currentConfig.icons.cacheHit);
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
 		const [gitStatus, runtime] = await Promise.all([
@@ -69,7 +71,7 @@ export default function (pi: ExtensionAPI) {
 
 	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
 		if (!ctx.hasUI) return;
-		syncState(state, ctx);
+		syncFooterState(ctx);
 		if (project) scheduleProjectRefresh(ctx);
 		refresh();
 	};
@@ -104,7 +106,7 @@ export default function (pi: ExtensionAPI) {
 		};
 		ensureConfigExists();
 		currentConfig = loadConfig();
-		syncState(state, ctx);
+		syncFooterState(ctx);
 		stopRefreshInterval();
 		stopRefreshInterval = () => {};
 		installFooter(ctx, state, getCurrentConfig, {

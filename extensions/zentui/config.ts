@@ -38,6 +38,7 @@ export type PolishedTuiConfig = {
 		renamed: string;
 		deleted: string;
 		typechanged: string;
+		cacheHit: string;
 	};
 	colors: {
 		cwd: ColorSpec;
@@ -84,6 +85,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		renamed: "»",
 		deleted: "✘",
 		typechanged: "T",
+		cacheHit: "󰆼",
 	},
 	colors: {
 		cwd: "bold cyan",
@@ -123,6 +125,7 @@ const iconKeys = [
 	"renamed",
 	"deleted",
 	"typechanged",
+	"cacheHit",
 ] as const satisfies readonly (keyof PolishedTuiConfig["icons"])[];
 
 type ConfigRecord = Record<string, unknown>;

@@ -7,6 +7,9 @@ import { renderStyleForSource } from "./style";
 export type UsageTotals = {
 	input: number;
 	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	latestCacheHitRate?: number;
 	cost: number;
 };
 
@@ -35,27 +38,52 @@ export function formatProviderLabel(provider: string | undefined): string {
 	);
 }
 
+function calculateCacheHitRate(
+	input: number,
+	cacheRead: number,
+	cacheWrite: number,
+): number | undefined {
+	const promptTokens = input + cacheRead + cacheWrite;
+	return promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
+}
+
 export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	let input = 0;
 	let output = 0;
+	let cacheRead = 0;
+	let cacheWrite = 0;
+	let latestCacheHitRate: number | undefined;
 	let cost = 0;
 
 	const entries = ctx.sessionManager.getEntries?.() ?? ctx.sessionManager.getBranch();
 	for (const entry of entries) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 		const usage = (entry.message as AssistantMessage).usage;
-		input += usage?.input ?? 0;
+		const entryInput = usage?.input ?? 0;
+		const entryCacheRead = usage?.cacheRead ?? 0;
+		const entryCacheWrite = usage?.cacheWrite ?? 0;
+
+		input += entryInput;
 		output += usage?.output ?? 0;
+		cacheRead += entryCacheRead;
+		cacheWrite += entryCacheWrite;
 		cost += usage?.cost?.total ?? 0;
+		latestCacheHitRate = calculateCacheHitRate(entryInput, entryCacheRead, entryCacheWrite);
 	}
 
-	return { input, output, cost };
+	return { input, output, cacheRead, cacheWrite, latestCacheHitRate, cost };
 }
 
-export function buildTokenLabel(totals: UsageTotals): string {
+export function buildTokenLabel(totals: UsageTotals, cacheHitIcon = "󰆼"): string {
 	const parts: string[] = [];
 	if (totals.input) parts.push(`↑${formatCount(totals.input)}`);
 	if (totals.output) parts.push(`↓${formatCount(totals.output)}`);
+
+	const hasCacheTokens = totals.cacheRead > 0 || totals.cacheWrite > 0;
+	if (hasCacheTokens && totals.latestCacheHitRate !== undefined) {
+		const cacheHitRate = `${totals.latestCacheHitRate.toFixed(1)}%`;
+		parts.push(cacheHitIcon ? `${cacheHitIcon} ${cacheHitRate}` : cacheHitRate);
+	}
 	return parts.length > 0 ? parts.join(" ") : "↑0 ↓0";
 }
 
