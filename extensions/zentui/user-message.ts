@@ -31,28 +31,54 @@ type PatchableUserMessagePrototype = {
 
 type Cleanup = () => void;
 
-type MarkdownLike = {
-	text?: unknown;
+type UserMessageRenderCache = {
+	hasMarkdownText: boolean;
+	text?: string;
+	width?: number;
+	theme?: Theme;
+	configKey?: string;
+	renderedLines?: string[];
 };
+
+const userMessageRenderCache = new WeakMap<object, UserMessageRenderCache>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function findMarkdownText(value: unknown): string | undefined {
-	if (isRecord(value) && typeof (value as MarkdownLike).text === "string") {
-		return (value as { text: string }).text;
-	}
-
 	if (!isRecord(value)) return undefined;
+	if (typeof value.text === "string") return value.text;
 
-	const children = Array.isArray(value.children) ? value.children : [];
+	const children = value.children;
+	if (!Array.isArray(children)) return undefined;
+
 	for (const child of children) {
 		const text = findMarkdownText(child);
 		if (text !== undefined) return text;
 	}
 
 	return undefined;
+}
+
+function getCachedMarkdownText(instance: object): string | undefined {
+	const cached = userMessageRenderCache.get(instance);
+	if (cached?.hasMarkdownText) return cached.text;
+
+	const text = findMarkdownText(instance);
+	if (text !== undefined) {
+		userMessageRenderCache.set(instance, { ...cached, hasMarkdownText: true, text });
+	}
+	return text;
+}
+
+function getUserMessageConfigKey(config: PolishedTuiConfig): string {
+	return [
+		config.features.copyFriendly ? "copy" : "chrome",
+		config.colorSources.userMessages,
+		config.colors.editorAccent ?? "",
+		config.colors.editorBorder ?? "",
+	].join("\0");
 }
 
 function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): string {
@@ -126,9 +152,23 @@ function renderZentuiUserMessage(
 	theme: Theme | undefined,
 	config: PolishedTuiConfig,
 ): string[] | undefined {
-	const text = findMarkdownText(instance);
+	if (!isRecord(instance)) return undefined;
+
+	const text = getCachedMarkdownText(instance);
 	if (text === undefined) return undefined;
 	if (width <= 0) return [""];
+
+	const configKey = getUserMessageConfigKey(config);
+	const cached = userMessageRenderCache.get(instance);
+	if (
+		cached?.hasMarkdownText &&
+		cached.width === width &&
+		cached.theme === theme &&
+		cached.configKey === configKey &&
+		cached.renderedLines
+	) {
+		return cached.renderedLines;
+	}
 
 	const railWidth = visibleWidth(renderPromptBoxRail(theme, config));
 	const contentWidth = Math.max(1, width - railWidth);
@@ -146,14 +186,31 @@ function renderZentuiUserMessage(
 				"─".repeat(width),
 			)
 		: "─".repeat(width);
-
-	return [
+	const lines = [
 		truncateToWidth(border, width, ""),
 		renderPromptBoxLine("", width, theme, config),
 		...contentLines.map((line) => renderPromptBoxLine(line, width, theme, config)),
 		renderPromptBoxLine("", width, theme, config),
 		truncateToWidth(border, width, ""),
 	];
+
+	userMessageRenderCache.set(instance, {
+		hasMarkdownText: true,
+		text,
+		width,
+		theme,
+		configKey,
+		renderedLines: lines,
+	});
+	return lines;
+}
+
+function withPromptZoneMarkers(lines: string[]): string[] {
+	const markedLines = [...lines];
+	markedLines[0] = OSC133_ZONE_START + markedLines[0];
+	markedLines[markedLines.length - 1] =
+		OSC133_ZONE_END + OSC133_ZONE_FINAL + markedLines[markedLines.length - 1];
+	return markedLines;
 }
 
 export function installUserMessageStyle(
@@ -192,9 +249,7 @@ export function installUserMessageStyle(
 		if (!lines) return original.call(this, width);
 		if (lines.length === 0) return lines;
 
-		lines[0] = OSC133_ZONE_START + lines[0];
-		lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
-		return lines;
+		return withPromptZoneMarkers(lines);
 	};
 	prototype.__zentuiUserMessageWrapper = wrapper;
 	prototype.render = wrapper;

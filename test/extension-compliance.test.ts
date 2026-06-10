@@ -600,6 +600,35 @@ describe("Pi docs compliance", () => {
 		expect(stripTestTags(lines.at(-1) ?? "")).toMatch(/^─+$/);
 	});
 
+	it("caches rendered user messages across repeated renders", () => {
+		const getChildren = vi.fn(() => [{ text: "hello ".repeat(2000) }]);
+		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);
+		const theme = { ...makeTaggedTheme(), fg } as unknown as Theme;
+		installUserMessageStyle(
+			() => theme,
+			() => defaultConfig,
+		);
+		const instance = {
+			get children() {
+				return getChildren();
+			},
+		};
+		const renderMessage = (width: number) =>
+			UserMessageComponent.prototype.render.call(instance, width);
+
+		const firstRender = renderMessage(80);
+		const fgCallsAfterFirstRender = fg.mock.calls.length;
+		const secondRender = renderMessage(80);
+
+		expect(secondRender).toEqual(firstRender);
+		expect(getChildren).toHaveBeenCalledTimes(1);
+		expect(fg).toHaveBeenCalledTimes(fgCallsAfterFirstRender);
+
+		renderMessage(79);
+		expect(getChildren).toHaveBeenCalledTimes(1);
+		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
+	});
+
 	it("renders selector top and bottom borders from the editor color source", () => {
 		const prototype = {
 			render(width: number) {
