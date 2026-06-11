@@ -17,13 +17,18 @@ const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 type RenderFn = (width: number) => string[];
+type InvalidateFn = () => void;
 
 type PatchableUserMessagePrototype = {
 	render: RenderFn;
+	invalidate: InvalidateFn;
 	children?: unknown[];
 	__zentuiUserMessageOriginalRender?: RenderFn;
+	__zentuiUserMessageOriginalInvalidate?: InvalidateFn;
 	__zentuiUserMessagePatched?: boolean;
+	__zentuiUserMessageInvalidatePatched?: boolean;
 	__zentuiUserMessageWrapper?: RenderFn;
+	__zentuiUserMessageInvalidateWrapper?: InvalidateFn;
 	__zentuiUserMessageActive?: boolean;
 	__zentuiUserMessageGetTheme?: () => Theme | undefined;
 	__zentuiUserMessageGetConfig?: () => PolishedTuiConfig;
@@ -41,6 +46,10 @@ type UserMessageRenderCache = {
 };
 
 const userMessageRenderCache = new WeakMap<object, UserMessageRenderCache>();
+
+function isObject(value: unknown): value is object {
+	return (typeof value === "object" && value !== null) || typeof value === "function";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -221,6 +230,23 @@ export function installUserMessageStyle(
 	prototype.__zentuiUserMessageGetTheme = getTheme;
 	prototype.__zentuiUserMessageGetConfig = getConfig;
 	prototype.__zentuiUserMessageActive = true;
+
+	if (
+		!(
+			prototype.__zentuiUserMessageInvalidatePatched &&
+			prototype.invalidate === prototype.__zentuiUserMessageInvalidateWrapper
+		)
+	) {
+		prototype.__zentuiUserMessageOriginalInvalidate = prototype.invalidate;
+		const invalidateWrapper = function invalidateWithZentuiUserMessage(this: unknown): void {
+			if (isObject(this)) userMessageRenderCache.delete(this);
+			const originalInvalidate = prototype.__zentuiUserMessageOriginalInvalidate;
+			originalInvalidate?.call(this);
+		};
+		prototype.__zentuiUserMessageInvalidateWrapper = invalidateWrapper;
+		prototype.invalidate = invalidateWrapper;
+		prototype.__zentuiUserMessageInvalidatePatched = true;
+	}
 
 	if (
 		prototype.__zentuiUserMessagePatched &&

@@ -29,6 +29,7 @@ type FooterFactory = (...args: unknown[]) => {
 };
 
 const originalUserMessageRender = UserMessageComponent.prototype.render;
+const originalUserMessageInvalidate = UserMessageComponent.prototype.invalidate;
 const originalModelSelectorRender = ModelSelectorComponent.prototype.render;
 const originalSettingsSelectorRender = SettingsSelectorComponent.prototype.render;
 
@@ -256,10 +257,14 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 
 afterEach(() => {
 	UserMessageComponent.prototype.render = originalUserMessageRender;
+	UserMessageComponent.prototype.invalidate = originalUserMessageInvalidate;
 	const prototype = UserMessageComponent.prototype as unknown as Record<string, unknown>;
 	prototype.__zentuiUserMessageOriginalRender = undefined;
+	prototype.__zentuiUserMessageOriginalInvalidate = undefined;
 	prototype.__zentuiUserMessagePatched = undefined;
+	prototype.__zentuiUserMessageInvalidatePatched = undefined;
 	prototype.__zentuiUserMessageWrapper = undefined;
+	prototype.__zentuiUserMessageInvalidateWrapper = undefined;
 	prototype.__zentuiUserMessageActive = undefined;
 	prototype.__zentuiUserMessageGetTheme = undefined;
 	prototype.__zentuiUserMessageGetConfig = undefined;
@@ -627,6 +632,37 @@ describe("Pi docs compliance", () => {
 		renderMessage(79);
 		expect(getChildren).toHaveBeenCalledTimes(1);
 		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
+	});
+
+	it("clears cached user-message rendering on invalidate", () => {
+		let colorPrefix = "first";
+		const theme = {
+			...makeTaggedTheme(),
+			fg(color: string, text: string) {
+				return `[${colorPrefix}:${color}]${text}`;
+			},
+		} as unknown as Theme;
+		const originalInvalidate = UserMessageComponent.prototype.invalidate;
+		const invalidate = vi.fn(function invalidate(this: UserMessageComponent) {
+			return originalInvalidate.call(this);
+		});
+		UserMessageComponent.prototype.invalidate = invalidate;
+		installUserMessageStyle(
+			() => theme,
+			() => defaultConfig,
+		);
+		const message = new UserMessageComponent("hello");
+
+		const firstRender = message.render(80).join("\n");
+		colorPrefix = "second";
+		const cachedRender = message.render(80).join("\n");
+		message.invalidate();
+		const invalidatedRender = message.render(80).join("\n");
+
+		expect(cachedRender).toBe(firstRender);
+		expect(invalidate).toHaveBeenCalledTimes(1);
+		expect(invalidatedRender).toContain("[second:userMessageText]hello");
+		expect(invalidatedRender).not.toContain("[first:userMessageText]hello");
 	});
 
 	it("renders selector top and bottom borders from the editor color source", () => {
