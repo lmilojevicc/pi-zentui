@@ -222,7 +222,7 @@ Tip: when using copy-friendly mode, setting Pi's `editorPaddingX` to `1` in `~/.
 
 ## Requirements
 
-- [Pi](https://pi.dev) coding agent 0.74 or newer
+- [Pi](https://pi.dev) coding agent 0.79 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for icons
 
 ## Development
