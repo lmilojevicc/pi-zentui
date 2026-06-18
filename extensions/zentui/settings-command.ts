@@ -2,9 +2,11 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import {
 	type AutocompleteItem,
+	Key,
 	type SettingItem,
 	SettingsList,
 	type SettingsListTheme,
+	matchesKey,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import {
@@ -334,6 +336,14 @@ function nextSection(section: SettingsSection): SettingsSection {
 	return settingsSections[(currentIndex + 1) % settingsSections.length] ?? "coloring";
 }
 
+function previousSection(section: SettingsSection): SettingsSection {
+	const currentIndex = settingsSections.indexOf(section);
+	return (
+		settingsSections[(currentIndex - 1 + settingsSections.length) % settingsSections.length] ??
+		"coloring"
+	);
+}
+
 function formatSectionTabs(
 	activeSection: SettingsSection,
 	theme: ExtensionContext["ui"]["theme"],
@@ -352,7 +362,7 @@ function withSectionFooter(lines: string[], theme: ExtensionContext["ui"]["theme
 			next[index] = safeThemeFg(
 				theme,
 				"muted",
-				"  Enter/Space to change · Tab to switch sections · Esc to close",
+				"  Enter/Space to change · Tab/Shift+Tab to switch sections · Esc to close",
 			);
 			break;
 		}
@@ -497,8 +507,9 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						() => done(undefined),
 					);
 				settingsList = makeSettingsList();
-				const switchSection = () => {
-					activeSection = nextSection(activeSection);
+				const switchSection = (direction: "forward" | "backward") => {
+					activeSection =
+						direction === "forward" ? nextSection(activeSection) : previousSection(activeSection);
 					settingsList = makeSettingsList();
 					tui.requestRender();
 				};
@@ -526,8 +537,12 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						settingsList.invalidate();
 					},
 					handleInput(data: string) {
-						if (data === "\t") {
-							switchSection();
+						if (matchesKey(data, Key.tab)) {
+							switchSection("forward");
+							return;
+						}
+						if (matchesKey(data, Key.shift("tab"))) {
+							switchSection("backward");
 							return;
 						}
 						settingsList.handleInput(data);

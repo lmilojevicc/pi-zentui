@@ -1851,7 +1851,7 @@ describe("Pi docs compliance", () => {
 		expect(themeLines.join("\n")).toContain("Features");
 		expect(themeLines.join("\n")).toContain("Built-in segments");
 		expect(themeLines.join("\n")).toContain("Extension segments");
-		expect(themeLines.join("\n")).toContain("Tab to switch sections");
+		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
 			true,
@@ -2038,6 +2038,57 @@ describe("Pi docs compliance", () => {
 		component.handleInput?.("\t");
 		component.handleInput?.("\t");
 	}
+
+	it("cycles extension segments tabs backward with shift+tab", async () => {
+		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+		let rendered = "";
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				getConfig: () => defaultConfig,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
+				getActiveExtensionStatuses: () => new Map<string, string>(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: makeTaggedTheme(),
+				notify() {},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory({ requestRender() {} }, makeTaggedTheme(), {}, () => {}) as {
+						render?: (width: number) => string[];
+						handleInput?: (data: string) => void;
+					};
+					navigateToExtensionSegmentsSection(component);
+					component.handleInput?.("\x1b[Z");
+					rendered = component.render?.(120).join("\n") ?? "";
+				},
+			},
+		});
+
+		expect(rendered).toContain("Current directory");
+		expect(rendered).not.toContain("No active statuses");
+	});
 
 	it("renders active third-party statuses in the extension segments tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
