@@ -18,6 +18,16 @@ export type UiFeaturesConfig = {
 	copyFriendly: boolean;
 };
 
+export type FooterSegmentsConfig = {
+	cwd: boolean;
+	gitBranch: boolean;
+	gitStatus: boolean;
+	runtime: boolean;
+	context: boolean;
+	tokens: boolean;
+	cost: boolean;
+};
+
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
 export type ExtensionStatusColorMode = "zentui" | "original";
 
@@ -77,6 +87,7 @@ export type PolishedTuiConfig = {
 	};
 	colorSources: ColorSourcesConfig;
 	features: UiFeaturesConfig;
+	footerSegments: FooterSegmentsConfig;
 	extensionStatuses: ExtensionStatusesConfig;
 };
 
@@ -123,6 +134,15 @@ export const defaultConfig: PolishedTuiConfig = {
 		editor: true,
 		statusLine: true,
 		copyFriendly: false,
+	},
+	footerSegments: {
+		cwd: true,
+		gitBranch: true,
+		gitStatus: true,
+		runtime: true,
+		context: true,
+		tokens: true,
+		cost: true,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -190,6 +210,14 @@ function booleanValue(record: Record<string, unknown>, key: keyof UiFeaturesConf
 	return typeof value === "boolean" ? value : defaultConfig.features[key];
 }
 
+function footerSegmentValue(
+	record: Record<string, unknown>,
+	key: keyof FooterSegmentsConfig,
+): boolean {
+	const value = record[key];
+	return typeof value === "boolean" ? value : defaultConfig.footerSegments[key];
+}
+
 function definedColors(
 	colors: Partial<Record<keyof PolishedTuiConfig["colors"], string | undefined>>,
 ): Partial<PolishedTuiConfig["colors"]> {
@@ -252,6 +280,18 @@ function normalizeUiFeatures(record: Record<string, unknown>): UiFeaturesConfig 
 	};
 }
 
+function normalizeFooterSegments(record: Record<string, unknown>): FooterSegmentsConfig {
+	return {
+		cwd: footerSegmentValue(record, "cwd"),
+		gitBranch: footerSegmentValue(record, "gitBranch"),
+		gitStatus: footerSegmentValue(record, "gitStatus"),
+		runtime: footerSegmentValue(record, "runtime"),
+		context: footerSegmentValue(record, "context"),
+		tokens: footerSegmentValue(record, "tokens"),
+		cost: footerSegmentValue(record, "cost"),
+	};
+}
+
 export function isExtensionStatusPlacement(value: unknown): value is ExtensionStatusPlacement {
 	return value === "off" || value === "left" || value === "middle" || value === "right";
 }
@@ -296,6 +336,18 @@ function isUiFeatureKey(value: string): value is keyof UiFeaturesConfig {
 	return value === "editor" || value === "statusLine" || value === "copyFriendly";
 }
 
+function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig {
+	return (
+		value === "cwd" ||
+		value === "gitBranch" ||
+		value === "gitStatus" ||
+		value === "runtime" ||
+		value === "context" ||
+		value === "tokens" ||
+		value === "cost"
+	);
+}
+
 function validColorSourceEntries(record: Record<string, unknown>): Partial<ColorSourcesConfig> {
 	return Object.fromEntries(
 		Object.entries(record).filter((entry): entry is [keyof ColorSourcesConfig, ColorSource] => {
@@ -312,6 +364,15 @@ function validUiFeatureEntries(record: Record<string, unknown>): Partial<UiFeatu
 			return isUiFeatureKey(key) && typeof value === "boolean";
 		}),
 	) as Partial<UiFeaturesConfig>;
+}
+
+function validFooterSegmentEntries(record: Record<string, unknown>): Partial<FooterSegmentsConfig> {
+	return Object.fromEntries(
+		Object.entries(record).filter((entry): entry is [keyof FooterSegmentsConfig, boolean] => {
+			const [key, value] = entry;
+			return isFooterSegmentKey(key) && typeof value === "boolean";
+		}),
+	) as Partial<FooterSegmentsConfig>;
 }
 
 function readConfigRecord(path = configPath): ConfigRecord {
@@ -345,6 +406,9 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const features = isRecord(config.features)
 		? normalizeUiFeatures(config.features as Record<string, unknown>)
 		: defaultConfig.features;
+	const footerSegments = isRecord(config.footerSegments)
+		? normalizeFooterSegments(config.footerSegments as Record<string, unknown>)
+		: defaultConfig.footerSegments;
 	const extensionStatuses = isRecord(config.extensionStatuses)
 		? normalizeExtensionStatuses(config.extensionStatuses as Record<string, unknown>)
 		: defaultConfig.extensionStatuses;
@@ -360,6 +424,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		},
 		colorSources: { ...colorSources },
 		features: { ...features },
+		footerSegments: { ...footerSegments },
 		extensionStatuses: {
 			defaultPlacement: extensionStatuses.defaultPlacement,
 			placements: { ...extensionStatuses.placements },
@@ -418,6 +483,22 @@ export function saveUiFeaturesPatch(
 	record.features = {
 		...existing,
 		...validUiFeatureEntries(patch),
+	};
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveFooterSegmentsPatch(
+	patch: Partial<FooterSegmentsConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.footerSegments)
+		? { ...(record.footerSegments as Record<string, unknown>) }
+		: {};
+	record.footerSegments = {
+		...existing,
+		...validFooterSegmentEntries(patch),
 	};
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);

@@ -196,24 +196,32 @@ export function installFooter(
 								: "";
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
-				const branchLabel = branch
-					? [...["on", gitIcon, gitColor(branch)].filter(Boolean), statusBlock]
-							.filter(Boolean)
-							.join(" ")
+				const branchParts =
+					config.footerSegments.gitBranch && branch
+						? ["on", gitIcon, gitColor(branch)].filter(Boolean)
+						: [];
+				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
+				const branchLabel = [...branchParts, ...gitStatusParts].filter(Boolean).join(" ");
+				const runtimeLabel = config.footerSegments.runtime
+					? formatRuntimeSegment(theme, state.runtime, config.colors.runtimePrefix, colorSource)
 					: "";
-				const runtimeLabel = formatRuntimeSegment(
-					theme,
-					state.runtime,
-					config.colors.runtimePrefix,
-					colorSource,
-				);
 
-				const left = [cwdLabel, branchLabel, runtimeLabel].filter(Boolean).join(" ");
+				const left = [config.footerSegments.cwd ? cwdLabel : "", branchLabel, runtimeLabel]
+					.filter(Boolean)
+					.join(" ");
 				const right = [
-					renderStyleForSource(theme, colorSource, contextColor, state.contextLabel),
-					renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel),
-					renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel),
-				].join(separator);
+					config.footerSegments.context
+						? renderStyleForSource(theme, colorSource, contextColor, state.contextLabel)
+						: "",
+					config.footerSegments.tokens
+						? renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel)
+						: "",
+					config.footerSegments.cost
+						? renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel)
+						: "",
+				]
+					.filter(Boolean)
+					.join(separator);
 				const extensionStatuses = collectExtensionStatusSegments(
 					footerData.getExtensionStatuses(),
 					config,

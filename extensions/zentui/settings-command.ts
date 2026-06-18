@@ -12,6 +12,7 @@ import {
 	type ColorSourcesConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
+	type FooterSegmentsConfig,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
 	getExtensionStatusColorMode,
@@ -33,10 +34,11 @@ const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "o
 type FeatureState = "enabled" | "disabled";
 
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
-const settingsSections = ["coloring", "features", "statusLine"] as const;
+const settingsSections = ["coloring", "features", "builtinSegments", "extensionSegments"] as const;
 
 type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
+type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
 
 type SettingsCommandDeps = {
@@ -46,6 +48,7 @@ type SettingsCommandDeps = {
 		patch: Partial<UiFeaturesConfig>,
 		ctx: ExtensionContext,
 	) => { applied: boolean; reason?: string };
+	setFooterSegments: (patch: Partial<FooterSegmentsConfig>) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -79,6 +82,26 @@ const featureSettingDescriptions: Record<FeatureSettingId, string> = {
 		"Hide editor and previous-message rail glyphs for cleaner native terminal selection.",
 };
 
+const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
+	cwd: "Current directory",
+	gitBranch: "Git branch",
+	gitStatus: "Git status",
+	runtime: "Runtime",
+	context: "Context usage",
+	tokens: "Token counts",
+	cost: "Session cost",
+};
+
+const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
+	cwd: "Show or hide the current working directory segment on the left.",
+	gitBranch: "Show or hide the git branch name on the left.",
+	gitStatus: "Show or hide git status icons and ahead/behind markers.",
+	runtime: "Show or hide the detected runtime/language segment on the left.",
+	context: "Show or hide context usage on the right.",
+	tokens: "Show or hide input/output token counts on the right.",
+	cost: "Show or hide session cost on the right.",
+};
+
 const directCommandSuggestions = [
 	"editor enable",
 	"editor disable",
@@ -94,10 +117,12 @@ const directCommandSuggestions = [
 const sectionLabels: Record<SettingsSection, string> = {
 	coloring: "Coloring",
 	features: "Features",
-	statusLine: "Status line",
+	builtinSegments: "Built-in segments",
+	extensionSegments: "Extension segments",
 };
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
+const footerSegmentSettingPrefix = "footerSegment:";
 type ThirdPartyStatusSettingKind = "placement" | "colorMode";
 
 function isColorSource(value: string): value is ColorSource {
@@ -110,6 +135,18 @@ function isColorSettingId(value: string): value is ColorSettingId {
 
 function isFeatureSettingId(value: string): value is FeatureSettingId {
 	return value === "editor" || value === "statusLine" || value === "copyFriendly";
+}
+
+function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingId {
+	return (
+		value === "cwd" ||
+		value === "gitBranch" ||
+		value === "gitStatus" ||
+		value === "runtime" ||
+		value === "context" ||
+		value === "tokens" ||
+		value === "cost"
+	);
 }
 
 function isFeatureState(value: string): value is FeatureState {
@@ -132,6 +169,23 @@ function featureValue(enabled: boolean): FeatureState {
 
 function featurePatch(id: FeatureSettingId, value: FeatureState): Partial<UiFeaturesConfig> {
 	return { [id]: value === "enabled" } as Partial<UiFeaturesConfig>;
+}
+
+function footerSegmentSettingId(key: FooterSegmentSettingId): string {
+	return `${footerSegmentSettingPrefix}${key}`;
+}
+
+function footerSegmentSettingFromId(id: string): FooterSegmentSettingId | undefined {
+	if (!id.startsWith(footerSegmentSettingPrefix)) return undefined;
+	const key = id.slice(footerSegmentSettingPrefix.length);
+	return isFooterSegmentSettingId(key) ? key : undefined;
+}
+
+function footerSegmentPatch(
+	id: FooterSegmentSettingId,
+	value: FeatureState,
+): Partial<FooterSegmentsConfig> {
+	return { [id]: value === "enabled" } as Partial<FooterSegmentsConfig>;
 }
 
 function usageText(): string {
@@ -229,6 +283,16 @@ function buildItems(
 		}));
 	}
 
+	if (section === "builtinSegments") {
+		return (Object.keys(footerSegmentSettingLabels) as FooterSegmentSettingId[]).map((key) => ({
+			id: footerSegmentSettingId(key),
+			label: footerSegmentSettingLabels[key],
+			description: footerSegmentSettingDescriptions[key],
+			currentValue: featureValue(config.footerSegments[key]),
+			values: featureStateValues,
+		}));
+	}
+
 	const statuses = Array.from(activeStatuses.entries()).sort(([a], [b]) =>
 		a < b ? -1 : a > b ? 1 : 0,
 	);
@@ -237,8 +301,7 @@ function buildItems(
 			{
 				id: "noThirdPartyStatuses",
 				label: "No active statuses",
-				description:
-					"This section only lists statuses currently published through ctx.ui.setStatus().",
+				description: "This tab only lists statuses currently published through ctx.ui.setStatus().",
 				currentValue: "—",
 			},
 		];
@@ -381,6 +444,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 
 									applyFeatureChange(id, newValue);
+									return;
+								}
+
+								const footerSegmentSetting = footerSegmentSettingFromId(id);
+								if (footerSegmentSetting && isFeatureState(newValue)) {
+									deps.setFooterSegments(footerSegmentPatch(footerSegmentSetting, newValue));
+									settingsList.updateValue(id, newValue);
+									deps.requestRender();
+									ctx.ui.notify(
+										`${footerSegmentSettingLabels[footerSegmentSetting]}: ${newValue}`,
+										"info",
+									);
+									tui.requestRender();
 									return;
 								}
 

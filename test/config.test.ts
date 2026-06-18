@@ -8,6 +8,7 @@ import {
 	saveColorSourcesPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
+	saveFooterSegmentsPatch,
 	saveUiFeaturesPatch,
 } from "../extensions/zentui/config";
 import {
@@ -40,6 +41,15 @@ describe("mergeConfig", () => {
 			editor: true,
 			statusLine: true,
 			copyFriendly: false,
+		});
+		expect(config.footerSegments).toEqual({
+			cwd: true,
+			gitBranch: true,
+			gitStatus: true,
+			runtime: true,
+			context: true,
+			tokens: true,
+			cost: true,
 		});
 		expect(config.extensionStatuses).toEqual({
 			defaultPlacement: "right",
@@ -233,6 +243,30 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ features: { copyFriendly: "on" } }).features.copyFriendly).toBe(false);
 	});
 
+	it("accepts valid footer segment preferences and ignores invalid values", () => {
+		expect(mergeConfig({ footerSegments: { cwd: false, tokens: false } }).footerSegments).toEqual({
+			cwd: false,
+			gitBranch: true,
+			gitStatus: true,
+			runtime: true,
+			context: true,
+			tokens: false,
+			cost: true,
+		});
+		expect(
+			mergeConfig({ footerSegments: { cost: "off", gitBranch: false, gitStatus: false } })
+				.footerSegments,
+		).toEqual({
+			cwd: true,
+			gitBranch: false,
+			gitStatus: false,
+			runtime: true,
+			context: true,
+			tokens: true,
+			cost: true,
+		});
+	});
+
 	it("saves color source patches without erasing unknown user config", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
 		const path = join(dir, "zentui.json");
@@ -387,6 +421,71 @@ describe("mergeConfig", () => {
 				copyFriendly: false,
 			});
 			expect(raw).toEqual({ features: { editor: false } });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("saves footer segment patches without erasing unknown user config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				`${JSON.stringify(
+					{
+						unknown: true,
+						footerSegments: {
+							cwd: true,
+							futureKey: "future",
+						},
+					},
+					null,
+					2,
+				)}\n`,
+			);
+
+			const config = saveFooterSegmentsPatch({ tokens: false, cost: false }, path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.footerSegments).toEqual({
+				cwd: true,
+				gitBranch: true,
+				gitStatus: true,
+				runtime: true,
+				context: true,
+				tokens: false,
+				cost: false,
+			});
+			expect(raw.unknown).toBe(true);
+			expect(raw.footerSegments).toEqual({
+				cwd: true,
+				futureKey: "future",
+				tokens: false,
+				cost: false,
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("writes only the requested footer segment setting when creating zentui.json", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFooterSegmentsPatch({ runtime: false }, path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.footerSegments).toEqual({
+				cwd: true,
+				gitBranch: true,
+				gitStatus: true,
+				runtime: false,
+				context: true,
+				tokens: true,
+				cost: true,
+			});
+			expect(raw).toEqual({ footerSegments: { runtime: false } });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

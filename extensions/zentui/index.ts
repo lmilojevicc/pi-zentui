@@ -9,6 +9,7 @@ import {
 	type ColorSourcesConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
+	type FooterSegmentsConfig,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
 	ensureConfigExists,
@@ -16,6 +17,7 @@ import {
 	saveColorSourcesPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
+	saveFooterSegmentsPatch,
 	saveUiFeaturesPatch,
 } from "./config";
 import { installFooter } from "./footer";
@@ -340,6 +342,9 @@ export default function (pi: ExtensionAPI) {
 					? "another extension is currently managing the editor; reload Pi to apply this change"
 					: undefined,
 			};
+		},
+		setFooterSegments(patch: Partial<FooterSegmentsConfig>) {
+			currentConfig = saveFooterSegmentsPatch(patch);
 		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();

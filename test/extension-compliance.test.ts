@@ -1518,6 +1518,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1555,6 +1556,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1595,6 +1597,7 @@ describe("Pi docs compliance", () => {
 					featureChanges.push(patch);
 					return { applied: true };
 				},
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1635,6 +1638,7 @@ describe("Pi docs compliance", () => {
 					featureChanges.push(patch);
 					return { applied: true };
 				},
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1665,6 +1669,7 @@ describe("Pi docs compliance", () => {
 					featureChanges.push(patch);
 					return { applied: true };
 				},
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1703,6 +1708,7 @@ describe("Pi docs compliance", () => {
 					reason:
 						"another extension is currently managing the editor; reload Pi to apply this change",
 				}),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1748,6 +1754,7 @@ describe("Pi docs compliance", () => {
 						doneCallsAtFeatureChange.push(doneCalls);
 						return { applied: true };
 					},
+					setFooterSegments() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -1790,7 +1797,7 @@ describe("Pi docs compliance", () => {
 	});
 
 	it("renders Zentui settings with mode-aware top and bottom borders", async () => {
-		const settingsWidth = 80;
+		const settingsWidth = 120;
 		async function renderSettings(config: PolishedTuiConfig) {
 			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 			let lines: string[] = [];
@@ -1805,6 +1812,7 @@ describe("Pi docs compliance", () => {
 					getConfig: () => config,
 					setColorSources() {},
 					setUiFeatures: () => ({ applied: true }),
+					setFooterSegments() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -1841,7 +1849,8 @@ describe("Pi docs compliance", () => {
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Coloring");
 		expect(themeLines.join("\n")).toContain("Features");
-		expect(themeLines.join("\n")).toContain("Status line");
+		expect(themeLines.join("\n")).toContain("Built-in segments");
+		expect(themeLines.join("\n")).toContain("Extension segments");
 		expect(themeLines.join("\n")).toContain("Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -1869,6 +1878,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1920,6 +1930,7 @@ describe("Pi docs compliance", () => {
 					changes.push(patch);
 				},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1984,6 +1995,7 @@ describe("Pi docs compliance", () => {
 					changes.push(patch);
 				},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2021,7 +2033,13 @@ describe("Pi docs compliance", () => {
 		expect(changes).toEqual([{ editor: "theme", userMessages: "theme" }]);
 	});
 
-	it("renders active third-party status line statuses in their own section", async () => {
+	function navigateToExtensionSegmentsSection(component: { handleInput?: (data: string) => void }) {
+		component.handleInput?.("\t");
+		component.handleInput?.("\t");
+		component.handleInput?.("\t");
+	}
+
+	it("renders active third-party statuses in the extension segments tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -2035,6 +2053,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () =>
 					new Map<string, string>([
 						["alpha", "A"],
@@ -2064,20 +2083,18 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
+					navigateToExtensionSegmentsSection(component);
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},
 		});
 
-		expect(rendered).toContain("Status line");
 		expect(rendered).toContain("alpha");
 		expect(rendered).toContain("beta");
 		expect(rendered).toContain("right");
 	});
 
-	it("shows a read-only empty third-party status line section", async () => {
+	it("shows a read-only empty extension segments tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
@@ -2092,6 +2109,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2119,8 +2137,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
+					navigateToExtensionSegmentsSection(component);
 					rendered = component.render?.(120).join("\n") ?? "";
 					component.handleInput?.("\x1b");
 				},
@@ -2132,7 +2149,7 @@ describe("Pi docs compliance", () => {
 		expect(placements).toEqual([]);
 	});
 
-	it("cycles active third-party status placement from the status line section", async () => {
+	it("cycles active third-party status placement from the extension segments tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
 		let dependencyRenderRequests = 0;
@@ -2148,6 +2165,7 @@ describe("Pi docs compliance", () => {
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["alpha", "ok"]]),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2183,8 +2201,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
+					navigateToExtensionSegmentsSection(component);
 					component.handleInput?.(" ");
 				},
 			},
@@ -2192,10 +2209,10 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(3);
+		expect(tuiRenderRequests).toBe(4);
 	});
 
-	it("does not show inactive saved placements in the status line section", async () => {
+	it("does not show inactive saved placements in the extension segments tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -2212,6 +2229,7 @@ describe("Pi docs compliance", () => {
 					}),
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2237,8 +2255,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
+					navigateToExtensionSegmentsSection(component);
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},

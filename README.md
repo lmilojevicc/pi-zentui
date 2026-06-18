@@ -22,6 +22,7 @@ Zentui brings two popular aesthetics to Pi:
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
 - `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
 - Right side shows context usage, token counts, and cost
+- Built-in footer segments can be shown or hidden individually from `/zentui`
 - Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
   middle, or right side, or hidden per status key from `/zentui`
 
@@ -124,9 +125,9 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Config
 
-User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, and active third-party status placements.
+User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu is split into three sections. Use `Tab` to switch between `Coloring`, `Features`, and `Status line`.
+The interactive `/zentui` menu is split into four sections. Use `Tab` to switch between `Coloring`, `Features`, `Built-in segments`, and `Extension segments`.
 
 Useful slash-command shortcuts:
 
@@ -198,6 +199,15 @@ Default config values — copy this and change any value you want:
 		"statusLine": true,
 		"copyFriendly": false
 	},
+	"footerSegments": {
+		"cwd": true,
+		"gitBranch": true,
+		"gitStatus": true,
+		"runtime": true,
+		"context": true,
+		"tokens": true,
+		"cost": true
+	},
 	"extensionStatuses": {
 		"defaultPlacement": "right",
 		"placements": {},
@@ -211,7 +221,8 @@ Default config values — copy this and change any value you want:
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. All three can be changed from `/zentui` or direct slash-command arguments.
-- `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. `/zentui` lists only statuses that are currently active.
+- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `gitBranch`, `gitStatus`, `runtime`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.
+- `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. The `Extension segments` tab in `/zentui` lists only statuses that are currently active.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles the active editor rail and previous user-message rail when `features.copyFriendly` is disabled.
 - `editorPrompt` styles the copy-friendly editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
