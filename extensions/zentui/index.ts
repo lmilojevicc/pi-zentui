@@ -60,8 +60,12 @@ function getZentuiEditorBaseFactory(factory: EditorFactory | undefined): EditorF
 }
 
 function isTuiContext(ctx: ExtensionContext): boolean {
-	const mode = (ctx as ExtensionContext & { mode?: string }).mode;
-	return ctx.hasUI && (mode === undefined || mode === "tui");
+	try {
+		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
+		return ctx.hasUI && (mode === undefined || mode === "tui");
+	} catch {
+		return false;
+	}
 }
 
 export default function (pi: ExtensionAPI) {
