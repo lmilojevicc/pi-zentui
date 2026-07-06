@@ -111,7 +111,7 @@ function getEditorChromeWidths(config: PolishedTuiConfig, uiTheme: Theme, reset:
 				config.colorSources.editor,
 				config.colors.editorAccent,
 				EDITOR_ACCENT_FALLBACK,
-				"│",
+				config.icons.rail,
 			)}${reset} `;
 	return {
 		prompt,

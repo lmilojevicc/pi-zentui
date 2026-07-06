@@ -87,6 +87,7 @@ function getUserMessageConfigKey(config: PolishedTuiConfig): string {
 		config.colorSources.userMessages,
 		config.colors.editorAccent ?? "",
 		config.colors.editorBorder ?? "",
+		config.icons.rail,
 	].join("\0");
 }
 
@@ -126,6 +127,7 @@ function fillLine(content: string, width: number): string {
 
 function renderPromptBoxRail(theme: Theme | undefined, config: PolishedTuiConfig): string {
 	if (config.features.copyFriendly) return "";
+	const railGlyph = config.icons.rail;
 
 	return `${
 		theme
@@ -134,9 +136,9 @@ function renderPromptBoxRail(theme: Theme | undefined, config: PolishedTuiConfig
 					config.colorSources.userMessages,
 					config.colors.editorAccent,
 					EDITOR_ACCENT_FALLBACK,
-					"│",
+					railGlyph,
 				)
-			: "│"
+			: railGlyph
 	} `;
 }
 
