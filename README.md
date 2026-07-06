@@ -163,7 +163,8 @@ Default config values — copy this and change any value you want:
 		"deleted": "✘",
 		"typechanged": "T",
 		"cacheHit": "󰆼",
-		"editorPrompt": ""
+		"editorPrompt": "",
+		"rail": "│"
 	},
 	"colors": {
 		"cwd": "bold cyan",
@@ -218,7 +219,7 @@ Default config values — copy this and change any value you want:
 
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`).
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling.
-- `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
+- `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. All three can be changed from `/zentui` or direct slash-command arguments.
 - `footerSegments`: show or hide individual built-in footer segments (`cwd`, `gitBranch`, `gitStatus`, `runtime`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.

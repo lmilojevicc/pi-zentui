@@ -605,6 +605,22 @@ describe("Pi docs compliance", () => {
 		expect(stripTestTags(lines.at(-1) ?? "")).toMatch(/^─+$/);
 	});
 
+	it("renders the configured rail glyph on user messages", () => {
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			icons: { ...defaultConfig.icons, rail: "┃" },
+		};
+		installUserMessageStyle(
+			() => makeTaggedTheme(),
+			() => config,
+		);
+
+		const raw = new UserMessageComponent("hello").render(80).join("\n");
+
+		expect(raw).toContain("[accent]┃");
+		expect(raw).not.toContain("│");
+	});
+
 	it("caches rendered user messages across repeated renders", () => {
 		const getChildren = vi.fn(() => [{ text: "hello ".repeat(2000) }]);
 		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);

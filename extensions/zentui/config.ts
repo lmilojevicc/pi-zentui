@@ -60,6 +60,7 @@ export type PolishedTuiConfig = {
 		typechanged: string;
 		cacheHit: string;
 		editorPrompt: string;
+		rail: string;
 	};
 	colors: {
 		cwd: ColorSpec;
@@ -111,6 +112,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		typechanged: "T",
 		cacheHit: "󰆼",
 		editorPrompt: "",
+		rail: "│",
 	},
 	colors: {
 		cwd: "bold cyan",
@@ -185,6 +187,10 @@ function parseProjectRefreshIntervalMs(value: unknown): number {
 	return interval >= MIN_PROJECT_REFRESH_INTERVAL_MS
 		? interval
 		: defaultConfig.projectRefreshIntervalMs;
+}
+
+function railValue(value: unknown): string {
+	return typeof value === "string" && value.trim().length > 0 ? value : defaultConfig.icons.rail;
 }
 
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -394,9 +400,8 @@ export function ensureConfigExists(): void {
 
 export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
-	const icons = isRecord(config.icons)
-		? normalizeIcons(config.icons as Record<string, unknown>)
-		: {};
+	const iconsRecord = isRecord(config.icons) ? (config.icons as Record<string, unknown>) : {};
+	const icons = normalizeIcons(iconsRecord);
 	const colors = isRecord(config.colors)
 		? normalizeColors(config.colors as Record<string, unknown>)
 		: {};
@@ -417,6 +422,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		icons: {
 			...defaultConfig.icons,
 			...icons,
+			rail: railValue(iconsRecord.rail),
 		},
 		colors: {
 			...defaultConfig.colors,
