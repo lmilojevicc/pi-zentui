@@ -5,6 +5,7 @@ npm-debug.log*
 .pi/goals/
 .pi/subagent-schedules/
 .pi/tasks/
+.pi-subagents/
 bun.lock
 bun.lockb
 *.tgz
