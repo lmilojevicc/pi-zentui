@@ -9,9 +9,9 @@ import {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	defaultConfig,
 	type ExtensionStatusPlacement,
 	type PolishedTuiConfig,
-	defaultConfig,
 } from "../extensions/zentui/config";
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";

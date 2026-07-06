@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
-import { type ExtensionStatusSegment, collectExtensionStatusSegments } from "./extension-status";
+import { collectExtensionStatusSegments, type ExtensionStatusSegment } from "./extension-status";
 import { formatCwdLabel, formatRuntimeSegment } from "./format";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";

@@ -9,29 +9,29 @@ import {
 	type ColorSourcesConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
-	type FooterSegmentsConfig,
-	type PolishedTuiConfig,
-	type UiFeaturesConfig,
 	ensureConfigExists,
+	type FooterSegmentsConfig,
 	loadConfig,
+	type PolishedTuiConfig,
 	saveColorSourcesPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
 	saveFooterSegmentsPatch,
 	saveUiFeaturesPatch,
+	type UiFeaturesConfig,
 } from "./config";
 import { installFooter } from "./footer";
 import { emptyGitStatus, readGitStatus } from "./git";
 import {
+	createProjectRefreshScheduler,
 	type ScheduleProjectRefreshOptions,
 	type StopProjectRefreshInterval,
-	createProjectRefreshScheduler,
 	startProjectRefreshInterval,
 } from "./project-refresh";
 import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle } from "./selector-border";
 import { registerZentuiSettingsCommand } from "./settings-command";
-import { type FooterState, createInitialState, syncState } from "./state";
+import { createInitialState, type FooterState, syncState } from "./state";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle } from "./user-message";
 

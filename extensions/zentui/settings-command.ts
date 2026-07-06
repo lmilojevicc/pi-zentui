@@ -3,10 +3,10 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import {
 	type AutocompleteItem,
 	Key,
+	matchesKey,
 	type SettingItem,
 	SettingsList,
 	type SettingsListTheme,
-	matchesKey,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import {
@@ -15,12 +15,12 @@ import {
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FooterSegmentsConfig,
-	type PolishedTuiConfig,
-	type UiFeaturesConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
+	type PolishedTuiConfig,
+	type UiFeaturesConfig,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";

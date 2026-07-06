@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type PolishedTuiConfig, defaultConfig } from "../extensions/zentui/config";
+import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import {
 	collectExtensionStatusSegments,
 	sanitizeExtensionStatusOriginalText,
