@@ -1325,7 +1325,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered.match(/claude-sonnet/g)).toHaveLength(1);
 		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
 		expect(rendered.match(/medium/g)).toHaveLength(1);
-		expect(lines).toHaveLength(5);
+		expect(lines).toHaveLength(4);
 	});
 
 	it("drops the stale leading spacer when wrapping an already-polished editor with text", () => {
@@ -1355,10 +1355,9 @@ describe("Pi docs compliance", () => {
 		const lines = editor.render(120);
 		const textIndex = lines.findIndex((line) => line.includes("typed text"));
 
-		expect(textIndex).toBe(2);
-		expect(lines).toHaveLength(6);
-		expect(stripTestTags(lines[textIndex - 2] ?? "").trim()).toMatch(/^─+$/);
-		expect(stripTestTags(lines[textIndex - 1] ?? "").trim()).toBe("│");
+		expect(textIndex).toBe(1);
+		expect(lines).toHaveLength(5);
+		expect(stripTestTags(lines[textIndex - 1] ?? "").trim()).toMatch(/^─+$/);
 	});
 
 	it("preserves a user blank line after removing stale polished editor spacing", () => {
@@ -1389,10 +1388,9 @@ describe("Pi docs compliance", () => {
 		const lines = editor.render(120);
 		const textIndex = lines.findIndex((line) => line.includes("typed text"));
 
-		expect(textIndex).toBe(3);
-		expect(lines).toHaveLength(7);
-		expect(stripTestTags(lines[textIndex - 3] ?? "").trim()).toMatch(/^─+$/);
-		expect(stripTestTags(lines[textIndex - 2] ?? "").trim()).toBe("│");
+		expect(textIndex).toBe(2);
+		expect(lines).toHaveLength(6);
+		expect(stripTestTags(lines[textIndex - 2] ?? "").trim()).toMatch(/^─+$/);
 		expect(stripTestTags(lines[textIndex - 1] ?? "").trim()).toBe("│");
 	});
 
@@ -1430,7 +1428,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
 		expect(rendered.match(/xhigh/g)).toHaveLength(1);
 		expect(rendered.match(/INSERT/g)).toHaveLength(1);
-		expect(lines).toHaveLength(5);
+		expect(lines).toHaveLength(4);
 	});
 
 	it("replaces nested model lines with the current model and vim status line", () => {

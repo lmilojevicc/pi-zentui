@@ -329,11 +329,10 @@ function renderPolishedFrame({
 		EDITOR_BORDER_FALLBACK,
 		"─".repeat(width),
 	);
-	const lines = ["", ...editorLines, "", railedMeta];
+	const lines = [...editorLines, "", railedMeta];
 	const renderedLines = config.features.copyFriendly
 		? [
 				top,
-				"",
 				...editorLines.map(
 					(line, index) =>
 						`${index === 0 ? prompt : copyFriendlyContinuation}${fillLine(line, innerWidth)}`,
