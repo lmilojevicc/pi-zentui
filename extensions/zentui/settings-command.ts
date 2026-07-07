@@ -100,7 +100,8 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	cwd: "Show or hide the current working directory segment on the left.",
 	gitBranch: "Show or hide the git branch name on the left.",
 	gitStatus: "Show or hide git status icons and ahead/behind markers.",
-	gitCounts: "Show numeric ahead/behind and stash counts alongside git status icons.",
+	gitCounts:
+		"Show numeric ahead/behind and stash counts (requires the Git status segment to be enabled).",
 	sessionDuration: "Show session running time on the left, after the runtime.",
 	runtime: "Show or hide the detected runtime/language segment on the left.",
 	context: "Show or hide context usage on the right.",

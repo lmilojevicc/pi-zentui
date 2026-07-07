@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildCostLabel,
+	buildSessionDurationLabel,
 	buildTokenLabel,
 	formatCount,
 	getUsageTotals,
@@ -119,5 +120,33 @@ describe("usage formatting", () => {
 		expect(totals.cacheWrite).toBe(500);
 		expect(totals.latestCacheHitRate).toBe(30);
 		expect(buildTokenLabel(totals, cacheHitIcon)).toBe("↑300 ↓30 󰆼 30.0%");
+	});
+});
+
+describe("buildSessionDurationLabel", () => {
+	const FIXED_NOW = 1_700_000_000_000;
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(FIXED_NOW);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("formats seconds only", () => {
+		expect(buildSessionDurationLabel(FIXED_NOW - 45_000)).toBe("45s");
+	});
+
+	it("formats minutes and seconds", () => {
+		expect(buildSessionDurationLabel(FIXED_NOW - (2 * 60 + 13) * 1000)).toBe("2m 13s");
+	});
+
+	it("formats hours and minutes", () => {
+		expect(buildSessionDurationLabel(FIXED_NOW - (1 * 3600 + 5 * 60) * 1000)).toBe("1h 5m");
+	});
+
+	it("clamps zero and negative elapsed to 0s", () => {
+		expect(buildSessionDurationLabel(FIXED_NOW)).toBe("0s");
+		expect(buildSessionDurationLabel(FIXED_NOW + 10_000)).toBe("0s");
 	});
 });
