@@ -16,6 +16,7 @@ export type FooterState = GitStatusSummary & {
 	tokenLabel: string;
 	costLabel: string;
 	runtime?: RuntimeInfo;
+	sessionStartEpoch?: number;
 };
 
 export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
@@ -26,6 +27,7 @@ export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
 		tokenLabel: "↑0 ↓0",
 		costLabel: "$0.000",
 		runtime: undefined,
+		sessionStartEpoch: Date.now(),
 		...gitDefaults,
 	};
 }

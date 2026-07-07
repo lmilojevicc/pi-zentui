@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
 import { collectExtensionStatusSegments, type ExtensionStatusSegment } from "./extension-status";
-import { formatCwdLabel, formatRuntimeSegment } from "./format";
+import { buildSessionDurationLabel, formatCwdLabel, formatRuntimeSegment } from "./format";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -176,9 +176,16 @@ export function installFooter(
 				const gitStatusColor = (text: string) =>
 					renderStyleForSource(theme, colorSource, config.colors.gitStatus, text);
 				const gitIcon = config.icons.git ? gitColor(config.icons.git) : "";
+				const gitCounts = config.footerSegments.gitCounts;
+				const stashLabel =
+					state.stashed > 0
+						? gitCounts
+							? `${config.icons.stashed}${state.stashed}`
+							: config.icons.stashed
+						: "";
 				const allStatus = [
 					state.conflicted > 0 ? config.icons.conflicted : "",
-					state.stashed ? config.icons.stashed : "",
+					stashLabel,
 					state.deleted > 0 ? config.icons.deleted : "",
 					state.renamed > 0 ? config.icons.renamed : "",
 					state.modified > 0 ? config.icons.modified : "",
@@ -186,14 +193,18 @@ export function installFooter(
 					state.staged > 0 ? config.icons.staged : "",
 					state.untracked > 0 ? config.icons.untracked : "",
 				].join("");
-				const aheadBehind =
-					state.ahead > 0 && state.behind > 0
-						? config.icons.diverged
-						: state.ahead > 0
-							? config.icons.ahead
-							: state.behind > 0
-								? config.icons.behind
-								: "";
+				const aheadBehind = (() => {
+					if (state.ahead > 0 && state.behind > 0) {
+						return gitCounts
+							? `${config.icons.ahead}${state.ahead}${config.icons.behind}${state.behind}`
+							: config.icons.diverged;
+					}
+					if (state.ahead > 0)
+						return gitCounts ? `${config.icons.ahead}${state.ahead}` : config.icons.ahead;
+					if (state.behind > 0)
+						return gitCounts ? `${config.icons.behind}${state.behind}` : config.icons.behind;
+					return "";
+				})();
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
 				const branchParts =
@@ -206,9 +217,27 @@ export function installFooter(
 					? formatRuntimeSegment(theme, state.runtime, config.colors.runtimePrefix, colorSource)
 					: "";
 
-				const left = [config.footerSegments.cwd ? cwdLabel : "", branchLabel, runtimeLabel]
+				const sessionDurationSegment = (() => {
+					if (!config.footerSegments.sessionDuration || !state.sessionStartEpoch) return "";
+					const timeLabel = buildSessionDurationLabel(state.sessionStartEpoch);
+					const prefix = renderStyleForSource(theme, colorSource, "", "up for");
+					const time = renderStyleForSource(
+						theme,
+						colorSource,
+						config.colors.sessionDuration,
+						timeLabel,
+					);
+					return `${prefix} ${time}`;
+				})();
+				const left = [
+					config.footerSegments.cwd ? cwdLabel : "",
+					branchLabel,
+					runtimeLabel,
+					sessionDurationSegment,
+				]
 					.filter(Boolean)
 					.join(" ");
+
 				const right = [
 					config.footerSegments.context
 						? renderStyleForSource(theme, colorSource, contextColor, state.contextLabel)
@@ -222,6 +251,7 @@ export function installFooter(
 				]
 					.filter(Boolean)
 					.join(separator);
+
 				const extensionStatuses = collectExtensionStatusSegments(
 					footerData.getExtensionStatuses(),
 					config,

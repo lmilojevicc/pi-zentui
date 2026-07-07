@@ -91,6 +91,16 @@ export function buildCostLabel(totals: UsageTotals): string {
 	return `$${totals.cost.toFixed(3)}`;
 }
 
+export function buildSessionDurationLabel(startEpoch: number): string {
+	const totalSeconds = Math.max(0, Math.floor((Date.now() - startEpoch) / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h ${minutes}m`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
+
 export function buildContextLabel(ctx: ExtensionContext): string {
 	const usage = ctx.getContextUsage();
 	const contextWindow = ctx.model?.contextWindow ?? usage?.contextWindow;

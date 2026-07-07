@@ -11,7 +11,7 @@ export type GitStatusSummary = {
 	behind: number;
 	conflicted: number;
 	untracked: number;
-	stashed: boolean;
+	stashed: number;
 	modified: number;
 	staged: number;
 	renamed: number;
@@ -27,7 +27,7 @@ export function emptyGitStatus(): GitStatusSummary {
 		behind: 0,
 		conflicted: 0,
 		untracked: 0,
-		stashed: false,
+		stashed: 0,
 		modified: 0,
 		staged: 0,
 		renamed: 0,
@@ -36,9 +36,9 @@ export function emptyGitStatus(): GitStatusSummary {
 	};
 }
 
-export function parseGitStatusPorcelain(stdoutText: string, hasStash: boolean): GitStatusSummary {
+export function parseGitStatusPorcelain(stdoutText: string, stashCount: number): GitStatusSummary {
 	const status = emptyGitStatus();
-	status.stashed = hasStash;
+	status.stashed = stashCount;
 
 	for (const line of stdoutText.split(/\r?\n/)) {
 		if (!line) continue;
@@ -93,7 +93,7 @@ export async function readGitStatus(cwd: string): Promise<GitStatusSummary> {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
 			}),
-			execFileAsync("git", ["rev-parse", "--verify", "--quiet", "refs/stash"], {
+			execFileAsync("git", ["stash", "list"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
 			}).catch(() => ({ stdout: "" })),
@@ -101,7 +101,8 @@ export async function readGitStatus(cwd: string): Promise<GitStatusSummary> {
 		const stdoutText = typeof statusStdout === "string" ? statusStdout : String(statusStdout);
 		const stashStdout =
 			typeof stashResult.stdout === "string" ? stashResult.stdout : String(stashResult.stdout);
-		return parseGitStatusPorcelain(stdoutText, stashStdout.trim().length > 0);
+		const stashCount = stashStdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
+		return parseGitStatusPorcelain(stdoutText, stashCount);
 	} catch {
 		return emptyGitStatus();
 	}
