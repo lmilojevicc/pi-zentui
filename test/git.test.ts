@@ -3,7 +3,7 @@ import { emptyGitStatus, parseGitStatusPorcelain } from "../extensions/zentui/gi
 
 describe("parseGitStatusPorcelain", () => {
 	it("returns empty status for empty output", () => {
-		expect(parseGitStatusPorcelain("", false)).toEqual(emptyGitStatus());
+		expect(parseGitStatusPorcelain("", 0)).toEqual(emptyGitStatus());
 	});
 
 	it("parses branch, ahead/behind, and file states", () => {
@@ -17,7 +17,7 @@ describe("parseGitStatusPorcelain", () => {
 				"? untracked.ts",
 				"u UU N... 100644 100644 100644 100644 abc abc conflict.ts",
 			].join("\n"),
-			true,
+			1,
 		);
 
 		expect(status).toMatchObject({
@@ -30,12 +30,12 @@ describe("parseGitStatusPorcelain", () => {
 			renamed: 1,
 			untracked: 1,
 			conflicted: 1,
-			stashed: true,
+			stashed: 1,
 		});
 	});
 
 	it("hides detached head as no branch", () => {
-		const status = parseGitStatusPorcelain("# branch.head (detached)", false);
+		const status = parseGitStatusPorcelain("# branch.head (detached)", 0);
 		expect(status.branch).toBeUndefined();
 	});
 });

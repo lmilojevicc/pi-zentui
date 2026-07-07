@@ -88,6 +88,8 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	cwd: "Current directory",
 	gitBranch: "Git branch",
 	gitStatus: "Git status",
+	gitCounts: "Git counts",
+	sessionDuration: "Session duration",
 	runtime: "Runtime",
 	context: "Context usage",
 	tokens: "Token counts",
@@ -98,6 +100,8 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	cwd: "Show or hide the current working directory segment on the left.",
 	gitBranch: "Show or hide the git branch name on the left.",
 	gitStatus: "Show or hide git status icons and ahead/behind markers.",
+	gitCounts: "Show numeric ahead/behind and stash counts alongside git status icons.",
+	sessionDuration: "Show session running time on the left, after the runtime.",
 	runtime: "Show or hide the detected runtime/language segment on the left.",
 	context: "Show or hide context usage on the right.",
 	tokens: "Show or hide input/output token counts on the right.",
@@ -144,6 +148,8 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 		value === "cwd" ||
 		value === "gitBranch" ||
 		value === "gitStatus" ||
+		value === "gitCounts" ||
+		value === "sessionDuration" ||
 		value === "runtime" ||
 		value === "context" ||
 		value === "tokens" ||

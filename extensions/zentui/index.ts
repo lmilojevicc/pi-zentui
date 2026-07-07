@@ -21,6 +21,7 @@ import {
 	type UiFeaturesConfig,
 } from "./config";
 import { installFooter } from "./footer";
+import { buildSessionDurationLabel } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import {
 	createProjectRefreshScheduler,
@@ -83,6 +84,8 @@ export default function (pi: ExtensionAPI) {
 	let installedEditorFactory: EditorFactory | undefined;
 	let wrappedEditorFactory: EditorFactory | undefined;
 	let prototypePatchesInstalled = false;
+	let stopSessionTimer: () => void = () => {};
+	let lastDurationLabel = "";
 
 	const refresh = () => requestFooterRender?.();
 	const getActiveTheme = () => activeTheme;
@@ -115,6 +118,25 @@ export default function (pi: ExtensionAPI) {
 		stopRefreshInterval();
 		stopRefreshInterval = () => {};
 		projectRefreshScheduler.stop();
+	};
+
+	const startSessionTimer = () => {
+		stopSessionTimer();
+		lastDurationLabel = "";
+		const timer = setInterval(() => {
+			if (!(currentConfig.features.statusLine && currentConfig.footerSegments.sessionDuration))
+				return;
+			const label = state.sessionStartEpoch
+				? buildSessionDurationLabel(state.sessionStartEpoch)
+				: "";
+			if (label === lastDurationLabel) return;
+			lastDurationLabel = label;
+			refresh();
+		}, 1000);
+		stopSessionTimer = () => {
+			clearInterval(timer);
+			stopSessionTimer = () => {};
+		};
 	};
 
 	const installPrototypePatches = () => {
@@ -239,9 +261,11 @@ export default function (pi: ExtensionAPI) {
 		);
 		scheduleProjectRefresh(ctx, { force: true });
 		refresh();
+		startSessionTimer();
 	};
 
 	const uninstallStatusLine = (ctx: ExtensionContext) => {
+		stopSessionTimer();
 		stopProjectRefresh();
 		ctx.ui.setFooter(undefined);
 		footerInstalled = false;
@@ -297,6 +321,7 @@ export default function (pi: ExtensionAPI) {
 
 	const cleanupUi = (ctx?: ExtensionContext) => {
 		uninstallPrototypePatches();
+		stopSessionTimer();
 		stopProjectRefresh();
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
@@ -328,6 +353,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		state.sessionStartEpoch = Date.now();
 		installUi(ctx);
 		scheduleEditorReconciliation(ctx);
 	});

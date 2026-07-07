@@ -22,10 +22,12 @@ export type FooterSegmentsConfig = {
 	cwd: boolean;
 	gitBranch: boolean;
 	gitStatus: boolean;
+	gitCounts: boolean;
 	runtime: boolean;
 	context: boolean;
 	tokens: boolean;
 	cost: boolean;
+	sessionDuration: boolean;
 };
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
@@ -74,6 +76,7 @@ export type PolishedTuiConfig = {
 		separator: ColorSpec;
 		runtimePrefix: ColorSpec;
 		extensionStatus: ColorSpec;
+		sessionDuration: ColorSpec;
 		editorAccent?: ColorSpec;
 		editorPrompt?: ColorSpec;
 		editorBorder?: ColorSpec;
@@ -126,6 +129,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		separator: "bright-black",
 		runtimePrefix: "",
 		extensionStatus: "bright-black",
+		sessionDuration: "yellow",
 	},
 	colorSources: {
 		starship: "theme",
@@ -141,10 +145,12 @@ export const defaultConfig: PolishedTuiConfig = {
 		cwd: true,
 		gitBranch: true,
 		gitStatus: true,
+		gitCounts: false,
 		runtime: true,
 		context: true,
 		tokens: true,
 		cost: true,
+		sessionDuration: false,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -256,6 +262,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		separator: colorValue(record, "separator"),
 		runtimePrefix: colorValue(record, "runtimePrefix"),
 		extensionStatus: colorValue(record, "extensionStatus"),
+		sessionDuration: colorValue(record, "sessionDuration"),
 		editorAccent: colorValue(record, "editorAccent"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),
@@ -291,10 +298,12 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		cwd: footerSegmentValue(record, "cwd"),
 		gitBranch: footerSegmentValue(record, "gitBranch"),
 		gitStatus: footerSegmentValue(record, "gitStatus"),
+		gitCounts: footerSegmentValue(record, "gitCounts"),
 		runtime: footerSegmentValue(record, "runtime"),
 		context: footerSegmentValue(record, "context"),
 		tokens: footerSegmentValue(record, "tokens"),
 		cost: footerSegmentValue(record, "cost"),
+		sessionDuration: footerSegmentValue(record, "sessionDuration"),
 	};
 }
 
@@ -347,10 +356,12 @@ function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig 
 		value === "cwd" ||
 		value === "gitBranch" ||
 		value === "gitStatus" ||
+		value === "gitCounts" ||
 		value === "runtime" ||
 		value === "context" ||
 		value === "tokens" ||
-		value === "cost"
+		value === "cost" ||
+		value === "sessionDuration"
 	);
 }
 

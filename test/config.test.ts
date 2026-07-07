@@ -48,6 +48,8 @@ describe("mergeConfig", () => {
 			gitStatus: true,
 			runtime: true,
 			context: true,
+			gitCounts: false,
+			sessionDuration: false,
 			tokens: true,
 			cost: true,
 		});
@@ -250,6 +252,8 @@ describe("mergeConfig", () => {
 			gitStatus: true,
 			runtime: true,
 			context: true,
+			gitCounts: false,
+			sessionDuration: false,
 			tokens: false,
 			cost: true,
 		});
@@ -262,6 +266,8 @@ describe("mergeConfig", () => {
 			gitStatus: false,
 			runtime: true,
 			context: true,
+			gitCounts: false,
+			sessionDuration: false,
 			tokens: true,
 			cost: true,
 		});
@@ -454,6 +460,8 @@ describe("mergeConfig", () => {
 				gitStatus: true,
 				runtime: true,
 				context: true,
+				gitCounts: false,
+				sessionDuration: false,
 				tokens: false,
 				cost: false,
 			});
@@ -482,6 +490,8 @@ describe("mergeConfig", () => {
 				gitStatus: true,
 				runtime: false,
 				context: true,
+				gitCounts: false,
+				sessionDuration: false,
 				tokens: true,
 				cost: true,
 			});
