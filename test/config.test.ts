@@ -50,6 +50,9 @@ describe("mergeConfig", () => {
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
+			username: false,
+			time: false,
+			os: false,
 			tokens: true,
 			cost: true,
 		});
@@ -254,6 +257,9 @@ describe("mergeConfig", () => {
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
+			username: false,
+			time: false,
+			os: false,
 			tokens: false,
 			cost: true,
 		});
@@ -268,6 +274,9 @@ describe("mergeConfig", () => {
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
+			username: false,
+			time: false,
+			os: false,
 			tokens: true,
 			cost: true,
 		});
@@ -462,6 +471,9 @@ describe("mergeConfig", () => {
 				context: true,
 				gitCounts: false,
 				sessionDuration: false,
+				username: false,
+				time: false,
+				os: false,
 				tokens: false,
 				cost: false,
 			});
@@ -492,6 +504,9 @@ describe("mergeConfig", () => {
 				context: true,
 				gitCounts: false,
 				sessionDuration: false,
+				username: false,
+				time: false,
+				os: false,
 				tokens: true,
 				cost: true,
 			});

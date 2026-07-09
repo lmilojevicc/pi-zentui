@@ -28,6 +28,9 @@ export type FooterSegmentsConfig = {
 	tokens: boolean;
 	cost: boolean;
 	sessionDuration: boolean;
+	username: boolean;
+	time: boolean;
+	os: boolean;
 };
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
@@ -63,6 +66,9 @@ export type PolishedTuiConfig = {
 		cacheHit: string;
 		editorPrompt: string;
 		rail: string;
+		username: string;
+		time: string;
+		os: string;
 	};
 	colors: {
 		cwd: ColorSpec;
@@ -77,6 +83,9 @@ export type PolishedTuiConfig = {
 		runtimePrefix: ColorSpec;
 		extensionStatus: ColorSpec;
 		sessionDuration: ColorSpec;
+		username: ColorSpec;
+		time: ColorSpec;
+		os: ColorSpec;
 		editorAccent?: ColorSpec;
 		editorPrompt?: ColorSpec;
 		editorBorder?: ColorSpec;
@@ -116,6 +125,9 @@ export const defaultConfig: PolishedTuiConfig = {
 		cacheHit: "󰆼",
 		editorPrompt: "",
 		rail: "│",
+		username: "",
+		time: "",
+		os: "",
 	},
 	colors: {
 		cwd: "bold cyan",
@@ -130,6 +142,9 @@ export const defaultConfig: PolishedTuiConfig = {
 		runtimePrefix: "",
 		extensionStatus: "bright-black",
 		sessionDuration: "yellow",
+		username: "bright-black",
+		time: "bright-black",
+		os: "bright-black",
 	},
 	colorSources: {
 		starship: "theme",
@@ -151,6 +166,9 @@ export const defaultConfig: PolishedTuiConfig = {
 		tokens: true,
 		cost: true,
 		sessionDuration: false,
+		username: false,
+		time: false,
+		os: false,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -175,6 +193,9 @@ const iconKeys = [
 	"typechanged",
 	"cacheHit",
 	"editorPrompt",
+	"username",
+	"time",
+	"os",
 ] as const satisfies readonly (keyof PolishedTuiConfig["icons"])[];
 
 type ConfigRecord = Record<string, unknown>;
@@ -263,6 +284,9 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		runtimePrefix: colorValue(record, "runtimePrefix"),
 		extensionStatus: colorValue(record, "extensionStatus"),
 		sessionDuration: colorValue(record, "sessionDuration"),
+		username: colorValue(record, "username"),
+		time: colorValue(record, "time"),
+		os: colorValue(record, "os"),
 		editorAccent: colorValue(record, "editorAccent"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),
@@ -304,6 +328,9 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		tokens: footerSegmentValue(record, "tokens"),
 		cost: footerSegmentValue(record, "cost"),
 		sessionDuration: footerSegmentValue(record, "sessionDuration"),
+		username: footerSegmentValue(record, "username"),
+		time: footerSegmentValue(record, "time"),
+		os: footerSegmentValue(record, "os"),
 	};
 }
 
@@ -361,7 +388,10 @@ function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig 
 		value === "context" ||
 		value === "tokens" ||
 		value === "cost" ||
-		value === "sessionDuration"
+		value === "sessionDuration" ||
+		value === "username" ||
+		value === "time" ||
+		value === "os"
 	);
 }
 

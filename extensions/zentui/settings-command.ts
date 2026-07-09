@@ -90,6 +90,9 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	gitStatus: "Git status",
 	gitCounts: "Git counts",
 	sessionDuration: "Session duration",
+	username: "Username@host",
+	time: "Current time",
+	os: "OS icon",
 	runtime: "Runtime",
 	context: "Context usage",
 	tokens: "Token counts",
@@ -103,6 +106,9 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	gitCounts:
 		"Show numeric ahead/behind and stash counts (requires the Git status segment to be enabled).",
 	sessionDuration: "Show session running time on the left, after the runtime.",
+	username: "Show user@hostname on the left.",
+	time: "Show the current time (HH:MM) on the right.",
+	os: "Show an operating-system icon on the left.",
 	runtime: "Show or hide the detected runtime/language segment on the left.",
 	context: "Show or hide context usage on the right.",
 	tokens: "Show or hide input/output token counts on the right.",
@@ -154,7 +160,10 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 		value === "runtime" ||
 		value === "context" ||
 		value === "tokens" ||
-		value === "cost"
+		value === "cost" ||
+		value === "username" ||
+		value === "time" ||
+		value === "os"
 	);
 }
 

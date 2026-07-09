@@ -1,3 +1,4 @@
+import { hostname, userInfo } from "node:os";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { ColorSource, ColorSpec } from "./config";
@@ -128,4 +129,34 @@ export function formatCwdLabel(cwd: string, cwdIcon: string): string {
 	const parts = normalized.split("/").filter(Boolean);
 	const last = parts[parts.length - 1] ?? cwd;
 	return cwdIcon ? `${cwdIcon} ${last}` : last;
+}
+
+export function formatUsernameHostLabel(icon: string): string {
+	try {
+		const user = userInfo().username;
+		const host = hostname();
+		if (!user || !host) return "";
+		const label = `${user}@${host}`;
+		return icon ? `${icon} ${label}` : label;
+	} catch {
+		return "";
+	}
+}
+
+export function formatTimeLabel(icon: string): string {
+	const now = new Date();
+	const hours = String(now.getHours()).padStart(2, "0");
+	const minutes = String(now.getMinutes()).padStart(2, "0");
+	const label = `${hours}:${minutes}`;
+	return icon ? `${icon} ${label}` : label;
+}
+
+const osIconMap: Record<string, string> = {
+	darwin: "\uf179",
+	linux: "\uf17c",
+	win32: "\uf17a",
+};
+
+export function formatOsLabel(defaultIcon: string): string {
+	return osIconMap[process.platform] ?? defaultIcon;
 }

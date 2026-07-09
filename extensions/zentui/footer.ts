@@ -2,7 +2,14 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
 import { collectExtensionStatusSegments, type ExtensionStatusSegment } from "./extension-status";
-import { buildSessionDurationLabel, formatCwdLabel, formatRuntimeSegment } from "./format";
+import {
+	buildSessionDurationLabel,
+	formatCwdLabel,
+	formatOsLabel,
+	formatRuntimeSegment,
+	formatTimeLabel,
+	formatUsernameHostLabel,
+} from "./format";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -229,15 +236,41 @@ export function installFooter(
 					);
 					return `${prefix} ${time}`;
 				})();
+				const usernameSegment = config.footerSegments.username
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							config.colors.username,
+							formatUsernameHostLabel(config.icons.username),
+						)
+					: "";
+				const osSegment = config.footerSegments.os
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							config.colors.os,
+							formatOsLabel(config.icons.os),
+						)
+					: "";
 				const left = [
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
 					runtimeLabel,
 					sessionDurationSegment,
+					usernameSegment,
+					osSegment,
 				]
 					.filter(Boolean)
 					.join(" ");
 
+				const timeSegment = config.footerSegments.time
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							config.colors.time,
+							formatTimeLabel(config.icons.time),
+						)
+					: "";
 				const right = [
 					config.footerSegments.context
 						? renderStyleForSource(theme, colorSource, contextColor, state.contextLabel)
@@ -248,6 +281,7 @@ export function installFooter(
 					config.footerSegments.cost
 						? renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel)
 						: "",
+					timeSegment,
 				]
 					.filter(Boolean)
 					.join(separator);

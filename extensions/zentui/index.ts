@@ -124,8 +124,17 @@ export default function (pi: ExtensionAPI) {
 		stopSessionTimer();
 		lastDurationLabel = "";
 		const timer = setInterval(() => {
-			if (!(currentConfig.features.statusLine && currentConfig.footerSegments.sessionDuration))
+			if (
+				!(
+					currentConfig.features.statusLine &&
+					(currentConfig.footerSegments.sessionDuration || currentConfig.footerSegments.time)
+				)
+			)
 				return;
+			if (currentConfig.footerSegments.time) {
+				refresh();
+				return;
+			}
 			const label = state.sessionStartEpoch
 				? buildSessionDurationLabel(state.sessionStartEpoch)
 				: "";
