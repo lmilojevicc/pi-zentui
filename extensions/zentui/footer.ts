@@ -253,12 +253,12 @@ export function installFooter(
 						)
 					: "";
 				const left = [
+					osSegment,
+					usernameSegment,
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
 					runtimeLabel,
 					sessionDurationSegment,
-					usernameSegment,
-					osSegment,
 				]
 					.filter(Boolean)
 					.join(" ");
