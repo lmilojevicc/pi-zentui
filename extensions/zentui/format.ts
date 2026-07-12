@@ -1,7 +1,9 @@
 import { hostname, userInfo } from "node:os";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { ColorSource, ColorSpec } from "./config";
+import type { ColorSource, ColorSpec, ContextStyle, ContextThresholds } from "./config";
+import type { IconMode } from "./icons";
+import { resolveOsIcon, resolveRuntimeSymbol } from "./icons";
 import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
 
@@ -13,6 +15,26 @@ export type UsageTotals = {
 	latestCacheHitRate?: number;
 	cost: number;
 };
+
+export type ContextColorTier = "normal" | "warning" | "error";
+
+type SessionEntry = {
+	type?: string;
+	id?: string | number;
+	timestamp?: string | number;
+	message?: {
+		role?: string;
+		usage?: AssistantMessage["usage"];
+	};
+};
+
+type UsageCacheEntry = {
+	key: string;
+	totals: UsageTotals;
+};
+
+let usageTotalsCache: UsageCacheEntry | undefined;
+let usageTotalsComputeCount = 0;
 
 export function formatCount(value: number): string {
 	if (value < 1000) return value.toString();
@@ -48,7 +70,23 @@ function calculateCacheHitRate(
 	return promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
 }
 
-export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
+function entryIdentity(entry: SessionEntry | undefined): string {
+	if (!entry) return "";
+	const usage = entry.message?.usage;
+	const usageKey = usage
+		? `${usage.input ?? 0}:${usage.output ?? 0}:${usage.cacheRead ?? 0}:${usage.cacheWrite ?? 0}:${usage.cost?.total ?? 0}`
+		: "";
+	return `${entry.id ?? ""}|${entry.timestamp ?? ""}|${entry.type ?? ""}|${entry.message?.role ?? ""}|${usageKey}`;
+}
+
+function buildUsageFingerprint(entries: readonly SessionEntry[]): string {
+	const first = entries[0];
+	const last = entries[entries.length - 1];
+	return `${entries.length}\0${entryIdentity(first)}\0${entryIdentity(last)}`;
+}
+
+function computeUsageTotals(entries: readonly SessionEntry[]): UsageTotals {
+	usageTotalsComputeCount += 1;
 	let input = 0;
 	let output = 0;
 	let cacheRead = 0;
@@ -56,10 +94,9 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	let latestCacheHitRate: number | undefined;
 	let cost = 0;
 
-	const entries = ctx.sessionManager.getEntries?.() ?? ctx.sessionManager.getBranch();
 	for (const entry of entries) {
-		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		const usage = (entry.message as AssistantMessage).usage;
+		if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+		const usage = entry.message.usage;
 		const entryInput = usage?.input ?? 0;
 		const entryCacheRead = usage?.cacheRead ?? 0;
 		const entryCacheWrite = usage?.cacheWrite ?? 0;
@@ -72,7 +109,36 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 		latestCacheHitRate = calculateCacheHitRate(entryInput, entryCacheRead, entryCacheWrite);
 	}
 
-	return { input, output, cacheRead, cacheWrite, latestCacheHitRate, cost };
+	return Object.freeze({ input, output, cacheRead, cacheWrite, latestCacheHitRate, cost });
+}
+
+export function invalidateUsageTotalsCache(): void {
+	usageTotalsCache = undefined;
+}
+
+/** Test helper: number of full usage scans performed since process start / last reset. */
+export function __usageTotalsComputeCount(): number {
+	return usageTotalsComputeCount;
+}
+
+/** Test helper: reset memoization counters/cache. */
+export function __resetUsageTotalsCacheForTests(): void {
+	usageTotalsCache = undefined;
+	usageTotalsComputeCount = 0;
+}
+
+export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
+	const sessionManager = ctx.sessionManager as {
+		getEntries?: () => SessionEntry[];
+		getBranch: () => SessionEntry[];
+	};
+	const entries = sessionManager.getEntries?.() ?? sessionManager.getBranch();
+	const key = buildUsageFingerprint(entries);
+	if (usageTotalsCache?.key === key) return usageTotalsCache.totals;
+
+	const totals = computeUsageTotals(entries);
+	usageTotalsCache = { key, totals };
+	return totals;
 }
 
 export function buildTokenLabel(totals: UsageTotals, cacheHitIcon = "󰆼"): string {
@@ -102,15 +168,61 @@ export function buildSessionDurationLabel(startEpoch: number): string {
 	return `${seconds}s`;
 }
 
+export function contextColorTier(
+	percent: number | null | undefined,
+	thresholds: ContextThresholds = { warning: 70, error: 90 },
+): ContextColorTier {
+	if (percent === null || percent === undefined || !Number.isFinite(percent)) return "normal";
+	if (percent >= thresholds.error) return "error";
+	if (percent >= thresholds.warning) return "warning";
+	return "normal";
+}
+
+export function buildContextGauge(percent: number, width = 10, ascii = false): string {
+	const clamped = Math.max(0, Math.min(100, percent));
+	const filled = Math.round((clamped / 100) * width);
+	const on = ascii ? "#" : "█";
+	const off = ascii ? "-" : "░";
+	return `${on.repeat(filled)}${off.repeat(Math.max(0, width - filled))}`;
+}
+
+export function formatContextPercentLabel(
+	percent: number | null | undefined,
+	contextWindow: number | undefined,
+): string {
+	if (!contextWindow || contextWindow <= 0) return "--";
+	const percentLabel =
+		percent === null || percent === undefined
+			? "?"
+			: `${Math.max(0, Math.min(999, Math.round(percent)))}%`;
+	return `${percentLabel}/${formatCount(contextWindow)}`;
+}
+
+export function buildContextDisplayLabel(options: {
+	percent: number | null | undefined;
+	contextWindow: number | undefined;
+	style?: ContextStyle;
+	asciiGauge?: boolean;
+}): string {
+	const { percent, contextWindow, style = "text", asciiGauge = false } = options;
+	if (!contextWindow || contextWindow <= 0) return "--";
+
+	const text = formatContextPercentLabel(percent, contextWindow);
+	const numericPercent =
+		percent === null || percent === undefined || !Number.isFinite(percent)
+			? 0
+			: Math.max(0, Math.min(100, percent));
+	const gauge = buildContextGauge(numericPercent, 10, asciiGauge);
+
+	if (style === "gauge") return `[${gauge}]`;
+	if (style === "text+gauge") return `[${gauge}] ${text}`;
+	return text;
+}
+
 export function buildContextLabel(ctx: ExtensionContext): string {
 	const usage = ctx.getContextUsage();
 	const contextWindow = ctx.model?.contextWindow ?? usage?.contextWindow;
-
-	if (!usage || !contextWindow || contextWindow <= 0) return "--";
-
-	const percent =
-		usage.percent === null ? "?" : `${Math.max(0, Math.min(999, Math.round(usage.percent)))}%`;
-	return `${percent}/${formatCount(contextWindow)}`;
+	return formatContextPercentLabel(usage?.percent, contextWindow);
 }
 
 export function formatRuntimeSegment(
@@ -118,9 +230,11 @@ export function formatRuntimeSegment(
 	runtime: RuntimeInfo | undefined,
 	prefixStyle: ColorSpec,
 	colorSource: ColorSource,
+	mode: IconMode = "auto",
 ): string {
 	if (!runtime) return "";
-	const label = runtime.version ? `${runtime.symbol} ${runtime.version}` : runtime.symbol;
+	const symbol = resolveRuntimeSymbol(runtime.name, runtime.symbol, mode);
+	const label = runtime.version ? `${symbol} ${runtime.version}` : symbol;
 	return `${renderStyleForSource(theme, colorSource, prefixStyle, "via")} ${renderStyleForSource(theme, colorSource, runtime.style, label)}`;
 }
 
@@ -151,12 +265,10 @@ export function formatTimeLabel(icon: string): string {
 	return icon ? `${icon} ${label}` : label;
 }
 
-const osIconMap: Record<string, string> = {
-	darwin: "\uf179",
-	linux: "\uf17c",
-	win32: "\uf17a",
-};
-
-export function formatOsLabel(defaultIcon: string): string {
-	return osIconMap[process.platform] ?? defaultIcon;
+export function formatOsLabel(
+	configuredIcon: string,
+	mode: IconMode = "auto",
+	platform: string = process.platform,
+): string {
+	return resolveOsIcon(configuredIcon, mode, platform);
 }

@@ -7,22 +7,26 @@ import type {
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
 	type ColorSourcesConfig,
+	type ContextStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
 	type FooterSegmentsConfig,
+	type IconMode,
 	loadConfig,
 	type PolishedTuiConfig,
 	saveColorSourcesPatch,
+	saveContextStylePatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
+	saveIconsModePatch,
 	saveUiFeaturesPatch,
 	type UiFeaturesConfig,
 } from "./config";
 import { installFooter } from "./footer";
-import { buildSessionDurationLabel } from "./format";
+import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import {
 	createProjectRefreshScheduler,
@@ -30,6 +34,7 @@ import {
 	type StopProjectRefreshInterval,
 	startProjectRefreshInterval,
 } from "./project-refresh";
+import { applyProjectRefreshToState } from "./project-state";
 import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle } from "./selector-border";
 import { registerZentuiSettingsCommand } from "./settings-command";
@@ -87,6 +92,7 @@ export default function (pi: ExtensionAPI) {
 	let prototypePatchesInstalled = false;
 	let stopSessionTimer: () => void = () => {};
 	let lastDurationLabel = "";
+	let lastProjectCwd: string | undefined;
 
 	const refresh = () => requestFooterRender?.();
 	const getActiveTheme = () => activeTheme;
@@ -96,12 +102,13 @@ export default function (pi: ExtensionAPI) {
 		syncState(state, ctx, currentConfig.icons.cacheHit);
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
-		const [gitStatus, runtime] = await Promise.all([
-			readGitStatus(ctx.cwd),
-			readRuntimeInfo(ctx.cwd),
-		]);
-		Object.assign(state, gitStatus);
-		state.runtime = runtime;
+		const [git, runtime] = await Promise.all([readGitStatus(ctx.cwd), readRuntimeInfo(ctx.cwd)]);
+		lastProjectCwd = applyProjectRefreshToState(state, {
+			cwd: ctx.cwd,
+			previousCwd: lastProjectCwd,
+			git,
+			runtime,
+		});
 	};
 
 	const projectRefreshScheduler = createProjectRefreshScheduler(refreshProjectState, refresh);
@@ -368,6 +375,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		state.sessionStartEpoch = Date.now();
+		invalidateUsageTotalsCache();
+		lastProjectCwd = undefined;
 		installUi(ctx);
 		scheduleEditorReconciliation(ctx);
 	});
@@ -393,6 +402,12 @@ export default function (pi: ExtensionAPI) {
 		setFooterFormat(value: string) {
 			currentConfig = saveFooterFormatPatch(value);
 		},
+		setIconMode(mode: IconMode) {
+			currentConfig = saveIconsModePatch(mode);
+		},
+		setContextStyle(style: ContextStyle) {
+			currentConfig = saveContextStylePatch(style);
+		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();
 		},
@@ -411,12 +426,17 @@ export default function (pi: ExtensionAPI) {
 		cleanupUi(ctx);
 	});
 
+	const syncInteractiveAndProjectStateWithUsage = (_event: unknown, ctx: ExtensionContext) => {
+		invalidateUsageTotalsCache();
+		refreshInteractiveState(ctx, true);
+	};
+
 	pi.on("agent_start", syncInteractiveState);
 	pi.on("agent_end", syncInteractiveAndProjectState);
 	pi.on("model_select", syncInteractiveState);
 	pi.on("thinking_level_select", syncInteractiveState);
-	pi.on("message_end", syncInteractiveAndProjectState);
+	pi.on("message_end", syncInteractiveAndProjectStateWithUsage);
 	pi.on("tool_execution_end", syncInteractiveAndProjectState);
-	pi.on("session_compact", syncInteractiveAndProjectState);
-	pi.on("session_tree", syncInteractiveAndProjectState);
+	pi.on("session_compact", syncInteractiveAndProjectStateWithUsage);
+	pi.on("session_tree", syncInteractiveAndProjectStateWithUsage);
 }

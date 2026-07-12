@@ -86,14 +86,42 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ projectRefreshIntervalMs: 0 }).projectRefreshIntervalMs).toBe(0);
 	});
 
+	it("clamps short project refresh intervals up to 5 seconds", () => {
+		expect(mergeConfig({ projectRefreshIntervalMs: 100 }).projectRefreshIntervalMs).toBe(5_000);
+		expect(mergeConfig({ projectRefreshIntervalMs: 4_999 }).projectRefreshIntervalMs).toBe(5_000);
+		expect(mergeConfig({ projectRefreshIntervalMs: 5_000 }).projectRefreshIntervalMs).toBe(5_000);
+	});
+
 	it("ignores invalid project refresh intervals", () => {
 		expect(mergeConfig({ projectRefreshIntervalMs: "30000" }).projectRefreshIntervalMs).toBe(
 			30_000,
 		);
-		expect(mergeConfig({ projectRefreshIntervalMs: 100 }).projectRefreshIntervalMs).toBe(30_000);
 		expect(
 			mergeConfig({ projectRefreshIntervalMs: Number.POSITIVE_INFINITY }).projectRefreshIntervalMs,
 		).toBe(30_000);
+	});
+
+	it("defaults context style/thresholds and accepts valid overrides", () => {
+		expect(mergeConfig({}).contextStyle).toBe("text");
+		expect(mergeConfig({}).contextThresholds).toEqual({ warning: 70, error: 90 });
+		expect(mergeConfig({ contextStyle: "gauge" }).contextStyle).toBe("gauge");
+		expect(mergeConfig({ contextStyle: "text+gauge" }).contextStyle).toBe("text+gauge");
+		expect(mergeConfig({ contextStyle: "bars" }).contextStyle).toBe("text");
+		expect(
+			mergeConfig({ contextThresholds: { warning: 50, error: 80 } }).contextThresholds,
+		).toEqual({ warning: 50, error: 80 });
+		expect(
+			mergeConfig({ contextThresholds: { warning: 90, error: 70 } }).contextThresholds,
+		).toEqual({ warning: 70, error: 90 });
+	});
+
+	it("defaults icon mode to auto and accepts nerd/ascii", () => {
+		expect(mergeConfig({}).icons.mode).toBe("auto");
+		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.mode).toBe("ascii");
+		expect(mergeConfig({ icons: { mode: "nerd" } }).icons.mode).toBe("nerd");
+		expect(mergeConfig({ icons: { mode: "emoji" } }).icons.mode).toBe("auto");
+		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("~");
+		expect(mergeConfig({ icons: { mode: "ascii", cwd: "DIR" } }).icons.cwd).toBe("DIR");
 	});
 
 	it("accepts Starship colors and old color key aliases", () => {
@@ -762,6 +790,11 @@ describe("style rendering", () => {
 
 	it("supports hex colors", () => {
 		expect(colorize(theme, "#89b4fa", "hello")).toBe("\u001b[38;2;137;180;250mhello\u001b[39m");
+	});
+
+	it("supports short #rgb hex colors by expanding to rrggbb", () => {
+		expect(colorize(theme, "#89b", "hello")).toBe("\u001b[38;2;136;153;187mhello\u001b[39m");
+		expect(renderTerminalStyle("bold #89b", "x")).toBe("\u001b[1;38;2;136;153;187mx\u001b[0m");
 	});
 
 	it("renders Starship styles before falling back to theme tokens", () => {

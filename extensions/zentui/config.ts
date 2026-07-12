@@ -1,10 +1,27 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+	ICON_GLYPH_KEYS,
+	type IconGlyphs,
+	type IconMode,
+	NERD_DEFAULT_ICONS,
+	normalizeIconMode,
+	type ResolvedIcons,
+	resolveConfiguredIcons,
+} from "./icons";
 import { isSupportedColorSpec } from "./style";
 
 export type ColorSpec = string;
 export type ColorSource = "theme" | "terminal";
+export type { IconMode } from "./icons";
+
+export type ContextStyle = "text" | "gauge" | "text+gauge";
+
+export type ContextThresholds = {
+	warning: number;
+	error: number;
+};
 
 export type ColorSourcesConfig = {
 	starship: ColorSource;
@@ -50,27 +67,9 @@ const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
 	footerFormat: string;
-	icons: {
-		cwd: string;
-		git: string;
-		ahead: string;
-		behind: string;
-		diverged: string;
-		conflicted: string;
-		untracked: string;
-		stashed: string;
-		modified: string;
-		staged: string;
-		renamed: string;
-		deleted: string;
-		typechanged: string;
-		cacheHit: string;
-		editorPrompt: string;
-		rail: string;
-		username: string;
-		time: string;
-		os: string;
-	};
+	contextStyle: ContextStyle;
+	contextThresholds: ContextThresholds;
+	icons: ResolvedIcons;
 	colors: {
 		cwd: ColorSpec;
 		gitBranch: ColorSpec;
@@ -113,6 +112,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"cwd",
 	"git_branch",
 	"git_status",
+	"git_state",
 	"runtime",
 	"session_duration",
 	"username",
@@ -121,6 +121,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"context",
 	"tokens",
 	"cost",
+	"sep",
 ] as const;
 
 /**
@@ -131,7 +132,9 @@ export const FOOTER_FORMAT_ALIASES: Record<string, string> = {
 	directory: "cwd",
 	branch: "git_branch",
 	status: "git_status",
+	state: "git_state",
 	duration: "session_duration",
+	separator: "sep",
 };
 
 export const configPath = join(getAgentDir(), "zentui.json");
@@ -139,26 +142,11 @@ export const configPath = join(getAgentDir(), "zentui.json");
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
 	footerFormat: "",
+	contextStyle: "text",
+	contextThresholds: { warning: 70, error: 90 },
 	icons: {
-		cwd: "󰝰",
-		git: "",
-		ahead: "↑",
-		behind: "↓",
-		diverged: "⇕",
-		conflicted: "=",
-		untracked: "?",
-		stashed: "$",
-		modified: "!",
-		staged: "+",
-		renamed: "»",
-		deleted: "✘",
-		typechanged: "T",
-		cacheHit: "󰆼",
-		editorPrompt: "",
-		rail: "│",
-		username: "",
-		time: "",
-		os: "",
+		mode: "auto",
+		...NERD_DEFAULT_ICONS,
 	},
 	colors: {
 		cwd: "bold cyan",
@@ -208,27 +196,6 @@ export const defaultConfig: PolishedTuiConfig = {
 	},
 };
 
-const iconKeys = [
-	"cwd",
-	"git",
-	"ahead",
-	"behind",
-	"diverged",
-	"conflicted",
-	"untracked",
-	"stashed",
-	"modified",
-	"staged",
-	"renamed",
-	"deleted",
-	"typechanged",
-	"cacheHit",
-	"editorPrompt",
-	"username",
-	"time",
-	"os",
-] as const satisfies readonly (keyof PolishedTuiConfig["icons"])[];
-
 type ConfigRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is ConfigRecord {
@@ -238,17 +205,43 @@ function isRecord(value: unknown): value is ConfigRecord {
 function parseProjectRefreshIntervalMs(value: unknown): number {
 	if (value === 0) return 0;
 	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return defaultConfig.projectRefreshIntervalMs;
+		return DEFAULT_PROJECT_REFRESH_INTERVAL_MS;
 	}
 
 	const interval = Math.round(value);
-	return interval >= MIN_PROJECT_REFRESH_INTERVAL_MS
-		? interval
-		: defaultConfig.projectRefreshIntervalMs;
+	if (interval <= 0) return 0;
+	return Math.max(MIN_PROJECT_REFRESH_INTERVAL_MS, interval);
 }
 
-function railValue(value: unknown): string {
-	return typeof value === "string" && value.trim().length > 0 ? value : defaultConfig.icons.rail;
+function clampPercent(value: number): number {
+	return Math.max(0, Math.min(100, value));
+}
+
+function parseContextStyle(value: unknown): ContextStyle {
+	if (value === "text" || value === "gauge" || value === "text+gauge") return value;
+	return defaultConfig.contextStyle;
+}
+
+function parseContextThresholds(value: unknown): ContextThresholds {
+	const defaults = defaultConfig.contextThresholds;
+	if (!isRecord(value)) return { ...defaults };
+
+	const warningRaw = value.warning;
+	const errorRaw = value.error;
+	let warning =
+		typeof warningRaw === "number" && Number.isFinite(warningRaw)
+			? clampPercent(Math.round(warningRaw))
+			: defaults.warning;
+	let error =
+		typeof errorRaw === "number" && Number.isFinite(errorRaw)
+			? clampPercent(Math.round(errorRaw))
+			: defaults.error;
+	if (error < warning) {
+		const swapped = warning;
+		warning = error;
+		error = swapped;
+	}
+	return { warning, error };
 }
 
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -292,13 +285,13 @@ function definedColors(
 	) as Partial<PolishedTuiConfig["colors"]>;
 }
 
-function normalizeIcons(record: Record<string, unknown>): Partial<PolishedTuiConfig["icons"]> {
+function normalizeIconOverrides(record: Record<string, unknown>): Partial<IconGlyphs> {
 	return Object.fromEntries(
-		iconKeys.flatMap((key) => {
+		ICON_GLYPH_KEYS.flatMap((key) => {
 			const value = stringValue(record, key);
 			return value === undefined ? [] : [[key, value]];
 		}),
-	) as Partial<PolishedTuiConfig["icons"]>;
+	) as Partial<IconGlyphs>;
 }
 
 function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiConfig["colors"]> {
@@ -473,7 +466,8 @@ export function ensureConfigExists(): void {
 export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = isRecord(config.icons) ? (config.icons as Record<string, unknown>) : {};
-	const icons = normalizeIcons(iconsRecord);
+	const iconMode = normalizeIconMode(iconsRecord.mode);
+	const iconOverrides = normalizeIconOverrides(iconsRecord);
 	const colors = isRecord(config.colors)
 		? normalizeColors(config.colors as Record<string, unknown>)
 		: {};
@@ -492,11 +486,9 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
-		icons: {
-			...defaultConfig.icons,
-			...icons,
-			rail: railValue(iconsRecord.rail),
-		},
+		contextStyle: parseContextStyle(config.contextStyle),
+		contextThresholds: parseContextThresholds(config.contextThresholds),
+		icons: resolveConfiguredIcons(iconMode, iconOverrides),
 		colors: {
 			...defaultConfig.colors,
 			...colors,
@@ -586,6 +578,40 @@ export function saveFooterSegmentsPatch(
 export function saveFooterFormatPatch(value: string, path = configPath): PolishedTuiConfig {
 	const record = readConfigRecord(path);
 	record.footerFormat = typeof value === "string" ? value : "";
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveIconsModePatch(mode: IconMode, path = configPath): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.icons) ? { ...(record.icons as Record<string, unknown>) } : {};
+	record.icons = {
+		...existing,
+		mode: normalizeIconMode(mode),
+	};
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveContextStylePatch(style: ContextStyle, path = configPath): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	record.contextStyle = parseContextStyle(style);
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveContextThresholdsPatch(
+	thresholds: Partial<ContextThresholds>,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.contextThresholds)
+		? { ...(record.contextThresholds as Record<string, unknown>) }
+		: {};
+	record.contextThresholds = {
+		...existing,
+		...thresholds,
+	};
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
 }

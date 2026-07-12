@@ -1,11 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	__resetUsageTotalsCacheForTests,
+	__usageTotalsComputeCount,
+	buildContextDisplayLabel,
+	buildContextGauge,
 	buildCostLabel,
 	buildSessionDurationLabel,
 	buildTokenLabel,
+	contextColorTier,
 	formatCount,
+	formatOsLabel,
 	getUsageTotals,
+	invalidateUsageTotalsCache,
 } from "../extensions/zentui/format";
+import {
+	ASCII_DEFAULT_ICONS,
+	NERD_DEFAULT_ICONS,
+	OS_PLATFORM_ICONS_ASCII,
+	OS_PLATFORM_ICONS_NERD,
+} from "../extensions/zentui/icons";
 
 const cacheHitIcon = "󰆼";
 
@@ -148,5 +161,75 @@ describe("buildSessionDurationLabel", () => {
 	it("clamps zero and negative elapsed to 0s", () => {
 		expect(buildSessionDurationLabel(FIXED_NOW)).toBe("0s");
 		expect(buildSessionDurationLabel(FIXED_NOW + 10_000)).toBe("0s");
+	});
+});
+
+describe("formatOsLabel", () => {
+	it("honors a custom icons.os over platform defaults", () => {
+		expect(formatOsLabel("X", "auto", "darwin")).toBe("X");
+		expect(formatOsLabel("X", "ascii", "linux")).toBe("X");
+	});
+
+	it("maps platform icons when using the mode default os glyph", () => {
+		expect(formatOsLabel(NERD_DEFAULT_ICONS.os, "auto", "linux")).toBe(
+			OS_PLATFORM_ICONS_NERD.linux,
+		);
+		expect(formatOsLabel(ASCII_DEFAULT_ICONS.os, "ascii", "darwin")).toBe(
+			OS_PLATFORM_ICONS_ASCII.darwin,
+		);
+	});
+});
+
+describe("context helpers", () => {
+	it("classifies context color tiers from thresholds", () => {
+		expect(contextColorTier(10, { warning: 50, error: 80 })).toBe("normal");
+		expect(contextColorTier(50, { warning: 50, error: 80 })).toBe("warning");
+		expect(contextColorTier(80, { warning: 50, error: 80 })).toBe("error");
+		expect(contextColorTier(null)).toBe("normal");
+	});
+
+	it("builds stable-width gauges and style labels", () => {
+		expect(buildContextGauge(0, 10)).toHaveLength(10);
+		expect(buildContextGauge(100, 10)).toHaveLength(10);
+		expect(buildContextGauge(50, 10, true)).toBe("#####-----");
+		expect(buildContextDisplayLabel({ percent: 42, contextWindow: 128_000, style: "text" })).toBe(
+			"42%/128k",
+		);
+		expect(
+			buildContextDisplayLabel({ percent: 42, contextWindow: 128_000, style: "gauge" }),
+		).toMatch(/^\[.{10}\]$/);
+		expect(
+			buildContextDisplayLabel({
+				percent: 42,
+				contextWindow: 128_000,
+				style: "text+gauge",
+			}),
+		).toMatch(/^\[.{10}\] 42%\/128k$/);
+		expect(buildContextDisplayLabel({ percent: null, contextWindow: undefined })).toBe("--");
+	});
+});
+
+describe("getUsageTotals memoization", () => {
+	it("reuses totals for unchanged entries and recomputes after invalidate", () => {
+		__resetUsageTotalsCacheForTests();
+
+		const entries = [makeAssistantEntry(10, 1, 0.1)];
+		const ctx = makeSessionContext(entries) as never;
+
+		const first = getUsageTotals(ctx);
+		const second = getUsageTotals(ctx);
+		expect(second).toBe(first);
+		expect(__usageTotalsComputeCount()).toBe(1);
+
+		entries.push(makeAssistantEntry(20, 2, 0.2));
+		const third = getUsageTotals(ctx);
+		expect(third.input).toBe(30);
+		expect(__usageTotalsComputeCount()).toBe(2);
+
+		invalidateUsageTotalsCache();
+		const fourth = getUsageTotals(ctx);
+		expect(fourth).toEqual(third);
+		expect(fourth).not.toBe(third);
+		expect(__usageTotalsComputeCount()).toBe(3);
 	});
 });

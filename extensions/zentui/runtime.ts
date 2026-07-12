@@ -16,6 +16,42 @@ export type RuntimeInfo = Pick<RuntimeMetadata, "name" | "symbol" | "style"> & {
 	version?: string;
 };
 
+export type RuntimeReadResult = { kind: "ok"; runtime?: RuntimeInfo } | { kind: "error" };
+
+type RuntimeCacheEntry = {
+	fingerprint: string;
+	runtime: RuntimeInfo | undefined;
+};
+
+const RUNTIME_CACHE_MAX = 32;
+const runtimeInfoCache = new Map<string, RuntimeCacheEntry>();
+
+export function clearRuntimeInfoCache(): void {
+	runtimeInfoCache.clear();
+}
+
+function topLevelFingerprint(entries: readonly string[]): string {
+	return entries.slice().sort().join("\0");
+}
+
+function cacheRuntimeInfo(
+	cwd: string,
+	fingerprint: string,
+	runtime: RuntimeInfo | undefined,
+): void {
+	// Drop prior fingerprints for the same cwd so stale marker sets do not linger.
+	for (const key of runtimeInfoCache.keys()) {
+		if (key === cwd || key.startsWith(`${cwd}\0`)) runtimeInfoCache.delete(key);
+	}
+	const key = `${cwd}\0${fingerprint}`;
+	runtimeInfoCache.set(key, { fingerprint, runtime });
+	while (runtimeInfoCache.size > RUNTIME_CACHE_MAX) {
+		const oldest = runtimeInfoCache.keys().next().value;
+		if (oldest === undefined) break;
+		runtimeInfoCache.delete(oldest);
+	}
+}
+
 type RuntimeEnvironment = Record<string, string | undefined>;
 
 type DetectionSpec = {
@@ -769,20 +805,37 @@ export function detectRuntime(
 	return undefined;
 }
 
-export async function readRuntimeInfo(cwd: string): Promise<RuntimeInfo | undefined> {
-	let entries: string[] = [];
+export async function readRuntimeInfo(cwd: string): Promise<RuntimeReadResult> {
+	let entries: string[];
 	try {
 		entries = readdirSync(cwd);
 	} catch {
-		entries = [];
+		// readdir failure is treated as a transient error so last-good can be kept.
+		return { kind: "error" };
 	}
 
-	const runtime = detectRuntime(cwd, entries);
-	if (!runtime) return undefined;
-	return {
-		name: runtime.name,
-		symbol: runtime.symbol,
-		style: runtime.style,
-		version: await runtime.version(cwd),
-	};
+	const fingerprint = topLevelFingerprint(entries);
+	const cacheKey = `${cwd}\0${fingerprint}`;
+	const cached = runtimeInfoCache.get(cacheKey);
+	if (cached && cached.fingerprint === fingerprint) {
+		return { kind: "ok", runtime: cached.runtime };
+	}
+
+	try {
+		const runtime = detectRuntime(cwd, entries);
+		if (!runtime) {
+			cacheRuntimeInfo(cwd, fingerprint, undefined);
+			return { kind: "ok", runtime: undefined };
+		}
+		const info: RuntimeInfo = {
+			name: runtime.name,
+			symbol: runtime.symbol,
+			style: runtime.style,
+			version: await runtime.version(cwd),
+		};
+		cacheRuntimeInfo(cwd, fingerprint, info);
+		return { kind: "ok", runtime: info };
+	} catch {
+		return { kind: "error" };
+	}
 }

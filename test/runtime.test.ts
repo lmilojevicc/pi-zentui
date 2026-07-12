@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectRuntime, runtimeMetadata } from "../extensions/zentui/runtime";
+import {
+	clearRuntimeInfoCache,
+	detectRuntime,
+	readRuntimeInfo,
+	runtimeMetadata,
+} from "../extensions/zentui/runtime";
 
 function starshipRuntimeModules(): string[] {
 	const toml = readFileSync("test/fixtures/starship-nerd-font-symbols.toml", "utf8");
@@ -146,5 +151,33 @@ describe("detectRuntime", () => {
 		if (!runtime) throw new Error("expected runtime");
 		expect(runtime.name).toBe(name);
 		expect(runtime.style).toBe(style);
+	});
+});
+
+describe("readRuntimeInfo cache", () => {
+	it("caches version probes for the same cwd + marker fingerprint", async () => {
+		clearRuntimeInfoCache();
+		const project = makeProject([{ path: "package.json" }]);
+
+		const first = await readRuntimeInfo(project.cwd);
+		const second = await readRuntimeInfo(project.cwd);
+		expect(first).toEqual(second);
+		expect(first.kind).toBe("ok");
+		if (first.kind === "ok") {
+			expect(first.runtime?.name).toBe("nodejs");
+		}
+
+		// Marker change busts cache and re-detects.
+		writeFileSync(join(project.cwd, "bun.lock"), "", "utf8");
+		const third = await readRuntimeInfo(project.cwd);
+		expect(third.kind).toBe("ok");
+		if (third.kind === "ok") {
+			expect(third.runtime?.name).toBe("bun");
+		}
+	});
+
+	it("returns error when cwd cannot be read", async () => {
+		const result = await readRuntimeInfo(join(tmpdir(), "zentui-missing-runtime-dir-xyz"));
+		expect(result).toEqual({ kind: "error" });
 	});
 });

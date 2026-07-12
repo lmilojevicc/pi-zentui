@@ -29,11 +29,22 @@ export const EDITOR_BORDER_FALLBACK: SourceStyleFallback = {
 };
 
 function isHexColor(value: string): boolean {
-	return /^#(?:[0-9a-fA-F]{6})$/.test(value);
+	return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+}
+
+function expandHexColor(hex: string): string {
+	const body = hex.slice(1);
+	if (body.length === 3) {
+		return body
+			.split("")
+			.map((ch) => ch + ch)
+			.join("");
+	}
+	return body;
 }
 
 function hexToAnsi(hex: string, isBackground = false): string {
-	const normalized = hex.slice(1);
+	const normalized = expandHexColor(hex);
 	const r = Number.parseInt(normalized.slice(0, 2), 16);
 	const g = Number.parseInt(normalized.slice(2, 4), 16);
 	const b = Number.parseInt(normalized.slice(4, 6), 16);

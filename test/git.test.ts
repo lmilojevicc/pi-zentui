@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { emptyGitStatus, parseGitStatusPorcelain } from "../extensions/zentui/git";
+import { detectGitState, emptyGitStatus, parseGitStatusPorcelain } from "../extensions/zentui/git";
 
 describe("parseGitStatusPorcelain", () => {
 	it("returns empty status for empty output", () => {
@@ -37,5 +40,93 @@ describe("parseGitStatusPorcelain", () => {
 	it("hides detached head as no branch", () => {
 		const status = parseGitStatusPorcelain("# branch.head (detached)", 0);
 		expect(status.branch).toBeUndefined();
+	});
+});
+
+describe("detectGitState", () => {
+	function fixture(files: Record<string, string>) {
+		const root = mkdtempSync(join(tmpdir(), "zentui-git-state-"));
+		const paths: Record<string, string> = {};
+		for (const [name, content] of Object.entries(files)) {
+			const full = join(root, name);
+			const slash = name.indexOf("/");
+			if (slash > 0) {
+				mkdirSync(join(root, name.slice(0, slash)), { recursive: true });
+			}
+			writeFileSync(full, content, "utf8");
+			paths[name] = full;
+		}
+		return { root, paths };
+	}
+
+	function requirePath(paths: Record<string, string>, key: string): string {
+		const value = paths[key];
+		if (!value) throw new Error(`missing fixture path ${key}`);
+		return value;
+	}
+
+	it("detects REBASING with step counts from rebase-merge", () => {
+		const { paths } = fixture({
+			"rebase-merge/msgnum": "3\n",
+			"rebase-merge/end": "10\n",
+		});
+		const msgnum = requirePath(paths, "rebase-merge/msgnum");
+		const end = requirePath(paths, "rebase-merge/end");
+		const rebaseMerge = join(msgnum, "..");
+		expect(
+			detectGitState({
+				rebaseMerge,
+				rebaseMsgnum: msgnum,
+				rebaseEnd: end,
+			}),
+		).toEqual({ gitState: "REBASING", gitStateLabel: "REBASING 3/10" });
+	});
+
+	it("detects MERGING / CHERRY-PICKING / REVERTING / BISECTING", () => {
+		const { paths } = fixture({
+			MERGE_HEAD: "abc",
+			CHERRY_PICK_HEAD: "def",
+			REVERT_HEAD: "ghi",
+			BISECT_LOG: "log",
+		});
+		expect(detectGitState({ mergeHead: requirePath(paths, "MERGE_HEAD") })).toEqual({
+			gitState: "MERGING",
+			gitStateLabel: "MERGING",
+		});
+		expect(detectGitState({ cherryPickHead: requirePath(paths, "CHERRY_PICK_HEAD") })).toEqual({
+			gitState: "CHERRY-PICKING",
+			gitStateLabel: "CHERRY-PICKING",
+		});
+		expect(detectGitState({ revertHead: requirePath(paths, "REVERT_HEAD") })).toEqual({
+			gitState: "REVERTING",
+			gitStateLabel: "REVERTING",
+		});
+		expect(detectGitState({ bisectLog: requirePath(paths, "BISECT_LOG") })).toEqual({
+			gitState: "BISECTING",
+			gitStateLabel: "BISECTING",
+		});
+	});
+
+	it("prefers rebase over merge", () => {
+		const { paths } = fixture({
+			"rebase-apply/msgnum": "1\n",
+			"rebase-apply/end": "2\n",
+			MERGE_HEAD: "abc",
+		});
+		const msgnum = requirePath(paths, "rebase-apply/msgnum");
+		const end = requirePath(paths, "rebase-apply/end");
+		const rebaseApply = join(msgnum, "..");
+		expect(
+			detectGitState({
+				rebaseApply,
+				mergeHead: requirePath(paths, "MERGE_HEAD"),
+				rebaseMsgnum: msgnum,
+				rebaseEnd: end,
+			}).gitState,
+		).toBe("REBASING");
+	});
+
+	it("returns empty when no state files exist", () => {
+		expect(detectGitState({})).toEqual({});
 	});
 });

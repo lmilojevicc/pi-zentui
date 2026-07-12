@@ -1536,6 +1536,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1575,6 +1577,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1617,6 +1621,8 @@ describe("Pi docs compliance", () => {
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1659,6 +1665,8 @@ describe("Pi docs compliance", () => {
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1691,6 +1699,8 @@ describe("Pi docs compliance", () => {
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1731,6 +1741,8 @@ describe("Pi docs compliance", () => {
 				}),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1778,6 +1790,8 @@ describe("Pi docs compliance", () => {
 					},
 					setFooterSegments() {},
 					setFooterFormat() {},
+					setIconMode() {},
+					setContextStyle() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -1820,7 +1834,7 @@ describe("Pi docs compliance", () => {
 	});
 
 	it("renders Zentui settings with mode-aware top and bottom borders", async () => {
-		const settingsWidth = 120;
+		const settingsWidth = 160;
 		async function renderSettings(config: PolishedTuiConfig) {
 			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 			let lines: string[] = [];
@@ -1837,6 +1851,8 @@ describe("Pi docs compliance", () => {
 					setUiFeatures: () => ({ applied: true }),
 					setFooterSegments() {},
 					setFooterFormat() {},
+					setIconMode() {},
+					setContextStyle() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -1873,6 +1889,7 @@ describe("Pi docs compliance", () => {
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Coloring");
 		expect(themeLines.join("\n")).toContain("Features");
+		expect(themeLines.join("\n")).toContain("Layout");
 		expect(themeLines.join("\n")).toContain("Built-in segments");
 		expect(themeLines.join("\n")).toContain("Extension segments");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
@@ -1904,6 +1921,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1957,6 +1976,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2023,6 +2044,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2061,6 +2084,8 @@ describe("Pi docs compliance", () => {
 	});
 
 	function navigateToExtensionSegmentsSection(component: { handleInput?: (data: string) => void }) {
+		// Coloring → Features → Layout → Built-in segments → Extension segments
+		component.handleInput?.("\t");
 		component.handleInput?.("\t");
 		component.handleInput?.("\t");
 		component.handleInput?.("\t");
@@ -2082,6 +2107,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2134,6 +2161,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () =>
 					new Map<string, string>([
 						["alpha", "A"],
@@ -2191,6 +2220,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2248,6 +2279,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["alpha", "ok"]]),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2291,7 +2324,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(4);
+		expect(tuiRenderRequests).toBe(5);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -2313,6 +2346,8 @@ describe("Pi docs compliance", () => {
 				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},

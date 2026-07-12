@@ -1,8 +1,17 @@
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const GIT_COMMAND_TIMEOUT_MS = 2_000;
+
+export type GitOperationState =
+	| "REBASING"
+	| "MERGING"
+	| "CHERRY-PICKING"
+	| "REVERTING"
+	| "BISECTING";
 
 export type GitStatusSummary = {
 	branch?: string;
@@ -17,6 +26,24 @@ export type GitStatusSummary = {
 	renamed: number;
 	deleted: number;
 	typechanged: number;
+	gitState?: GitOperationState;
+	gitStateLabel?: string;
+};
+
+export type GitReadResult =
+	| { kind: "ok"; status: GitStatusSummary }
+	| { kind: "not_a_repo" }
+	| { kind: "error" };
+
+export type GitStatePaths = {
+	rebaseMerge?: string;
+	rebaseApply?: string;
+	mergeHead?: string;
+	cherryPickHead?: string;
+	revertHead?: string;
+	bisectLog?: string;
+	rebaseMsgnum?: string;
+	rebaseEnd?: string;
 };
 
 export function emptyGitStatus(): GitStatusSummary {
@@ -33,6 +60,8 @@ export function emptyGitStatus(): GitStatusSummary {
 		renamed: 0,
 		deleted: 0,
 		typechanged: 0,
+		gitState: undefined,
+		gitStateLabel: undefined,
 	};
 }
 
@@ -86,7 +115,92 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 	return status;
 }
 
-export async function readGitStatus(cwd: string): Promise<GitStatusSummary> {
+function readOptionalText(path: string | undefined): string | undefined {
+	if (!path || !existsSync(path)) return undefined;
+	try {
+		return readFileSync(path, "utf8").trim();
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Pure git operation-state detector. Paths that exist (truthy strings that
+ * callers verified with `existsSync`) select the active state in Starship order.
+ */
+export function detectGitState(paths: GitStatePaths): {
+	gitState?: GitOperationState;
+	gitStateLabel?: string;
+} {
+	if (paths.rebaseMerge || paths.rebaseApply) {
+		const msgnum = readOptionalText(paths.rebaseMsgnum);
+		const end = readOptionalText(paths.rebaseEnd);
+		if (msgnum && end) {
+			return { gitState: "REBASING", gitStateLabel: `REBASING ${msgnum}/${end}` };
+		}
+		return { gitState: "REBASING", gitStateLabel: "REBASING" };
+	}
+	if (paths.mergeHead) return { gitState: "MERGING", gitStateLabel: "MERGING" };
+	if (paths.cherryPickHead) {
+		return { gitState: "CHERRY-PICKING", gitStateLabel: "CHERRY-PICKING" };
+	}
+	if (paths.revertHead) return { gitState: "REVERTING", gitStateLabel: "REVERTING" };
+	if (paths.bisectLog) return { gitState: "BISECTING", gitStateLabel: "BISECTING" };
+	return {};
+}
+
+async function resolveGitPath(cwd: string, pathSpec: string): Promise<string | undefined> {
+	try {
+		const { stdout } = await execFileAsync("git", ["rev-parse", "--git-path", pathSpec], {
+			cwd,
+			timeout: GIT_COMMAND_TIMEOUT_MS,
+		});
+		const resolved = (typeof stdout === "string" ? stdout : String(stdout)).trim();
+		if (!resolved) return undefined;
+		return resolved.startsWith("/") ? resolved : join(cwd, resolved);
+	} catch {
+		return undefined;
+	}
+}
+
+async function readGitOperationState(cwd: string): Promise<{
+	gitState?: GitOperationState;
+	gitStateLabel?: string;
+}> {
+	const [rebaseMerge, rebaseApply, mergeHead, cherryPickHead, revertHead, bisectLog] =
+		await Promise.all([
+			resolveGitPath(cwd, "rebase-merge"),
+			resolveGitPath(cwd, "rebase-apply"),
+			resolveGitPath(cwd, "MERGE_HEAD"),
+			resolveGitPath(cwd, "CHERRY_PICK_HEAD"),
+			resolveGitPath(cwd, "REVERT_HEAD"),
+			resolveGitPath(cwd, "BISECT_LOG"),
+		]);
+
+	const existing = (path: string | undefined) => (path && existsSync(path) ? path : undefined);
+	const rebaseDir = existing(rebaseMerge) ?? existing(rebaseApply);
+
+	return detectGitState({
+		rebaseMerge: existing(rebaseMerge),
+		rebaseApply: existing(rebaseApply),
+		mergeHead: existing(mergeHead),
+		cherryPickHead: existing(cherryPickHead),
+		revertHead: existing(revertHead),
+		bisectLog: existing(bisectLog),
+		rebaseMsgnum: rebaseDir ? join(rebaseDir, "msgnum") : undefined,
+		rebaseEnd: rebaseDir ? join(rebaseDir, "end") : undefined,
+	});
+}
+
+function isNotARepoError(error: unknown): boolean {
+	const message =
+		error instanceof Error
+			? `${error.message}\n${"stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : ""}`
+			: String(error);
+	return /not a git repository|outside repository|not a git repo/i.test(message);
+}
+
+export async function readGitStatus(cwd: string): Promise<GitReadResult> {
 	try {
 		const [{ stdout: statusStdout }, stashResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
@@ -102,8 +216,30 @@ export async function readGitStatus(cwd: string): Promise<GitStatusSummary> {
 		const stashStdout =
 			typeof stashResult.stdout === "string" ? stashResult.stdout : String(stashResult.stdout);
 		const stashCount = stashStdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-		return parseGitStatusPorcelain(stdoutText, stashCount);
-	} catch {
-		return emptyGitStatus();
+		const status = parseGitStatusPorcelain(stdoutText, stashCount);
+		const operation = await readGitOperationState(cwd);
+		return {
+			kind: "ok",
+			status: {
+				...status,
+				...operation,
+			},
+		};
+	} catch (error) {
+		if (isNotARepoError(error)) return { kind: "not_a_repo" };
+
+		// Distinguish not-a-repo vs transient with a cheap rev-parse on the error path.
+		try {
+			const { stdout } = await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], {
+				cwd,
+				timeout: GIT_COMMAND_TIMEOUT_MS,
+			});
+			const inside = (typeof stdout === "string" ? stdout : String(stdout)).trim();
+			if (inside !== "true") return { kind: "not_a_repo" };
+			return { kind: "error" };
+		} catch (inner) {
+			if (isNotARepoError(inner)) return { kind: "not_a_repo" };
+			return { kind: "error" };
+		}
 	}
 }

@@ -12,17 +12,20 @@ import {
 import {
 	type ColorSource,
 	type ColorSourcesConfig,
+	type ContextStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FooterSegmentsConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
+import { isIconMode } from "./icons";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
@@ -33,15 +36,24 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 	"right",
 ];
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
+const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
+const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 type FeatureState = "enabled" | "disabled";
 
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
-const settingsSections = ["coloring", "features", "builtinSegments", "extensionSegments"] as const;
+const settingsSections = [
+	"coloring",
+	"features",
+	"layout",
+	"builtinSegments",
+	"extensionSegments",
+] as const;
 
 type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
+type LayoutSettingId = "contextStyle" | "iconMode";
 
 type SettingsCommandDeps = {
 	getConfig: () => PolishedTuiConfig;
@@ -52,6 +64,8 @@ type SettingsCommandDeps = {
 	) => { applied: boolean; reason?: string };
 	setFooterSegments: (patch: Partial<FooterSegmentsConfig>) => void;
 	setFooterFormat: (value: string) => void;
+	setIconMode: (mode: IconMode) => void;
+	setContextStyle: (style: ContextStyle) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -128,11 +142,13 @@ const directCommandSuggestions = [
 	"copy-friendly toggle",
 	"format clear",
 	"format $cwd on $git_branch $fill $context",
+	"format $cwd( on $git_branch)($git_status)$fill($context)( | $cost)",
 ];
 
 const sectionLabels: Record<SettingsSection, string> = {
 	coloring: "Coloring",
 	features: "Features",
+	layout: "Layout",
 	builtinSegments: "Built-in segments",
 	extensionSegments: "Extension segments",
 };
@@ -172,6 +188,14 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 
 function isFeatureState(value: string): value is FeatureState {
 	return value === "enabled" || value === "disabled";
+}
+
+function isContextStyle(value: string): value is ContextStyle {
+	return value === "text" || value === "gauge" || value === "text+gauge";
+}
+
+function isLayoutSettingId(value: string): value is LayoutSettingId {
+	return value === "contextStyle" || value === "iconMode";
 }
 
 function editorMessageValue(config: PolishedTuiConfig): ColorSource | "mixed" {
@@ -314,6 +338,25 @@ function buildItems(
 			currentValue: featureValue(config.features[key]),
 			values: featureStateValues,
 		}));
+	}
+
+	if (section === "layout") {
+		return [
+			{
+				id: "contextStyle",
+				label: "Context style",
+				description: "Render context as text, a gauge bar, or both.",
+				currentValue: config.contextStyle,
+				values: contextStyleValues,
+			},
+			{
+				id: "iconMode",
+				label: "Icon mode",
+				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
+				currentValue: config.icons.mode,
+				values: iconModeValues,
+			},
+		];
 	}
 
 	if (section === "builtinSegments") {
@@ -505,6 +548,26 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 
 									applyFeatureChange(id, newValue);
+									return;
+								}
+
+								if (isLayoutSettingId(id)) {
+									if (id === "contextStyle" && isContextStyle(newValue)) {
+										deps.setContextStyle(newValue);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Context style: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "iconMode" && isIconMode(newValue)) {
+										deps.setIconMode(newValue);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Icon mode: ${newValue}`, "info");
+										tui.requestRender();
+									}
 									return;
 								}
 

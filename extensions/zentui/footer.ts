@@ -3,15 +3,18 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { collectExtensionStatusSegments, type ExtensionStatusSegment } from "./extension-status";
-import { parseFooterFormat, renderFormatSplit } from "./footer-format";
+import { parseFooterFormat, renderFormatSplit, stripOrphanSeparators } from "./footer-format";
 import {
+	buildContextDisplayLabel,
 	buildSessionDurationLabel,
+	contextColorTier,
 	formatCwdLabel,
 	formatOsLabel,
 	formatRuntimeSegment,
 	formatTimeLabel,
 	formatUsernameHostLabel,
 } from "./format";
+import { resolveRuntimeSymbol } from "./icons";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -162,6 +165,7 @@ export function installFooter(
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const colorSource = config.colorSources.starship;
+				const iconMode = config.icons.mode;
 				const separator = renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
 				const innerWidth = Math.max(1, width - 2);
 				const cwdLabel = renderStyleForSource(
@@ -172,14 +176,20 @@ export function installFooter(
 				);
 				const branch = state.branch;
 				const contextUsage = ctx.getContextUsage();
+				const contextWindow = ctx.model?.contextWindow ?? contextUsage?.contextWindow;
+				const contextLabel = buildContextDisplayLabel({
+					percent: contextUsage?.percent,
+					contextWindow,
+					style: config.contextStyle,
+					asciiGauge: iconMode === "ascii",
+				});
+				const tier = contextColorTier(contextUsage?.percent, config.contextThresholds);
 				const contextColor =
-					contextUsage?.percent !== null && contextUsage?.percent !== undefined
-						? contextUsage.percent >= 90
-							? config.colors.contextError
-							: contextUsage.percent >= 70
-								? config.colors.contextWarning
-								: config.colors.contextNormal
-						: config.colors.contextNormal;
+					tier === "error"
+						? config.colors.contextError
+						: tier === "warning"
+							? config.colors.contextWarning
+							: config.colors.contextNormal;
 				const gitColor = (text: string) =>
 					renderStyleForSource(theme, colorSource, config.colors.gitBranch, text);
 				const gitStatusColor = (text: string) =>
@@ -216,6 +226,8 @@ export function installFooter(
 				})();
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
+				const gitStateLabel = state.gitStateLabel ?? "";
+				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
 				const renderVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
 					switch (canonical) {
@@ -225,11 +237,16 @@ export function installFooter(
 							return branch ? (gitIcon ? `${gitIcon} ${gitColor(branch)}` : gitColor(branch)) : "";
 						case "git_status":
 							return statusBlock;
+						case "git_state":
+							return gitStateBlock;
 						case "runtime": {
 							if (!state.runtime) return "";
-							const label = state.runtime.version
-								? `${state.runtime.symbol} ${state.runtime.version}`
-								: state.runtime.symbol;
+							const symbol = resolveRuntimeSymbol(
+								state.runtime.name,
+								state.runtime.symbol,
+								iconMode,
+							);
+							const label = state.runtime.version ? `${symbol} ${state.runtime.version}` : symbol;
 							return renderStyleForSource(theme, colorSource, state.runtime.style, label);
 						}
 						case "session_duration":
@@ -253,7 +270,7 @@ export function installFooter(
 								theme,
 								colorSource,
 								config.colors.os,
-								formatOsLabel(config.icons.os),
+								formatOsLabel(config.icons.os, iconMode),
 							);
 						case "time":
 							return renderStyleForSource(
@@ -263,7 +280,7 @@ export function installFooter(
 								formatTimeLabel(config.icons.time),
 							);
 						case "context":
-							return renderStyleForSource(theme, colorSource, contextColor, state.contextLabel);
+							return renderStyleForSource(theme, colorSource, contextColor, contextLabel);
 						case "tokens":
 							return renderStyleForSource(
 								theme,
@@ -273,6 +290,8 @@ export function installFooter(
 							);
 						case "cost":
 							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+						case "sep":
+							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
 						default:
 							return "";
 					}
@@ -282,9 +301,19 @@ export function installFooter(
 						? ["on", gitIcon, gitColor(branch)].filter(Boolean)
 						: [];
 				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
-				const branchLabel = [...branchParts, ...gitStatusParts].filter(Boolean).join(" ");
+				const showGitState = config.footerSegments.gitBranch || config.footerSegments.gitStatus;
+				const gitStateParts = showGitState && gitStateBlock ? [gitStateBlock] : [];
+				const branchLabel = [...branchParts, ...gitStatusParts, ...gitStateParts]
+					.filter(Boolean)
+					.join(" ");
 				const runtimeLabel = config.footerSegments.runtime
-					? formatRuntimeSegment(theme, state.runtime, config.colors.runtimePrefix, colorSource)
+					? formatRuntimeSegment(
+							theme,
+							state.runtime,
+							config.colors.runtimePrefix,
+							colorSource,
+							iconMode,
+						)
 					: "";
 
 				const sessionDurationSegment = (() => {
@@ -312,7 +341,7 @@ export function installFooter(
 							theme,
 							colorSource,
 							config.colors.os,
-							formatOsLabel(config.icons.os),
+							formatOsLabel(config.icons.os, iconMode),
 						)
 					: "";
 				const left = [
@@ -336,7 +365,7 @@ export function installFooter(
 					: "";
 				const right = [
 					config.footerSegments.context
-						? renderStyleForSource(theme, colorSource, contextColor, state.contextLabel)
+						? renderStyleForSource(theme, colorSource, contextColor, contextLabel)
 						: "",
 					config.footerSegments.tokens
 						? renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel)
@@ -358,9 +387,9 @@ export function installFooter(
 						middle: fmtMiddle,
 						right: fmtRight,
 					} = renderFormatSplit(parseFooterFormat(config.footerFormat), renderVariable);
-					contentLeft = fmtLeft;
-					contentMiddle = fmtMiddle;
-					contentRight = fmtRight;
+					contentLeft = stripOrphanSeparators(fmtLeft);
+					contentMiddle = stripOrphanSeparators(fmtMiddle);
+					contentRight = stripOrphanSeparators(fmtRight);
 				}
 
 				const extensionStatuses = collectExtensionStatusSegments(
