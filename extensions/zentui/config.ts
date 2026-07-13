@@ -56,6 +56,7 @@ export type FooterSegmentsConfig = {
 	username: boolean;
 	time: boolean;
 	os: boolean;
+	packageVersion: boolean;
 };
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
@@ -130,6 +131,8 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"context",
 	"tokens",
 	"cost",
+	"package",
+	"package_version",
 	"sep",
 ] as const;
 
@@ -198,6 +201,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		username: false,
 		time: false,
 		os: false,
+		packageVersion: false,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -377,6 +381,7 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		username: footerSegmentValue(record, "username"),
 		time: footerSegmentValue(record, "time"),
 		os: footerSegmentValue(record, "os"),
+		packageVersion: footerSegmentValue(record, "packageVersion"),
 	};
 }
 
@@ -437,7 +442,8 @@ function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig 
 		value === "sessionDuration" ||
 		value === "username" ||
 		value === "time" ||
-		value === "os"
+		value === "os" ||
+		value === "packageVersion"
 	);
 }
 

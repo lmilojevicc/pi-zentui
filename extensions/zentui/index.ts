@@ -30,6 +30,7 @@ import {
 import { installFooter } from "./footer";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
+import { readPackageVersionResult } from "./package-version";
 import {
 	createProjectRefreshScheduler,
 	type ScheduleProjectRefreshOptions,
@@ -104,12 +105,17 @@ export default function (pi: ExtensionAPI) {
 		syncState(state, ctx, currentConfig.icons.cacheHit);
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
-		const [git, runtime] = await Promise.all([readGitStatus(ctx.cwd), readRuntimeInfo(ctx.cwd)]);
+		const [git, runtime, packageVersion] = await Promise.all([
+			readGitStatus(ctx.cwd),
+			readRuntimeInfo(ctx.cwd),
+			readPackageVersionResult(ctx.cwd),
+		]);
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd: ctx.cwd,
 			previousCwd: lastProjectCwd,
 			git,
 			runtime,
+			packageVersion,
 		});
 	};
 

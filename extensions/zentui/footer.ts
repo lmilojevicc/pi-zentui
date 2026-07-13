@@ -10,6 +10,7 @@ import {
 	contextColorTier,
 	formatCwdLabel,
 	formatOsLabel,
+	formatPackageVersionSegment,
 	formatRuntimeSegment,
 	formatTimeLabel,
 	formatUsernameHostLabel,
@@ -293,6 +294,12 @@ export function installFooter(
 							);
 						case "cost":
 							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+						case "package":
+							return formatPackageVersionSegment(theme, state.packageVersion, colorSource);
+						case "package_version":
+							return state.packageVersion?.version
+								? renderStyleForSource(theme, colorSource, "fg:green", state.packageVersion.version)
+								: "";
 						case "sep":
 							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
 						default:
@@ -317,6 +324,9 @@ export function installFooter(
 							colorSource,
 							iconMode,
 						)
+					: "";
+				const packageVersionLabel = config.footerSegments.packageVersion
+					? formatPackageVersionSegment(theme, state.packageVersion, colorSource)
 					: "";
 
 				const sessionDurationSegment = (() => {
@@ -353,6 +363,7 @@ export function installFooter(
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
 					runtimeLabel,
+					packageVersionLabel,
 					sessionDurationSegment,
 				]
 					.filter(Boolean)

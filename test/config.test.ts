@@ -55,6 +55,7 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
 			tokens: true,
 			cost: true,
 		});
@@ -373,6 +374,7 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
 			tokens: false,
 			cost: true,
 		});
@@ -390,6 +392,7 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
 			tokens: true,
 			cost: true,
 		});
@@ -587,6 +590,7 @@ describe("mergeConfig", () => {
 				username: false,
 				time: false,
 				os: false,
+				packageVersion: false,
 				tokens: false,
 				cost: false,
 			});
@@ -620,10 +624,28 @@ describe("mergeConfig", () => {
 				username: false,
 				time: false,
 				os: false,
+				packageVersion: false,
 				tokens: true,
 				cost: true,
 			});
 			expect(raw).toEqual({ footerSegments: { runtime: false } });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("toggles and persists the packageVersion footer segment", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFooterSegmentsPatch({ packageVersion: true }, path);
+			expect(config.footerSegments.packageVersion).toBe(true);
+
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.footerSegments).toEqual({ packageVersion: true });
+
+			const reloaded = mergeConfig(raw);
+			expect(reloaded.footerSegments.packageVersion).toBe(true);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

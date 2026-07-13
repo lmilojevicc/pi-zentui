@@ -15,6 +15,13 @@ describe("parseFooterFormat", () => {
 		expect(parseFooterFormat("$cwd")).toEqual([{ kind: "var", name: "cwd" }]);
 	});
 
+	it("parses $package and $package_version as package-version vars", () => {
+		expect(parseFooterFormat("$package")).toEqual([{ kind: "var", name: "package" }]);
+		expect(parseFooterFormat("$package_version")).toEqual([
+			{ kind: "var", name: "package_version" },
+		]);
+	});
+
 	it("parses braced variables", () => {
 		const braced = "${" + "git_branch}";
 		expect(parseFooterFormat(braced)).toEqual([{ kind: "var", name: "git_branch" }]);

@@ -10,6 +10,7 @@ import type {
 } from "./config";
 import type { IconMode } from "./icons";
 import { resolveOsIcon, resolveRuntimeSymbol } from "./icons";
+import type { PackageVersionResult } from "./package-version";
 import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
 
@@ -242,6 +243,22 @@ export function formatRuntimeSegment(
 	const symbol = resolveRuntimeSymbol(runtime.name, runtime.symbol, mode);
 	const label = runtime.version ? `${symbol} ${runtime.version}` : symbol;
 	return `${renderStyleForSource(theme, colorSource, prefixStyle, "via")} ${renderStyleForSource(theme, colorSource, runtime.style, label)}`;
+}
+
+/**
+ * Render the package-version segment. Distinct from the runtime segment:
+ * it surfaces the project’s own version (manifest-derived) rather than
+ * the installed toolchain version. By design the segment is plain text
+ * (no icon) so it does not collide with the runtime segment’s symbol;
+ * a glyph can be added via `footerFormat` literals if the user wants one.
+ */
+export function formatPackageVersionSegment(
+	theme: Pick<Theme, "fg">,
+	pkg: PackageVersionResult | undefined,
+	colorSource: ColorSource,
+): string {
+	if (!pkg) return "";
+	return renderStyleForSource(theme, colorSource, "fg:green", pkg.version);
 }
 
 export type FormatCwdOptions = {

@@ -1,5 +1,6 @@
 import type { GitReadResult } from "./git";
 import { emptyGitStatus } from "./git";
+import type { PackageVersionReadResult } from "./package-version";
 import type { RuntimeReadResult } from "./runtime";
 import type { FooterState } from "./state";
 
@@ -16,6 +17,7 @@ export function applyProjectRefreshToState(
 		previousCwd: string | undefined;
 		git: GitReadResult;
 		runtime: RuntimeReadResult;
+		packageVersion?: PackageVersionReadResult;
 	},
 ): string {
 	const cwdChanged = args.previousCwd !== undefined && args.previousCwd !== args.cwd;
@@ -23,6 +25,7 @@ export function applyProjectRefreshToState(
 	if (cwdChanged) {
 		Object.assign(state, emptyGitStatus());
 		state.runtime = undefined;
+		state.packageVersion = undefined;
 	}
 
 	if (args.git.kind === "ok") {
@@ -39,6 +42,18 @@ export function applyProjectRefreshToState(
 		state.runtime = undefined;
 	}
 	// error + same cwd: keep previous runtime
+
+	if (args.packageVersion !== undefined) {
+		if (args.packageVersion.kind === "ok") {
+			// `null` means "no manifest in this cwd"; clear so the segment disappears
+			// even on the same cwd when the user removes their manifest.
+			state.packageVersion = args.packageVersion.result ?? undefined;
+		} else if (!cwdChanged) {
+			// error + same cwd: keep previous packageVersion (last-good semantics)
+		} else {
+			state.packageVersion = undefined;
+		}
+	}
 
 	return args.cwd;
 }

@@ -1130,6 +1130,85 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 1)).toBe(true);
 	});
 
+	it("renders the package version segment when toggled on and hides it when off", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+
+		const renderWithPackage = (enabled: boolean) => {
+			const state = createInitialState(emptyGitStatus());
+			state.runtime = {
+				name: "nodejs",
+				symbol: "",
+				style: "bold green",
+				version: "v22",
+			};
+			state.packageVersion = enabled ? { ecosystem: "nodejs", version: "1.2.3" } : undefined;
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0.001";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: { ...defaultConfig.footerSegments, packageVersion: enabled },
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		const withPackage = renderWithPackage(true);
+		const withoutPackage = renderWithPackage(false);
+		expect(withPackage).toContain("1.2.3");
+		expect(withoutPackage).not.toContain("1.2.3");
+	});
+
+	it("does not rewrite a non-empty footerFormat when packageVersion is on", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.packageVersion = { ecosystem: "nodejs", version: "1.2.3" };
+		state.contextLabel = "1%/200k";
+		state.tokenLabel = "↑1 ↓2";
+		state.costLabel = "$0.001";
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			footerSegments: { ...defaultConfig.footerSegments, packageVersion: true },
+			footerFormat: "$cwd $fill $context",
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		});
+		const rendered = footer?.render(200).join("\n") ?? "";
+		expect(rendered).not.toContain("1.2.3");
+	});
 	it("renders editor rails with theme accent and borderMuted borders", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,

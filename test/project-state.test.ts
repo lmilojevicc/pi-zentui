@@ -89,4 +89,56 @@ describe("applyProjectRefreshToState", () => {
 		expect(state.gitStateLabel).toBe("REBASING 1/2");
 		expect(state.runtime?.name).toBe("bun");
 	});
+
+	it("applies ok packageVersion result and clears it when manifest disappears", () => {
+		const state = createInitialState(emptyGitStatus());
+
+		applyProjectRefreshToState(state, {
+			cwd: "/repo",
+			previousCwd: "/repo",
+			git: { kind: "ok", status: emptyGitStatus() },
+			runtime: { kind: "ok", runtime: undefined },
+			packageVersion: {
+				kind: "ok",
+				result: { ecosystem: "nodejs", version: "1.2.3" },
+			},
+		});
+		expect(state.packageVersion).toEqual({ ecosystem: "nodejs", version: "1.2.3" });
+
+		applyProjectRefreshToState(state, {
+			cwd: "/repo",
+			previousCwd: "/repo",
+			git: { kind: "ok", status: emptyGitStatus() },
+			runtime: { kind: "ok", runtime: undefined },
+			packageVersion: { kind: "ok", result: null },
+		});
+		expect(state.packageVersion).toBeUndefined();
+	});
+
+	it("keeps last-good packageVersion on transient error", () => {
+		const state = createInitialState(emptyGitStatus());
+		state.packageVersion = { ecosystem: "rust", version: "0.4.2" };
+
+		applyProjectRefreshToState(state, {
+			cwd: "/repo",
+			previousCwd: "/repo",
+			git: { kind: "ok", status: emptyGitStatus() },
+			runtime: { kind: "ok", runtime: undefined },
+			packageVersion: { kind: "error" },
+		});
+		expect(state.packageVersion).toEqual({ ecosystem: "rust", version: "0.4.2" });
+	});
+
+	it("clears packageVersion on cwd change even when no result is provided", () => {
+		const state = createInitialState(emptyGitStatus());
+		state.packageVersion = { ecosystem: "python", version: "2.0.0" };
+
+		applyProjectRefreshToState(state, {
+			cwd: "/new",
+			previousCwd: "/old",
+			git: { kind: "error" },
+			runtime: { kind: "error" },
+		});
+		expect(state.packageVersion).toBeUndefined();
+	});
 });

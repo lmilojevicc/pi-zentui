@@ -21,7 +21,7 @@ Zentui brings two popular aesthetics to Pi:
 - `on  branch` — git branch with icon
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
 - `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
-- Optional segments (off by default): `user@host`, current time, OS icon, and session duration
+- Optional segments (off by default): `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
 - Right side shows context usage, token counts, and cost
 - Built-in footer segments can be shown or hidden individually from `/zentui`
 - Fully custom Starship-style layout via a `footerFormat` template string — see [Footer Format Template](#footer-format-template)
@@ -234,7 +234,8 @@ Default config values — copy this and change any value you want:
 		"sessionDuration": false,
 		"username": false,
 		"time": false,
-		"os": false
+		"os": false,
+		"packageVersion": false
 	},
 	"extensionStatuses": {
 		"defaultPlacement": "right",
@@ -252,7 +253,7 @@ Default config values — copy this and change any value you want:
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `icons.mode` is `auto` | `nerd` | `ascii` (default `auto`, same glyphs as nerd). ASCII mode swaps in plain fallbacks for statusline icons and runtime symbols — useful without a Nerd Font. Custom per-icon strings always win over mode defaults. Custom `icons.os` always wins; when left at the mode default, Zentui maps the OS icon by platform. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. All three can be changed from `/zentui` or direct slash-command arguments.
-- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `gitBranch`, `gitStatus`, `gitCounts`, `runtime`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.
+- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `gitBranch`, `gitStatus`, `gitCounts`, `runtime`, `packageVersion`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.
 - `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Layout** tab configures context style, path display mode/depth, and icon mode; set or clear custom formats with `/zentui format`.
 - `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. The `Extension segments` tab in `/zentui` lists only statuses that are currently active.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
@@ -292,6 +293,8 @@ Center the branch between directory and cost:
 | `$git_status`       | `$status`    | `[!?↑]` status block                             |
 | `$git_state`        | `$state`     | `REBASING` / `MERGING` / … (optional `n/m`)      |
 | `$runtime`          |              | runtime icon + version                           |
+| `$package`          |              | project package version (manifest-derived)       |
+| `$package_version`  |              | raw project package version (no icon)            |
 | `$session_duration` | `$duration`  | session running time                             |
 | `$username`         |              | `user@host`                                      |
 | `$os`               |              | operating-system icon                            |
