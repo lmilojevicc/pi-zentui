@@ -246,7 +246,8 @@ export function formatRuntimeSegment(
 
 export type FormatCwdOptions = {
 	mode?: PathDisplayMode;
-	maxLength?: number;
+	/** Trailing directory components to keep in full mode. 0 = unlimited. */
+	depth?: number;
 	home?: string;
 };
 
@@ -266,39 +267,28 @@ function replaceHomePrefix(path: string, home: string): string {
 	return path;
 }
 
-function abbreviatePath(path: string): string {
+/** Starship-style: keep last `depth` components; prefix with `…/` when parents were dropped. */
+function applyPathDepth(path: string, depth: number): string {
+	if (!Number.isFinite(depth) || depth <= 0) return path;
+	const limit = Math.floor(depth);
 	if (path === "~" || path === "/") return path;
 
-	let prefix = "";
-	let body = path;
+	let components: string[];
 	if (path.startsWith("~/")) {
-		prefix = "~/";
-		body = path.slice(2);
+		components = path.slice(2).split("/").filter(Boolean);
+	} else if (/^[A-Za-z]:\//.test(path)) {
+		components = path.slice(3).split("/").filter(Boolean);
 	} else if (path.startsWith("/")) {
-		prefix = "/";
-		body = path.slice(1);
+		components = path.slice(1).split("/").filter(Boolean);
+	} else {
+		components = path.split("/").filter(Boolean);
 	}
 
-	const parts = body.split("/").filter(Boolean);
-	const last = parts.at(-1);
-	if (!last) return path;
-
-	const head = parts.slice(0, -1).map((segment) => {
-		if (segment.startsWith(".") && segment.length > 1) return `.${segment.charAt(1)}`;
-		return segment.charAt(0);
-	});
-	return `${prefix}${[...head, last].join("/")}`;
+	if (components.length <= limit) return path;
+	return `…/${components.slice(-limit).join("/")}`;
 }
 
-function applyPathMaxLength(path: string, maxLength: number | undefined): string {
-	if (maxLength === undefined || !Number.isFinite(maxLength) || maxLength <= 0) return path;
-	const limit = Math.floor(maxLength);
-	if (path.length <= limit) return path;
-	if (limit === 1) return "…";
-	return `…${path.slice(-(limit - 1))}`;
-}
-
-function formatPathText(cwd: string, mode: PathDisplayMode, home: string): string {
+function formatPathText(cwd: string, mode: PathDisplayMode, home: string, depth: number): string {
 	if (mode === "basename") {
 		const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
 		const parts = normalized.split("/").filter(Boolean);
@@ -307,12 +297,12 @@ function formatPathText(cwd: string, mode: PathDisplayMode, home: string): strin
 
 	const normalized = normalizeDisplayPath(cwd);
 	const withHome = replaceHomePrefix(normalized, home);
-	if (mode === "full") return withHome;
-	return abbreviatePath(withHome);
+	return applyPathDepth(withHome, depth);
 }
 
 export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwdOptions): string {
 	const mode = options?.mode ?? "basename";
+	const depth = options?.depth ?? 0;
 	const home =
 		options?.home ??
 		(() => {
@@ -322,7 +312,7 @@ export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwd
 				return "";
 			}
 		})();
-	const pathText = applyPathMaxLength(formatPathText(cwd, mode, home), options?.maxLength);
+	const pathText = formatPathText(cwd, mode, home, depth);
 	return cwdIcon ? `${cwdIcon} ${pathText}` : pathText;
 }
 

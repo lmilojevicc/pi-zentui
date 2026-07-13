@@ -116,37 +116,41 @@ describe("mergeConfig", () => {
 		).toEqual({ warning: 70, error: 90 });
 	});
 
-	it("defaults pathDisplay and accepts mode/maxLength overrides", () => {
-		expect(mergeConfig({}).pathDisplay).toEqual({ mode: "basename", maxLength: 0 });
+	it("defaults pathDisplay and accepts mode/depth overrides", () => {
+		expect(mergeConfig({}).pathDisplay).toEqual({ mode: "basename", depth: 0 });
 		expect(mergeConfig({ pathDisplay: { mode: "full" } }).pathDisplay).toEqual({
 			mode: "full",
-			maxLength: 0,
+			depth: 0,
 		});
+		expect(mergeConfig({ pathDisplay: { mode: "full", depth: 3 } }).pathDisplay).toEqual({
+			mode: "full",
+			depth: 3,
+		});
+		// Legacy abbreviated → full; maxLength ignored
 		expect(
-			mergeConfig({ pathDisplay: { mode: "abbreviated", maxLength: 40 } }).pathDisplay,
+			mergeConfig({ pathDisplay: { mode: "abbreviated", maxLength: 40, depth: 2 } }).pathDisplay,
 		).toEqual({
-			mode: "abbreviated",
-			maxLength: 40,
+			mode: "full",
+			depth: 2,
 		});
-		expect(mergeConfig({ pathDisplay: { mode: "fish", maxLength: -3 } }).pathDisplay).toEqual({
+		expect(mergeConfig({ pathDisplay: { mode: "fish", depth: -3 } }).pathDisplay).toEqual({
 			mode: "basename",
-			maxLength: 0,
+			depth: 0,
 		});
-		expect(mergeConfig({ pathDisplay: { maxLength: 12.8 } }).pathDisplay).toEqual({
+		expect(mergeConfig({ pathDisplay: { depth: 12.8 } }).pathDisplay).toEqual({
 			mode: "basename",
-			maxLength: 12,
+			depth: 12,
 		});
 		expect(mergeConfig({ pathDisplay: "full" }).pathDisplay).toEqual({
 			mode: "basename",
-			maxLength: 0,
+			depth: 0,
 		});
 		expect(
-			mergeConfig({ pathDisplay: { mode: "full", maxLength: Number.POSITIVE_INFINITY } })
-				.pathDisplay,
-		).toEqual({ mode: "full", maxLength: 0 });
+			mergeConfig({ pathDisplay: { mode: "full", depth: Number.POSITIVE_INFINITY } }).pathDisplay,
+		).toEqual({ mode: "full", depth: 0 });
 	});
 
-	it("saves pathDisplay mode patches without erasing maxLength or unknown keys", () => {
+	it("saves pathDisplay patches with depth, drops maxLength, keeps unknown keys", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
 		const path = join(dir, "zentui.json");
 		try {
@@ -158,6 +162,7 @@ describe("mergeConfig", () => {
 						pathDisplay: {
 							mode: "basename",
 							maxLength: 40,
+							depth: 3,
 							futureKey: "future",
 						},
 					},
@@ -167,16 +172,20 @@ describe("mergeConfig", () => {
 `,
 			);
 
-			const config = savePathDisplayPatch({ mode: "abbreviated" }, path);
+			const config = savePathDisplayPatch({ mode: "full" }, path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
-			expect(config.pathDisplay).toEqual({ mode: "abbreviated", maxLength: 40 });
+			expect(config.pathDisplay).toEqual({ mode: "full", depth: 3 });
 			expect(raw.unknown).toBe(true);
 			expect(raw.pathDisplay).toEqual({
-				mode: "abbreviated",
-				maxLength: 40,
+				mode: "full",
+				depth: 3,
 				futureKey: "future",
 			});
+			expect(raw.pathDisplay.maxLength).toBeUndefined();
+
+			const depthConfig = savePathDisplayPatch({ depth: 1 }, path);
+			expect(depthConfig.pathDisplay).toEqual({ mode: "full", depth: 1 });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

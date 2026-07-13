@@ -23,11 +23,12 @@ export type ContextThresholds = {
 	error: number;
 };
 
-export type PathDisplayMode = "basename" | "abbreviated" | "full";
+export type PathDisplayMode = "basename" | "full";
 
 export type PathDisplayConfig = {
 	mode: PathDisplayMode;
-	maxLength: number;
+	/** Trailing directories to show in full mode. 0 = unlimited. */
+	depth: number;
 };
 
 export type ColorSourcesConfig = {
@@ -152,7 +153,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	footerFormat: "",
 	contextStyle: "text",
 	contextThresholds: { warning: 70, error: 90 },
-	pathDisplay: { mode: "basename", maxLength: 0 },
+	pathDisplay: { mode: "basename", depth: 0 },
 	icons: {
 		mode: "auto",
 		...NERD_DEFAULT_ICONS,
@@ -254,11 +255,13 @@ function parseContextThresholds(value: unknown): ContextThresholds {
 }
 
 function parsePathDisplayMode(value: unknown): PathDisplayMode {
-	if (value === "basename" || value === "abbreviated" || value === "full") return value;
+	// Legacy "abbreviated" (fish-style) maps to full; depth controls truncation now.
+	if (value === "abbreviated" || value === "full") return "full";
+	if (value === "basename") return "basename";
 	return defaultConfig.pathDisplay.mode;
 }
 
-function parsePathMaxLength(value: unknown): number {
+function parsePathDepth(value: unknown): number {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
 	return Math.floor(value);
 }
@@ -268,7 +271,7 @@ function parsePathDisplay(value: unknown): PathDisplayConfig {
 	if (!isRecord(value)) return { ...defaults };
 	return {
 		mode: parsePathDisplayMode(value.mode),
-		maxLength: parsePathMaxLength(value.maxLength),
+		depth: parsePathDepth(value.depth),
 	};
 }
 
@@ -654,7 +657,9 @@ export function savePathDisplayPatch(
 		? { ...(record.pathDisplay as Record<string, unknown>) }
 		: {};
 	if (patch.mode !== undefined) existing.mode = patch.mode;
-	if (patch.maxLength !== undefined) existing.maxLength = patch.maxLength;
+	if (patch.depth !== undefined) existing.depth = patch.depth;
+	// Drop legacy char-cap key if present; depth is the truncation control now.
+	delete existing.maxLength;
 	record.pathDisplay = existing;
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);

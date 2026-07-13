@@ -38,7 +38,8 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 ];
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
-const pathDisplayModeValues: PathDisplayMode[] = ["basename", "abbreviated", "full"];
+const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
+const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 type FeatureState = "enabled" | "disabled";
 
@@ -55,7 +56,7 @@ type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
-type LayoutSettingId = "contextStyle" | "pathDisplay" | "iconMode";
+type LayoutSettingId = "contextStyle" | "pathDisplay" | "pathDepth" | "iconMode";
 
 type SettingsCommandDeps = {
 	getConfig: () => PolishedTuiConfig;
@@ -69,6 +70,7 @@ type SettingsCommandDeps = {
 	setIconMode: (mode: IconMode) => void;
 	setContextStyle: (style: ContextStyle) => void;
 	setPathDisplayMode: (mode: PathDisplayMode) => void;
+	setPathDisplayDepth: (depth: number) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -198,11 +200,27 @@ function isContextStyle(value: string): value is ContextStyle {
 }
 
 function isPathDisplayMode(value: string): value is PathDisplayMode {
-	return value === "basename" || value === "abbreviated" || value === "full";
+	return value === "basename" || value === "full";
+}
+
+function isPathDepthValue(value: string): boolean {
+	return (pathDepthValues as readonly string[]).includes(value);
+}
+
+function pathDepthCurrentValue(depth: number): string {
+	if (!Number.isFinite(depth) || depth <= 0) return "0";
+	const n = Math.floor(depth);
+	// Cycle UI only offers 0–5; deeper JSON values snap to "5" for display until changed.
+	return String(Math.min(5, n));
 }
 
 function isLayoutSettingId(value: string): value is LayoutSettingId {
-	return value === "contextStyle" || value === "pathDisplay" || value === "iconMode";
+	return (
+		value === "contextStyle" ||
+		value === "pathDisplay" ||
+		value === "pathDepth" ||
+		value === "iconMode"
+	);
 }
 
 function editorMessageValue(config: PolishedTuiConfig): ColorSource | "mixed" {
@@ -359,9 +377,17 @@ function buildItems(
 			{
 				id: "pathDisplay",
 				label: "Path display",
-				description: "Show cwd as basename, abbreviated segments, or full path (with ~).",
+				description: "Show cwd as basename or full path (home contracted to ~).",
 				currentValue: config.pathDisplay.mode,
 				values: pathDisplayModeValues,
+			},
+			{
+				id: "pathDepth",
+				label: "Path depth",
+				description:
+					"In full mode, how many trailing directories to show (0 = all). Ignored for basename.",
+				currentValue: pathDepthCurrentValue(config.pathDisplay.depth),
+				values: [...pathDepthValues],
 			},
 			{
 				id: "iconMode",
@@ -580,6 +606,16 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Path display: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "pathDepth" && isPathDepthValue(newValue)) {
+										const depth = Number(newValue);
+										deps.setPathDisplayDepth(depth);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Path depth: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}

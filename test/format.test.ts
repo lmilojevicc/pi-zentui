@@ -205,49 +205,64 @@ describe("formatCwdLabel", () => {
 				home: "C:\\Users\\me",
 			}),
 		).toBe("~/Projects/zentui");
+		// Prefix-safe: /Users/me2 must not match home /Users/me
+		expect(formatCwdLabel("/Users/me2/Projects", "", { mode: "full", home })).toBe(
+			"/Users/me2/Projects",
+		);
 	});
 
-	it("abbreviates intermediate path segments fish/starship-style", () => {
-		expect(formatCwdLabel("/Users/me/Projects/zentui", "", { mode: "abbreviated", home })).toBe(
-			"~/P/zentui",
-		);
-		expect(formatCwdLabel("/Users/me", "", { mode: "abbreviated", home })).toBe("~");
-		expect(formatCwdLabel("/tmp/a/b/c", "", { mode: "abbreviated", home })).toBe("/t/a/b/c");
-		expect(formatCwdLabel("/Users/me/.config/zentui", "", { mode: "abbreviated", home })).toBe(
-			"~/.c/zentui",
-		);
-		expect(formatCwdLabel("/", "", { mode: "abbreviated", home })).toBe("/");
-	});
-
-	it("left-truncates path text with maxLength and keeps the icon intact", () => {
-		// "~/Projects/zentui" is 16 chars; maxLength 10 → "…" + last 9 chars
+	it("truncates full paths to trailing directory depth (Starship-style)", () => {
+		expect(
+			formatCwdLabel("/Users/me/Projects/foo/bar", "", {
+				mode: "full",
+				home,
+				depth: 2,
+			}),
+		).toBe("…/foo/bar");
+		expect(
+			formatCwdLabel("/var/log/nginx/access", "", {
+				mode: "full",
+				home,
+				depth: 2,
+			}),
+		).toBe("…/nginx/access");
 		expect(
 			formatCwdLabel("/Users/me/Projects/zentui", "", {
 				mode: "full",
 				home,
-				maxLength: 10,
+				depth: 5,
 			}),
-		).toBe("…ts/zentui");
+		).toBe("~/Projects/zentui");
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "full",
+				home,
+				depth: 1,
+			}),
+		).toBe("…/zentui");
+		expect(formatCwdLabel("/Users/me", "", { mode: "full", home, depth: 2 })).toBe("~");
+		expect(formatCwdLabel("/", "", { mode: "full", home, depth: 2 })).toBe("/");
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "full",
+				home,
+				depth: 0,
+			}),
+		).toBe("~/Projects/zentui");
+		// depth is ignored for basename
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "basename",
+				depth: 2,
+			}),
+		).toBe("zentui");
 		expect(
 			formatCwdLabel("/Users/me/Projects/zentui", "󰝰", {
 				mode: "full",
 				home,
-				maxLength: 10,
+				depth: 1,
 			}),
-		).toBe("󰝰 …ts/zentui");
-		expect(
-			formatCwdLabel("/Users/me/Projects/zentui", "", {
-				mode: "full",
-				home,
-				maxLength: 1,
-			}),
-		).toBe("…");
-		expect(
-			formatCwdLabel("/Users/me/Projects/zentui", "", {
-				mode: "basename",
-				maxLength: 0,
-			}),
-		).toBe("zentui");
+		).toBe("󰝰 …/zentui");
 	});
 });
 

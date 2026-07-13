@@ -413,6 +413,9 @@ export default function (pi: ExtensionAPI) {
 		setPathDisplayMode(mode: PathDisplayMode) {
 			currentConfig = savePathDisplayPatch({ mode });
 		},
+		setPathDisplayDepth(depth: number) {
+			currentConfig = savePathDisplayPatch({ depth });
+		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();
 		},

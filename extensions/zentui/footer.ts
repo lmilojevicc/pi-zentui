@@ -174,7 +174,7 @@ export function installFooter(
 					config.colors.cwd,
 					formatCwdLabel(ctx.cwd, config.icons.cwd, {
 						mode: config.pathDisplay.mode,
-						maxLength: config.pathDisplay.maxLength,
+						depth: config.pathDisplay.depth,
 					}),
 				);
 				const branch = state.branch;
