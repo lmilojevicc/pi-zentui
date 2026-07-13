@@ -21,6 +21,7 @@ import {
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
+	type PathDisplayConfig,
 	type PathDisplayMode,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
@@ -69,8 +70,7 @@ type SettingsCommandDeps = {
 	setFooterFormat: (value: string) => void;
 	setIconMode: (mode: IconMode) => void;
 	setContextStyle: (style: ContextStyle) => void;
-	setPathDisplayMode: (mode: PathDisplayMode) => void;
-	setPathDisplayDepth: (depth: number) => void;
+	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -205,13 +205,6 @@ function isPathDisplayMode(value: string): value is PathDisplayMode {
 
 function isPathDepthValue(value: string): boolean {
 	return (pathDepthValues as readonly string[]).includes(value);
-}
-
-function pathDepthCurrentValue(depth: number): string {
-	if (!Number.isFinite(depth) || depth <= 0) return "0";
-	const n = Math.floor(depth);
-	// Cycle UI only offers 0–5; deeper JSON values snap to "5" for display until changed.
-	return String(Math.min(5, n));
 }
 
 function isLayoutSettingId(value: string): value is LayoutSettingId {
@@ -366,7 +359,7 @@ function buildItems(
 	}
 
 	if (section === "layout") {
-		return [
+		const items: SettingItem[] = [
 			{
 				id: "contextStyle",
 				label: "Context style",
@@ -381,22 +374,24 @@ function buildItems(
 				currentValue: config.pathDisplay.mode,
 				values: pathDisplayModeValues,
 			},
-			{
+		];
+		if (config.pathDisplay.mode === "full") {
+			items.push({
 				id: "pathDepth",
 				label: "Path depth",
-				description:
-					"In full mode, how many trailing directories to show (0 = all). Ignored for basename.",
-				currentValue: pathDepthCurrentValue(config.pathDisplay.depth),
+				description: "How many trailing directories to show (0 = all, max 5).",
+				currentValue: String(config.pathDisplay.depth),
 				values: [...pathDepthValues],
-			},
-			{
-				id: "iconMode",
-				label: "Icon mode",
-				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
-				currentValue: config.icons.mode,
-				values: iconModeValues,
-			},
-		];
+			});
+		}
+		items.push({
+			id: "iconMode",
+			label: "Icon mode",
+			description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
+			currentValue: config.icons.mode,
+			values: iconModeValues,
+		});
+		return items;
 	}
 
 	if (section === "builtinSegments") {
@@ -602,7 +597,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 
 									if (id === "pathDisplay" && isPathDisplayMode(newValue)) {
-										deps.setPathDisplayMode(newValue);
+										deps.setPathDisplay({ mode: newValue });
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Path display: ${newValue}`, "info");
@@ -611,8 +606,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 
 									if (id === "pathDepth" && isPathDepthValue(newValue)) {
-										const depth = Number(newValue);
-										deps.setPathDisplayDepth(depth);
+										deps.setPathDisplay({ depth: Number(newValue) });
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Path depth: ${newValue}`, "info");

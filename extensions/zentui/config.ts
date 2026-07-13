@@ -27,7 +27,7 @@ export type PathDisplayMode = "basename" | "full";
 
 export type PathDisplayConfig = {
 	mode: PathDisplayMode;
-	/** Trailing directories to show in full mode. 0 = unlimited. */
+	/** Trailing directories to show in full mode. 0 = unlimited; clamped to 0..5. */
 	depth: number;
 };
 
@@ -254,25 +254,16 @@ function parseContextThresholds(value: unknown): ContextThresholds {
 	return { warning, error };
 }
 
-function parsePathDisplayMode(value: unknown): PathDisplayMode {
-	// Legacy "abbreviated" (fish-style) maps to full; depth controls truncation now.
-	if (value === "abbreviated" || value === "full") return "full";
-	if (value === "basename") return "basename";
-	return defaultConfig.pathDisplay.mode;
-}
-
-function parsePathDepth(value: unknown): number {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
-	return Math.floor(value);
-}
-
 function parsePathDisplay(value: unknown): PathDisplayConfig {
 	const defaults = defaultConfig.pathDisplay;
 	if (!isRecord(value)) return { ...defaults };
-	return {
-		mode: parsePathDisplayMode(value.mode),
-		depth: parsePathDepth(value.depth),
-	};
+	const mode = value.mode === "full" || value.mode === "basename" ? value.mode : defaults.mode;
+	const rawDepth = value.depth;
+	const depth =
+		typeof rawDepth === "number" && Number.isFinite(rawDepth) && rawDepth >= 0
+			? Math.min(5, Math.floor(rawDepth))
+			: defaults.depth;
+	return { mode, depth };
 }
 
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -658,8 +649,6 @@ export function savePathDisplayPatch(
 		: {};
 	if (patch.mode !== undefined) existing.mode = patch.mode;
 	if (patch.depth !== undefined) existing.depth = patch.depth;
-	// Drop legacy char-cap key if present; depth is the truncation control now.
-	delete existing.maxLength;
 	record.pathDisplay = existing;
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);

@@ -126,20 +126,13 @@ describe("mergeConfig", () => {
 			mode: "full",
 			depth: 3,
 		});
-		// Legacy abbreviated → full; maxLength ignored
-		expect(
-			mergeConfig({ pathDisplay: { mode: "abbreviated", maxLength: 40, depth: 2 } }).pathDisplay,
-		).toEqual({
-			mode: "full",
-			depth: 2,
-		});
 		expect(mergeConfig({ pathDisplay: { mode: "fish", depth: -3 } }).pathDisplay).toEqual({
 			mode: "basename",
 			depth: 0,
 		});
 		expect(mergeConfig({ pathDisplay: { depth: 12.8 } }).pathDisplay).toEqual({
 			mode: "basename",
-			depth: 12,
+			depth: 5,
 		});
 		expect(mergeConfig({ pathDisplay: "full" }).pathDisplay).toEqual({
 			mode: "basename",
@@ -150,7 +143,7 @@ describe("mergeConfig", () => {
 		).toEqual({ mode: "full", depth: 0 });
 	});
 
-	it("saves pathDisplay patches with depth, drops maxLength, keeps unknown keys", () => {
+	it("saves pathDisplay patches and keeps unknown keys", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
 		const path = join(dir, "zentui.json");
 		try {
@@ -161,7 +154,6 @@ describe("mergeConfig", () => {
 						unknown: true,
 						pathDisplay: {
 							mode: "basename",
-							maxLength: 40,
 							depth: 3,
 							futureKey: "future",
 						},
@@ -182,7 +174,6 @@ describe("mergeConfig", () => {
 				depth: 3,
 				futureKey: "future",
 			});
-			expect(raw.pathDisplay.maxLength).toBeUndefined();
 
 			const depthConfig = savePathDisplayPatch({ depth: 1 }, path);
 			expect(depthConfig.pathDisplay).toEqual({ mode: "full", depth: 1 });

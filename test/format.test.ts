@@ -227,6 +227,13 @@ describe("formatCwdLabel", () => {
 			}),
 		).toBe("…/nginx/access");
 		expect(
+			formatCwdLabel("C:\\a\\b\\c\\d", "", {
+				mode: "full",
+				home,
+				depth: 2,
+			}),
+		).toBe("…/c/d");
+		expect(
 			formatCwdLabel("/Users/me/Projects/zentui", "", {
 				mode: "full",
 				home,
@@ -242,6 +249,8 @@ describe("formatCwdLabel", () => {
 		).toBe("…/zentui");
 		expect(formatCwdLabel("/Users/me", "", { mode: "full", home, depth: 2 })).toBe("~");
 		expect(formatCwdLabel("/", "", { mode: "full", home, depth: 2 })).toBe("/");
+		expect(formatCwdLabel("//", "", { mode: "full", home, depth: 2 })).toBe("/");
+		expect(formatCwdLabel("//", "")).toBe("/");
 		expect(
 			formatCwdLabel("/Users/me/Projects/zentui", "", {
 				mode: "full",

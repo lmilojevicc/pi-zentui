@@ -258,7 +258,7 @@ function normalizeDisplayPath(cwd: string): string {
 	return stripped === "" ? withSlashes : stripped;
 }
 
-function replaceHomePrefix(path: string, home: string): string {
+function toHomePath(path: string, home: string): string {
 	if (!home) return path;
 	const homeNorm = home.replace(/\\/g, "/").replace(/\/+$/, "");
 	if (!homeNorm) return path;
@@ -288,31 +288,27 @@ function applyPathDepth(path: string, depth: number): string {
 	return `…/${components.slice(-limit).join("/")}`;
 }
 
-function formatPathText(cwd: string, mode: PathDisplayMode, home: string, depth: number): string {
-	if (mode === "basename") {
-		const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
-		const parts = normalized.split("/").filter(Boolean);
-		return parts[parts.length - 1] ?? cwd;
-	}
-
-	const normalized = normalizeDisplayPath(cwd);
-	const withHome = replaceHomePrefix(normalized, home);
-	return applyPathDepth(withHome, depth);
-}
-
 export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwdOptions): string {
 	const mode = options?.mode ?? "basename";
-	const depth = options?.depth ?? 0;
-	const home =
-		options?.home ??
-		(() => {
-			try {
-				return homedir();
-			} catch {
-				return "";
-			}
-		})();
-	const pathText = formatPathText(cwd, mode, home, depth);
+	const normalized = normalizeDisplayPath(cwd);
+	let pathText: string;
+	if (mode === "full") {
+		const home =
+			options?.home ??
+			(() => {
+				try {
+					return homedir();
+				} catch {
+					return "";
+				}
+			})();
+		pathText = applyPathDepth(toHomePath(normalized, home), options?.depth ?? 0);
+	} else if (normalized === "/") {
+		pathText = "/";
+	} else {
+		const parts = normalized.split("/").filter(Boolean);
+		pathText = parts[parts.length - 1] ?? cwd;
+	}
 	return cwdIcon ? `${cwdIcon} ${pathText}` : pathText;
 }
 
