@@ -21,6 +21,7 @@ import {
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
+	type PathDisplayMode,
 	type PolishedTuiConfig,
 	type UiFeaturesConfig,
 } from "./config";
@@ -37,6 +38,7 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 ];
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
+const pathDisplayModeValues: PathDisplayMode[] = ["basename", "abbreviated", "full"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 type FeatureState = "enabled" | "disabled";
 
@@ -53,7 +55,7 @@ type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
-type LayoutSettingId = "contextStyle" | "iconMode";
+type LayoutSettingId = "contextStyle" | "pathDisplay" | "iconMode";
 
 type SettingsCommandDeps = {
 	getConfig: () => PolishedTuiConfig;
@@ -66,6 +68,7 @@ type SettingsCommandDeps = {
 	setFooterFormat: (value: string) => void;
 	setIconMode: (mode: IconMode) => void;
 	setContextStyle: (style: ContextStyle) => void;
+	setPathDisplayMode: (mode: PathDisplayMode) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -194,8 +197,12 @@ function isContextStyle(value: string): value is ContextStyle {
 	return value === "text" || value === "gauge" || value === "text+gauge";
 }
 
+function isPathDisplayMode(value: string): value is PathDisplayMode {
+	return value === "basename" || value === "abbreviated" || value === "full";
+}
+
 function isLayoutSettingId(value: string): value is LayoutSettingId {
-	return value === "contextStyle" || value === "iconMode";
+	return value === "contextStyle" || value === "pathDisplay" || value === "iconMode";
 }
 
 function editorMessageValue(config: PolishedTuiConfig): ColorSource | "mixed" {
@@ -348,6 +355,13 @@ function buildItems(
 				description: "Render context as text, a gauge bar, or both.",
 				currentValue: config.contextStyle,
 				values: contextStyleValues,
+			},
+			{
+				id: "pathDisplay",
+				label: "Path display",
+				description: "Show cwd as basename, abbreviated segments, or full path (with ~).",
+				currentValue: config.pathDisplay.mode,
+				values: pathDisplayModeValues,
 			},
 			{
 				id: "iconMode",
@@ -557,6 +571,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Context style: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "pathDisplay" && isPathDisplayMode(newValue)) {
+										deps.setPathDisplayMode(newValue);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Path display: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}

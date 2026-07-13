@@ -1,7 +1,13 @@
-import { hostname, userInfo } from "node:os";
+import { homedir, hostname, userInfo } from "node:os";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { ColorSource, ColorSpec, ContextStyle, ContextThresholds } from "./config";
+import type {
+	ColorSource,
+	ColorSpec,
+	ContextStyle,
+	ContextThresholds,
+	PathDisplayMode,
+} from "./config";
 import type { IconMode } from "./icons";
 import { resolveOsIcon, resolveRuntimeSymbol } from "./icons";
 import type { RuntimeInfo } from "./runtime";
@@ -238,11 +244,86 @@ export function formatRuntimeSegment(
 	return `${renderStyleForSource(theme, colorSource, prefixStyle, "via")} ${renderStyleForSource(theme, colorSource, runtime.style, label)}`;
 }
 
-export function formatCwdLabel(cwd: string, cwdIcon: string): string {
-	const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
-	const parts = normalized.split("/").filter(Boolean);
-	const last = parts[parts.length - 1] ?? cwd;
-	return cwdIcon ? `${cwdIcon} ${last}` : last;
+export type FormatCwdOptions = {
+	mode?: PathDisplayMode;
+	maxLength?: number;
+	home?: string;
+};
+
+function normalizeDisplayPath(cwd: string): string {
+	const withSlashes = cwd.replace(/\\/g, "/");
+	if (withSlashes === "/" || /^\/+$/.test(withSlashes)) return "/";
+	const stripped = withSlashes.replace(/\/+$/, "");
+	return stripped === "" ? withSlashes : stripped;
+}
+
+function replaceHomePrefix(path: string, home: string): string {
+	if (!home) return path;
+	const homeNorm = home.replace(/\\/g, "/").replace(/\/+$/, "");
+	if (!homeNorm) return path;
+	if (path === homeNorm) return "~";
+	if (path.startsWith(`${homeNorm}/`)) return `~${path.slice(homeNorm.length)}`;
+	return path;
+}
+
+function abbreviatePath(path: string): string {
+	if (path === "~" || path === "/") return path;
+
+	let prefix = "";
+	let body = path;
+	if (path.startsWith("~/")) {
+		prefix = "~/";
+		body = path.slice(2);
+	} else if (path.startsWith("/")) {
+		prefix = "/";
+		body = path.slice(1);
+	}
+
+	const parts = body.split("/").filter(Boolean);
+	const last = parts.at(-1);
+	if (!last) return path;
+
+	const head = parts.slice(0, -1).map((segment) => {
+		if (segment.startsWith(".") && segment.length > 1) return `.${segment.charAt(1)}`;
+		return segment.charAt(0);
+	});
+	return `${prefix}${[...head, last].join("/")}`;
+}
+
+function applyPathMaxLength(path: string, maxLength: number | undefined): string {
+	if (maxLength === undefined || !Number.isFinite(maxLength) || maxLength <= 0) return path;
+	const limit = Math.floor(maxLength);
+	if (path.length <= limit) return path;
+	if (limit === 1) return "…";
+	return `…${path.slice(-(limit - 1))}`;
+}
+
+function formatPathText(cwd: string, mode: PathDisplayMode, home: string): string {
+	if (mode === "basename") {
+		const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+		const parts = normalized.split("/").filter(Boolean);
+		return parts[parts.length - 1] ?? cwd;
+	}
+
+	const normalized = normalizeDisplayPath(cwd);
+	const withHome = replaceHomePrefix(normalized, home);
+	if (mode === "full") return withHome;
+	return abbreviatePath(withHome);
+}
+
+export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwdOptions): string {
+	const mode = options?.mode ?? "basename";
+	const home =
+		options?.home ??
+		(() => {
+			try {
+				return homedir();
+			} catch {
+				return "";
+			}
+		})();
+	const pathText = applyPathMaxLength(formatPathText(cwd, mode, home), options?.maxLength);
+	return cwdIcon ? `${cwdIcon} ${pathText}` : pathText;
 }
 
 export function formatUsernameHostLabel(icon: string): string {

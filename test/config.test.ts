@@ -10,6 +10,7 @@ import {
 	saveExtensionStatusPlacement,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
+	savePathDisplayPatch,
 	saveUiFeaturesPatch,
 } from "../extensions/zentui/config";
 import {
@@ -113,6 +114,72 @@ describe("mergeConfig", () => {
 		expect(
 			mergeConfig({ contextThresholds: { warning: 90, error: 70 } }).contextThresholds,
 		).toEqual({ warning: 70, error: 90 });
+	});
+
+	it("defaults pathDisplay and accepts mode/maxLength overrides", () => {
+		expect(mergeConfig({}).pathDisplay).toEqual({ mode: "basename", maxLength: 0 });
+		expect(mergeConfig({ pathDisplay: { mode: "full" } }).pathDisplay).toEqual({
+			mode: "full",
+			maxLength: 0,
+		});
+		expect(
+			mergeConfig({ pathDisplay: { mode: "abbreviated", maxLength: 40 } }).pathDisplay,
+		).toEqual({
+			mode: "abbreviated",
+			maxLength: 40,
+		});
+		expect(mergeConfig({ pathDisplay: { mode: "fish", maxLength: -3 } }).pathDisplay).toEqual({
+			mode: "basename",
+			maxLength: 0,
+		});
+		expect(mergeConfig({ pathDisplay: { maxLength: 12.8 } }).pathDisplay).toEqual({
+			mode: "basename",
+			maxLength: 12,
+		});
+		expect(mergeConfig({ pathDisplay: "full" }).pathDisplay).toEqual({
+			mode: "basename",
+			maxLength: 0,
+		});
+		expect(
+			mergeConfig({ pathDisplay: { mode: "full", maxLength: Number.POSITIVE_INFINITY } })
+				.pathDisplay,
+		).toEqual({ mode: "full", maxLength: 0 });
+	});
+
+	it("saves pathDisplay mode patches without erasing maxLength or unknown keys", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				`${JSON.stringify(
+					{
+						unknown: true,
+						pathDisplay: {
+							mode: "basename",
+							maxLength: 40,
+							futureKey: "future",
+						},
+					},
+					null,
+					2,
+				)}
+`,
+			);
+
+			const config = savePathDisplayPatch({ mode: "abbreviated" }, path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.pathDisplay).toEqual({ mode: "abbreviated", maxLength: 40 });
+			expect(raw.unknown).toBe(true);
+			expect(raw.pathDisplay).toEqual({
+				mode: "abbreviated",
+				maxLength: 40,
+				futureKey: "future",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("defaults icon mode to auto and accepts nerd/ascii", () => {

@@ -17,7 +17,7 @@ Zentui brings two popular aesthetics to Pi:
 
 ### Footer (Starship-inspired)
 
-- `󰝰 dirname` — current directory with icon
+- `󰝰 dirname` — current directory with icon (`basename` by default; optional `abbreviated` / `full` via `pathDisplay`)
 - `on  branch` — git branch with icon
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
 - `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
@@ -158,6 +158,10 @@ Default config values — copy this and change any value you want:
 		"warning": 70,
 		"error": 90
 	},
+	"pathDisplay": {
+		"mode": "basename",
+		"maxLength": 0
+	},
 	"icons": {
 		"mode": "auto",
 		"cwd": "󰝰",
@@ -244,11 +248,12 @@ Default config values — copy this and change any value you want:
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment.
 - `contextThresholds`: `{ warning, error }` percentages (default `70` / `90`) that select contextNormal / contextWarning / contextError colors.
+- `pathDisplay`: controls how the cwd/`$cwd` path is shown. `mode` is `basename` (default, last segment only), `abbreviated` (fish/starship-style short parents, e.g. `~/P/zentui`), or `full` (absolute path with home contracted to `~`). Cycle `mode` from the `/zentui` **Layout** tab. `maxLength` caps the path text length (`0` = no limit); overflow is left-truncated with `…`. The cwd icon is not counted toward `maxLength` (JSON-only for now).
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `icons.mode` is `auto` | `nerd` | `ascii` (default `auto`, same glyphs as nerd). ASCII mode swaps in plain fallbacks for statusline icons and runtime symbols — useful without a Nerd Font. Custom per-icon strings always win over mode defaults. Custom `icons.os` always wins; when left at the mode default, Zentui maps the OS icon by platform. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. All three can be changed from `/zentui` or direct slash-command arguments.
 - `footerSegments`: show or hide individual built-in footer segments (`cwd`, `gitBranch`, `gitStatus`, `gitCounts`, `runtime`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.
-- `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Layout** tab configures context style and icon mode; set or clear custom formats with `/zentui format`.
+- `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Layout** tab configures context style, path display mode, and icon mode; set or clear custom formats with `/zentui format`.
 - `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. The `Extension segments` tab in `/zentui` lists only statuses that are currently active.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles the active editor rail and previous user-message rail when `features.copyFriendly` is disabled.

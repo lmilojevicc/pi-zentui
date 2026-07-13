@@ -9,6 +9,7 @@ import {
 	buildTokenLabel,
 	contextColorTier,
 	formatCount,
+	formatCwdLabel,
 	formatOsLabel,
 	getUsageTotals,
 	invalidateUsageTotalsCache,
@@ -177,6 +178,76 @@ describe("formatOsLabel", () => {
 		expect(formatOsLabel(ASCII_DEFAULT_ICONS.os, "ascii", "darwin")).toBe(
 			OS_PLATFORM_ICONS_ASCII.darwin,
 		);
+	});
+});
+
+describe("formatCwdLabel", () => {
+	const home = "/Users/me";
+
+	it("defaults to basename and preserves current behavior", () => {
+		expect(formatCwdLabel("/Users/me/Projects/zentui", "")).toBe("zentui");
+		expect(formatCwdLabel("/Users/me/Projects/zentui/", "")).toBe("zentui");
+		expect(formatCwdLabel("/", "")).toBe("/");
+		expect(formatCwdLabel("C:\\Users\\me\\zentui", "")).toBe("zentui");
+		expect(formatCwdLabel("/tmp/project", "󰝰")).toBe("󰝰 project");
+	});
+
+	it("renders full paths with home contracted to ~", () => {
+		expect(formatCwdLabel("/Users/me/Projects/zentui", "", { mode: "full", home })).toBe(
+			"~/Projects/zentui",
+		);
+		expect(formatCwdLabel("/Users/me", "", { mode: "full", home })).toBe("~");
+		expect(formatCwdLabel("/tmp/project", "", { mode: "full", home })).toBe("/tmp/project");
+		expect(formatCwdLabel("/", "", { mode: "full", home })).toBe("/");
+		expect(
+			formatCwdLabel("C:\\Users\\me\\Projects\\zentui", "", {
+				mode: "full",
+				home: "C:\\Users\\me",
+			}),
+		).toBe("~/Projects/zentui");
+	});
+
+	it("abbreviates intermediate path segments fish/starship-style", () => {
+		expect(formatCwdLabel("/Users/me/Projects/zentui", "", { mode: "abbreviated", home })).toBe(
+			"~/P/zentui",
+		);
+		expect(formatCwdLabel("/Users/me", "", { mode: "abbreviated", home })).toBe("~");
+		expect(formatCwdLabel("/tmp/a/b/c", "", { mode: "abbreviated", home })).toBe("/t/a/b/c");
+		expect(formatCwdLabel("/Users/me/.config/zentui", "", { mode: "abbreviated", home })).toBe(
+			"~/.c/zentui",
+		);
+		expect(formatCwdLabel("/", "", { mode: "abbreviated", home })).toBe("/");
+	});
+
+	it("left-truncates path text with maxLength and keeps the icon intact", () => {
+		// "~/Projects/zentui" is 16 chars; maxLength 10 → "…" + last 9 chars
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "full",
+				home,
+				maxLength: 10,
+			}),
+		).toBe("…ts/zentui");
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "󰝰", {
+				mode: "full",
+				home,
+				maxLength: 10,
+			}),
+		).toBe("󰝰 …ts/zentui");
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "full",
+				home,
+				maxLength: 1,
+			}),
+		).toBe("…");
+		expect(
+			formatCwdLabel("/Users/me/Projects/zentui", "", {
+				mode: "basename",
+				maxLength: 0,
+			}),
+		).toBe("zentui");
 	});
 });
 

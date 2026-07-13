@@ -23,6 +23,13 @@ export type ContextThresholds = {
 	error: number;
 };
 
+export type PathDisplayMode = "basename" | "abbreviated" | "full";
+
+export type PathDisplayConfig = {
+	mode: PathDisplayMode;
+	maxLength: number;
+};
+
 export type ColorSourcesConfig = {
 	starship: ColorSource;
 	editor: ColorSource;
@@ -69,6 +76,7 @@ export type PolishedTuiConfig = {
 	footerFormat: string;
 	contextStyle: ContextStyle;
 	contextThresholds: ContextThresholds;
+	pathDisplay: PathDisplayConfig;
 	icons: ResolvedIcons;
 	colors: {
 		cwd: ColorSpec;
@@ -144,6 +152,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	footerFormat: "",
 	contextStyle: "text",
 	contextThresholds: { warning: 70, error: 90 },
+	pathDisplay: { mode: "basename", maxLength: 0 },
 	icons: {
 		mode: "auto",
 		...NERD_DEFAULT_ICONS,
@@ -242,6 +251,25 @@ function parseContextThresholds(value: unknown): ContextThresholds {
 		error = swapped;
 	}
 	return { warning, error };
+}
+
+function parsePathDisplayMode(value: unknown): PathDisplayMode {
+	if (value === "basename" || value === "abbreviated" || value === "full") return value;
+	return defaultConfig.pathDisplay.mode;
+}
+
+function parsePathMaxLength(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+	return Math.floor(value);
+}
+
+function parsePathDisplay(value: unknown): PathDisplayConfig {
+	const defaults = defaultConfig.pathDisplay;
+	if (!isRecord(value)) return { ...defaults };
+	return {
+		mode: parsePathDisplayMode(value.mode),
+		maxLength: parsePathMaxLength(value.maxLength),
+	};
 }
 
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -488,6 +516,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		footerFormat: stringValue(config, "footerFormat") ?? "",
 		contextStyle: parseContextStyle(config.contextStyle),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
+		pathDisplay: parsePathDisplay(config.pathDisplay),
 		icons: resolveConfiguredIcons(iconMode, iconOverrides),
 		colors: {
 			...defaultConfig.colors,
@@ -612,6 +641,21 @@ export function saveContextThresholdsPatch(
 		...existing,
 		...thresholds,
 	};
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function savePathDisplayPatch(
+	patch: Partial<PathDisplayConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.pathDisplay)
+		? { ...(record.pathDisplay as Record<string, unknown>) }
+		: {};
+	if (patch.mode !== undefined) existing.mode = patch.mode;
+	if (patch.maxLength !== undefined) existing.maxLength = patch.maxLength;
+	record.pathDisplay = existing;
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
 }
