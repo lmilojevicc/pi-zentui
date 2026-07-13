@@ -30,6 +30,7 @@ import {
 import { installFooter } from "./footer";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
+import { readPackageVersionResult } from "./package-version";
 import {
 	createProjectRefreshScheduler,
 	type ScheduleProjectRefreshOptions,
@@ -104,12 +105,36 @@ export default function (pi: ExtensionAPI) {
 		syncState(state, ctx, currentConfig.icons.cacheHit);
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
-		const [git, runtime] = await Promise.all([readGitStatus(ctx.cwd), readRuntimeInfo(ctx.cwd)]);
+		const gitCommitConfig = currentConfig.gitCommit;
+		const gitMetricsConfig = currentConfig.gitMetrics;
+		const segments = currentConfig.footerSegments;
+		const fmt = currentConfig.footerFormat;
+		// Enable optional probes when the segment is on OR a custom footerFormat
+		// references the relevant variable. Mirrors the session-duration timer
+		// pattern so format-only users still get data.
+		const formatNeedsTag = /\$\{?(?:git_tag|tag)\b/.test(fmt);
+		const formatNeedsCommit = /\$\{?(?:git_commit|commit)\b/.test(fmt);
+		const formatNeedsMetrics = /\$\{?(?:git_metrics|git_added|git_deleted)\b/.test(fmt);
+		const formatNeedsPackage = /\$\{?(?:package|package_version)\b/.test(fmt);
+		const wantExactTag =
+			((segments.gitCommit || formatNeedsCommit) && gitCommitConfig.showTag) || formatNeedsTag;
+		const wantMetrics = segments.gitMetrics || formatNeedsMetrics;
+		const wantPackage = segments.packageVersion || formatNeedsPackage;
+		const [git, runtime, packageVersion] = await Promise.all([
+			readGitStatus(ctx.cwd, {
+				readExactTag: wantExactTag,
+				readMetrics: wantMetrics,
+				ignoreSubmodules: gitMetricsConfig.ignoreSubmodules,
+			}),
+			readRuntimeInfo(ctx.cwd),
+			wantPackage ? readPackageVersionResult(ctx.cwd) : Promise.resolve(undefined),
+		]);
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd: ctx.cwd,
 			previousCwd: lastProjectCwd,
 			git,
 			runtime,
+			packageVersion,
 		});
 	};
 

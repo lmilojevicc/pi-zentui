@@ -1130,6 +1130,177 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 1)).toBe(true);
 	});
 
+	it("renders the package version segment when toggled on and hides it when off", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+
+		const renderWithPackage = (enabled: boolean) => {
+			const state = createInitialState(emptyGitStatus());
+			state.runtime = {
+				name: "nodejs",
+				symbol: "",
+				style: "bold green",
+				version: "v22",
+			};
+			state.packageVersion = enabled ? { ecosystem: "nodejs", version: "1.2.3" } : undefined;
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0.001";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: {
+					...defaultConfig.footerSegments,
+					packageVersion: enabled,
+					runtime: false,
+				},
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		const withPackage = renderWithPackage(true);
+		const withoutPackage = renderWithPackage(false);
+		expect(withPackage).toContain("1.2.3");
+		// Starship `package` shape: `is <glyph> <version>`.
+		expect(withPackage).toContain("is");
+		expect(withPackage).toContain("\u{f487}");
+		expect(withoutPackage).not.toContain("1.2.3");
+	});
+
+	it("does not rewrite a non-empty footerFormat when packageVersion is on", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.packageVersion = { ecosystem: "nodejs", version: "1.2.3" };
+		state.contextLabel = "1%/200k";
+		state.tokenLabel = "↑1 ↓2";
+		state.costLabel = "$0.001";
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			footerSegments: { ...defaultConfig.footerSegments, packageVersion: true },
+			footerFormat: "$cwd $fill $context",
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		});
+		const rendered = footer?.render(200).join("\n") ?? "";
+		expect(rendered).not.toContain("1.2.3");
+	});
+
+	it("git commit segment shows hash on detached HEAD and hides it on a branch", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const OID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+		const renderFor = (detached: boolean, onlyDetached: boolean) => {
+			const state = createInitialState(emptyGitStatus());
+			state.branch = detached ? undefined : "main";
+			state.commit = { oid: OID, detached, tag: null };
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: { ...defaultConfig.footerSegments, gitCommit: true },
+				gitCommit: { hashLength: 7, onlyDetached, showTag: true },
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		// Detached → HEAD + green (hash) in branch display.
+		expect(renderFor(true, true)).toContain("HEAD");
+		expect(renderFor(true, true)).toContain(`(${OID.slice(0, 7)})`);
+		// On branch with onlyDetached → hidden.
+		expect(renderFor(false, true)).not.toContain(OID.slice(0, 7));
+		// On branch with onlyDetached=false → hash appears standalone.
+		expect(renderFor(false, false)).toContain(OID.slice(0, 7));
+	});
+
+	it("git metrics segment renders +added −deleted and hides at 0/0", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const renderFor = (added: number, deleted: number) => {
+			const state = createInitialState(emptyGitStatus());
+			state.metrics = { added, deleted };
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: { ...defaultConfig.footerSegments, gitMetrics: true },
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		expect(renderFor(12, 3)).toContain("+12");
+		expect(renderFor(12, 3)).toContain("−3");
+		// 0/0 → hidden (onlyNonzero default).
+		expect(renderFor(0, 0)).not.toContain("+0");
+		expect(renderFor(0, 0)).not.toContain("−0");
+	});
 	it("renders editor rails with theme accent and borderMuted borders", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,

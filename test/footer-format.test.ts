@@ -15,6 +15,26 @@ describe("parseFooterFormat", () => {
 		expect(parseFooterFormat("$cwd")).toEqual([{ kind: "var", name: "cwd" }]);
 	});
 
+	it("parses $package and $package_version as package-version vars", () => {
+		expect(parseFooterFormat("$package")).toEqual([{ kind: "var", name: "package" }]);
+		expect(parseFooterFormat("$package_version")).toEqual([
+			{ kind: "var", name: "package_version" },
+		]);
+	});
+
+	it("parses $git_commit, $commit, $git_tag, and $tag as git-commit vars", () => {
+		expect(parseFooterFormat("$git_commit")).toEqual([{ kind: "var", name: "git_commit" }]);
+		expect(parseFooterFormat("$commit")).toEqual([{ kind: "var", name: "commit" }]);
+		expect(parseFooterFormat("$git_tag")).toEqual([{ kind: "var", name: "git_tag" }]);
+		expect(parseFooterFormat("$tag")).toEqual([{ kind: "var", name: "tag" }]);
+	});
+
+	it("parses git-metrics vars", () => {
+		expect(parseFooterFormat("$git_metrics")).toEqual([{ kind: "var", name: "git_metrics" }]);
+		expect(parseFooterFormat("$git_added")).toEqual([{ kind: "var", name: "git_added" }]);
+		expect(parseFooterFormat("$git_deleted")).toEqual([{ kind: "var", name: "git_deleted" }]);
+	});
+
 	it("parses braced variables", () => {
 		const braced = "${" + "git_branch}";
 		expect(parseFooterFormat(braced)).toEqual([{ kind: "var", name: "git_branch" }]);

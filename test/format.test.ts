@@ -10,7 +10,10 @@ import {
 	contextColorTier,
 	formatCount,
 	formatCwdLabel,
+	formatGitCommitSegment,
+	formatGitMetricsSegment,
 	formatOsLabel,
+	formatPackageVersionSegment,
 	getUsageTotals,
 	invalidateUsageTotalsCache,
 } from "../extensions/zentui/format";
@@ -326,5 +329,248 @@ describe("getUsageTotals memoization", () => {
 		expect(fourth).toEqual(third);
 		expect(fourth).not.toBe(third);
 		expect(__usageTotalsComputeCount()).toBe(3);
+	});
+});
+
+describe("formatGitMetricsSegment", () => {
+	const makeTheme = (): { fg: (color: string, text: string) => string } => ({
+		fg: (_color, text) => text,
+	});
+
+	it("returns empty when metrics are missing", () => {
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				undefined,
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).toBe("");
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				null,
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).toBe("");
+	});
+
+	it("renders both added and deleted", () => {
+		const out = formatGitMetricsSegment(
+			makeTheme(),
+			{ added: 12, deleted: 3 },
+			{ onlyNonzero: false },
+			"terminal",
+			"bold green",
+			"bold red",
+		);
+		expect(out).toContain("+12");
+		expect(out).toContain("−3");
+	});
+
+	it("omits each zero component independently when onlyNonzero", () => {
+		// 0 added → only show deleted.
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				{ added: 0, deleted: 5 },
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).not.toContain("+0");
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				{ added: 0, deleted: 5 },
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).toContain("−5");
+		// 0 deleted → only show added.
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				{ added: 7, deleted: 0 },
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).toContain("+7");
+	});
+
+	it("hides entirely at 0/0 when onlyNonzero", () => {
+		expect(
+			formatGitMetricsSegment(
+				makeTheme(),
+				{ added: 0, deleted: 0 },
+				{ onlyNonzero: true },
+				"terminal",
+				"bold green",
+				"bold red",
+			),
+		).toBe("");
+	});
+});
+
+describe("formatGitCommitSegment", () => {
+	const makeTheme = (): { fg: (color: string, text: string) => string } => ({
+		fg: (_color, text) => text,
+	});
+	const FULL = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+
+	it("returns empty when commit info or oid is missing", () => {
+		expect(
+			formatGitCommitSegment(
+				makeTheme(),
+				undefined,
+				{ hashLength: 7, onlyDetached: true, showTag: true },
+				"terminal",
+				"bold green",
+			),
+		).toBe("");
+		expect(
+			formatGitCommitSegment(
+				makeTheme(),
+				{ oid: null, detached: false, tag: null },
+				{ hashLength: 7, onlyDetached: true, showTag: true },
+				"terminal",
+				"bold green",
+			),
+		).toBe("");
+	});
+
+	it("shows short hash on detached HEAD", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: null },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+	});
+
+	it("hides hash on a normal branch when onlyDetached is true", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: null },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toBe("");
+	});
+
+	it("hides the whole segment (including tag) on a branch when onlyDetached is true", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: "v1.0.0" },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toBe("");
+		expect(out).not.toContain("v1.0.0");
+	});
+
+	it("shows hash on a normal branch when onlyDetached is false", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: null },
+			{ hashLength: 7, onlyDetached: false, showTag: false },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+	});
+
+	it("appends exact-match tag when present", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: "v1.2.3" },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+		expect(out).toContain("v1.2.3");
+	});
+
+	it("hides tag when showTag is false", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: "v1.2.3" },
+			{ hashLength: 7, onlyDetached: true, showTag: false },
+			"terminal",
+			"bold green",
+		);
+		expect(out).not.toContain("v1.2.3");
+	});
+});
+
+describe("formatPackageVersionSegment", () => {
+	const makeTheme = (): { fg: (color: string, text: string) => string } => ({
+		// Identity wrapper: prefix text with the requested color token so we can
+		// assert Starship style strings are routed correctly.
+		fg: (color, text) => `[${color}]${text}[/${color}]`,
+	});
+
+	it("returns empty when no package is present", () => {
+		expect(formatPackageVersionSegment(makeTheme(), undefined, "terminal", "nerd", "", "208")).toBe(
+			"",
+		);
+	});
+
+	it("renders the Starship `is <glyph> <version>` shape", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"nerd",
+			"",
+			"208",
+		);
+		expect(out).toContain("is");
+		expect(out).toContain("\u{f487}");
+		expect(out).toContain("1.2.3");
+		// Starship `package` default color 208 → ANSI 256-color code 38;5;208.
+		expect(out).toContain("38;5;208");
+	});
+
+	it("falls back to the ASCII package label in ASCII mode", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"ascii",
+			"",
+			"208",
+		);
+		expect(out).toContain("is");
+		expect(out).toContain("pkg");
+		expect(out).not.toContain("\u{f487}");
+	});
+
+	it("honors a configured package icon override", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"nerd",
+			"#", // custom override wins over mode default
+			"208",
+		);
+		expect(out).toContain("#");
+		expect(out).not.toContain("\u{f487}");
 	});
 });

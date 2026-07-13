@@ -8,10 +8,65 @@ import type {
 	ContextThresholds,
 	PathDisplayMode,
 } from "./config";
+import type { GitCommitInfo, GitMetricsInfo } from "./git";
 import type { IconMode } from "./icons";
-import { resolveOsIcon, resolveRuntimeSymbol } from "./icons";
+import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
+import type { PackageVersionResult } from "./package-version";
 import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
+
+/**
+ * Starship `git_commit` style — render a short hash, optionally with an
+ * exact-match tag. See https://starship.rs/config/#git-commit
+ *
+ * Visibility is decided by the caller; this helper only formats the data.
+ * `hashLength` is clamped to [4, 40] upstream.
+ */
+export function formatGitCommitSegment(
+	theme: Pick<Theme, "fg">,
+	commit: GitCommitInfo | undefined,
+	config: { hashLength: number; onlyDetached: boolean; showTag: boolean },
+	colorSource: ColorSource,
+	style: ColorSpec,
+): string {
+	if (!commit?.oid) return "";
+	// Starship's only_detached hides the whole module when attached.
+	if (config.onlyDetached && !commit.detached) return "";
+	const hash = commit.oid.slice(0, config.hashLength);
+	const tag = config.showTag && commit.tag ? commit.tag : "";
+	if (!hash && !tag) return "";
+	const label = [hash, tag].filter(Boolean).join(" ");
+	return renderStyleForSource(theme, colorSource, style, label);
+}
+
+/**
+ * Starship `git_metrics` style — render `+added −deleted` line counts.
+ * See https://starship.rs/config/#git-metrics
+ *
+ * When `onlyNonzero` is true, each zero component is omitted independently
+ * and the whole segment hides at 0/0.
+ */
+export function formatGitMetricsSegment(
+	theme: Pick<Theme, "fg">,
+	metrics: GitMetricsInfo | null | undefined,
+	config: { onlyNonzero: boolean },
+	colorSource: ColorSource,
+	addedStyle: ColorSpec,
+	deletedStyle: ColorSpec,
+): string {
+	if (!metrics) return "";
+	const showAdded = !config.onlyNonzero || metrics.added > 0;
+	const showDeleted = !config.onlyNonzero || metrics.deleted > 0;
+	if (!showAdded && !showDeleted) return "";
+	const parts: string[] = [];
+	if (showAdded) {
+		parts.push(renderStyleForSource(theme, colorSource, addedStyle, `+${metrics.added}`));
+	}
+	if (showDeleted) {
+		parts.push(renderStyleForSource(theme, colorSource, deletedStyle, `−${metrics.deleted}`));
+	}
+	return parts.join(" ");
+}
 
 export type UsageTotals = {
 	input: number;
@@ -242,6 +297,30 @@ export function formatRuntimeSegment(
 	const symbol = resolveRuntimeSymbol(runtime.name, runtime.symbol, mode);
 	const label = runtime.version ? `${symbol} ${runtime.version}` : symbol;
 	return `${renderStyleForSource(theme, colorSource, prefixStyle, "via")} ${renderStyleForSource(theme, colorSource, runtime.style, label)}`;
+}
+
+/**
+ * Render the package-version segment in Starship `is <glyph> <version>` shape.
+ *
+ * Distinct from the runtime segment: this surfaces the project's own
+ * manifest version (e.g. `package.json#version`), not the installed
+ * toolchain version. Glyph comes from the Starship Nerd Font preset
+ * (https://starship.rs/presets/nerd-font); default color `208` matches
+ * the Starship `package` module default
+ * (https://starship.rs/config/#package-version).
+ */
+export function formatPackageVersionSegment(
+	theme: Pick<Theme, "fg">,
+	pkg: PackageVersionResult | undefined,
+	colorSource: ColorSource,
+	mode: IconMode = "auto",
+	configuredIcon: string = "",
+	versionStyle: ColorSpec = "208",
+): string {
+	if (!pkg) return "";
+	const icon = resolvePackageIcon(configuredIcon, mode);
+	const label = `${icon} ${pkg.version}`;
+	return `${renderStyleForSource(theme, colorSource, "", "is")} ${renderStyleForSource(theme, colorSource, versionStyle, label)}`;
 }
 
 export type FormatCwdOptions = {

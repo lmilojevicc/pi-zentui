@@ -9,7 +9,10 @@ import {
 	buildSessionDurationLabel,
 	contextColorTier,
 	formatCwdLabel,
+	formatGitCommitSegment,
+	formatGitMetricsSegment,
 	formatOsLabel,
+	formatPackageVersionSegment,
 	formatRuntimeSegment,
 	formatTimeLabel,
 	formatUsernameHostLabel,
@@ -293,16 +296,92 @@ export function installFooter(
 							);
 						case "cost":
 							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+						case "package":
+							return formatPackageVersionSegment(
+								theme,
+								state.packageVersion,
+								colorSource,
+								iconMode,
+								config.icons.package,
+								config.colors.packageVersion,
+							);
+						case "package_version":
+							return state.packageVersion?.version
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.packageVersion,
+										state.packageVersion.version,
+									)
+								: "";
 						case "sep":
 							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
+						case "git_commit":
+							return formatGitCommitSegment(
+								theme,
+								state.commit,
+								config.gitCommit,
+								colorSource,
+								config.colors.gitCommit,
+							);
+						case "git_tag":
+							return config.gitCommit.showTag && state.commit?.tag
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitCommit,
+										state.commit.tag,
+									)
+								: "";
+						case "git_metrics":
+							return formatGitMetricsSegment(
+								theme,
+								state.metrics,
+								config.gitMetrics,
+								colorSource,
+								config.colors.gitMetricsAdded,
+								config.colors.gitMetricsDeleted,
+							);
+						case "git_added":
+							return state.metrics
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitMetricsAdded,
+										`+${state.metrics.added}`,
+									)
+								: "";
+						case "git_deleted":
+							return state.metrics
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitMetricsDeleted,
+										`−${state.metrics.deleted}`,
+									)
+								: "";
 						default:
 							return "";
 					}
 				};
-				const branchParts =
-					config.footerSegments.gitBranch && branch
-						? ["on", gitIcon, gitColor(branch)].filter(Boolean)
-						: [];
+				const branchParts: string[] = [];
+				if (config.footerSegments.gitBranch) {
+					if (branch) {
+						branchParts.push("on", gitIcon, gitColor(branch));
+					} else if (state.commit?.detached) {
+						// `HEAD` uses git-branch style; `(hash)` uses git-commit style
+						// (bold green) per Starship `git_commit` format.
+						branchParts.push("on", gitIcon, gitColor("HEAD"));
+						if (config.footerSegments.gitCommit && state.commit.oid) {
+							const shortHash = state.commit.oid.slice(0, config.gitCommit.hashLength);
+							const tag = config.gitCommit.showTag && state.commit.tag ? state.commit.tag : "";
+							const inner = [shortHash, tag].filter(Boolean).join(" ");
+							branchParts.push(
+								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${inner})`),
+							);
+						}
+					}
+				}
 				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
 				const showGitState = config.footerSegments.gitBranch || config.footerSegments.gitStatus;
 				const gitStateParts = showGitState && gitStateBlock ? [gitStateBlock] : [];
@@ -316,6 +395,39 @@ export function installFooter(
 							config.colors.runtimePrefix,
 							colorSource,
 							iconMode,
+						)
+					: "";
+				const packageVersionLabel = config.footerSegments.packageVersion
+					? formatPackageVersionSegment(
+							theme,
+							state.packageVersion,
+							colorSource,
+							iconMode,
+							config.icons.package,
+							config.colors.packageVersion,
+						)
+					: "";
+				// Skip standalone gitCommit when hash is already folded into the
+				// branch display on detached HEAD.
+				const hashFoldedIntoBranch = state.commit?.detached && config.footerSegments.gitBranch;
+				const gitCommitLabel =
+					config.footerSegments.gitCommit && !hashFoldedIntoBranch
+						? formatGitCommitSegment(
+								theme,
+								state.commit,
+								config.gitCommit,
+								colorSource,
+								config.colors.gitCommit,
+							)
+						: "";
+				const gitMetricsLabel = config.footerSegments.gitMetrics
+					? formatGitMetricsSegment(
+							theme,
+							state.metrics,
+							config.gitMetrics,
+							colorSource,
+							config.colors.gitMetricsAdded,
+							config.colors.gitMetricsDeleted,
 						)
 					: "";
 
@@ -352,6 +464,9 @@ export function installFooter(
 					usernameSegment,
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
+					gitCommitLabel,
+					gitMetricsLabel,
+					packageVersionLabel,
 					runtimeLabel,
 					sessionDurationSegment,
 				]

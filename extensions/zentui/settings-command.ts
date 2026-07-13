@@ -117,6 +117,9 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	context: "Context usage",
 	tokens: "Token counts",
 	cost: "Session cost",
+	packageVersion: "Package version",
+	gitCommit: "Git commit",
+	gitMetrics: "Git line metrics",
 };
 
 const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
@@ -133,6 +136,12 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	context: "Show or hide context usage on the right.",
 	tokens: "Show or hide input/output token counts on the right.",
 	cost: "Show or hide session cost on the right.",
+	packageVersion:
+		"Show the project’s own manifest version (package.json, Cargo.toml, pyproject.toml, …). Distinct from the runtime segment, which shows the installed toolchain version.",
+	gitCommit:
+		"Show the current commit hash (and optional exact-match tag). On detached HEAD this provides context the branch segment can’t. Starship `git_commit`-style; default off.",
+	gitMetrics:
+		"Show aggregate added/deleted line counts (e.g. `+12 −3`) via `git diff HEAD --numstat`. Complements the git status counts. Starship `git_metrics`-style; default off.",
 };
 
 const directCommandSuggestions = [
@@ -187,7 +196,10 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 		value === "cost" ||
 		value === "username" ||
 		value === "time" ||
-		value === "os"
+		value === "os" ||
+		value === "packageVersion" ||
+		value === "gitCommit" ||
+		value === "gitMetrics"
 	);
 }
 

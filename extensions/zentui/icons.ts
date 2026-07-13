@@ -1,7 +1,8 @@
 /**
  * Icon mode defaults and resolvers.
  *
- * Nerd defaults must stay byte-identical to historical `defaultConfig.icons`.
+ * Nerd defaults must stay byte-identical to historical `defaultConfig.icons`,
+ * except where intentionally changed to match the Starship Nerd Font preset.
  * User string overrides always win over mode defaults.
  */
 
@@ -27,6 +28,7 @@ export type IconGlyphs = {
 	username: string;
 	time: string;
 	os: string;
+	package: string;
 };
 
 export type ResolvedIcons = IconGlyphs & { mode: IconMode };
@@ -51,11 +53,19 @@ export const ICON_GLYPH_KEYS = [
 	"username",
 	"time",
 	"os",
+	"package",
 ] as const satisfies readonly (keyof IconGlyphs)[];
 
-/** Historical Nerd Font defaults (byte-identical to prior defaultConfig.icons). */
+/**
+ * Nerd Font defaults.
+ *
+ * The `cwd` icon is intentionally empty — Starship's `directory` module
+ * has no default symbol. Other defaults match historical values; new
+ * additions (e.g. `package`) come from the Starship Nerd Font preset
+ * (https://starship.rs/presets/nerd-font).
+ */
 export const NERD_DEFAULT_ICONS: IconGlyphs = {
-	cwd: "󰝰",
+	cwd: "",
 	git: "",
 	ahead: "↑",
 	behind: "↓",
@@ -74,10 +84,12 @@ export const NERD_DEFAULT_ICONS: IconGlyphs = {
 	username: "",
 	time: "",
 	os: "",
+	// Starship Nerd Font preset — `package` module glyph.
+	package: "",
 };
 
 export const ASCII_DEFAULT_ICONS: IconGlyphs = {
-	cwd: "~",
+	cwd: "",
 	git: "*",
 	ahead: "^",
 	behind: "v",
@@ -96,6 +108,7 @@ export const ASCII_DEFAULT_ICONS: IconGlyphs = {
 	username: "@",
 	time: "t",
 	os: "o",
+	package: "pkg",
 };
 
 export const OS_PLATFORM_ICONS_NERD: Record<string, string> = {
@@ -222,4 +235,18 @@ export function resolveRuntimeSymbol(
 ): string {
 	if (mode !== "ascii") return nerdSymbol;
 	return RUNTIME_ASCII_SYMBOLS[name] ?? (name.slice(0, 3) || "*");
+}
+
+/**
+ * Resolve the package-version segment icon for the active mode.
+ *
+ * Honors a configured `icons.package` override; otherwise falls back to the
+ * mode default (Nerd Font preset / ASCII label).
+ */
+export function resolvePackageIcon(configuredPackageIcon: string, mode: IconMode = "auto"): string {
+	const modeDefault = modeDefaultIcons(mode).package;
+	if (typeof configuredPackageIcon === "string" && configuredPackageIcon.length > 0) {
+		return configuredPackageIcon;
+	}
+	return modeDefault;
 }

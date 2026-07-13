@@ -28,6 +28,10 @@ describe("mergeConfig", () => {
 		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.icons.editorPrompt).toBe("");
 		expect(config.colors.gitBranch).toBe("bold purple");
+		expect(config.colors.packageVersion).toBe("208");
+		expect(config.colors.gitCommit).toBe("bold green");
+		expect(config.colors.gitMetricsAdded).toBe("bold green");
+		expect(config.colors.gitMetricsDeleted).toBe("bold red");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
@@ -55,6 +59,9 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
+			gitCommit: false,
+			gitMetrics: false,
 			tokens: true,
 			cost: true,
 		});
@@ -187,13 +194,25 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.mode).toBe("ascii");
 		expect(mergeConfig({ icons: { mode: "nerd" } }).icons.mode).toBe("nerd");
 		expect(mergeConfig({ icons: { mode: "emoji" } }).icons.mode).toBe("auto");
-		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("~");
+		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("");
 		expect(mergeConfig({ icons: { mode: "ascii", cwd: "DIR" } }).icons.cwd).toBe("DIR");
 	});
 
 	it("accepts Starship colors and old color key aliases", () => {
 		expect(mergeConfig({ colors: { gitBranch: "bold purple" } }).colors.gitBranch).toBe(
 			"bold purple",
+		);
+		expect(mergeConfig({ colors: { packageVersion: "bold green" } }).colors.packageVersion).toBe(
+			"bold green",
+		);
+		expect(mergeConfig({ colors: { gitCommit: "bold yellow" } }).colors.gitCommit).toBe(
+			"bold yellow",
+		);
+		expect(mergeConfig({ colors: { gitMetricsAdded: "green" } }).colors.gitMetricsAdded).toBe(
+			"green",
+		);
+		expect(mergeConfig({ colors: { gitMetricsDeleted: "red" } }).colors.gitMetricsDeleted).toBe(
+			"red",
 		);
 		expect(mergeConfig({ colors: { git: "syntaxKeyword" } }).colors.gitBranch).toBe(
 			"syntaxKeyword",
@@ -373,6 +392,9 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
+			gitCommit: false,
+			gitMetrics: false,
 			tokens: false,
 			cost: true,
 		});
@@ -390,6 +412,9 @@ describe("mergeConfig", () => {
 			username: false,
 			time: false,
 			os: false,
+			packageVersion: false,
+			gitCommit: false,
+			gitMetrics: false,
 			tokens: true,
 			cost: true,
 		});
@@ -587,6 +612,9 @@ describe("mergeConfig", () => {
 				username: false,
 				time: false,
 				os: false,
+				packageVersion: false,
+				gitCommit: false,
+				gitMetrics: false,
 				tokens: false,
 				cost: false,
 			});
@@ -620,6 +648,9 @@ describe("mergeConfig", () => {
 				username: false,
 				time: false,
 				os: false,
+				packageVersion: false,
+				gitCommit: false,
+				gitMetrics: false,
 				tokens: true,
 				cost: true,
 			});
@@ -627,6 +658,65 @@ describe("mergeConfig", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("toggles and persists the packageVersion footer segment", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFooterSegmentsPatch({ packageVersion: true }, path);
+			expect(config.footerSegments.packageVersion).toBe(true);
+
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.footerSegments).toEqual({ packageVersion: true });
+
+			const reloaded = mergeConfig(raw);
+			expect(reloaded.footerSegments.packageVersion).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("toggles and persists gitCommit and gitMetrics footer segments", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFooterSegmentsPatch({ gitCommit: true, gitMetrics: true }, path);
+			expect(config.footerSegments.gitCommit).toBe(true);
+			expect(config.footerSegments.gitMetrics).toBe(true);
+
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.footerSegments).toEqual({ gitCommit: true, gitMetrics: true });
+
+			const reloaded = mergeConfig(raw);
+			expect(reloaded.footerSegments.gitCommit).toBe(true);
+			expect(reloaded.footerSegments.gitMetrics).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("gitCommit config defaults and normalizes hashLength", () => {
+		expect(defaultConfig.gitCommit).toEqual({ hashLength: 7, onlyDetached: true, showTag: true });
+		expect(mergeConfig({ gitCommit: { hashLength: 3 } }).gitCommit.hashLength).toBe(4);
+		expect(mergeConfig({ gitCommit: { hashLength: 100 } }).gitCommit.hashLength).toBe(40);
+		expect(mergeConfig({ gitCommit: { hashLength: 10 } }).gitCommit.hashLength).toBe(10);
+		expect(mergeConfig({ gitCommit: { onlyDetached: false } }).gitCommit.onlyDetached).toBe(false);
+		expect(mergeConfig({ gitCommit: { showTag: false } }).gitCommit.showTag).toBe(false);
+		// Missing fields fall back to defaults.
+		expect(mergeConfig({ gitCommit: {} }).gitCommit).toEqual({
+			hashLength: 7,
+			onlyDetached: true,
+			showTag: true,
+		});
+	});
+
+	it("gitMetrics config defaults", () => {
+		expect(defaultConfig.gitMetrics).toEqual({ onlyNonzero: true, ignoreSubmodules: false });
+		expect(mergeConfig({ gitMetrics: { onlyNonzero: false } }).gitMetrics.onlyNonzero).toBe(false);
+		expect(
+			mergeConfig({ gitMetrics: { ignoreSubmodules: true } }).gitMetrics.ignoreSubmodules,
+		).toBe(true);
 	});
 
 	it("writes and reads back footerFormat", () => {

@@ -13,6 +13,30 @@ export type GitOperationState =
 	| "REVERTING"
 	| "BISECTING";
 
+/**
+ * Starship `git_commit`-style info derived from the existing porcelain probe.
+ *
+ * `oid` is the full `branch.oid` from `git status --porcelain=2 --branch`
+ * (free — no extra git call). `detached` mirrors `branch.head === "(detached)"`.
+ * `tag` is populated only when the caller opts into the exact-tag probe
+ * (`readGitStatus({ readExactTag: true })`); `null` means no exact-match tag
+ * or the probe was skipped.
+ */
+export type GitCommitInfo = {
+	oid: string | null;
+	detached: boolean;
+	tag: string | null;
+};
+
+/**
+ * Starship `git_metrics`-style aggregate line-change counts.
+ * See https://starship.rs/config/#git-metrics
+ */
+export type GitMetricsInfo = {
+	added: number;
+	deleted: number;
+};
+
 export type GitStatusSummary = {
 	branch?: string;
 	dirty: boolean;
@@ -28,6 +52,8 @@ export type GitStatusSummary = {
 	typechanged: number;
 	gitState?: GitOperationState;
 	gitStateLabel?: string;
+	commit?: GitCommitInfo;
+	metrics?: GitMetricsInfo | null;
 };
 
 export type GitReadResult =
@@ -62,6 +88,8 @@ export function emptyGitStatus(): GitStatusSummary {
 		typechanged: 0,
 		gitState: undefined,
 		gitStateLabel: undefined,
+		commit: undefined,
+		metrics: undefined,
 	};
 }
 
@@ -69,11 +97,26 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 	const status = emptyGitStatus();
 	status.stashed = stashCount;
 
+	let oid: string | null = null;
+	let sawBranchHead = false;
+	let detached = false;
+
 	for (const line of stdoutText.split(/\r?\n/)) {
 		if (!line) continue;
+		if (line.startsWith("# branch.oid ")) {
+			const value = line.slice("# branch.oid ".length).trim();
+			if (value && value !== "(initial)") oid = value;
+			continue;
+		}
 		if (line.startsWith("# branch.head ")) {
+			sawBranchHead = true;
 			const branch = line.slice("# branch.head ".length).trim();
-			status.branch = branch && branch !== "(detached)" ? branch : undefined;
+			if (branch === "(detached)") {
+				detached = true;
+				status.branch = undefined;
+			} else if (branch) {
+				status.branch = branch;
+			}
 			continue;
 		}
 		if (line.startsWith("# branch.ab ")) {
@@ -112,7 +155,44 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 		else if (y === "T") status.typechanged += 1;
 	}
 
+	// Only populate commit info when we actually saw branch headers (inside
+	// a repo with commits). An unborn branch has no oid.
+	if (sawBranchHead) {
+		status.commit = { oid, detached, tag: null };
+	}
+
 	return status;
+}
+
+/**
+ * Parse `git diff --numstat` output into aggregate added/deleted counts.
+ *
+ * Each line is `added\tdeleted\tpath` (or `added\tdeleted\told\tnew` for
+ * renames). Binary rows carry `-` in both numeric columns and are skipped.
+ * Malformed/unparseable lines are ignored rather than aborting the sum.
+ *
+ * See https://git-scm.com/docs/git-diff#Documentation/git-diff.txt---numstat
+ */
+export function parseGitNumstat(stdoutText: string): GitMetricsInfo {
+	let added = 0;
+	let deleted = 0;
+	for (const line of stdoutText.split(/\r?\n/)) {
+		if (!line) continue;
+		const parts = line.split("\t");
+		// `added\tdeleted\tpath...` — need at least 3 tab-delimited fields.
+		if (parts.length < 3) continue;
+		const a = parts[0];
+		const d = parts[1];
+		// Binary files report `-` for both; skip.
+		if (a === "-" || d === "-") continue;
+		const na = Number(a);
+		const nd = Number(d);
+		if (!Number.isFinite(na) || !Number.isFinite(nd)) continue;
+		if (na < 0 || nd < 0) continue;
+		added += na;
+		deleted += nd;
+	}
+	return { added, deleted };
 }
 
 function readOptionalText(path: string | undefined): string | undefined {
@@ -200,9 +280,33 @@ function isNotARepoError(error: unknown): boolean {
 	return /not a git repository|outside repository|not a git repo/i.test(message);
 }
 
-export async function readGitStatus(cwd: string): Promise<GitReadResult> {
+/**
+ * Options for the optional probes that piggyback on the existing git refresh.
+ * Both default to `false` so no extra git process is spawned unless a segment
+ * is enabled and needs the data.
+ */
+export type ReadGitStatusOptions = {
+	/** Run `git describe --tags --exact-match HEAD` for the git_commit segment. */
+	readExactTag?: boolean;
+	/**
+	 * Run `git diff HEAD --numstat` for the git_metrics segment. Uses the
+	 * Starship-like “total dirty” view (staged + unstaged combined).
+	 */
+	readMetrics?: boolean;
+	/** Add `--ignore-submodules=all` to the metrics diff when requested. */
+	ignoreSubmodules?: boolean;
+};
+
+export async function readGitStatus(
+	cwd: string,
+	options: ReadGitStatusOptions = {},
+): Promise<GitReadResult> {
+	const readExactTag = options.readExactTag === true;
+	const readMetrics = options.readMetrics === true;
 	try {
-		const [{ stdout: statusStdout }, stashResult] = await Promise.all([
+		const numstatArgs = ["diff", "HEAD", "--numstat"];
+		if (options.ignoreSubmodules) numstatArgs.push("--ignore-submodules=all");
+		const [{ stdout: statusStdout }, stashResult, tagResult, metricsResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
@@ -211,12 +315,47 @@ export async function readGitStatus(cwd: string): Promise<GitReadResult> {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
 			}).catch(() => ({ stdout: "" })),
+			readExactTag
+				? execFileAsync("git", ["describe", "--tags", "--exact-match", "HEAD"], {
+						cwd,
+						timeout: GIT_COMMAND_TIMEOUT_MS,
+					}).then(
+						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
+						() => ({ stdout: "" }),
+					)
+				: Promise.resolve({ stdout: "" }),
+			readMetrics
+				? execFileAsync("git", numstatArgs, {
+						cwd,
+						timeout: GIT_COMMAND_TIMEOUT_MS,
+					}).then(
+						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
+						() => ({ stdout: "", failed: true as const }),
+					)
+				: Promise.resolve({ stdout: "", failed: true as const }),
 		]);
 		const stdoutText = typeof statusStdout === "string" ? statusStdout : String(statusStdout);
 		const stashStdout =
 			typeof stashResult.stdout === "string" ? stashResult.stdout : String(stashResult.stdout);
 		const stashCount = stashStdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 		const status = parseGitStatusPorcelain(stdoutText, stashCount);
+		if (status.commit) {
+			const tagStdout =
+				typeof tagResult.stdout === "string" ? tagResult.stdout : String(tagResult.stdout);
+			const tag = tagStdout.trim();
+			status.commit = { ...status.commit, tag: tag || null };
+		}
+		if (readMetrics) {
+			if ("failed" in metricsResult && metricsResult.failed) {
+				status.metrics = null;
+			} else {
+				const metricsStdout =
+					typeof metricsResult.stdout === "string"
+						? metricsResult.stdout
+						: String(metricsResult.stdout);
+				status.metrics = parseGitNumstat(metricsStdout);
+			}
+		}
 		const operation = await readGitOperationState(cwd);
 		return {
 			kind: "ok",
