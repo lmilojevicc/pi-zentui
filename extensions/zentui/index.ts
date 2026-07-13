@@ -113,9 +113,13 @@ export default function (pi: ExtensionAPI) {
 		// references the relevant variable. Mirrors the session-duration timer
 		// pattern so format-only users still get data.
 		const formatNeedsTag = /\$\{?(?:git_tag|tag)\b/.test(fmt);
+		const formatNeedsCommit = /\$\{?(?:git_commit|commit)\b/.test(fmt);
 		const formatNeedsMetrics = /\$\{?(?:git_metrics|git_added|git_deleted)\b/.test(fmt);
-		const wantExactTag = (segments.gitCommit && gitCommitConfig.showTag) || formatNeedsTag;
+		const formatNeedsPackage = /\$\{?(?:package|package_version)\b/.test(fmt);
+		const wantExactTag =
+			((segments.gitCommit || formatNeedsCommit) && gitCommitConfig.showTag) || formatNeedsTag;
 		const wantMetrics = segments.gitMetrics || formatNeedsMetrics;
+		const wantPackage = segments.packageVersion || formatNeedsPackage;
 		const [git, runtime, packageVersion] = await Promise.all([
 			readGitStatus(ctx.cwd, {
 				readExactTag: wantExactTag,
@@ -123,7 +127,7 @@ export default function (pi: ExtensionAPI) {
 				ignoreSubmodules: gitMetricsConfig.ignoreSubmodules,
 			}),
 			readRuntimeInfo(ctx.cwd),
-			readPackageVersionResult(ctx.cwd),
+			wantPackage ? readPackageVersionResult(ctx.cwd) : Promise.resolve(undefined),
 		]);
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd: ctx.cwd,

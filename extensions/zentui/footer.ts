@@ -374,8 +374,10 @@ export function installFooter(
 						branchParts.push("on", gitIcon, gitColor("HEAD"));
 						if (config.footerSegments.gitCommit && state.commit.oid) {
 							const shortHash = state.commit.oid.slice(0, config.gitCommit.hashLength);
+							const tag = config.gitCommit.showTag && state.commit.tag ? state.commit.tag : "";
+							const inner = [shortHash, tag].filter(Boolean).join(" ");
 							branchParts.push(
-								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${shortHash})`),
+								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${inner})`),
 							);
 						}
 					}

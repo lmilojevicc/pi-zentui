@@ -17,7 +17,7 @@ Zentui brings two popular aesthetics to Pi:
 
 ### Footer (Starship-inspired)
 
-- `󰝰 dirname` — current directory with icon (`basename` by default; optional `full` path with directory depth via `pathDisplay`)
+- `dirname` — current directory (`basename` by default; optional `full` path with directory depth via `pathDisplay`)
 - `on  branch` — git branch with icon
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
 - `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
@@ -31,10 +31,10 @@ Zentui brings two popular aesthetics to Pi:
 ### Editor (Opencode-inspired)
 
 - Bordered input box with configurable accent rail and border colors
+- Model name and provider displayed inside the editor frame
+- Configurable model, provider, and thinking-level indicator colors
 - Prompt-box-style user messages matching the ZentUI input chrome
 - Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
-
-jfiowef
 
 ### Git Status Icons
 
@@ -164,7 +164,7 @@ Default config values — copy this and change any value you want:
 	},
 	"icons": {
 		"mode": "auto",
-		"cwd": "󰝰",
+		"cwd": "",
 		"git": "",
 		"ahead": "↑",
 		"behind": "↓",
@@ -324,7 +324,7 @@ Center the branch between directory and cost:
 | `$context`          |              | context usage (text and/or gauge via config)                        |
 | `$tokens`           |              | input/output token counts                                           |
 | `$cost`             |              | session cost                                                        |
-| `$sep`              | `$separator` | themed `                                                            | `using`colors.separator` |
+| `$sep`              | `$separator` | themed `\|` using `colors.separator`            |
 | `$fill`             | —            | special: splits zones                                               |
 
 ### `$fill` behavior

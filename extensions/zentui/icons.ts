@@ -1,7 +1,8 @@
 /**
  * Icon mode defaults and resolvers.
  *
- * Nerd defaults must stay byte-identical to historical `defaultConfig.icons`.
+ * Nerd defaults must stay byte-identical to historical `defaultConfig.icons`,
+ * except where intentionally changed to match the Starship Nerd Font preset.
  * User string overrides always win over mode defaults.
  */
 
@@ -56,11 +57,12 @@ export const ICON_GLYPH_KEYS = [
 ] as const satisfies readonly (keyof IconGlyphs)[];
 
 /**
- * Historical Nerd Font defaults (byte-identical to prior defaultConfig.icons).
+ * Nerd Font defaults.
  *
- * New defaults (e.g. `package`) come from the Starship Nerd Font preset
- * (https://starship.rs/presets/nerd-font), which is the project's
- * authoritative glyph source per user direction.
+ * The `cwd` icon is intentionally empty — Starship's `directory` module
+ * has no default symbol. Other defaults match historical values; new
+ * additions (e.g. `package`) come from the Starship Nerd Font preset
+ * (https://starship.rs/presets/nerd-font).
  */
 export const NERD_DEFAULT_ICONS: IconGlyphs = {
 	cwd: "",

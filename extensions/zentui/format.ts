@@ -30,8 +30,9 @@ export function formatGitCommitSegment(
 	style: ColorSpec,
 ): string {
 	if (!commit?.oid) return "";
-	const showHash = !config.onlyDetached || commit.detached;
-	const hash = showHash ? commit.oid.slice(0, config.hashLength) : "";
+	// Starship's only_detached hides the whole module when attached.
+	if (config.onlyDetached && !commit.detached) return "";
+	const hash = commit.oid.slice(0, config.hashLength);
 	const tag = config.showTag && commit.tag ? commit.tag : "";
 	if (!hash && !tag) return "";
 	const label = [hash, tag].filter(Boolean).join(" ");

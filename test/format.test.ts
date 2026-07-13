@@ -471,6 +471,18 @@ describe("formatGitCommitSegment", () => {
 		expect(out).toBe("");
 	});
 
+	it("hides the whole segment (including tag) on a branch when onlyDetached is true", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: "v1.0.0" },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toBe("");
+		expect(out).not.toContain("v1.0.0");
+	});
+
 	it("shows hash on a normal branch when onlyDetached is false", () => {
 		const out = formatGitCommitSegment(
 			makeTheme(),

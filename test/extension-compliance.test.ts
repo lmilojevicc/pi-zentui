@@ -1157,7 +1157,11 @@ describe("Pi docs compliance", () => {
 			state.costLabel = "$0.001";
 			const config: PolishedTuiConfig = {
 				...defaultConfig,
-				footerSegments: { ...defaultConfig.footerSegments, packageVersion: enabled },
+				footerSegments: {
+					...defaultConfig.footerSegments,
+					packageVersion: enabled,
+					runtime: false,
+				},
 			};
 			installFooter(ctx as never, state, () => config, {
 				setRequestRender() {},
@@ -1173,8 +1177,8 @@ describe("Pi docs compliance", () => {
 		const withPackage = renderWithPackage(true);
 		const withoutPackage = renderWithPackage(false);
 		expect(withPackage).toContain("1.2.3");
-		// Starship `package` shape: `via <glyph> <version>`.
-		expect(withPackage).toContain("via");
+		// Starship `package` shape: `is <glyph> <version>`.
+		expect(withPackage).toContain("is");
 		expect(withPackage).toContain("\u{f487}");
 		expect(withoutPackage).not.toContain("1.2.3");
 	});
