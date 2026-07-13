@@ -11,6 +11,7 @@ import {
 	formatCount,
 	formatCwdLabel,
 	formatOsLabel,
+	formatPackageVersionSegment,
 	getUsageTotals,
 	invalidateUsageTotalsCache,
 } from "../extensions/zentui/format";
@@ -326,5 +327,62 @@ describe("getUsageTotals memoization", () => {
 		expect(fourth).toEqual(third);
 		expect(fourth).not.toBe(third);
 		expect(__usageTotalsComputeCount()).toBe(3);
+	});
+});
+
+describe("formatPackageVersionSegment", () => {
+	const makeTheme = (): { fg: (color: string, text: string) => string } => ({
+		// Identity wrapper: prefix text with the requested color token so we can
+		// assert Starship style strings are routed correctly.
+		fg: (color, text) => `[${color}]${text}[/${color}]`,
+	});
+
+	it("returns empty when no package is present", () => {
+		expect(formatPackageVersionSegment(makeTheme(), undefined, "terminal", "nerd", "", "208")).toBe(
+			"",
+		);
+	});
+
+	it("renders the Starship `via <glyph> <version>` shape", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"nerd",
+			"",
+			"208",
+		);
+		expect(out).toContain("via");
+		expect(out).toContain("\u{f487}");
+		expect(out).toContain("1.2.3");
+		// Starship `package` default color 208 → ANSI 256-color code 38;5;208.
+		expect(out).toContain("38;5;208");
+	});
+
+	it("falls back to the ASCII package label in ASCII mode", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"ascii",
+			"",
+			"208",
+		);
+		expect(out).toContain("via");
+		expect(out).toContain("pkg");
+		expect(out).not.toContain("\u{f487}");
+	});
+
+	it("honors a configured package icon override", () => {
+		const out = formatPackageVersionSegment(
+			makeTheme(),
+			{ ecosystem: "nodejs", version: "1.2.3" },
+			"terminal",
+			"nerd",
+			"#", // custom override wins over mode default
+			"208",
+		);
+		expect(out).toContain("#");
+		expect(out).not.toContain("\u{f487}");
 	});
 });

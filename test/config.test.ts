@@ -28,6 +28,7 @@ describe("mergeConfig", () => {
 		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.icons.editorPrompt).toBe("");
 		expect(config.colors.gitBranch).toBe("bold purple");
+		expect(config.colors.packageVersion).toBe("208");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
@@ -195,6 +196,9 @@ describe("mergeConfig", () => {
 	it("accepts Starship colors and old color key aliases", () => {
 		expect(mergeConfig({ colors: { gitBranch: "bold purple" } }).colors.gitBranch).toBe(
 			"bold purple",
+		);
+		expect(mergeConfig({ colors: { packageVersion: "bold green" } }).colors.packageVersion).toBe(
+			"bold green",
 		);
 		expect(mergeConfig({ colors: { git: "syntaxKeyword" } }).colors.gitBranch).toBe(
 			"syntaxKeyword",

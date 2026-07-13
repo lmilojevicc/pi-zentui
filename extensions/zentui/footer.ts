@@ -295,10 +295,22 @@ export function installFooter(
 						case "cost":
 							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
 						case "package":
-							return formatPackageVersionSegment(theme, state.packageVersion, colorSource);
+							return formatPackageVersionSegment(
+								theme,
+								state.packageVersion,
+								colorSource,
+								iconMode,
+								config.icons.package,
+								config.colors.packageVersion,
+							);
 						case "package_version":
 							return state.packageVersion?.version
-								? renderStyleForSource(theme, colorSource, "fg:green", state.packageVersion.version)
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.packageVersion,
+										state.packageVersion.version,
+									)
 								: "";
 						case "sep":
 							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
@@ -326,7 +338,14 @@ export function installFooter(
 						)
 					: "";
 				const packageVersionLabel = config.footerSegments.packageVersion
-					? formatPackageVersionSegment(theme, state.packageVersion, colorSource)
+					? formatPackageVersionSegment(
+							theme,
+							state.packageVersion,
+							colorSource,
+							iconMode,
+							config.icons.package,
+							config.colors.packageVersion,
+						)
 					: "";
 
 				const sessionDurationSegment = (() => {

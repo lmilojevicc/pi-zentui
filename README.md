@@ -197,6 +197,7 @@ Default config values — copy this and change any value you want:
 		"separator": "bright-black",
 		"runtimePrefix": "",
 		"sessionDuration": "yellow",
+		"packageVersion": "208",
 		"username": "bold yellow",
 		"time": "bold yellow",
 		"os": "bold white",
@@ -293,7 +294,7 @@ Center the branch between directory and cost:
 | `$git_status`       | `$status`    | `[!?↑]` status block                             |
 | `$git_state`        | `$state`     | `REBASING` / `MERGING` / … (optional `n/m`)      |
 | `$runtime`          |              | runtime icon + version                           |
-| `$package`          |              | project package version (manifest-derived)       |
+| `$package`          |              | project package version, `via <glyph> <version>` (manifest-derived)  |
 | `$package_version`  |              | raw project package version (no icon)            |
 | `$session_duration` | `$duration`  | session running time                             |
 | `$username`         |              | `user@host`                                      |

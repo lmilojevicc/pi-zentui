@@ -93,6 +93,7 @@ export type PolishedTuiConfig = {
 		runtimePrefix: ColorSpec;
 		extensionStatus: ColorSpec;
 		sessionDuration: ColorSpec;
+		packageVersion: ColorSpec;
 		username: ColorSpec;
 		time: ColorSpec;
 		os: ColorSpec;
@@ -174,6 +175,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		runtimePrefix: "",
 		extensionStatus: "bright-black",
 		sessionDuration: "yellow",
+		packageVersion: "208",
 		username: "bold yellow",
 		time: "bold yellow",
 		os: "bold white",
@@ -334,6 +336,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		runtimePrefix: colorValue(record, "runtimePrefix"),
 		extensionStatus: colorValue(record, "extensionStatus"),
 		sessionDuration: colorValue(record, "sessionDuration"),
+		packageVersion: colorValue(record, "packageVersion"),
 		username: colorValue(record, "username"),
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),

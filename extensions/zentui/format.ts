@@ -9,7 +9,7 @@ import type {
 	PathDisplayMode,
 } from "./config";
 import type { IconMode } from "./icons";
-import { resolveOsIcon, resolveRuntimeSymbol } from "./icons";
+import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
 import type { PackageVersionResult } from "./package-version";
 import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
@@ -246,19 +246,27 @@ export function formatRuntimeSegment(
 }
 
 /**
- * Render the package-version segment. Distinct from the runtime segment:
- * it surfaces the project’s own version (manifest-derived) rather than
- * the installed toolchain version. By design the segment is plain text
- * (no icon) so it does not collide with the runtime segment’s symbol;
- * a glyph can be added via `footerFormat` literals if the user wants one.
+ * Render the package-version segment in Starship `via <glyph> <version>` shape.
+ *
+ * Distinct from the runtime segment: this surfaces the project's own
+ * manifest version (e.g. `package.json#version`), not the installed
+ * toolchain version. Glyph comes from the Starship Nerd Font preset
+ * (https://starship.rs/presets/nerd-font); default color `208` matches
+ * the Starship `package` module default
+ * (https://starship.rs/config/#package-version).
  */
 export function formatPackageVersionSegment(
 	theme: Pick<Theme, "fg">,
 	pkg: PackageVersionResult | undefined,
 	colorSource: ColorSource,
+	mode: IconMode = "auto",
+	configuredIcon: string = "",
+	versionStyle: ColorSpec = "208",
 ): string {
 	if (!pkg) return "";
-	return renderStyleForSource(theme, colorSource, "fg:green", pkg.version);
+	const icon = resolvePackageIcon(configuredIcon, mode);
+	const label = `${icon} ${pkg.version}`;
+	return `${renderStyleForSource(theme, colorSource, "", "via")} ${renderStyleForSource(theme, colorSource, versionStyle, label)}`;
 }
 
 export type FormatCwdOptions = {

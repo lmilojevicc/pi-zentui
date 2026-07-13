@@ -1173,6 +1173,9 @@ describe("Pi docs compliance", () => {
 		const withPackage = renderWithPackage(true);
 		const withoutPackage = renderWithPackage(false);
 		expect(withPackage).toContain("1.2.3");
+		// Starship `package` shape: `via <glyph> <version>`.
+		expect(withPackage).toContain("via");
+		expect(withPackage).toContain("\u{f487}");
 		expect(withoutPackage).not.toContain("1.2.3");
 	});
 
