@@ -30,6 +30,8 @@ describe("mergeConfig", () => {
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.packageVersion).toBe("208");
 		expect(config.colors.gitCommit).toBe("bold green");
+		expect(config.colors.gitMetricsAdded).toBe("bold green");
+		expect(config.colors.gitMetricsDeleted).toBe("bold red");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
@@ -59,6 +61,7 @@ describe("mergeConfig", () => {
 			os: false,
 			packageVersion: false,
 			gitCommit: false,
+			gitMetrics: false,
 			tokens: true,
 			cost: true,
 		});
@@ -204,6 +207,12 @@ describe("mergeConfig", () => {
 		);
 		expect(mergeConfig({ colors: { gitCommit: "bold yellow" } }).colors.gitCommit).toBe(
 			"bold yellow",
+		);
+		expect(mergeConfig({ colors: { gitMetricsAdded: "green" } }).colors.gitMetricsAdded).toBe(
+			"green",
+		);
+		expect(mergeConfig({ colors: { gitMetricsDeleted: "red" } }).colors.gitMetricsDeleted).toBe(
+			"red",
 		);
 		expect(mergeConfig({ colors: { git: "syntaxKeyword" } }).colors.gitBranch).toBe(
 			"syntaxKeyword",
@@ -385,6 +394,7 @@ describe("mergeConfig", () => {
 			os: false,
 			packageVersion: false,
 			gitCommit: false,
+			gitMetrics: false,
 			tokens: false,
 			cost: true,
 		});
@@ -404,6 +414,7 @@ describe("mergeConfig", () => {
 			os: false,
 			packageVersion: false,
 			gitCommit: false,
+			gitMetrics: false,
 			tokens: true,
 			cost: true,
 		});
@@ -603,6 +614,7 @@ describe("mergeConfig", () => {
 				os: false,
 				packageVersion: false,
 				gitCommit: false,
+				gitMetrics: false,
 				tokens: false,
 				cost: false,
 			});
@@ -638,6 +650,7 @@ describe("mergeConfig", () => {
 				os: false,
 				packageVersion: false,
 				gitCommit: false,
+				gitMetrics: false,
 				tokens: true,
 				cost: true,
 			});
@@ -677,6 +690,14 @@ describe("mergeConfig", () => {
 			onlyDetached: true,
 			showTag: true,
 		});
+	});
+
+	it("gitMetrics config defaults", () => {
+		expect(defaultConfig.gitMetrics).toEqual({ onlyNonzero: true, ignoreSubmodules: false });
+		expect(mergeConfig({ gitMetrics: { onlyNonzero: false } }).gitMetrics.onlyNonzero).toBe(false);
+		expect(
+			mergeConfig({ gitMetrics: { ignoreSubmodules: true } }).gitMetrics.ignoreSubmodules,
+		).toBe(true);
 	});
 
 	it("writes and reads back footerFormat", () => {

@@ -49,6 +49,7 @@ export type FooterSegmentsConfig = {
 	gitStatus: boolean;
 	gitCounts: boolean;
 	gitCommit: boolean;
+	gitMetrics: boolean;
 	runtime: boolean;
 	context: boolean;
 	tokens: boolean;
@@ -71,6 +72,15 @@ export type GitCommitConfig = {
 	hashLength: number;
 	onlyDetached: boolean;
 	showTag: boolean;
+};
+
+/**
+ * Starship `git_metrics`-style options.
+ * See https://starship.rs/config/#git-metrics
+ */
+export type GitMetricsConfig = {
+	onlyNonzero: boolean;
+	ignoreSubmodules: boolean;
 };
 
 const DEFAULT_EXTENSION_STATUS_COLOR_MODE: ExtensionStatusColorMode = "zentui";
@@ -106,6 +116,8 @@ export type PolishedTuiConfig = {
 		sessionDuration: ColorSpec;
 		packageVersion: ColorSpec;
 		gitCommit: ColorSpec;
+		gitMetricsAdded: ColorSpec;
+		gitMetricsDeleted: ColorSpec;
 		username: ColorSpec;
 		time: ColorSpec;
 		os: ColorSpec;
@@ -125,6 +137,7 @@ export type PolishedTuiConfig = {
 	features: UiFeaturesConfig;
 	footerSegments: FooterSegmentsConfig;
 	gitCommit: GitCommitConfig;
+	gitMetrics: GitMetricsConfig;
 	extensionStatuses: ExtensionStatusesConfig;
 };
 
@@ -149,6 +162,9 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"package_version",
 	"git_commit",
 	"git_tag",
+	"git_metrics",
+	"git_added",
+	"git_deleted",
 	"sep",
 ] as const;
 
@@ -194,6 +210,8 @@ export const defaultConfig: PolishedTuiConfig = {
 		sessionDuration: "yellow",
 		packageVersion: "208",
 		gitCommit: "bold green",
+		gitMetricsAdded: "bold green",
+		gitMetricsDeleted: "bold red",
 		username: "bold yellow",
 		time: "bold yellow",
 		os: "bold white",
@@ -223,11 +241,16 @@ export const defaultConfig: PolishedTuiConfig = {
 		os: false,
 		packageVersion: false,
 		gitCommit: false,
+		gitMetrics: false,
 	},
 	gitCommit: {
 		hashLength: 7,
 		onlyDetached: true,
 		showTag: true,
+	},
+	gitMetrics: {
+		onlyNonzero: true,
+		ignoreSubmodules: false,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -362,6 +385,8 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		sessionDuration: colorValue(record, "sessionDuration"),
 		packageVersion: colorValue(record, "packageVersion"),
 		gitCommit: colorValue(record, "gitCommit"),
+		gitMetricsAdded: colorValue(record, "gitMetricsAdded"),
+		gitMetricsDeleted: colorValue(record, "gitMetricsDeleted"),
 		username: colorValue(record, "username"),
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),
@@ -411,6 +436,7 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		os: footerSegmentValue(record, "os"),
 		packageVersion: footerSegmentValue(record, "packageVersion"),
 		gitCommit: footerSegmentValue(record, "gitCommit"),
+		gitMetrics: footerSegmentValue(record, "gitMetrics"),
 	};
 }
 
@@ -430,6 +456,19 @@ function normalizeGitCommitConfig(record: Record<string, unknown>): GitCommitCon
 				? record.onlyDetached
 				: defaultConfig.gitCommit.onlyDetached,
 		showTag: typeof record.showTag === "boolean" ? record.showTag : defaultConfig.gitCommit.showTag,
+	};
+}
+
+function normalizeGitMetricsConfig(record: Record<string, unknown>): GitMetricsConfig {
+	return {
+		onlyNonzero:
+			typeof record.onlyNonzero === "boolean"
+				? record.onlyNonzero
+				: defaultConfig.gitMetrics.onlyNonzero,
+		ignoreSubmodules:
+			typeof record.ignoreSubmodules === "boolean"
+				? record.ignoreSubmodules
+				: defaultConfig.gitMetrics.ignoreSubmodules,
 	};
 }
 
@@ -562,6 +601,9 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const gitCommit = isRecord(config.gitCommit)
 		? normalizeGitCommitConfig(config.gitCommit as Record<string, unknown>)
 		: defaultConfig.gitCommit;
+	const gitMetrics = isRecord(config.gitMetrics)
+		? normalizeGitMetricsConfig(config.gitMetrics as Record<string, unknown>)
+		: defaultConfig.gitMetrics;
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
@@ -577,6 +619,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		features: { ...features },
 		footerSegments: { ...footerSegments },
 		gitCommit,
+		gitMetrics,
 		extensionStatuses: {
 			defaultPlacement: extensionStatuses.defaultPlacement,
 			placements: { ...extensionStatuses.placements },

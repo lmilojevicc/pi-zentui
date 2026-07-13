@@ -28,6 +28,15 @@ export type GitCommitInfo = {
 	tag: string | null;
 };
 
+/**
+ * Starship `git_metrics`-style aggregate line-change counts.
+ * See https://starship.rs/config/#git-metrics
+ */
+export type GitMetricsInfo = {
+	added: number;
+	deleted: number;
+};
+
 export type GitStatusSummary = {
 	branch?: string;
 	dirty: boolean;
@@ -44,6 +53,7 @@ export type GitStatusSummary = {
 	gitState?: GitOperationState;
 	gitStateLabel?: string;
 	commit?: GitCommitInfo;
+	metrics?: GitMetricsInfo | null;
 };
 
 export type GitReadResult =
@@ -152,6 +162,37 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 	return status;
 }
 
+/**
+ * Parse `git diff --numstat` output into aggregate added/deleted counts.
+ *
+ * Each line is `added\tdeleted\tpath` (or `added\tdeleted\told\tnew` for
+ * renames). Binary rows carry `-` in both numeric columns and are skipped.
+ * Malformed/unparseable lines are ignored rather than aborting the sum.
+ *
+ * See https://git-scm.com/docs/git-diff#Documentation/git-diff.txt---numstat
+ */
+export function parseGitNumstat(stdoutText: string): GitMetricsInfo {
+	let added = 0;
+	let deleted = 0;
+	for (const line of stdoutText.split(/\r?\n/)) {
+		if (!line) continue;
+		const parts = line.split("\t");
+		// `added\tdeleted\tpath...` — need at least 3 tab-delimited fields.
+		if (parts.length < 3) continue;
+		const a = parts[0];
+		const d = parts[1];
+		// Binary files report `-` for both; skip.
+		if (a === "-" || d === "-") continue;
+		const na = Number(a);
+		const nd = Number(d);
+		if (!Number.isFinite(na) || !Number.isFinite(nd)) continue;
+		if (na < 0 || nd < 0) continue;
+		added += na;
+		deleted += nd;
+	}
+	return { added, deleted };
+}
+
 function readOptionalText(path: string | undefined): string | undefined {
 	if (!path || !existsSync(path)) return undefined;
 	try {
@@ -245,6 +286,13 @@ function isNotARepoError(error: unknown): boolean {
 export type ReadGitStatusOptions = {
 	/** Run `git describe --tags --exact-match HEAD` for the git_commit segment. */
 	readExactTag?: boolean;
+	/**
+	 * Run `git diff HEAD --numstat` for the git_metrics segment. Uses the
+	 * Starship-like “total dirty” view (staged + unstaged combined).
+	 */
+	readMetrics?: boolean;
+	/** Add `--ignore-submodules=all` to the metrics diff when requested. */
+	ignoreSubmodules?: boolean;
 };
 
 export async function readGitStatus(
@@ -252,8 +300,11 @@ export async function readGitStatus(
 	options: ReadGitStatusOptions = {},
 ): Promise<GitReadResult> {
 	const readExactTag = options.readExactTag === true;
+	const readMetrics = options.readMetrics === true;
 	try {
-		const [{ stdout: statusStdout }, stashResult, tagResult] = await Promise.all([
+		const numstatArgs = ["diff", "HEAD", "--numstat"];
+		if (options.ignoreSubmodules) numstatArgs.push("--ignore-submodules=all");
+		const [{ stdout: statusStdout }, stashResult, tagResult, metricsResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
@@ -271,6 +322,15 @@ export async function readGitStatus(
 						() => ({ stdout: "" }),
 					)
 				: Promise.resolve({ stdout: "" }),
+			readMetrics
+				? execFileAsync("git", numstatArgs, {
+						cwd,
+						timeout: GIT_COMMAND_TIMEOUT_MS,
+					}).then(
+						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
+						() => ({ stdout: "", failed: true as const }),
+					)
+				: Promise.resolve({ stdout: "", failed: true as const }),
 		]);
 		const stdoutText = typeof statusStdout === "string" ? statusStdout : String(statusStdout);
 		const stashStdout =
@@ -282,6 +342,17 @@ export async function readGitStatus(
 				typeof tagResult.stdout === "string" ? tagResult.stdout : String(tagResult.stdout);
 			const tag = tagStdout.trim();
 			status.commit = { ...status.commit, tag: tag || null };
+		}
+		if (readMetrics) {
+			if ("failed" in metricsResult && metricsResult.failed) {
+				status.metrics = null;
+			} else {
+				const metricsStdout =
+					typeof metricsResult.stdout === "string"
+						? metricsResult.stdout
+						: String(metricsResult.stdout);
+				status.metrics = parseGitNumstat(metricsStdout);
+			}
 		}
 		const operation = await readGitOperationState(cwd);
 		return {

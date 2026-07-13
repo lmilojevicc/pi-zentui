@@ -106,10 +106,16 @@ export default function (pi: ExtensionAPI) {
 
 	const refreshProjectState = async (ctx: ExtensionContext) => {
 		const gitCommitConfig = currentConfig.gitCommit;
+		const gitMetricsConfig = currentConfig.gitMetrics;
 		const segments = currentConfig.footerSegments;
 		const wantExactTag = segments.gitCommit && gitCommitConfig.showTag;
+		const wantMetrics = segments.gitMetrics;
 		const [git, runtime, packageVersion] = await Promise.all([
-			readGitStatus(ctx.cwd, { readExactTag: wantExactTag }),
+			readGitStatus(ctx.cwd, {
+				readExactTag: wantExactTag,
+				readMetrics: wantMetrics,
+				ignoreSubmodules: gitMetricsConfig.ignoreSubmodules,
+			}),
 			readRuntimeInfo(ctx.cwd),
 			readPackageVersionResult(ctx.cwd),
 		]);

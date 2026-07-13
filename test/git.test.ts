@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectGitState, emptyGitStatus, parseGitStatusPorcelain } from "../extensions/zentui/git";
+import {
+	detectGitState,
+	emptyGitStatus,
+	parseGitNumstat,
+	parseGitStatusPorcelain,
+} from "../extensions/zentui/git";
 
 describe("parseGitStatusPorcelain", () => {
 	it("returns empty status for empty output", () => {
@@ -139,6 +144,40 @@ describe("detectGitState", () => {
 		expect(detectGitState({ bisectLog: requirePath(paths, "BISECT_LOG") })).toEqual({
 			gitState: "BISECTING",
 			gitStateLabel: "BISECTING",
+		});
+	});
+
+	describe("parseGitNumstat", () => {
+		it("sums added/deleted across text files", () => {
+			expect(
+				parseGitNumstat(["10\t5\tsrc/a.ts", "3\t0\tsrc/b.ts", "0\t7\tsrc/c.ts"].join("\n")),
+			).toEqual({ added: 13, deleted: 12 });
+		});
+
+		it("skips binary rows (-\t-)", () => {
+			expect(parseGitNumstat("-\t-\tasset.png\n5\t2\tsrc.ts")).toEqual({ added: 5, deleted: 2 });
+		});
+
+		it("handles rename rows (old\tnew path)", () => {
+			expect(parseGitNumstat("0\t0\told.ts\tnew.ts")).toEqual({ added: 0, deleted: 0 });
+			expect(parseGitNumstat("5\t1\told.ts\tnew.ts")).toEqual({ added: 5, deleted: 1 });
+		});
+
+		it("handles CRLF line endings", () => {
+			expect(parseGitNumstat("3\t2\ta.ts\r\n1\t1\tb.ts\r\n")).toEqual({
+				added: 4,
+				deleted: 3,
+			});
+		});
+
+		it("ignores malformed lines", () => {
+			expect(
+				parseGitNumstat(["garbage", "", "abc\tdef\tnotnum", "5\t2\tok.ts"].join("\n")),
+			).toEqual({ added: 5, deleted: 2 });
+		});
+
+		it("returns zeros for empty output", () => {
+			expect(parseGitNumstat("")).toEqual({ added: 0, deleted: 0 });
 		});
 	});
 

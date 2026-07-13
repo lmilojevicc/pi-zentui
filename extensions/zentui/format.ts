@@ -8,7 +8,7 @@ import type {
 	ContextThresholds,
 	PathDisplayMode,
 } from "./config";
-import type { GitCommitInfo } from "./git";
+import type { GitCommitInfo, GitMetricsInfo } from "./git";
 import type { IconMode } from "./icons";
 import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
 import type { PackageVersionResult } from "./package-version";
@@ -36,6 +36,35 @@ export function formatGitCommitSegment(
 	if (!hash && !tag) return "";
 	const label = [hash, tag].filter(Boolean).join(" ");
 	return renderStyleForSource(theme, colorSource, style, label);
+}
+
+/**
+ * Starship `git_metrics` style — render `+added −deleted` line counts.
+ * See https://starship.rs/config/#git-metrics
+ *
+ * When `onlyNonzero` is true, each zero component is omitted independently
+ * and the whole segment hides at 0/0.
+ */
+export function formatGitMetricsSegment(
+	theme: Pick<Theme, "fg">,
+	metrics: GitMetricsInfo | null | undefined,
+	config: { onlyNonzero: boolean },
+	colorSource: ColorSource,
+	addedStyle: ColorSpec,
+	deletedStyle: ColorSpec,
+): string {
+	if (!metrics) return "";
+	const showAdded = !config.onlyNonzero || metrics.added > 0;
+	const showDeleted = !config.onlyNonzero || metrics.deleted > 0;
+	if (!showAdded && !showDeleted) return "";
+	const parts: string[] = [];
+	if (showAdded) {
+		parts.push(renderStyleForSource(theme, colorSource, addedStyle, `+${metrics.added}`));
+	}
+	if (showDeleted) {
+		parts.push(renderStyleForSource(theme, colorSource, deletedStyle, `−${metrics.deleted}`));
+	}
+	return parts.join(" ");
 }
 
 export type UsageTotals = {

@@ -119,6 +119,7 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	cost: "Session cost",
 	packageVersion: "Package version",
 	gitCommit: "Git commit",
+	gitMetrics: "Git line metrics",
 };
 
 const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
@@ -139,6 +140,8 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 		"Show the project’s own manifest version (package.json, Cargo.toml, pyproject.toml, …). Distinct from the runtime segment, which shows the installed toolchain version.",
 	gitCommit:
 		"Show the current commit hash (and optional exact-match tag). On detached HEAD this provides context the branch segment can’t. Starship `git_commit`-style; default off.",
+	gitMetrics:
+		"Show aggregate added/deleted line counts (e.g. `+12 −3`) via `git diff HEAD --numstat`. Complements the git status counts. Starship `git_metrics`-style; default off.",
 };
 
 const directCommandSuggestions = [

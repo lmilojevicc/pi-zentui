@@ -1256,6 +1256,46 @@ describe("Pi docs compliance", () => {
 		// On branch with onlyDetached=false → hash appears.
 		expect(renderFor(false, false)).toContain(OID.slice(0, 7));
 	});
+
+	it("git metrics segment renders +added −deleted and hides at 0/0", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const renderFor = (added: number, deleted: number) => {
+			const state = createInitialState(emptyGitStatus());
+			state.metrics = { added, deleted };
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: { ...defaultConfig.footerSegments, gitMetrics: true },
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		expect(renderFor(12, 3)).toContain("+12");
+		expect(renderFor(12, 3)).toContain("−3");
+		// 0/0 → hidden (onlyNonzero default).
+		expect(renderFor(0, 0)).not.toContain("+0");
+		expect(renderFor(0, 0)).not.toContain("−0");
+	});
 	it("renders editor rails with theme accent and borderMuted borders", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,

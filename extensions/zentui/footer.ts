@@ -10,6 +10,7 @@ import {
 	contextColorTier,
 	formatCwdLabel,
 	formatGitCommitSegment,
+	formatGitMetricsSegment,
 	formatOsLabel,
 	formatPackageVersionSegment,
 	formatRuntimeSegment,
@@ -336,6 +337,35 @@ export function installFooter(
 										state.commit.tag,
 									)
 								: "";
+						case "git_metrics":
+							return config.footerSegments.gitMetrics
+								? formatGitMetricsSegment(
+										theme,
+										state.metrics,
+										config.gitMetrics,
+										colorSource,
+										config.colors.gitMetricsAdded,
+										config.colors.gitMetricsDeleted,
+									)
+								: "";
+						case "git_added":
+							return config.footerSegments.gitMetrics && state.metrics
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitMetricsAdded,
+										`+${state.metrics.added}`,
+									)
+								: "";
+						case "git_deleted":
+							return config.footerSegments.gitMetrics && state.metrics
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitMetricsDeleted,
+										`−${state.metrics.deleted}`,
+									)
+								: "";
 						default:
 							return "";
 					}
@@ -378,6 +408,16 @@ export function installFooter(
 							config.colors.gitCommit,
 						)
 					: "";
+				const gitMetricsLabel = config.footerSegments.gitMetrics
+					? formatGitMetricsSegment(
+							theme,
+							state.metrics,
+							config.gitMetrics,
+							colorSource,
+							config.colors.gitMetricsAdded,
+							config.colors.gitMetricsDeleted,
+						)
+					: "";
 
 				const sessionDurationSegment = (() => {
 					if (!config.footerSegments.sessionDuration || !state.sessionStartEpoch) return "";
@@ -413,6 +453,7 @@ export function installFooter(
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
 					gitCommitLabel,
+					gitMetricsLabel,
 					runtimeLabel,
 					packageVersionLabel,
 					sessionDurationSegment,

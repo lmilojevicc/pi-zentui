@@ -29,6 +29,12 @@ describe("parseFooterFormat", () => {
 		expect(parseFooterFormat("$tag")).toEqual([{ kind: "var", name: "tag" }]);
 	});
 
+	it("parses git-metrics vars", () => {
+		expect(parseFooterFormat("$git_metrics")).toEqual([{ kind: "var", name: "git_metrics" }]);
+		expect(parseFooterFormat("$git_added")).toEqual([{ kind: "var", name: "git_added" }]);
+		expect(parseFooterFormat("$git_deleted")).toEqual([{ kind: "var", name: "git_deleted" }]);
+	});
+
 	it("parses braced variables", () => {
 		const braced = "${" + "git_branch}";
 		expect(parseFooterFormat(braced)).toEqual([{ kind: "var", name: "git_branch" }]);
