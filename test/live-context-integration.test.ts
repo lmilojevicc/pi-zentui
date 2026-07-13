@@ -150,6 +150,7 @@ function createHarness(
 		sessionManager: {
 			getBranch: () => entries,
 			getEntries: () => entries,
+			getSessionName: () => undefined,
 		},
 		getContextUsage: () => state.contextUsage,
 		ui: {

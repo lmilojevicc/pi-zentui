@@ -195,6 +195,10 @@ export function installFooter(
 						depth: config.pathDisplay.depth,
 					}),
 				);
+				const sessionName = ctx.sessionManager.getSessionName() ?? "";
+				const sessionNameLabel = sessionName
+					? renderStyleForSource(theme, colorSource, config.colors.sessionName, sessionName)
+					: "";
 				const branch = state.branch;
 				const branchText = branch
 					? formatGitBranchText(branch, config.gitBranch.maxLength)
@@ -263,6 +267,8 @@ export function installFooter(
 					switch (canonical) {
 						case "cwd":
 							return cwdLabel;
+						case "session_name":
+							return sessionNameLabel;
 						case "git_branch":
 							return branchText
 								? gitIcon
@@ -491,6 +497,7 @@ export function installFooter(
 					osSegment,
 					usernameSegment,
 					config.footerSegments.cwd ? cwdLabel : "",
+					config.footerSegments.sessionName ? sessionNameLabel : "",
 					branchLabel,
 					gitCommitLabel,
 					gitMetricsLabel,

@@ -124,6 +124,7 @@ const featureSettingDescriptions: Record<FeatureSettingId, string> = {
 
 const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	cwd: "Current directory",
+	sessionName: "Session name",
 	gitBranch: "Git branch",
 	gitStatus: "Git status",
 	gitCounts: "Git counts",
@@ -142,6 +143,7 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 
 const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
 	cwd: "Show or hide the current working directory segment on the left.",
+	sessionName: "Show or hide the current Pi session name on the left, after the current directory.",
 	gitBranch: "Show or hide the git branch name on the left.",
 	gitStatus: "Show or hide git status icons and ahead/behind markers.",
 	gitCounts:
@@ -207,6 +209,7 @@ function isFeatureSettingId(value: string): value is FeatureSettingId {
 function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingId {
 	return (
 		value === "cwd" ||
+		value === "sessionName" ||
 		value === "gitBranch" ||
 		value === "gitStatus" ||
 		value === "gitCounts" ||

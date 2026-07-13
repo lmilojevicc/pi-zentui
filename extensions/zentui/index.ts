@@ -536,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("thinking_level_select", syncInteractiveState);
+	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event) => {
 		liveContext.update(event.message);
 	});

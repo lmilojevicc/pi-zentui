@@ -254,7 +254,7 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 		mode: "tui",
 		cwd: process.cwd(),
 		model: { id: "claude-sonnet", provider: "anthropic", contextWindow: 200_000 },
-		sessionManager: { getBranch: () => [] },
+		sessionManager: { getBranch: () => [], getSessionName: () => undefined },
 		getContextUsage: () => ({ tokens: 1000, contextWindow: 200_000, percent: 0.5 }),
 		ui: overrideUi ? { ...ui, ...overrideUi } : ui,
 		...overrides,
@@ -3289,5 +3289,131 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("active");
 		expect(rendered).toContain("middle");
 		expect(rendered).not.toContain("inactive");
+	});
+	function renderSessionNameFooter({
+		name,
+		width,
+		theme = makeTheme(),
+		footerFormat = "",
+		segmentEnabled = true,
+		sessionNameColor = "success",
+	}: {
+		name: string | undefined;
+		width: number;
+		theme?: Theme;
+		footerFormat?: string;
+		segmentEnabled?: boolean;
+		sessionNameColor?: string;
+	}): string[] {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			sessionManager: { getBranch: () => [], getSessionName: () => name },
+			ui: {
+				theme,
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			footerFormat,
+			colors: { ...defaultConfig.colors, sessionName: sessionNameColor },
+			footerSegments: {
+				...defaultConfig.footerSegments,
+				cwd: true,
+				sessionName: segmentEnabled,
+				gitBranch: false,
+				gitStatus: false,
+				runtime: false,
+				context: false,
+				tokens: false,
+				cost: false,
+			},
+		};
+		installFooter(ctx as never, createInitialState(emptyGitStatus()), () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, theme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		return footer?.render(width) ?? [];
+	}
+
+	it("renders the opt-in session name immediately after cwd with its dedicated color", () => {
+		const rendered = renderSessionNameFooter({
+			name: "release prep",
+			width: 120,
+			theme: makeTaggedTheme(),
+		}).join("\n");
+		expect(rendered.indexOf("project")).toBeLessThan(rendered.indexOf("release prep"));
+		expect(rendered).toContain("[success]release prep");
+	});
+
+	it("omits absent names and keeps Unicode names within narrow footer widths", () => {
+		const absent = renderSessionNameFooter({
+			name: undefined,
+			width: 120,
+			theme: makeTaggedTheme(),
+		}).join("\n");
+		expect(absent).not.toContain("undefined");
+		expect(absent).not.toContain("[success]");
+		const lines = renderSessionNameFooter({ name: "研究 🚀 ".repeat(20), width: 18 });
+		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
+	});
+
+	it("renders $session_name in footerFormat when the built-in segment is disabled", () => {
+		const named = renderSessionNameFooter({
+			name: "release prep",
+			width: 120,
+			footerFormat: "$cwd($sep$session_name)",
+			segmentEnabled: false,
+		}).join("\n");
+		expect(named).toContain("release prep");
+		const unnamed = renderSessionNameFooter({
+			name: undefined,
+			width: 120,
+			footerFormat: "$cwd$sep$session_name",
+			segmentEnabled: false,
+		}).join("\n");
+		expect(unnamed).toContain("project");
+		expect(unnamed).not.toContain(" | ");
+	});
+
+	it("requests one footer render on session_info_changed", async () => {
+		const handlers = loadExtension();
+		let footerFactory: FooterFactory | undefined;
+		let renderRequests = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		footerFactory?.(
+			{
+				requestRender() {
+					renderRequests += 1;
+				},
+			},
+			makeTheme(),
+			{
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			},
+		);
+		const handler = handlers.get("session_info_changed")?.[0];
+		const before = renderRequests;
+		expect(handler?.({}, ctx)).toBeUndefined();
+		expect(renderRequests).toBe(before + 1);
+		await emit(handlers, "session_shutdown", ctx);
 	});
 });

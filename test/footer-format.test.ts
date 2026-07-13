@@ -93,6 +93,7 @@ describe("renderFormatSplit", () => {
 	const renderVar = (name: string): string => {
 		const map: Record<string, string> = {
 			cwd: "DIR",
+			session_name: "Session name",
 			git_branch: "BRANCH",
 			cost: "$0",
 			time: "12:00",
@@ -131,6 +132,16 @@ describe("renderFormatSplit", () => {
 		expect(left).toBe("DIR");
 		expect(middle).toBe("$0");
 		expect(right).toBe("12:00");
+	});
+
+	it("renders session-name variables in plain and braced forms", () => {
+		expect(renderFormatSplit(parseFooterFormat("$session_name"), renderVar).left).toBe(
+			"Session name",
+		);
+		const bracedSessionName = "${" + "session_name}";
+		expect(renderFormatSplit(parseFooterFormat(bracedSessionName), renderVar).left).toBe(
+			"Session name",
+		);
 	});
 
 	it("renders unknown variables as empty string", () => {
@@ -233,6 +244,11 @@ describe("conditional groups", () => {
 		const tokens = parseFooterFormat("($git_status)$cwd");
 		expect(renderFormatSplit(tokens, renderVar).left).toBe("[!]DIR");
 	});
+	it("drops a conditional session-name group when the name is empty", () => {
+		const noSessionName = (name: string) => (name === "sep" ? " | " : "");
+		const raw = renderFormatSplit(parseFooterFormat("($sep$session_name)"), noSessionName).left;
+		expect(stripOrphanSeparators(raw)).toBe("");
+	});
 });
 
 describe("joinNonEmpty", () => {
@@ -284,8 +300,9 @@ describe("stripOrphanSeparators", () => {
 			};
 			return map[name] ?? "";
 		};
-		// Empty content vars drop their groups even when $sep is present.
 		const tokens = parseFooterFormat("($context)($sep$tokens)($sep$cost)");
+
+		// Empty content vars drop their groups even when $sep is present.
 		const raw = renderFormatSplit(tokens, renderVar).left;
 		expect(raw).toBe(" | $0");
 		expect(stripOrphanSeparators(raw)).toBe("$0");

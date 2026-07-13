@@ -66,6 +66,7 @@ export type UiFeaturesConfig = {
 
 export type FooterSegmentsConfig = {
 	cwd: boolean;
+	sessionName: boolean;
 	gitBranch: boolean;
 	gitStatus: boolean;
 	gitCounts: boolean;
@@ -132,6 +133,7 @@ export type PolishedTuiConfig = {
 	icons: ResolvedIcons;
 	colors: {
 		cwd: ColorSpec;
+		sessionName: ColorSpec;
 		gitBranch: ColorSpec;
 		gitStatus: ColorSpec;
 		contextNormal: ColorSpec;
@@ -177,6 +179,7 @@ export type PolishedTuiConfig = {
  */
 export const FOOTER_FORMAT_VARIABLES = [
 	"cwd",
+	"session_name",
 	"git_branch",
 	"git_status",
 	"git_state",
@@ -229,6 +232,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	},
 	colors: {
 		cwd: "bold cyan",
+		sessionName: "bold green",
 		gitBranch: "bold purple",
 		gitStatus: "bold red",
 		contextNormal: "bright-black",
@@ -260,6 +264,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	},
 	footerSegments: {
 		cwd: true,
+		sessionName: false,
 		gitBranch: true,
 		gitStatus: true,
 		gitCounts: false,
@@ -431,6 +436,7 @@ function normalizeIconOverrides(record: Record<string, unknown>): Partial<IconGl
 function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiConfig["colors"]> {
 	return definedColors({
 		cwd: colorValue(record, "cwd") ?? colorValue(record, "cwdText"),
+		sessionName: colorValue(record, "sessionName"),
 		gitBranch: colorValue(record, "gitBranch") ?? colorValue(record, "git"),
 		gitStatus: colorValue(record, "gitStatus"),
 		contextNormal: colorValue(record, "contextNormal"),
@@ -482,6 +488,7 @@ function normalizeUiFeatures(record: Record<string, unknown>): UiFeaturesConfig 
 function normalizeFooterSegments(record: Record<string, unknown>): FooterSegmentsConfig {
 	return {
 		cwd: footerSegmentValue(record, "cwd"),
+		sessionName: footerSegmentValue(record, "sessionName"),
 		gitBranch: footerSegmentValue(record, "gitBranch"),
 		gitStatus: footerSegmentValue(record, "gitStatus"),
 		gitCounts: footerSegmentValue(record, "gitCounts"),
@@ -593,6 +600,7 @@ function isUiFeatureKey(value: string): value is keyof UiFeaturesConfig {
 function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig {
 	return (
 		value === "cwd" ||
+		value === "sessionName" ||
 		value === "gitBranch" ||
 		value === "gitStatus" ||
 		value === "gitCounts" ||
