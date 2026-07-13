@@ -359,7 +359,7 @@ function buildItems(
 	}
 
 	if (section === "layout") {
-		const items: SettingItem[] = [
+		return [
 			{
 				id: "contextStyle",
 				label: "Context style",
@@ -374,24 +374,22 @@ function buildItems(
 				currentValue: config.pathDisplay.mode,
 				values: pathDisplayModeValues,
 			},
-		];
-		if (config.pathDisplay.mode === "full") {
-			items.push({
+			{
 				id: "pathDepth",
 				label: "Path depth",
-				description: "How many trailing directories to show (0 = all, max 5).",
+				description:
+					"In full mode, trailing directories to show (0 = all, max 5). Ignored for basename.",
 				currentValue: String(config.pathDisplay.depth),
 				values: [...pathDepthValues],
-			});
-		}
-		items.push({
-			id: "iconMode",
-			label: "Icon mode",
-			description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
-			currentValue: config.icons.mode,
-			values: iconModeValues,
-		});
-		return items;
+			},
+			{
+				id: "iconMode",
+				label: "Icon mode",
+				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
+				currentValue: config.icons.mode,
+				values: iconModeValues,
+			},
+		];
 	}
 
 	if (section === "builtinSegments") {
