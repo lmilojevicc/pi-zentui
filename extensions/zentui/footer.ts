@@ -369,12 +369,15 @@ export function installFooter(
 					if (branch) {
 						branchParts.push("on", gitIcon, gitColor(branch));
 					} else if (state.commit?.detached) {
-						// Fold the short hash into the branch display on detached HEAD.
-						const shortHash = state.commit.oid
-							? `(${state.commit.oid.slice(0, config.gitCommit.hashLength)})`
-							: "";
-						const showHash = config.footerSegments.gitCommit && shortHash;
-						branchParts.push("on", gitIcon, gitColor(showHash ? `HEAD ${shortHash}` : "HEAD"));
+						// `HEAD` uses git-branch style; `(hash)` uses git-commit style
+						// (bold green) per Starship `git_commit` format.
+						branchParts.push("on", gitIcon, gitColor("HEAD"));
+						if (config.footerSegments.gitCommit && state.commit.oid) {
+							const shortHash = state.commit.oid.slice(0, config.gitCommit.hashLength);
+							branchParts.push(
+								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${shortHash})`),
+							);
+						}
 					}
 				}
 				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
@@ -402,6 +405,8 @@ export function installFooter(
 							config.colors.packageVersion,
 						)
 					: "";
+				// Skip standalone gitCommit when hash is already folded into the
+				// branch display on detached HEAD.
 				const hashFoldedIntoBranch = state.commit?.detached && config.footerSegments.gitBranch;
 				const gitCommitLabel =
 					config.footerSegments.gitCommit && !hashFoldedIntoBranch
