@@ -299,7 +299,7 @@ export function formatRuntimeSegment(
 }
 
 /**
- * Render the package-version segment in Starship `via <glyph> <version>` shape.
+ * Render the package-version segment in Starship `is <glyph> <version>` shape.
  *
  * Distinct from the runtime segment: this surfaces the project's own
  * manifest version (e.g. `package.json#version`), not the installed
@@ -319,7 +319,7 @@ export function formatPackageVersionSegment(
 	if (!pkg) return "";
 	const icon = resolvePackageIcon(configuredIcon, mode);
 	const label = `${icon} ${pkg.version}`;
-	return `${renderStyleForSource(theme, colorSource, "", "via")} ${renderStyleForSource(theme, colorSource, versionStyle, label)}`;
+	return `${renderStyleForSource(theme, colorSource, "", "is")} ${renderStyleForSource(theme, colorSource, versionStyle, label)}`;
 }
 
 export type FormatCwdOptions = {

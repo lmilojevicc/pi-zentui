@@ -63,7 +63,7 @@ export const ICON_GLYPH_KEYS = [
  * authoritative glyph source per user direction.
  */
 export const NERD_DEFAULT_ICONS: IconGlyphs = {
-	cwd: "󰝰",
+	cwd: "",
 	git: "",
 	ahead: "↑",
 	behind: "↓",
@@ -87,7 +87,7 @@ export const NERD_DEFAULT_ICONS: IconGlyphs = {
 };
 
 export const ASCII_DEFAULT_ICONS: IconGlyphs = {
-	cwd: "~",
+	cwd: "",
 	git: "*",
 	ahead: "^",
 	behind: "v",

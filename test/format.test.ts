@@ -519,7 +519,7 @@ describe("formatPackageVersionSegment", () => {
 		);
 	});
 
-	it("renders the Starship `via <glyph> <version>` shape", () => {
+	it("renders the Starship `is <glyph> <version>` shape", () => {
 		const out = formatPackageVersionSegment(
 			makeTheme(),
 			{ ecosystem: "nodejs", version: "1.2.3" },
@@ -528,7 +528,7 @@ describe("formatPackageVersionSegment", () => {
 			"",
 			"208",
 		);
-		expect(out).toContain("via");
+		expect(out).toContain("is");
 		expect(out).toContain("\u{f487}");
 		expect(out).toContain("1.2.3");
 		// Starship `package` default color 208 → ANSI 256-color code 38;5;208.
@@ -544,7 +544,7 @@ describe("formatPackageVersionSegment", () => {
 			"",
 			"208",
 		);
-		expect(out).toContain("via");
+		expect(out).toContain("is");
 		expect(out).toContain("pkg");
 		expect(out).not.toContain("\u{f487}");
 	});

@@ -194,7 +194,7 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.mode).toBe("ascii");
 		expect(mergeConfig({ icons: { mode: "nerd" } }).icons.mode).toBe("nerd");
 		expect(mergeConfig({ icons: { mode: "emoji" } }).icons.mode).toBe("auto");
-		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("~");
+		expect(mergeConfig({ icons: { mode: "ascii" } }).icons.cwd).toBe("");
 		expect(mergeConfig({ icons: { mode: "ascii", cwd: "DIR" } }).icons.cwd).toBe("DIR");
 	});
 

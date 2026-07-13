@@ -25,14 +25,13 @@ Zentui brings two popular aesthetics to Pi:
 - Right side shows context usage, token counts, and cost
 - Built-in footer segments can be shown or hidden individually from `/zentui`
 - Fully custom Starship-style layout via a `footerFormat` template string — see [Footer Format Template](#footer-format-template)
-- Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
-  middle, or right side, or hidden per status key from `/zentui`
 
 ### Editor (Opencode-inspired)
 
 - Bordered input box with configurable accent rail and border colors
 - Model name and provider displayed inside the editor frame
 - Configurable model, provider, and thinking-level indicator colors
+  test
 - Prompt-box-style user messages matching the ZentUI input chrome
 - Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
 
@@ -303,29 +302,29 @@ Center the branch between directory and cost:
 
 ### Variables
 
-| Token               | Aliases      | Renders                                          |
-| ------------------- | ------------ | ------------------------------------------------ |
-| `$cwd`              | `$directory` | current directory                                |
-| `$git_branch`       | `$branch`    | git branch with icon                             |
-| `$git_status`       | `$status`    | `[!?↑]` status block                             |
-| `$git_state`        | `$state`     | `REBASING` / `MERGING` / … (optional `n/m`)      |
-| `$git_commit`       | `$commit`    | short commit hash (+ exact-match tag when present)  |
-| `$git_tag`          | `$tag`       | exact-match tag at HEAD                          |
-| `$git_metrics`      |              | aggregate line changes `+added −deleted`         |
-| `$git_added`        |              | added line count (`+N`)                          |
-| `$git_deleted`      |              | deleted line count (`−N`)                        |
-| `$runtime`          |              | runtime icon + version                           |
-| `$package`          |              | project package version, `via <glyph> <version>` (manifest-derived)  |
-| `$package_version`  |              | raw project package version (no icon)            |
-| `$session_duration` | `$duration`  | session running time                             |
-| `$username`         |              | `user@host`                                      |
-| `$os`               |              | operating-system icon                            |
-| `$time`             |              | current time `HH:MM`                             |
-| `$context`          |              | context usage (text and/or gauge via config)     |
-| `$tokens`           |              | input/output token counts                        |
-| `$cost`             |              | session cost                                     |
-| `$sep`              | `$separator` | themed ` | ` using `colors.separator`            |
-| `$fill`             | —            | special: splits zones                            |
+| Token               | Aliases      | Renders                                                             |
+| ------------------- | ------------ | ------------------------------------------------------------------- |
+| `$cwd`              | `$directory` | current directory                                                   |
+| `$git_branch`       | `$branch`    | git branch with icon                                                |
+| `$git_status`       | `$status`    | `[!?↑]` status block                                                |
+| `$git_state`        | `$state`     | `REBASING` / `MERGING` / … (optional `n/m`)                         |
+| `$git_commit`       | `$commit`    | short commit hash (+ exact-match tag when present)                  |
+| `$git_tag`          | `$tag`       | exact-match tag at HEAD                                             |
+| `$git_metrics`      |              | aggregate line changes `+added −deleted`                            |
+| `$git_added`        |              | added line count (`+N`)                                             |
+| `$git_deleted`      |              | deleted line count (`−N`)                                           |
+| `$runtime`          |              | runtime icon + version                                              |
+| `$package`          |              | project package version, `via <glyph> <version>` (manifest-derived) |
+| `$package_version`  |              | raw project package version (no icon)                               |
+| `$session_duration` | `$duration`  | session running time                                                |
+| `$username`         |              | `user@host`                                                         |
+| `$os`               |              | operating-system icon                                               |
+| `$time`             |              | current time `HH:MM`                                                |
+| `$context`          |              | context usage (text and/or gauge via config)                        |
+| `$tokens`           |              | input/output token counts                                           |
+| `$cost`             |              | session cost                                                        |
+| `$sep`              | `$separator` | themed `                                                            | `using`colors.separator` |
+| `$fill`             | —            | special: splits zones                                               |
 
 ### `$fill` behavior
 

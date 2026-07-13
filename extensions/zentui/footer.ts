@@ -364,10 +364,19 @@ export function installFooter(
 							return "";
 					}
 				};
-				const branchParts =
-					config.footerSegments.gitBranch && branch
-						? ["on", gitIcon, gitColor(branch)].filter(Boolean)
-						: [];
+				const branchParts: string[] = [];
+				if (config.footerSegments.gitBranch) {
+					if (branch) {
+						branchParts.push("on", gitIcon, gitColor(branch));
+					} else if (state.commit?.detached) {
+						// Fold the short hash into the branch display on detached HEAD.
+						const shortHash = state.commit.oid
+							? `(${state.commit.oid.slice(0, config.gitCommit.hashLength)})`
+							: "";
+						const showHash = config.footerSegments.gitCommit && shortHash;
+						branchParts.push("on", gitIcon, gitColor(showHash ? `HEAD ${shortHash}` : "HEAD"));
+					}
+				}
 				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
 				const showGitState = config.footerSegments.gitBranch || config.footerSegments.gitStatus;
 				const gitStateParts = showGitState && gitStateBlock ? [gitStateBlock] : [];
@@ -393,15 +402,17 @@ export function installFooter(
 							config.colors.packageVersion,
 						)
 					: "";
-				const gitCommitLabel = config.footerSegments.gitCommit
-					? formatGitCommitSegment(
-							theme,
-							state.commit,
-							config.gitCommit,
-							colorSource,
-							config.colors.gitCommit,
-						)
-					: "";
+				const hashFoldedIntoBranch = state.commit?.detached && config.footerSegments.gitBranch;
+				const gitCommitLabel =
+					config.footerSegments.gitCommit && !hashFoldedIntoBranch
+						? formatGitCommitSegment(
+								theme,
+								state.commit,
+								config.gitCommit,
+								colorSource,
+								config.colors.gitCommit,
+							)
+						: "";
 				const gitMetricsLabel = config.footerSegments.gitMetrics
 					? formatGitMetricsSegment(
 							theme,
@@ -448,8 +459,8 @@ export function installFooter(
 					branchLabel,
 					gitCommitLabel,
 					gitMetricsLabel,
-					runtimeLabel,
 					packageVersionLabel,
+					runtimeLabel,
 					sessionDurationSegment,
 				]
 					.filter(Boolean)

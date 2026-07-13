@@ -1173,8 +1173,8 @@ describe("Pi docs compliance", () => {
 		const withPackage = renderWithPackage(true);
 		const withoutPackage = renderWithPackage(false);
 		expect(withPackage).toContain("1.2.3");
-		// Starship `package` shape: `via <glyph> <version>`.
-		expect(withPackage).toContain("via");
+		// Starship `package` shape: `is <glyph> <version>`.
+		expect(withPackage).toContain("is");
 		expect(withPackage).toContain("\u{f487}");
 		expect(withoutPackage).not.toContain("1.2.3");
 	});
@@ -1249,11 +1249,12 @@ describe("Pi docs compliance", () => {
 			return footer?.render(200).join("\n") ?? "";
 		};
 
-		// Detached → short hash appears.
-		expect(renderFor(true, true)).toContain(OID.slice(0, 7));
+		// Detached → short hash folds into branch display as `HEAD (hash)`.
+		expect(renderFor(true, true)).toContain("HEAD");
+		expect(renderFor(true, true)).toContain(`(${OID.slice(0, 7)})`);
 		// On branch with onlyDetached → hidden.
 		expect(renderFor(false, true)).not.toContain(OID.slice(0, 7));
-		// On branch with onlyDetached=false → hash appears.
+		// On branch with onlyDetached=false → hash appears standalone.
 		expect(renderFor(false, false)).toContain(OID.slice(0, 7));
 	});
 
