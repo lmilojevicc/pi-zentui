@@ -48,6 +48,7 @@ export type FooterSegmentsConfig = {
 	gitBranch: boolean;
 	gitStatus: boolean;
 	gitCounts: boolean;
+	gitCommit: boolean;
 	runtime: boolean;
 	context: boolean;
 	tokens: boolean;
@@ -61,6 +62,16 @@ export type FooterSegmentsConfig = {
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
 export type ExtensionStatusColorMode = "zentui" | "original";
+
+/**
+ * Starship `git_commit`-style options.
+ * See https://starship.rs/config/#git-commit
+ */
+export type GitCommitConfig = {
+	hashLength: number;
+	onlyDetached: boolean;
+	showTag: boolean;
+};
 
 const DEFAULT_EXTENSION_STATUS_COLOR_MODE: ExtensionStatusColorMode = "zentui";
 
@@ -94,6 +105,7 @@ export type PolishedTuiConfig = {
 		extensionStatus: ColorSpec;
 		sessionDuration: ColorSpec;
 		packageVersion: ColorSpec;
+		gitCommit: ColorSpec;
 		username: ColorSpec;
 		time: ColorSpec;
 		os: ColorSpec;
@@ -112,6 +124,7 @@ export type PolishedTuiConfig = {
 	colorSources: ColorSourcesConfig;
 	features: UiFeaturesConfig;
 	footerSegments: FooterSegmentsConfig;
+	gitCommit: GitCommitConfig;
 	extensionStatuses: ExtensionStatusesConfig;
 };
 
@@ -134,6 +147,8 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"cost",
 	"package",
 	"package_version",
+	"git_commit",
+	"git_tag",
 	"sep",
 ] as const;
 
@@ -146,6 +161,8 @@ export const FOOTER_FORMAT_ALIASES: Record<string, string> = {
 	branch: "git_branch",
 	status: "git_status",
 	state: "git_state",
+	commit: "git_commit",
+	tag: "git_tag",
 	duration: "session_duration",
 	separator: "sep",
 };
@@ -176,6 +193,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		extensionStatus: "bright-black",
 		sessionDuration: "yellow",
 		packageVersion: "208",
+		gitCommit: "bold green",
 		username: "bold yellow",
 		time: "bold yellow",
 		os: "bold white",
@@ -204,6 +222,12 @@ export const defaultConfig: PolishedTuiConfig = {
 		time: false,
 		os: false,
 		packageVersion: false,
+		gitCommit: false,
+	},
+	gitCommit: {
+		hashLength: 7,
+		onlyDetached: true,
+		showTag: true,
 	},
 	extensionStatuses: {
 		defaultPlacement: "right",
@@ -337,6 +361,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		extensionStatus: colorValue(record, "extensionStatus"),
 		sessionDuration: colorValue(record, "sessionDuration"),
 		packageVersion: colorValue(record, "packageVersion"),
+		gitCommit: colorValue(record, "gitCommit"),
 		username: colorValue(record, "username"),
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),
@@ -385,6 +410,26 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		time: footerSegmentValue(record, "time"),
 		os: footerSegmentValue(record, "os"),
 		packageVersion: footerSegmentValue(record, "packageVersion"),
+		gitCommit: footerSegmentValue(record, "gitCommit"),
+	};
+}
+
+/** Clamp hashLength to Git's valid abbreviation range [4, 40]. */
+function normalizeGitHashLength(value: unknown): number {
+	const parsed = typeof value === "number" ? value : Number(value);
+	if (!Number.isFinite(parsed)) return defaultConfig.gitCommit.hashLength;
+	const rounded = Math.round(parsed);
+	return Math.min(40, Math.max(4, rounded));
+}
+
+function normalizeGitCommitConfig(record: Record<string, unknown>): GitCommitConfig {
+	return {
+		hashLength: normalizeGitHashLength(record.hashLength),
+		onlyDetached:
+			typeof record.onlyDetached === "boolean"
+				? record.onlyDetached
+				: defaultConfig.gitCommit.onlyDetached,
+		showTag: typeof record.showTag === "boolean" ? record.showTag : defaultConfig.gitCommit.showTag,
 	};
 }
 
@@ -514,6 +559,9 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const extensionStatuses = isRecord(config.extensionStatuses)
 		? normalizeExtensionStatuses(config.extensionStatuses as Record<string, unknown>)
 		: defaultConfig.extensionStatuses;
+	const gitCommit = isRecord(config.gitCommit)
+		? normalizeGitCommitConfig(config.gitCommit as Record<string, unknown>)
+		: defaultConfig.gitCommit;
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
@@ -528,6 +576,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		colorSources: { ...colorSources },
 		features: { ...features },
 		footerSegments: { ...footerSegments },
+		gitCommit,
 		extensionStatuses: {
 			defaultPlacement: extensionStatuses.defaultPlacement,
 			placements: { ...extensionStatuses.placements },

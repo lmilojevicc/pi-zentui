@@ -13,6 +13,21 @@ export type GitOperationState =
 	| "REVERTING"
 	| "BISECTING";
 
+/**
+ * Starship `git_commit`-style info derived from the existing porcelain probe.
+ *
+ * `oid` is the full `branch.oid` from `git status --porcelain=2 --branch`
+ * (free — no extra git call). `detached` mirrors `branch.head === "(detached)"`.
+ * `tag` is populated only when the caller opts into the exact-tag probe
+ * (`readGitStatus({ readExactTag: true })`); `null` means no exact-match tag
+ * or the probe was skipped.
+ */
+export type GitCommitInfo = {
+	oid: string | null;
+	detached: boolean;
+	tag: string | null;
+};
+
 export type GitStatusSummary = {
 	branch?: string;
 	dirty: boolean;
@@ -28,6 +43,7 @@ export type GitStatusSummary = {
 	typechanged: number;
 	gitState?: GitOperationState;
 	gitStateLabel?: string;
+	commit?: GitCommitInfo;
 };
 
 export type GitReadResult =
@@ -69,11 +85,26 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 	const status = emptyGitStatus();
 	status.stashed = stashCount;
 
+	let oid: string | null = null;
+	let sawBranchHead = false;
+	let detached = false;
+
 	for (const line of stdoutText.split(/\r?\n/)) {
 		if (!line) continue;
+		if (line.startsWith("# branch.oid ")) {
+			const value = line.slice("# branch.oid ".length).trim();
+			if (value && value !== "(initial)") oid = value;
+			continue;
+		}
 		if (line.startsWith("# branch.head ")) {
+			sawBranchHead = true;
 			const branch = line.slice("# branch.head ".length).trim();
-			status.branch = branch && branch !== "(detached)" ? branch : undefined;
+			if (branch === "(detached)") {
+				detached = true;
+				status.branch = undefined;
+			} else if (branch) {
+				status.branch = branch;
+			}
 			continue;
 		}
 		if (line.startsWith("# branch.ab ")) {
@@ -110,6 +141,12 @@ export function parseGitStatusPorcelain(stdoutText: string, stashCount: number):
 		if (y === "M") status.modified += 1;
 		else if (y === "D") status.deleted += 1;
 		else if (y === "T") status.typechanged += 1;
+	}
+
+	// Only populate commit info when we actually saw branch headers (inside
+	// a repo with commits). An unborn branch has no oid.
+	if (sawBranchHead) {
+		status.commit = { oid, detached, tag: null };
 	}
 
 	return status;
@@ -200,9 +237,23 @@ function isNotARepoError(error: unknown): boolean {
 	return /not a git repository|outside repository|not a git repo/i.test(message);
 }
 
-export async function readGitStatus(cwd: string): Promise<GitReadResult> {
+/**
+ * Options for the optional probes that piggyback on the existing git refresh.
+ * Both default to `false` so no extra git process is spawned unless a segment
+ * is enabled and needs the data.
+ */
+export type ReadGitStatusOptions = {
+	/** Run `git describe --tags --exact-match HEAD` for the git_commit segment. */
+	readExactTag?: boolean;
+};
+
+export async function readGitStatus(
+	cwd: string,
+	options: ReadGitStatusOptions = {},
+): Promise<GitReadResult> {
+	const readExactTag = options.readExactTag === true;
 	try {
-		const [{ stdout: statusStdout }, stashResult] = await Promise.all([
+		const [{ stdout: statusStdout }, stashResult, tagResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
@@ -211,12 +262,27 @@ export async function readGitStatus(cwd: string): Promise<GitReadResult> {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
 			}).catch(() => ({ stdout: "" })),
+			readExactTag
+				? execFileAsync("git", ["describe", "--tags", "--exact-match", "HEAD"], {
+						cwd,
+						timeout: GIT_COMMAND_TIMEOUT_MS,
+					}).then(
+						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
+						() => ({ stdout: "" }),
+					)
+				: Promise.resolve({ stdout: "" }),
 		]);
 		const stdoutText = typeof statusStdout === "string" ? statusStdout : String(statusStdout);
 		const stashStdout =
 			typeof stashResult.stdout === "string" ? stashResult.stdout : String(stashResult.stdout);
 		const stashCount = stashStdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 		const status = parseGitStatusPorcelain(stdoutText, stashCount);
+		if (status.commit) {
+			const tagStdout =
+				typeof tagResult.stdout === "string" ? tagResult.stdout : String(tagResult.stdout);
+			const tag = tagStdout.trim();
+			status.commit = { ...status.commit, tag: tag || null };
+		}
 		const operation = await readGitOperationState(cwd);
 		return {
 			kind: "ok",

@@ -22,6 +22,13 @@ describe("parseFooterFormat", () => {
 		]);
 	});
 
+	it("parses $git_commit, $commit, $git_tag, and $tag as git-commit vars", () => {
+		expect(parseFooterFormat("$git_commit")).toEqual([{ kind: "var", name: "git_commit" }]);
+		expect(parseFooterFormat("$commit")).toEqual([{ kind: "var", name: "commit" }]);
+		expect(parseFooterFormat("$git_tag")).toEqual([{ kind: "var", name: "git_tag" }]);
+		expect(parseFooterFormat("$tag")).toEqual([{ kind: "var", name: "tag" }]);
+	});
+
 	it("parses braced variables", () => {
 		const braced = "${" + "git_branch}";
 		expect(parseFooterFormat(braced)).toEqual([{ kind: "var", name: "git_branch" }]);

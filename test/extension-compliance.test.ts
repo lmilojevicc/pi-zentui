@@ -1212,6 +1212,50 @@ describe("Pi docs compliance", () => {
 		const rendered = footer?.render(200).join("\n") ?? "";
 		expect(rendered).not.toContain("1.2.3");
 	});
+
+	it("git commit segment shows hash on detached HEAD and hides it on a branch", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const OID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+		const renderFor = (detached: boolean, onlyDetached: boolean) => {
+			const state = createInitialState(emptyGitStatus());
+			state.branch = detached ? undefined : "main";
+			state.commit = { oid: OID, detached, tag: null };
+			state.contextLabel = "1%/200k";
+			state.tokenLabel = "↑1 ↓2";
+			state.costLabel = "$0";
+			const config: PolishedTuiConfig = {
+				...defaultConfig,
+				footerSegments: { ...defaultConfig.footerSegments, gitCommit: true },
+				gitCommit: { hashLength: 7, onlyDetached, showTag: true },
+			};
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			});
+			return footer?.render(200).join("\n") ?? "";
+		};
+
+		// Detached → short hash appears.
+		expect(renderFor(true, true)).toContain(OID.slice(0, 7));
+		// On branch with onlyDetached → hidden.
+		expect(renderFor(false, true)).not.toContain(OID.slice(0, 7));
+		// On branch with onlyDetached=false → hash appears.
+		expect(renderFor(false, false)).toContain(OID.slice(0, 7));
+	});
 	it("renders editor rails with theme accent and borderMuted borders", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,

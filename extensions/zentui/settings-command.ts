@@ -118,6 +118,7 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	tokens: "Token counts",
 	cost: "Session cost",
 	packageVersion: "Package version",
+	gitCommit: "Git commit",
 };
 
 const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
@@ -136,6 +137,8 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	cost: "Show or hide session cost on the right.",
 	packageVersion:
 		"Show the project’s own manifest version (package.json, Cargo.toml, pyproject.toml, …). Distinct from the runtime segment, which shows the installed toolchain version.",
+	gitCommit:
+		"Show the current commit hash (and optional exact-match tag). On detached HEAD this provides context the branch segment can’t. Starship `git_commit`-style; default off.",
 };
 
 const directCommandSuggestions = [

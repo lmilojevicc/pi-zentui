@@ -41,6 +41,41 @@ describe("parseGitStatusPorcelain", () => {
 		const status = parseGitStatusPorcelain("# branch.head (detached)", 0);
 		expect(status.branch).toBeUndefined();
 	});
+
+	it("captures branch.oid and detached flag", () => {
+		const detached = parseGitStatusPorcelain(
+			["# branch.oid a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "# branch.head (detached)"].join(
+				"\n",
+			),
+			0,
+		);
+		expect(detached.branch).toBeUndefined();
+		expect(detached.commit).toEqual({
+			oid: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+			detached: true,
+			tag: null,
+		});
+	});
+
+	it("captures branch.oid on a normal branch and reports detached=false", () => {
+		const onBranch = parseGitStatusPorcelain(
+			["# branch.oid deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "# branch.head main"].join("\n"),
+			0,
+		);
+		expect(onBranch.branch).toBe("main");
+		expect(onBranch.commit?.oid).toBe("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+		expect(onBranch.commit?.detached).toBe(false);
+	});
+
+	it("treats unborn branch.oid (initial) as null and skips commit info without branch headers", () => {
+		const unborn = parseGitStatusPorcelain(
+			["# branch.oid (initial)", "# branch.head main (no commits)"].join("\n"),
+			0,
+		);
+		expect(unborn.commit?.oid).toBeNull();
+		// No branch headers at all → no commit info.
+		expect(parseGitStatusPorcelain("", 0).commit).toBeUndefined();
+	});
 });
 
 describe("detectGitState", () => {

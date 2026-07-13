@@ -9,6 +9,7 @@ import {
 	buildSessionDurationLabel,
 	contextColorTier,
 	formatCwdLabel,
+	formatGitCommitSegment,
 	formatOsLabel,
 	formatPackageVersionSegment,
 	formatRuntimeSegment,
@@ -314,6 +315,27 @@ export function installFooter(
 								: "";
 						case "sep":
 							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
+						case "git_commit":
+							return config.footerSegments.gitCommit
+								? formatGitCommitSegment(
+										theme,
+										state.commit,
+										config.gitCommit,
+										colorSource,
+										config.colors.gitCommit,
+									)
+								: "";
+						case "git_tag":
+							return config.footerSegments.gitCommit &&
+								config.gitCommit.showTag &&
+								state.commit?.tag
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										config.colors.gitCommit,
+										state.commit.tag,
+									)
+								: "";
 						default:
 							return "";
 					}
@@ -345,6 +367,15 @@ export function installFooter(
 							iconMode,
 							config.icons.package,
 							config.colors.packageVersion,
+						)
+					: "";
+				const gitCommitLabel = config.footerSegments.gitCommit
+					? formatGitCommitSegment(
+							theme,
+							state.commit,
+							config.gitCommit,
+							colorSource,
+							config.colors.gitCommit,
 						)
 					: "";
 
@@ -381,6 +412,7 @@ export function installFooter(
 					usernameSegment,
 					config.footerSegments.cwd ? cwdLabel : "",
 					branchLabel,
+					gitCommitLabel,
 					runtimeLabel,
 					packageVersionLabel,
 					sessionDurationSegment,

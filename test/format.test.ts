@@ -10,6 +10,7 @@ import {
 	contextColorTier,
 	formatCount,
 	formatCwdLabel,
+	formatGitCommitSegment,
 	formatOsLabel,
 	formatPackageVersionSegment,
 	getUsageTotals,
@@ -327,6 +328,90 @@ describe("getUsageTotals memoization", () => {
 		expect(fourth).toEqual(third);
 		expect(fourth).not.toBe(third);
 		expect(__usageTotalsComputeCount()).toBe(3);
+	});
+});
+
+describe("formatGitCommitSegment", () => {
+	const makeTheme = (): { fg: (color: string, text: string) => string } => ({
+		fg: (_color, text) => text,
+	});
+	const FULL = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+
+	it("returns empty when commit info or oid is missing", () => {
+		expect(
+			formatGitCommitSegment(
+				makeTheme(),
+				undefined,
+				{ hashLength: 7, onlyDetached: true, showTag: true },
+				"terminal",
+				"bold green",
+			),
+		).toBe("");
+		expect(
+			formatGitCommitSegment(
+				makeTheme(),
+				{ oid: null, detached: false, tag: null },
+				{ hashLength: 7, onlyDetached: true, showTag: true },
+				"terminal",
+				"bold green",
+			),
+		).toBe("");
+	});
+
+	it("shows short hash on detached HEAD", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: null },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+	});
+
+	it("hides hash on a normal branch when onlyDetached is true", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: null },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toBe("");
+	});
+
+	it("shows hash on a normal branch when onlyDetached is false", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: false, tag: null },
+			{ hashLength: 7, onlyDetached: false, showTag: false },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+	});
+
+	it("appends exact-match tag when present", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: "v1.2.3" },
+			{ hashLength: 7, onlyDetached: true, showTag: true },
+			"terminal",
+			"bold green",
+		);
+		expect(out).toContain("a1b2c3d");
+		expect(out).toContain("v1.2.3");
+	});
+
+	it("hides tag when showTag is false", () => {
+		const out = formatGitCommitSegment(
+			makeTheme(),
+			{ oid: FULL, detached: true, tag: "v1.2.3" },
+			{ hashLength: 7, onlyDetached: true, showTag: false },
+			"terminal",
+			"bold green",
+		);
+		expect(out).not.toContain("v1.2.3");
 	});
 });
 

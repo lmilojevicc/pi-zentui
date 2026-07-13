@@ -29,6 +29,7 @@ describe("mergeConfig", () => {
 		expect(config.icons.editorPrompt).toBe("");
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.packageVersion).toBe("208");
+		expect(config.colors.gitCommit).toBe("bold green");
 		expect(config.colors.contextNormal).toBe("bright-black");
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
@@ -57,6 +58,7 @@ describe("mergeConfig", () => {
 			time: false,
 			os: false,
 			packageVersion: false,
+			gitCommit: false,
 			tokens: true,
 			cost: true,
 		});
@@ -199,6 +201,9 @@ describe("mergeConfig", () => {
 		);
 		expect(mergeConfig({ colors: { packageVersion: "bold green" } }).colors.packageVersion).toBe(
 			"bold green",
+		);
+		expect(mergeConfig({ colors: { gitCommit: "bold yellow" } }).colors.gitCommit).toBe(
+			"bold yellow",
 		);
 		expect(mergeConfig({ colors: { git: "syntaxKeyword" } }).colors.gitBranch).toBe(
 			"syntaxKeyword",
@@ -379,6 +384,7 @@ describe("mergeConfig", () => {
 			time: false,
 			os: false,
 			packageVersion: false,
+			gitCommit: false,
 			tokens: false,
 			cost: true,
 		});
@@ -397,6 +403,7 @@ describe("mergeConfig", () => {
 			time: false,
 			os: false,
 			packageVersion: false,
+			gitCommit: false,
 			tokens: true,
 			cost: true,
 		});
@@ -595,6 +602,7 @@ describe("mergeConfig", () => {
 				time: false,
 				os: false,
 				packageVersion: false,
+				gitCommit: false,
 				tokens: false,
 				cost: false,
 			});
@@ -629,6 +637,7 @@ describe("mergeConfig", () => {
 				time: false,
 				os: false,
 				packageVersion: false,
+				gitCommit: false,
 				tokens: true,
 				cost: true,
 			});
@@ -653,6 +662,21 @@ describe("mergeConfig", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("gitCommit config defaults and normalizes hashLength", () => {
+		expect(defaultConfig.gitCommit).toEqual({ hashLength: 7, onlyDetached: true, showTag: true });
+		expect(mergeConfig({ gitCommit: { hashLength: 3 } }).gitCommit.hashLength).toBe(4);
+		expect(mergeConfig({ gitCommit: { hashLength: 100 } }).gitCommit.hashLength).toBe(40);
+		expect(mergeConfig({ gitCommit: { hashLength: 10 } }).gitCommit.hashLength).toBe(10);
+		expect(mergeConfig({ gitCommit: { onlyDetached: false } }).gitCommit.onlyDetached).toBe(false);
+		expect(mergeConfig({ gitCommit: { showTag: false } }).gitCommit.showTag).toBe(false);
+		// Missing fields fall back to defaults.
+		expect(mergeConfig({ gitCommit: {} }).gitCommit).toEqual({
+			hashLength: 7,
+			onlyDetached: true,
+			showTag: true,
+		});
 	});
 
 	it("writes and reads back footerFormat", () => {

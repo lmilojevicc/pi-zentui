@@ -8,11 +8,35 @@ import type {
 	ContextThresholds,
 	PathDisplayMode,
 } from "./config";
+import type { GitCommitInfo } from "./git";
 import type { IconMode } from "./icons";
 import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
 import type { PackageVersionResult } from "./package-version";
 import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
+
+/**
+ * Starship `git_commit` style — render a short hash, optionally with an
+ * exact-match tag. See https://starship.rs/config/#git-commit
+ *
+ * Visibility is decided by the caller; this helper only formats the data.
+ * `hashLength` is clamped to [4, 40] upstream.
+ */
+export function formatGitCommitSegment(
+	theme: Pick<Theme, "fg">,
+	commit: GitCommitInfo | undefined,
+	config: { hashLength: number; onlyDetached: boolean; showTag: boolean },
+	colorSource: ColorSource,
+	style: ColorSpec,
+): string {
+	if (!commit?.oid) return "";
+	const showHash = !config.onlyDetached || commit.detached;
+	const hash = showHash ? commit.oid.slice(0, config.hashLength) : "";
+	const tag = config.showTag && commit.tag ? commit.tag : "";
+	if (!hash && !tag) return "";
+	const label = [hash, tag].filter(Boolean).join(" ");
+	return renderStyleForSource(theme, colorSource, style, label);
+}
 
 export type UsageTotals = {
 	input: number;
