@@ -197,7 +197,9 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 		value === "username" ||
 		value === "time" ||
 		value === "os" ||
-		value === "packageVersion"
+		value === "packageVersion" ||
+		value === "gitCommit" ||
+		value === "gitMetrics"
 	);
 }
 

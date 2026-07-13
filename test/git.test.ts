@@ -14,6 +14,12 @@ describe("parseGitStatusPorcelain", () => {
 		expect(parseGitStatusPorcelain("", 0)).toEqual(emptyGitStatus());
 	});
 
+	it("emptyGitStatus clears commit and metrics", () => {
+		const empty = emptyGitStatus();
+		expect(empty.commit).toBeUndefined();
+		expect(empty.metrics).toBeUndefined();
+	});
+
 	it("parses branch, ahead/behind, and file states", () => {
 		const status = parseGitStatusPorcelain(
 			[

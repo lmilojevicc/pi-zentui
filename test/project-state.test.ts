@@ -141,4 +141,19 @@ describe("applyProjectRefreshToState", () => {
 		});
 		expect(state.packageVersion).toBeUndefined();
 	});
+
+	it("clears commit and metrics on cwd change", () => {
+		const state = createInitialState(emptyGitStatus());
+		state.commit = { oid: "abc123", detached: true, tag: "v1" };
+		state.metrics = { added: 10, deleted: 5 };
+
+		applyProjectRefreshToState(state, {
+			cwd: "/new",
+			previousCwd: "/old",
+			git: { kind: "error" },
+			runtime: { kind: "error" },
+		});
+		expect(state.commit).toBeUndefined();
+		expect(state.metrics).toBeUndefined();
+	});
 });

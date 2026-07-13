@@ -677,6 +677,25 @@ describe("mergeConfig", () => {
 		}
 	});
 
+	it("toggles and persists gitCommit and gitMetrics footer segments", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFooterSegmentsPatch({ gitCommit: true, gitMetrics: true }, path);
+			expect(config.footerSegments.gitCommit).toBe(true);
+			expect(config.footerSegments.gitMetrics).toBe(true);
+
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.footerSegments).toEqual({ gitCommit: true, gitMetrics: true });
+
+			const reloaded = mergeConfig(raw);
+			expect(reloaded.footerSegments.gitCommit).toBe(true);
+			expect(reloaded.footerSegments.gitMetrics).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("gitCommit config defaults and normalizes hashLength", () => {
 		expect(defaultConfig.gitCommit).toEqual({ hashLength: 7, onlyDetached: true, showTag: true });
 		expect(mergeConfig({ gitCommit: { hashLength: 3 } }).gitCommit.hashLength).toBe(4);

@@ -108,8 +108,14 @@ export default function (pi: ExtensionAPI) {
 		const gitCommitConfig = currentConfig.gitCommit;
 		const gitMetricsConfig = currentConfig.gitMetrics;
 		const segments = currentConfig.footerSegments;
-		const wantExactTag = segments.gitCommit && gitCommitConfig.showTag;
-		const wantMetrics = segments.gitMetrics;
+		const fmt = currentConfig.footerFormat;
+		// Enable optional probes when the segment is on OR a custom footerFormat
+		// references the relevant variable. Mirrors the session-duration timer
+		// pattern so format-only users still get data.
+		const formatNeedsTag = /\$\{?(?:git_tag|tag)\b/.test(fmt);
+		const formatNeedsMetrics = /\$\{?(?:git_metrics|git_added|git_deleted)\b/.test(fmt);
+		const wantExactTag = (segments.gitCommit && gitCommitConfig.showTag) || formatNeedsTag;
+		const wantMetrics = segments.gitMetrics || formatNeedsMetrics;
 		const [git, runtime, packageVersion] = await Promise.all([
 			readGitStatus(ctx.cwd, {
 				readExactTag: wantExactTag,

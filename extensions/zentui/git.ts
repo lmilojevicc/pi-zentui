@@ -88,6 +88,8 @@ export function emptyGitStatus(): GitStatusSummary {
 		typechanged: 0,
 		gitState: undefined,
 		gitStateLabel: undefined,
+		commit: undefined,
+		metrics: undefined,
 	};
 }
 

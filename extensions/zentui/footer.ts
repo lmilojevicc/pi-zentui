@@ -317,19 +317,15 @@ export function installFooter(
 						case "sep":
 							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
 						case "git_commit":
-							return config.footerSegments.gitCommit
-								? formatGitCommitSegment(
-										theme,
-										state.commit,
-										config.gitCommit,
-										colorSource,
-										config.colors.gitCommit,
-									)
-								: "";
+							return formatGitCommitSegment(
+								theme,
+								state.commit,
+								config.gitCommit,
+								colorSource,
+								config.colors.gitCommit,
+							);
 						case "git_tag":
-							return config.footerSegments.gitCommit &&
-								config.gitCommit.showTag &&
-								state.commit?.tag
+							return config.gitCommit.showTag && state.commit?.tag
 								? renderStyleForSource(
 										theme,
 										colorSource,
@@ -338,18 +334,16 @@ export function installFooter(
 									)
 								: "";
 						case "git_metrics":
-							return config.footerSegments.gitMetrics
-								? formatGitMetricsSegment(
-										theme,
-										state.metrics,
-										config.gitMetrics,
-										colorSource,
-										config.colors.gitMetricsAdded,
-										config.colors.gitMetricsDeleted,
-									)
-								: "";
+							return formatGitMetricsSegment(
+								theme,
+								state.metrics,
+								config.gitMetrics,
+								colorSource,
+								config.colors.gitMetricsAdded,
+								config.colors.gitMetricsDeleted,
+							);
 						case "git_added":
-							return config.footerSegments.gitMetrics && state.metrics
+							return state.metrics
 								? renderStyleForSource(
 										theme,
 										colorSource,
@@ -358,7 +352,7 @@ export function installFooter(
 									)
 								: "";
 						case "git_deleted":
-							return config.footerSegments.gitMetrics && state.metrics
+							return state.metrics
 								? renderStyleForSource(
 										theme,
 										colorSource,

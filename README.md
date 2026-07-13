@@ -198,7 +198,6 @@ Default config values — copy this and change any value you want:
 		"runtimePrefix": "",
 		"sessionDuration": "yellow",
 		"packageVersion": "208",
-		"packageVersion": "208",
 		"gitCommit": "bold green",
 		"gitMetricsAdded": "bold green",
 		"gitMetricsDeleted": "bold red",

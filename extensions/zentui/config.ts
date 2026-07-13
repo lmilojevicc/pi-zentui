@@ -530,7 +530,9 @@ function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig 
 		value === "username" ||
 		value === "time" ||
 		value === "os" ||
-		value === "packageVersion"
+		value === "packageVersion" ||
+		value === "gitCommit" ||
+		value === "gitMetrics"
 	);
 }
 
