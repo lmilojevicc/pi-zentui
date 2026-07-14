@@ -527,27 +527,6 @@ export class TerminalSplitCompositor {
 		);
 	}
 
-	private repaintViewport(): void {
-		if (this.disposed || this.writing || this.hasVisibleOverlay()) return;
-		const rawRows = this.getRawRows();
-		const width = Math.max(1, this.terminal.columns || 80);
-		const cluster = this.getClusterRender(width, rawRows);
-		const scrollableRows = Math.max(1, rawRows - cluster.lines.length);
-		// Re-render scrollable root to get visible lines with current offset.
-		const visible = this.renderScrollableRoot(width);
-		let buf = SYNC_BEGIN + DISABLE_AUTOWRAP + setScrollRegion(1, scrollableRows) + cursorTo(1, 1);
-		for (let row = 0; row < scrollableRows; row++) {
-			if (row > 0) buf += "\r\n";
-			buf += CLEAR_LINE + sanitizeLine(visible[row] ?? "", width);
-		}
-		buf += this.paintCluster(cluster, rawRows, width);
-		buf +=
-			ENABLE_AUTOWRAP +
-			(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
-			SYNC_END;
-		this.originalWrite(buf);
-	}
-
 	private write(data: string): void {
 		if (this.disposed || this.writing || this.hasVisibleOverlay()) {
 			this.originalWrite(data);

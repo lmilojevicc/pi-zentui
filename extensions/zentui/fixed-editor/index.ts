@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, type TUI } from "@earendil-works/pi-tui";
+import { type Component, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 
 import type { PolishedTuiConfig } from "../config";
 import { renderStyleForSourceOrFallback } from "../style";
@@ -31,6 +31,32 @@ function clearCopyNotice(ctx: ExtensionContext): void {
 	ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
 }
 
+/** Centered bordered box showing the copy notice. */
+class CopyNoticeComponent implements Component {
+	private readonly text: string;
+	private readonly border: string;
+
+	constructor(text: string, border: string) {
+		this.text = text;
+		this.border = border;
+	}
+
+	render(width: number): string[] {
+		const inner = " ".repeat(2) + this.text + " ".repeat(2);
+		const innerWidth = visibleWidth(inner);
+		const leftPad = Math.max(0, Math.floor((width - innerWidth - 2) / 2));
+		const pad = " ".repeat(leftPad);
+		const bar = "─".repeat(innerWidth);
+		return [
+			`${pad}${this.border}┌${bar}┐`,
+			`${pad}${this.border}│${inner}│`,
+			`${pad}${this.border}└${bar}┘`,
+		];
+	}
+
+	invalidate(): void {}
+}
+
 function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfig): void {
 	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
 	const config = getConfig();
@@ -40,9 +66,16 @@ function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfi
 			config.colorSources.editor,
 			undefined,
 			{ terminal: "yellow", theme: "warning" },
-			"  Copied to clipboard",
+			"Copied to clipboard",
 		);
-		return new Text(text, 0, 0);
+		const border = renderStyleForSourceOrFallback(
+			theme,
+			config.colorSources.editor,
+			config.colors.editorBorder,
+			{ terminal: "yellow", theme: "border" },
+			"",
+		);
+		return new CopyNoticeComponent(text, border);
 	});
 	if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
 	copyNoticeTimer = setTimeout(() => {
