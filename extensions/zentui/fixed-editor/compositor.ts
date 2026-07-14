@@ -110,12 +110,20 @@ export class TerminalSplitCompositor {
 	/** Timer for right-click context menu mouse reporting pause. */
 	private mouseResumeTimer: ReturnType<typeof setTimeout> | null = null;
 
+	private readonly notify: ((message: string, type?: "info" | "warning" | "error") => void) | null;
+
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
 
-	constructor(tui: TuiLike, terminal: TerminalLike, getConfig: () => CompositorConfig) {
+	constructor(
+		tui: TuiLike,
+		terminal: TerminalLike,
+		getConfig: () => CompositorConfig,
+		notify?: (message: string, type?: "info" | "warning" | "error") => void,
+	) {
 		this.tui = tui;
 		this.terminal = terminal;
 		this.getConfig = getConfig;
+		this.notify = notify ?? null;
 		this.rowsDescriptor = descriptorForRows(terminal);
 		this.originalWrite = terminal.write.bind(terminal);
 		this.originalDoRender = typeof tui.doRender === "function" ? tui.doRender.bind(tui) : null;
@@ -426,12 +434,12 @@ export class TerminalSplitCompositor {
 			this.selection.extend(lineIndex, col);
 			this.selection.setDragging(false);
 			const text = this.selection.getSelectedText(this.rootLines);
+			this.selection.clear();
+			this.repaintViewport();
 			if (text) {
 				void copyToClipboard(text);
-			} else {
-				this.selection.clear();
+				this.notify?.("Copied to clipboard", "info");
 			}
-			this.repaintViewport();
 			return;
 		}
 	}

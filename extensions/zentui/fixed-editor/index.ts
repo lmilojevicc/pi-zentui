@@ -66,10 +66,15 @@ function installFromProbe(
 		return;
 	}
 
-	const next = new TerminalSplitCompositor(tuiLike, terminal, () => ({
-		enabled: getConfig().fixedEditor?.enabled ?? false,
-		mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
-	}));
+	const next = new TerminalSplitCompositor(
+		tuiLike,
+		terminal,
+		() => ({
+			enabled: getConfig().fixedEditor?.enabled ?? false,
+			mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
+		}),
+		ctx.hasUI ? (msg, type) => ctx.ui.notify?.(msg, type) : undefined,
+	);
 
 	if (!next.install()) {
 		warnUnsupported(ctx);
