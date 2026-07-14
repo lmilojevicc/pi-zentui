@@ -11,13 +11,15 @@
  * @internal
  */
 
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 import {
 	buildCluster,
 	type FixedCluster,
 	findEditorContainerIndex,
+	hideRenderable,
 	renderCluster,
+	restoreRenderable,
 } from "./cluster";
 import { clampScrollOffset, parseKeyboardScroll, parseMouseScroll } from "./input";
 import {
@@ -68,7 +70,7 @@ function readRawRows(terminal: TerminalLike, descriptor: RowsDescriptor): number
 }
 
 function sanitizeLine(line: string, width: number): string {
-	return visibleWidth(line) > width ? line.slice(0, width) : line;
+	return visibleWidth(line) > width ? truncateToWidth(line, width, "", true) : line;
 }
 
 export class TerminalSplitCompositor {
@@ -123,6 +125,19 @@ export class TerminalSplitCompositor {
 		if (!cluster) return false;
 		this.cluster = cluster;
 
+		// Hide cluster components from Pi's normal render so they don't appear
+		// in the scrollable transcript. Their original render output is captured
+		// via __zentuiOriginalRender and painted separately by paintCluster.
+		for (const component of [
+			cluster.status,
+			cluster.aboveWidget,
+			cluster.editor,
+			cluster.belowWidget,
+			cluster.footer,
+		]) {
+			hideRenderable(component);
+		}
+
 		// Enter terminal modes.
 		this.originalWrite(
 			SYNC_BEGIN +
@@ -149,6 +164,7 @@ export class TerminalSplitCompositor {
 
 		// Patch tui.doRender to paint cluster after original render.
 		this.tui.doRender = () => {
+			this.cachedClusterRender = null; // Invalidate cluster cache per render pass.
 			try {
 				this.originalDoRender?.();
 				this.requestRepaint();
@@ -184,6 +200,19 @@ export class TerminalSplitCompositor {
 		this.terminal.write = this.originalWrite;
 		if (this.originalDoRender) this.tui.doRender = this.originalDoRender;
 		if (this.originalRender) this.tui.render = this.originalRender;
+
+		// Restore cluster components' original render methods.
+		if (this.cluster) {
+			for (const component of [
+				this.cluster.status,
+				this.cluster.aboveWidget,
+				this.cluster.editor,
+				this.cluster.belowWidget,
+				this.cluster.footer,
+			]) {
+				restoreRenderable(component);
+			}
+		}
 
 		if (this.rowsDescriptor) {
 			Object.defineProperty(this.terminal, "rows", this.rowsDescriptor);
@@ -304,8 +333,16 @@ export class TerminalSplitCompositor {
 			rawRows - this.getClusterRender(this.terminal.columns || 80, rawRows).lines.length,
 		);
 
-		if (keyboard.action === "pageUp") this.scrollBy(scrollableRows);
-		else if (keyboard.action === "pageDown") this.scrollBy(-scrollableRows);
+		if (keyboard.action === "pageUp") {
+			const before = this.scrollOffset;
+			this.scrollBy(scrollableRows);
+			return this.scrollOffset !== before ? { consume: true } : undefined;
+		}
+		if (keyboard.action === "pageDown") {
+			const before = this.scrollOffset;
+			this.scrollBy(-scrollableRows);
+			return this.scrollOffset !== before ? { consume: true } : undefined;
+		}
 
 		return { consume: true };
 	}
@@ -390,7 +427,6 @@ export class TerminalSplitCompositor {
 				SYNC_BEGIN +
 					DISABLE_AUTOWRAP +
 					setScrollRegion(1, scrollBottom) +
-					cursorTo(1, 1) +
 					data +
 					this.paintCluster(cluster, rawRows, width) +
 					ENABLE_AUTOWRAP +

@@ -15,6 +15,8 @@ import type { ClusterRender } from "./types";
 /** Minimal Component shape needed for rendering. */
 type Renderable = {
 	render(width: number): string[];
+	/** Saved original render when the compositor has patched render → [] */
+	__zentuiOriginalRender?: (width: number) => string[];
 };
 
 /** Minimal Container shape for child scanning. */
@@ -76,6 +78,23 @@ export type FixedCluster = {
 	footer: Renderable | null;
 };
 
+/**
+ * Patch a cluster component's render to return [] (hide from transcript).
+ * Saves the original render for cluster painting.
+ */
+export function hideRenderable(component: Renderable | null): void {
+	if (!component || component.__zentuiOriginalRender) return;
+	component.__zentuiOriginalRender = component.render.bind(component);
+	component.render = () => [];
+}
+
+/** Restore a cluster component's original render. */
+export function restoreRenderable(component: Renderable | null): void {
+	if (!component?.__zentuiOriginalRender) return;
+	component.render = component.__zentuiOriginalRender;
+	delete component.__zentuiOriginalRender;
+}
+
 /** Build the cluster from children around the editor index. */
 export function buildCluster(children: unknown[], editorIdx: number): FixedCluster | null {
 	const editor = children[editorIdx];
@@ -89,10 +108,11 @@ export function buildCluster(children: unknown[], editorIdx: number): FixedClust
 	};
 }
 
-/** Render a component at `width`, filtering out empty lines. */
+/** Render a component at `width`, using the saved original render if hidden. */
 function renderComponent(component: Renderable | null, width: number): string[] {
 	if (!component) return [];
-	const lines = component.render(width);
+	const renderFn = component.__zentuiOriginalRender ?? component.render;
+	const lines = renderFn.call(component, width);
 	return lines.filter((line) => visibleWidth(line) > 0);
 }
 

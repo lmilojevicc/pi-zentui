@@ -4,7 +4,9 @@ import {
 	buildCluster,
 	capEditorLines,
 	findEditorContainerIndex,
+	hideRenderable,
 	renderCluster,
+	restoreRenderable,
 } from "../extensions/zentui/fixed-editor/cluster";
 import {
 	clampScrollOffset,
@@ -17,6 +19,7 @@ import {
 	EXIT_ALT_SCREEN,
 	emergencyTerminalReset,
 	RESET_SCROLL_REGION,
+	SHOW_CURSOR,
 } from "../extensions/zentui/fixed-editor/terminal-modes";
 
 describe("input", () => {
@@ -100,6 +103,7 @@ describe("terminal-modes", () => {
 			expect(reset).toContain(DISABLE_MOUSE);
 			expect(reset).toContain(RESET_SCROLL_REGION);
 			expect(reset).toContain(ENABLE_ALT_SCROLL);
+			expect(reset).toContain(SHOW_CURSOR);
 		});
 	});
 });
@@ -233,6 +237,51 @@ describe("cluster", () => {
 			// maxHeight = 10, maxRows = 9, so editor gets max 9 lines
 			const result = renderCluster(cluster, 80, 10);
 			expect(result.lines.length).toBeLessThanOrEqual(9);
+		});
+	});
+
+	describe("hideRenderable / restoreRenderable", () => {
+		it("patches render to return [] and saves original", () => {
+			const comp: {
+				render(width: number): string[];
+				__zentuiOriginalRender?: (w: number) => string[];
+			} = {
+				render: () => ["real", "lines"],
+			};
+			hideRenderable(comp);
+			expect(comp.render(80)).toEqual([]);
+			expect(comp.__zentuiOriginalRender).toBeDefined();
+			expect(comp.__zentuiOriginalRender?.(80)).toEqual(["real", "lines"]);
+		});
+
+		it("restores original render on restoreRenderable", () => {
+			const comp: {
+				render(width: number): string[];
+				__zentuiOriginalRender?: (w: number) => string[];
+			} = {
+				render: () => ["real", "lines"],
+			};
+			hideRenderable(comp);
+			restoreRenderable(comp);
+			expect(comp.render(80)).toEqual(["real", "lines"]);
+			expect(comp.__zentuiOriginalRender).toBeUndefined();
+		});
+
+		it("is idempotent (double-hide does not overwrite original)", () => {
+			const comp: {
+				render(width: number): string[];
+				__zentuiOriginalRender?: (w: number) => string[];
+			} = {
+				render: () => ["real"],
+			};
+			hideRenderable(comp);
+			hideRenderable(comp);
+			expect(comp.__zentuiOriginalRender?.(80)).toEqual(["real"]);
+		});
+
+		it("handles null gracefully", () => {
+			hideRenderable(null);
+			restoreRenderable(null);
 		});
 	});
 });

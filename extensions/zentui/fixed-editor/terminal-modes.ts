@@ -67,6 +67,7 @@ export function emergencyTerminalReset(): string {
 		DISABLE_MOUSE +
 		ENABLE_ALT_SCROLL +
 		EXIT_ALT_SCREEN +
+		SHOW_CURSOR +
 		SYNC_END
 	);
 }
