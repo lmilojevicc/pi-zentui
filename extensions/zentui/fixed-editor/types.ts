@@ -10,6 +10,14 @@ export type MouseScrollInput = {
 	amount: number;
 };
 
+/** Full parsed SGR mouse event. */
+export type MouseEvent = {
+	button: "left" | "middle" | "right" | "wheel-up" | "wheel-down" | "other";
+	action: "press" | "drag" | "release";
+	col: number; // 1-indexed
+	row: number; // 1-indexed
+};
+
 /** Result of parsing a keyboard scroll sequence. */
 export type KeyboardScrollInput = {
 	action: "pageUp" | "pageDown" | "jumpBottom" | "lineUp" | "lineDown";

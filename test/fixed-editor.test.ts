@@ -11,8 +11,10 @@ import {
 import {
 	clampScrollOffset,
 	parseKeyboardScroll,
+	parseMouseEvent,
 	parseMouseScroll,
 } from "../extensions/zentui/fixed-editor/input";
+import { highlightSelection, SelectionState } from "../extensions/zentui/fixed-editor/selection";
 import {
 	DISABLE_MOUSE,
 	ENABLE_ALT_SCROLL,
@@ -73,6 +75,42 @@ describe("input", () => {
 
 		it("returns undefined for key release", () => {
 			expect(parseKeyboardScroll("\x1b[5;2~")).toBeUndefined();
+		});
+	});
+
+	describe("parseMouseEvent", () => {
+		it("parses left button press", () => {
+			const ev = parseMouseEvent("\x1b[<0;5;3M");
+			expect(ev).toEqual({ button: "left", action: "press", col: 5, row: 3 });
+		});
+
+		it("parses left button drag (motion bit set)", () => {
+			const ev = parseMouseEvent("\x1b[<32;10;5M");
+			expect(ev).toEqual({ button: "left", action: "drag", col: 10, row: 5 });
+		});
+
+		it("parses left button release (lowercase m)", () => {
+			const ev = parseMouseEvent("\x1b[<0;10;5m");
+			expect(ev).toEqual({ button: "left", action: "release", col: 10, row: 5 });
+		});
+
+		it("parses right button press", () => {
+			const ev = parseMouseEvent("\x1b[<2;7;4M");
+			expect(ev).toEqual({ button: "right", action: "press", col: 7, row: 4 });
+		});
+
+		it("parses wheel up", () => {
+			const ev = parseMouseEvent("\x1b[<64;1;1M");
+			expect(ev).toEqual({ button: "wheel-up", action: "press", col: 1, row: 1 });
+		});
+
+		it("parses wheel down", () => {
+			const ev = parseMouseEvent("\x1b[<65;1;1M");
+			expect(ev).toEqual({ button: "wheel-down", action: "press", col: 1, row: 1 });
+		});
+
+		it("returns undefined for non-mouse input", () => {
+			expect(parseMouseEvent("\x1b[A")).toBeUndefined();
 		});
 	});
 
@@ -310,6 +348,118 @@ describe("cluster", () => {
 		it("handles null gracefully", () => {
 			hideRenderable(null);
 			restoreRenderable(null);
+		});
+	});
+});
+
+describe("selection", () => {
+	describe("SelectionState", () => {
+		it("starts and tracks selection", () => {
+			const sel = new SelectionState();
+			expect(sel.active).toBe(false);
+			sel.start(5, 3);
+			expect(sel.active).toBe(true);
+			sel.extend(7, 10);
+			expect(sel.active).toBe(true);
+		});
+
+		it("clears selection", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.clear();
+			expect(sel.active).toBe(false);
+		});
+
+		it("getRangeForLine returns correct range", () => {
+			const sel = new SelectionState();
+			sel.start(2, 3);
+			sel.extend(5, 8);
+			// Line 1 is before selection
+			expect(sel.getRangeForLine(1)).toBeNull();
+			// Line 2 is start: cols 3..inf
+			const r2 = sel.getRangeForLine(2);
+			expect(r2?.startCol).toBe(3);
+			expect(r2?.endCol).toBe(Number.POSITIVE_INFINITY);
+			// Line 3 is middle: cols 0..inf
+			const r3 = sel.getRangeForLine(3);
+			expect(r3?.startCol).toBe(0);
+			expect(r3?.endCol).toBe(Number.POSITIVE_INFINITY);
+			// Line 5 is end: cols 0..8
+			const r5 = sel.getRangeForLine(5);
+			expect(r5?.startCol).toBe(0);
+			expect(r5?.endCol).toBe(8);
+			// Line 6 is after selection
+			expect(sel.getRangeForLine(6)).toBeNull();
+		});
+
+		it("getSelectedText extracts text from lines", () => {
+			const sel = new SelectionState();
+			const lines = ["hello world", "foo bar baz", "qux"];
+			sel.start(0, 2);
+			sel.extend(1, 7);
+			expect(sel.getSelectedText(lines)).toBe("llo world\nfoo bar");
+		});
+
+		it("getSelectedText returns empty for single point", () => {
+			const sel = new SelectionState();
+			sel.start(0, 3);
+			sel.extend(0, 3);
+			expect(sel.getSelectedText(["hello"])).toBe("");
+		});
+
+		it("getSelectedText strips ANSI codes", () => {
+			const sel = new SelectionState();
+			const lines = ["\x1b[32mhello\x1b[0m world"];
+			sel.start(0, 0);
+			sel.extend(0, 8);
+			expect(sel.getSelectedText(lines)).toBe("hello wo");
+		});
+
+		it("handles reverse selection (drag upward)", () => {
+			const sel = new SelectionState();
+			const lines = ["line0", "line1", "line2"];
+			sel.start(2, 3);
+			sel.extend(0, 2);
+			// Normalized: start=(0,2) end=(2,3)
+			expect(sel.getSelectedText(lines)).toBe("ne0\nline1\nlin");
+		});
+	});
+
+	describe("highlightSelection", () => {
+		it("applies inverse video to selected region", () => {
+			const sel = new SelectionState();
+			sel.start(0, 2);
+			sel.extend(0, 5);
+			const result = highlightSelection("hello world", 0, sel);
+			expect(result).toContain("\x1b[7m");
+			expect(result).toContain("\x1b[27m");
+			expect(result).toBe("he\x1b[7mllo\x1b[27m world");
+		});
+
+		it("does not modify non-selected lines", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 3);
+			const result = highlightSelection("hello", 5, sel);
+			expect(result).toBe("hello");
+		});
+
+		it("highlights full line for middle lines", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(2, 5);
+			// Line 1 is a middle line — full highlight
+			const result = highlightSelection("middle line", 1, sel);
+			expect(result).toBe("\x1b[7mmiddle line\x1b[27m");
+		});
+
+		it("handles ANSI-styled lines", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 5);
+			const result = highlightSelection("\x1b[32mhello\x1b[0m world", 0, sel);
+			expect(result).toContain("\x1b[7m");
+			expect(result).toContain("\x1b[27m");
 		});
 	});
 });

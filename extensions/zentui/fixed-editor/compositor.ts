@@ -11,6 +11,7 @@
  * @internal
  */
 
+import { copyToClipboard } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 import {
@@ -21,7 +22,8 @@ import {
 	renderCluster,
 	restoreRenderable,
 } from "./cluster";
-import { clampScrollOffset, parseKeyboardScroll, parseMouseScroll } from "./input";
+import { clampScrollOffset, parseKeyboardScroll, parseMouseEvent } from "./input";
+import { highlightSelection, SelectionState } from "./selection";
 import {
 	CLEAR_LINE,
 	cursorTo,
@@ -95,6 +97,18 @@ export class TerminalSplitCompositor {
 	private scrollOffset = 0;
 	private maxScrollOffset = 0;
 	private lastRootLineCount = 0;
+
+	/** Root lines from last renderScrollableRoot — used for selection text extraction. */
+	private rootLines: string[] = [];
+	/** Absolute start index of visible window in rootLines. */
+	private visibleRootStart = 0;
+	/** Height of the scrollable region in last render. */
+	private visibleScrollableRows = 0;
+
+	/** Selection state for app-level drag-to-select. */
+	private readonly selection = new SelectionState();
+	/** Timer for right-click context menu mouse reporting pause. */
+	private mouseResumeTimer: ReturnType<typeof setTimeout> | null = null;
 
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
 
@@ -191,6 +205,11 @@ export class TerminalSplitCompositor {
 
 		this.removeInputListener?.();
 		this.removeInputListener = null;
+
+		if (this.mouseResumeTimer) {
+			clearTimeout(this.mouseResumeTimer);
+			this.mouseResumeTimer = null;
+		}
 
 		if (this.emergencyCleanup) {
 			process.removeListener("exit", this.emergencyCleanup);
@@ -302,7 +321,14 @@ export class TerminalSplitCompositor {
 		const start = Math.max(0, lines.length - scrollableRows - this.scrollOffset);
 		const visible = lines.slice(start, start + scrollableRows);
 		while (visible.length < scrollableRows) visible.push("");
-		return visible;
+
+		// Store for selection mapping and text extraction.
+		this.rootLines = lines;
+		this.visibleRootStart = start;
+		this.visibleScrollableRows = scrollableRows;
+
+		// Apply selection highlight to visible lines.
+		return visible.map((line, i) => highlightSelection(line, start + i, this.selection));
 	}
 
 	private handleInput(data: string): { consume?: boolean; data?: string } | undefined {
@@ -310,10 +336,9 @@ export class TerminalSplitCompositor {
 
 		const mouseScroll = this.getConfig().mouseScroll;
 		if (mouseScroll) {
-			const mouse = parseMouseScroll(data);
-			if (mouse) {
-				const delta = mouse.direction === "up" ? mouse.amount : -mouse.amount;
-				this.scrollBy(delta);
+			const mouseEv = parseMouseEvent(data);
+			if (mouseEv) {
+				this.handleMouseEvent(mouseEv);
 				return { consume: true };
 			}
 		}
@@ -323,6 +348,7 @@ export class TerminalSplitCompositor {
 
 		if (keyboard.action === "jumpBottom") {
 			this.scrollOffset = 0;
+			this.selection.clear();
 			this.tui.requestRender?.();
 			return undefined; // Let Enter propagate to the editor.
 		}
@@ -335,16 +361,94 @@ export class TerminalSplitCompositor {
 
 		if (keyboard.action === "pageUp") {
 			const before = this.scrollOffset;
+			this.selection.clear();
 			this.scrollBy(scrollableRows);
 			return this.scrollOffset !== before ? { consume: true } : undefined;
 		}
 		if (keyboard.action === "pageDown") {
 			const before = this.scrollOffset;
+			this.selection.clear();
 			this.scrollBy(-scrollableRows);
 			return this.scrollOffset !== before ? { consume: true } : undefined;
 		}
 
 		return { consume: true };
+	}
+
+	private handleMouseEvent(ev: { button: string; action: string; col: number; row: number }): void {
+		// Wheel scroll.
+		if (ev.button === "wheel-up" && ev.action === "press") {
+			this.selection.clear();
+			this.scrollBy(3);
+			return;
+		}
+		if (ev.button === "wheel-down" && ev.action === "press") {
+			this.selection.clear();
+			this.scrollBy(-3);
+			return;
+		}
+
+		// Right-click: pause mouse reporting for native context menu.
+		if (ev.button === "right" && ev.action === "press") {
+			const selectedText = this.selection.active
+				? this.selection.getSelectedText(this.rootLines)
+				: "";
+			if (selectedText) {
+				void copyToClipboard(selectedText);
+			}
+			this.selection.clear();
+			this.pauseMouseReporting();
+			this.repaintViewport();
+			return;
+		}
+
+		// Only left button is used for drag-select.
+		if (ev.button !== "left") return;
+
+		// Ignore clicks in the cluster region (below scrollable area).
+		if (ev.row > this.visibleScrollableRows) return;
+
+		// Map screen row to transcript line index.
+		const lineIndex = this.visibleRootStart + ev.row - 1;
+		const col = Math.max(0, ev.col - 1);
+
+		if (ev.action === "press") {
+			this.selection.start(lineIndex, col);
+			this.repaintViewport();
+			return;
+		}
+		if (ev.action === "drag" && this.selection.isDragging) {
+			this.selection.extend(lineIndex, col);
+			this.repaintViewport();
+			return;
+		}
+		if (ev.action === "release" && this.selection.isDragging) {
+			this.selection.extend(lineIndex, col);
+			this.selection.setDragging(false);
+			const text = this.selection.getSelectedText(this.rootLines);
+			if (text) {
+				void copyToClipboard(text);
+			} else {
+				this.selection.clear();
+			}
+			this.repaintViewport();
+			return;
+		}
+	}
+
+	/** Temporarily disable mouse reporting so the terminal's native context menu works. */
+	private pauseMouseReporting(): void {
+		if (this.mouseResumeTimer) clearTimeout(this.mouseResumeTimer);
+		this.originalWrite(SYNC_BEGIN + DISABLE_MOUSE + SYNC_END);
+		this.mouseResumeTimer = setTimeout(() => {
+			this.mouseResumeTimer = null;
+			if (!this.disposed) {
+				this.originalWrite(SYNC_BEGIN + ENABLE_MOUSE_SGR + SYNC_END);
+			}
+		}, 1200);
+		if (typeof this.mouseResumeTimer === "object" && "unref" in this.mouseResumeTimer) {
+			(this.mouseResumeTimer as { unref: () => void }).unref();
+		}
 	}
 
 	private scrollBy(delta: number): void {

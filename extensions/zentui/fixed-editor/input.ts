@@ -6,7 +6,7 @@
 
 import { isKeyRelease, matchesKey } from "@earendil-works/pi-tui";
 
-import type { KeyboardScrollInput, MouseScrollInput } from "./types";
+import type { KeyboardScrollInput, MouseEvent, MouseScrollInput } from "./types";
 
 /** Regex matching SGR mouse format `\x1b[<code;col;row M|m`. */
 const SGR_MOUSE_RE = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/;
@@ -25,14 +25,43 @@ const SCROLL_AMOUNT = 3;
  * Returns `undefined` if the data is not a wheel event.
  */
 export function parseMouseScroll(data: string): MouseScrollInput | undefined {
+	const ev = parseMouseEvent(data);
+	if (!ev) return undefined;
+	if (ev.button === "wheel-up") return { direction: "up", amount: SCROLL_AMOUNT };
+	if (ev.button === "wheel-down") return { direction: "down", amount: SCROLL_AMOUNT };
+	return undefined;
+}
+
+/**
+ * Parse any SGR mouse event (press, drag, release, wheel).
+ * Returns `undefined` if the data is not a mouse sequence.
+ */
+export function parseMouseEvent(data: string): MouseEvent | undefined {
 	const match = SGR_MOUSE_RE.exec(data);
 	if (!match) return undefined;
 	const code = Number(match[1]);
-	// Mask off modifier bits (4=shift, 8=meta, 16=control, 32=motion).
+	const col = Number(match[2]);
+	const row = Number(match[3]);
+	const isRelease = match[4] === "m";
+	const isMotion = (code & 32) !== 0;
 	const baseButton = code & ~(4 | 8 | 16 | 32);
-	if (baseButton === WHEEL_UP) return { direction: "up", amount: SCROLL_AMOUNT };
-	if (baseButton === WHEEL_DOWN) return { direction: "down", amount: SCROLL_AMOUNT };
-	return undefined;
+
+	const button: MouseEvent["button"] =
+		baseButton === 0
+			? "left"
+			: baseButton === 1
+				? "middle"
+				: baseButton === 2
+					? "right"
+					: baseButton === WHEEL_UP
+						? "wheel-up"
+						: baseButton === WHEEL_DOWN
+							? "wheel-down"
+							: "other";
+
+	const action: MouseEvent["action"] = isRelease ? "release" : isMotion ? "drag" : "press";
+
+	return { button, action, col, row };
 }
 
 /**
