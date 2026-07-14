@@ -9,9 +9,10 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { type Component, Text, type TUI } from "@earendil-works/pi-tui";
 
 import type { PolishedTuiConfig } from "../config";
+import { renderStyleForSourceOrFallback } from "../style";
 import { TerminalSplitCompositor } from "./compositor";
 import type { TuiLike } from "./types";
 
@@ -21,9 +22,28 @@ let copyNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const COPY_NOTICE_KEY = "zentui-copy-notice";
 const COPY_NOTICE_MS = 2500;
 
-function showCopyNotice(ctx: ExtensionContext, _message: string): void {
+function clearCopyNotice(ctx: ExtensionContext): void {
 	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
-	ctx.ui.setWidget(COPY_NOTICE_KEY, ["  Copied to clipboard"]);
+	if (copyNoticeTimer) {
+		clearTimeout(copyNoticeTimer);
+		copyNoticeTimer = null;
+	}
+	ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
+}
+
+function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfig): void {
+	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
+	const config = getConfig();
+	ctx.ui.setWidget(COPY_NOTICE_KEY, (_tui, theme) => {
+		const text = renderStyleForSourceOrFallback(
+			theme,
+			config.colorSources.editor,
+			undefined,
+			{ terminal: "yellow", theme: "warning" },
+			"  Copied to clipboard",
+		);
+		return new Text(text, 0, 0);
+	});
 	if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
 	copyNoticeTimer = setTimeout(() => {
 		ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
@@ -86,7 +106,8 @@ function installFromProbe(
 			enabled: getConfig().fixedEditor?.enabled ?? false,
 			mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
 		}),
-		ctx.hasUI ? (msg) => showCopyNotice(ctx, msg) : undefined,
+		ctx.hasUI ? () => showCopyNotice(ctx, getConfig) : undefined,
+		ctx.hasUI ? () => clearCopyNotice(ctx) : undefined,
 	);
 
 	if (!next.install()) {

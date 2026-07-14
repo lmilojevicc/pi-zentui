@@ -111,7 +111,8 @@ export class TerminalSplitCompositor {
 	private mouseResumeTimer: ReturnType<typeof setTimeout> | null = null;
 	private cursorVisible = true;
 
-	private readonly notify: ((message: string, type?: "info" | "warning" | "error") => void) | null;
+	private readonly onCopy: (() => void) | null;
+	private readonly onDismissNotice: (() => void) | null;
 
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
 
@@ -119,12 +120,14 @@ export class TerminalSplitCompositor {
 		tui: TuiLike,
 		terminal: TerminalLike,
 		getConfig: () => CompositorConfig,
-		notify?: (message: string, type?: "info" | "warning" | "error") => void,
+		onCopy?: () => void,
+		onDismissNotice?: () => void,
 	) {
 		this.tui = tui;
 		this.terminal = terminal;
 		this.getConfig = getConfig;
-		this.notify = notify ?? null;
+		this.onCopy = onCopy ?? null;
+		this.onDismissNotice = onDismissNotice ?? null;
 		this.rowsDescriptor = descriptorForRows(terminal);
 		this.originalWrite = terminal.write.bind(terminal);
 		this.originalDoRender = typeof tui.doRender === "function" ? tui.doRender.bind(tui) : null;
@@ -342,6 +345,7 @@ export class TerminalSplitCompositor {
 
 	private handleInput(data: string): { consume?: boolean; data?: string } | undefined {
 		if (this.disposed || this.hasVisibleOverlay()) return undefined;
+		this.onDismissNotice?.();
 
 		const mouseScroll = this.getConfig().mouseScroll;
 		if (mouseScroll) {
@@ -439,7 +443,7 @@ export class TerminalSplitCompositor {
 			this.repaintViewport();
 			if (text) {
 				void copyToClipboard(text);
-				this.notify?.("Copied to clipboard", "info");
+				this.onCopy?.();
 			}
 			return;
 		}
