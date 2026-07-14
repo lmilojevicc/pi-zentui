@@ -431,9 +431,9 @@ describe("selection", () => {
 			sel.start(0, 2);
 			sel.extend(0, 5);
 			const result = highlightSelection("hello world", 0, sel);
-			expect(result).toContain("\x1b[7m");
-			expect(result).toContain("\x1b[27m");
-			expect(result).toBe("he\x1b[7mllo\x1b[27m world");
+			expect(result).toContain("\x1b[48;5;238m");
+			expect(result).toContain("\x1b[49m");
+			expect(result).toBe("he\x1b[48;5;238mllo\x1b[49m world");
 		});
 
 		it("does not modify non-selected lines", () => {
@@ -450,7 +450,7 @@ describe("selection", () => {
 			sel.extend(2, 5);
 			// Line 1 is a middle line — full highlight
 			const result = highlightSelection("middle line", 1, sel);
-			expect(result).toBe("\x1b[7mmiddle line\x1b[27m");
+			expect(result).toBe("\x1b[48;5;238mmiddle line\x1b[49m");
 		});
 
 		it("preserves ANSI colors in selected region", () => {
@@ -459,8 +459,8 @@ describe("selection", () => {
 			sel.extend(0, 5);
 			const result = highlightSelection("\x1b[32mhello\x1b[0m world", 0, sel);
 			expect(result).toContain("\x1b[32m"); // green preserved
-			expect(result).toContain("\x1b[7m"); // inverse added
-			expect(result).toContain("\x1b[27m"); // inverse off
+			expect(result).toContain("\x1b[48;5;238m"); // inverse added
+			expect(result).toContain("\x1b[49m"); // inverse off
 			expect(result).toContain("\x1b[0m"); // original reset preserved
 			expect(result).toContain("hello");
 			expect(result).toContain("world");
@@ -472,7 +472,7 @@ describe("selection", () => {
 			sel.extend(0, 11);
 			const result = highlightSelection("\x1b[32mhello\x1b[0m world", 0, sel);
 			expect(result).toContain("\x1b[32mhello\x1b[0m"); // before selection unchanged
-			expect(result).toContain("\x1b[7m"); // inverse on selected part
+			expect(result).toContain("\x1b[48;5;238m"); // inverse on selected part
 		});
 
 		it("handles multiple SGR codes within selection", () => {
@@ -483,8 +483,8 @@ describe("selection", () => {
 			const result = highlightSelection(input, 0, sel);
 			expect(result).toContain("\x1b[1m"); // bold preserved
 			expect(result).toContain("\x1b[31m"); // red preserved
-			expect(result).toContain("\x1b[7m"); // inverse added
-			expect(result).toContain("\x1b[27m"); // inverse off
+			expect(result).toContain("\x1b[48;5;238m"); // inverse added
+			expect(result).toContain("\x1b[49m"); // inverse off
 		});
 	});
 

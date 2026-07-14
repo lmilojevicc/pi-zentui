@@ -138,7 +138,8 @@ export class SelectionState {
 /**
  * Apply inverse-video highlight to a rendered line for the current selection.
  * Preserves all original ANSI styling (colors, bold, etc.) — only layers
- * SGR 7 (inverse) / SGR 27 (inverse off) on top of the selected range.
+ * a subtle background tint (SGR 48; 256-color dark gray) on top of the
+ * selected range so original foreground colors remain visible.
  *
  * @param line The raw ANSI-styled line.
  * @param lineIndex The absolute transcript line index.
@@ -199,11 +200,11 @@ export function highlightSelection(
 		const char = line[i] ?? "";
 		const w = visibleWidth(char);
 		if (!inverseOn && col < endCol && col + w > startCol) {
-			result += "\x1b[7m";
+			result += "\x1b[48;5;238m";
 			inverseOn = true;
 		}
 		if (inverseOn && col >= endCol) {
-			result += "\x1b[27m";
+			result += "\x1b[49m";
 			inverseOn = false;
 		}
 		result += char;
@@ -211,6 +212,6 @@ export function highlightSelection(
 		i++;
 	}
 
-	if (inverseOn) result += "\x1b[27m";
+	if (inverseOn) result += "\x1b[49m";
 	return result;
 }
