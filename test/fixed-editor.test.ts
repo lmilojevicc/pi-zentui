@@ -487,4 +487,75 @@ describe("selection", () => {
 			expect(result).toContain("\x1b[27m"); // inverse off
 		});
 	});
+
+	describe("getSelectedText edge cases", () => {
+		it("extracts URL from OSC 8 hyperlink", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;https://pi.dev/changelog\x1b\\Changelog:\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toContain("https://pi.dev/changelog");
+			expect(result).toContain("Changelog:");
+		});
+
+		it("handles OSC 8 with BEL terminator", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;https://example.com\x07Click here\x1b]8;;\x07";
+			const result = sel.getSelectedText([line]);
+			expect(result).toContain("https://example.com");
+		});
+
+		it("handles OSC 8 with id parameter", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;id=42;https://example.com\x1b\\link\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toContain("https://example.com");
+			expect(result).not.toContain("id=42");
+		});
+
+		it("does not duplicate URL when visible text is the URL", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;https://example.com\x1b\\https://example.com\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toBe("https://example.com");
+		});
+
+		it("handles OSC 8 with empty params (no URL)", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;\x1b\\plain text\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toBe("plain text");
+		});
+
+		it("handles multiple OSC 8 links on one line", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line =
+				"\x1b]8;;https://a.com\x1b\\A\x1b]8;;\x1b\\ and \x1b]8;;https://b.com\x1b\\B\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toContain("https://a.com");
+			expect(result).toContain("https://b.com");
+		});
+
+		it("preserves ANSI colors inside OSC 8 text", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 100);
+			const line = "\x1b]8;;https://example.com\x1b\\\x1b[32mClick\x1b[0m\x1b]8;;\x1b\\";
+			const result = sel.getSelectedText([line]);
+			expect(result).toContain("Click");
+			expect(result).toContain("https://example.com");
+			expect(result).not.toContain("\x1b[32m");
+		});
+	});
 });
