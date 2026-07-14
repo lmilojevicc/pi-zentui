@@ -431,12 +431,12 @@ export class TerminalSplitCompositor {
 			return;
 		}
 		if (ev.action === "drag" && this.selection.isDragging) {
-			this.selection.extend(lineIndex, col);
+			this.selection.extend(lineIndex, col + 1);
 			this.tui.requestRender?.();
 			return;
 		}
 		if (ev.action === "release" && this.selection.isDragging) {
-			this.selection.extend(lineIndex, col);
+			this.selection.extend(lineIndex, col + 1);
 			this.selection.setDragging(false);
 			const text = this.selection.getSelectedText(this.rootLines);
 			this.selection.clear();

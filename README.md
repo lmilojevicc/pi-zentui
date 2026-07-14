@@ -263,7 +263,8 @@ Default config values — copy this and change any value you want:
 	},
 	"fixedEditor": {
 		"enabled": false,
-		"mouseScroll": true
+		"mouseScroll": true,
+		"copyNotice": true
 	}
 }
 ```

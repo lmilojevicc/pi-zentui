@@ -19,6 +19,7 @@ import type { TuiLike } from "./types";
 let compositor: TerminalSplitCompositor | null = null;
 let didWarnUnsupported = false;
 let copyNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+let storedCtx: ExtensionContext | null = null;
 const COPY_NOTICE_KEY = "zentui-copy-notice";
 const COPY_NOTICE_MS = 2500;
 
@@ -166,6 +167,7 @@ export function installFixedEditorProbe(
 	if (!ctx.hasUI) return;
 	if (typeof ctx.ui.setWidget !== "function") return;
 	didWarnUnsupported = false;
+	storedCtx = ctx;
 
 	ctx.ui.setWidget(
 		WIDGET_KEY,
@@ -187,6 +189,9 @@ export function disposeFixedEditor(): void {
 	if (copyNoticeTimer) {
 		clearTimeout(copyNoticeTimer);
 		copyNoticeTimer = null;
+	}
+	if (storedCtx) {
+		clearCopyNotice(storedCtx);
 	}
 }
 
