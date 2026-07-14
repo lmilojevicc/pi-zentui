@@ -453,13 +453,38 @@ describe("selection", () => {
 			expect(result).toBe("\x1b[7mmiddle line\x1b[27m");
 		});
 
-		it("handles ANSI-styled lines", () => {
+		it("preserves ANSI colors in selected region", () => {
 			const sel = new SelectionState();
 			sel.start(0, 0);
 			sel.extend(0, 5);
 			const result = highlightSelection("\x1b[32mhello\x1b[0m world", 0, sel);
-			expect(result).toContain("\x1b[7m");
-			expect(result).toContain("\x1b[27m");
+			expect(result).toContain("\x1b[32m"); // green preserved
+			expect(result).toContain("\x1b[7m"); // inverse added
+			expect(result).toContain("\x1b[27m"); // inverse off
+			expect(result).toContain("\x1b[0m"); // original reset preserved
+			expect(result).toContain("hello");
+			expect(result).toContain("world");
+		});
+
+		it("preserves ANSI colors outside selected region", () => {
+			const sel = new SelectionState();
+			sel.start(0, 6);
+			sel.extend(0, 11);
+			const result = highlightSelection("\x1b[32mhello\x1b[0m world", 0, sel);
+			expect(result).toContain("\x1b[32mhello\x1b[0m"); // before selection unchanged
+			expect(result).toContain("\x1b[7m"); // inverse on selected part
+		});
+
+		it("handles multiple SGR codes within selection", () => {
+			const sel = new SelectionState();
+			sel.start(0, 0);
+			sel.extend(0, 11);
+			const input = "\x1b[1m\x1b[31mhello\x1b[0m world";
+			const result = highlightSelection(input, 0, sel);
+			expect(result).toContain("\x1b[1m"); // bold preserved
+			expect(result).toContain("\x1b[31m"); // red preserved
+			expect(result).toContain("\x1b[7m"); // inverse added
+			expect(result).toContain("\x1b[27m"); // inverse off
 		});
 	});
 });

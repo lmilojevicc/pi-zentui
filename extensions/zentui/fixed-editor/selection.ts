@@ -117,6 +117,9 @@ export class SelectionState {
 
 /**
  * Apply inverse-video highlight to a rendered line for the current selection.
+ * Preserves all original ANSI styling (colors, bold, etc.) — only layers
+ * SGR 7 (inverse) / SGR 27 (inverse off) on top of the selected range.
+ *
  * @param line The raw ANSI-styled line.
  * @param lineIndex The absolute transcript line index.
  * @param selection Current selection state.
@@ -129,14 +132,65 @@ export function highlightSelection(
 	const range = selection.getRangeForLine(lineIndex);
 	if (!range) return line;
 
-	const plain = stripAnsi(line);
-	const maxCol = visibleWidth(plain);
+	const maxCol = visibleWidth(line);
 	const startCol = Math.max(0, Math.min(range.startCol, maxCol));
-	const endCol = Math.max(startCol, Math.min(range.endCol, maxCol));
-	if (startCol === endCol) return line;
+	const endCol = Math.max(startCol + 1, Math.min(range.endCol, maxCol));
+	if (startCol >= endCol) return line;
 
-	const before = sliceColumns(plain, 0, startCol);
-	const selected = sliceColumns(plain, startCol, endCol);
-	const after = sliceColumns(plain, endCol, Number.POSITIVE_INFINITY);
-	return `${before}\x1b[7m${selected}\x1b[27m${after}`;
+	let result = "";
+	let col = 0;
+	let inverseOn = false;
+	let i = 0;
+
+	while (i < line.length) {
+		// Escape sequence — pass through, does not consume visible columns.
+		if (line[i] === "\x1b") {
+			if (line[i + 1] === "[") {
+				// CSI: \x1b[...final-byte
+				let j = i + 2;
+				while (j < line.length && !/[@-~]/.test(line[j] ?? "")) j++;
+				j++;
+				result += line.slice(i, j);
+				i = j;
+				continue;
+			}
+			if (line[i + 1] === "]") {
+				// OSC: \x1b]...BEL or \x1b]...ST
+				let j = i + 2;
+				while (
+					j < line.length &&
+					line[j] !== "\x07" &&
+					!(line[j] === "\x1b" && line[j + 1] === "\\")
+				)
+					j++;
+				if (line[j] === "\x07") j++;
+				else j += 2;
+				result += line.slice(i, j);
+				i = j;
+				continue;
+			}
+			// Other escape: ESC + single char
+			result += line.slice(i, i + 2);
+			i += 2;
+			continue;
+		}
+
+		// Visible character.
+		const char = line[i] ?? "";
+		const w = visibleWidth(char);
+		if (!inverseOn && col < endCol && col + w > startCol) {
+			result += "\x1b[7m";
+			inverseOn = true;
+		}
+		if (inverseOn && col >= endCol) {
+			result += "\x1b[27m";
+			inverseOn = false;
+		}
+		result += char;
+		col += w;
+		i++;
+	}
+
+	if (inverseOn) result += "\x1b[27m";
+	return result;
 }
