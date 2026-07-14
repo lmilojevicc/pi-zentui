@@ -35,6 +35,7 @@ Zentui brings two popular aesthetics to Pi:
 - Configurable model, provider, and thinking-level indicator colors
 - Prompt-box-style user messages matching the ZentUI input chrome
 - Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
+- **Fixed editor** (opt-in): Pin the editor and footer at the bottom of the terminal while the transcript scrolls above
 
 ### Git Status Icons
 
@@ -143,6 +144,9 @@ Useful slash-command shortcuts:
 /zentui copy-friendly enable
 /zentui copy-friendly disable
 /zentui copy-friendly toggle
+/zentui fixed-editor enable
+/zentui fixed-editor disable
+/zentui fixed-editor toggle
 /zentui format "$cwd on branch $git_branch$git_status using $runtime $fill $context"
 /zentui format clear
 ```
@@ -256,6 +260,10 @@ Default config values — copy this and change any value you want:
 		"defaultPlacement": "right",
 		"placements": {},
 		"colorModes": {}
+	},
+	"fixedEditor": {
+		"enabled": false,
+		"mouseScroll": false
 	}
 }
 ```
@@ -341,6 +349,56 @@ Center the branch between directory and cost:
 - Conditional groups: wrap optional pieces in parentheses, e.g. `$cwd( on $git_branch)($git_status)$fill($context)`. If every `$var` inside a group is empty, the whole group (including its literals) is dropped.
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
+
+## Fixed editor (opt-in)
+
+The fixed editor pins the Zentui editor and footer at the bottom of the terminal while the transcript scrolls above. This enables composing follow-up messages while referencing earlier conversation history.
+
+### How to enable
+
+```text
+/zentui fixed-editor enable
+```
+
+Or in `~/.pi/agent/zentui.json`:
+
+```json
+{
+	"fixedEditor": {
+		"enabled": true
+	}
+}
+```
+
+### Keyboard controls
+
+| Key | Action |
+| --- | ------ |
+| `PageUp` / `PageDown` | Scroll transcript one viewport up/down |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll transcript up/down (Kitty protocol variants supported) |
+| `Enter` | Jump to bottom (and submit message) |
+
+### Mouse scroll (opt-in)
+
+Mouse wheel scrolling is disabled by default. Enable it via `/zentui` Features or:
+
+```json
+{
+	"fixedEditor": {
+		"enabled": true,
+		"mouseScroll": true
+	}
+}
+```
+
+**Warning**: Mouse scroll enables SGR mouse reporting, which disables native terminal text selection, URL click-through, and tmux/Herdr scrollback for the Pi session. Toggle off if you need those features.
+
+### Conflicts and limitations
+
+- **Incompatible with** `pi-powerline-footer`, `@tifan/pi-fixed-editor`, and `pi-sticky-input`. These packages patch the same Pi TUI internals; only one rendering owner can be active at a time.
+- **Alternate screen**: Uses the terminal's alternate screen buffer. Native scrollback history is not accessible while the fixed editor is active.
+- **Pi version fragility**: Patches internal TUI methods (`doRender`, `render`, `terminal.write`, `terminal.rows`) that may change across Pi versions. If the TUI layout is unsupported, Zentui falls back to normal rendering with a console warning.
+- If your terminal is stuck after a crash, run `reset` or restart the terminal.
 
 ## Requirements
 

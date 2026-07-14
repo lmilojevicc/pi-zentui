@@ -11,6 +11,7 @@ import {
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
+	type FixedEditorConfig,
 	type FooterSegmentsConfig,
 	type IconMode,
 	loadConfig,
@@ -20,6 +21,7 @@ import {
 	saveContextStylePatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
+	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	saveIconsModePatch,
@@ -27,6 +29,11 @@ import {
 	saveUiFeaturesPatch,
 	type UiFeaturesConfig,
 } from "./config";
+import {
+	disposeFixedEditor,
+	installFixedEditorProbe,
+	removeFixedEditorProbe,
+} from "./fixed-editor";
 import { installFooter } from "./footer";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
@@ -353,6 +360,9 @@ export default function (pi: ExtensionAPI) {
 		syncFooterState(ctx);
 		stopProjectRefresh();
 		applyConfiguredUi(ctx);
+		if (currentConfig.fixedEditor?.enabled) {
+			installFixedEditorProbe(ctx, getCurrentConfig);
+		}
 		refresh();
 	};
 
@@ -368,6 +378,10 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const cleanupUi = (ctx?: ExtensionContext) => {
+		disposeFixedEditor();
+		if (ctx && isTuiContext(ctx)) {
+			removeFixedEditorProbe(ctx);
+		}
 		uninstallPrototypePatches();
 		stopSessionTimer();
 		stopProjectRefresh();
@@ -446,6 +460,15 @@ export default function (pi: ExtensionAPI) {
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			currentConfig = saveExtensionStatusColorMode(key, colorMode);
+		},
+		setFixedEditor(patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) {
+			currentConfig = saveFixedEditorPatch(patch);
+			if (patch.enabled === true) {
+				installFixedEditorProbe(ctx, getCurrentConfig);
+			} else if (patch.enabled === false) {
+				disposeFixedEditor();
+			}
+			refresh();
 		},
 		requestRender() {
 			refresh();

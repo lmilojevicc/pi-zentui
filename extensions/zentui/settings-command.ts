@@ -15,6 +15,7 @@ import {
 	type ContextStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
+	type FixedEditorConfig,
 	type FooterSegmentsConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
@@ -74,6 +75,7 @@ type SettingsCommandDeps = {
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
+	setFixedEditor: (patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
 };
@@ -154,6 +156,9 @@ const directCommandSuggestions = [
 	"copy-friendly enable",
 	"copy-friendly disable",
 	"copy-friendly toggle",
+	"fixed-editor enable",
+	"fixed-editor disable",
+	"fixed-editor toggle",
 	"format clear",
 	"format $cwd on $git_branch $fill $context",
 	"format $cwd( on $git_branch)($git_status)$fill($context)( | $cost)",
@@ -308,6 +313,31 @@ function parseDirectFeatureCommand(
 	};
 }
 
+function parseFixedEditorCommand(
+	args: string,
+	config: PolishedTuiConfig,
+): { enabled: boolean } | undefined {
+	const normalized = args.trim().toLowerCase().replaceAll(/[_-]+/g, " ");
+	if (!normalized) return undefined;
+
+	const words = normalized.split(/\s+/g).filter(Boolean);
+	const hasWord = (value: string) => words.includes(value);
+	if (!hasWord("fixededitor") && !(hasWord("fixed") && hasWord("editor"))) return undefined;
+
+	const action = hasWord("toggle")
+		? "toggle"
+		: hasWord("enable") || hasWord("enabled") || hasWord("on")
+			? "enable"
+			: hasWord("disable") || hasWord("disabled") || hasWord("off")
+				? "disable"
+				: undefined;
+	if (!action) return undefined;
+
+	return {
+		enabled: action === "toggle" ? !config.fixedEditor.enabled : action === "enable",
+	};
+}
+
 function parseFormatCommand(args: string): { value: string | undefined } | undefined {
 	const trimmed = args.trim();
 	if (!trimmed.toLowerCase().startsWith("format")) return undefined;
@@ -361,13 +391,34 @@ function buildItems(
 	}
 
 	if (section === "features") {
-		return (Object.keys(featureSettingLabels) as FeatureSettingId[]).map((key) => ({
-			id: key,
-			label: featureSettingLabels[key],
-			description: featureSettingDescriptions[key],
-			currentValue: featureValue(config.features[key]),
+		const items: SettingItem[] = (Object.keys(featureSettingLabels) as FeatureSettingId[]).map(
+			(key) => ({
+				id: key,
+				label: featureSettingLabels[key],
+				description: featureSettingDescriptions[key],
+				currentValue: featureValue(config.features[key]),
+				values: featureStateValues,
+			}),
+		);
+		items.push({
+			id: "fixedEditor",
+			label: "Fixed editor",
+			description:
+				"Pin editor + footer at bottom while transcript scrolls. Uses alternate screen mode.",
+			currentValue: featureValue(config.fixedEditor.enabled),
 			values: featureStateValues,
-		}));
+		});
+		if (config.fixedEditor.enabled) {
+			items.push({
+				id: "fixedEditorMouseScroll",
+				label: "Mouse scroll",
+				description:
+					"Scroll transcript with mouse wheel. Breaks native terminal selection and tmux scrollback.",
+				currentValue: featureValue(config.fixedEditor.mouseScroll),
+				values: featureStateValues,
+			});
+		}
+		return items;
 	}
 
 	if (section === "layout") {
@@ -540,6 +591,21 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 				return;
 			}
 
+			const fixedEditorCommand = parseFixedEditorCommand(args, deps.getConfig());
+			if (fixedEditorCommand) {
+				try {
+					deps.setFixedEditor({ enabled: fixedEditorCommand.enabled }, ctx);
+					deps.requestRender();
+					if (ctx.hasUI) {
+						ctx.ui.notify(`Fixed editor: ${featureValue(fixedEditorCommand.enabled)}`, "info");
+					}
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					if (ctx.hasUI) ctx.ui.notify(`Could not update fixed editor: ${message}`, "error");
+				}
+				return;
+			}
+
 			if (args.trim()) {
 				if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
 				return;
@@ -643,6 +709,23 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										`${footerSegmentSettingLabels[footerSegmentSetting]}: ${newValue}`,
 										"info",
 									);
+									tui.requestRender();
+									return;
+								}
+
+								if (id === "fixedEditor" && isFeatureState(newValue)) {
+									deps.setFixedEditor({ enabled: newValue === "enabled" }, ctx);
+									settingsList = makeSettingsList();
+									deps.requestRender();
+									ctx.ui.notify(`Fixed editor: ${newValue}`, "info");
+									tui.requestRender();
+									return;
+								}
+								if (id === "fixedEditorMouseScroll" && isFeatureState(newValue)) {
+									deps.setFixedEditor({ mouseScroll: newValue === "enabled" }, ctx);
+									settingsList.updateValue(id, newValue);
+									deps.requestRender();
+									ctx.ui.notify(`Mouse scroll: ${newValue}`, "info");
 									tui.requestRender();
 									return;
 								}

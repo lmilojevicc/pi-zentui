@@ -8,6 +8,7 @@ import {
 	saveColorSourcesPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusPlacement,
+	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	savePathDisplayPatch,
@@ -69,6 +70,27 @@ describe("mergeConfig", () => {
 			defaultPlacement: "right",
 			placements: {},
 			colorModes: {},
+		});
+	});
+
+	it("defaults fixedEditor to disabled with mouse scroll off", () => {
+		expect(mergeConfig({}).fixedEditor).toEqual({ enabled: false, mouseScroll: false });
+		expect(defaultConfig.fixedEditor).toEqual({ enabled: false, mouseScroll: false });
+	});
+
+	it("accepts fixedEditor config", () => {
+		expect(mergeConfig({ fixedEditor: { enabled: true, mouseScroll: false } }).fixedEditor).toEqual(
+			{
+				enabled: true,
+				mouseScroll: false,
+			},
+		);
+	});
+
+	it("normalizes invalid fixedEditor values", () => {
+		expect(mergeConfig({ fixedEditor: { enabled: "yes" } }).fixedEditor).toEqual({
+			enabled: false,
+			mouseScroll: false,
 		});
 	});
 
@@ -998,5 +1020,33 @@ describe("style rendering", () => {
 		expect(renderChromeBorder(thinkingTheme, "terminal", "bright-black", "────")).toBe(
 			"\u001b[90m────\u001b[0m",
 		);
+	});
+});
+
+describe("saveFixedEditorPatch", () => {
+	it("saves enabled flag and round-trips", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-cfg-"));
+		const path = join(dir, "zentui.json");
+		try {
+			const config = saveFixedEditorPatch({ enabled: true }, path);
+			expect(config.fixedEditor.enabled).toBe(true);
+
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.fixedEditor.enabled).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true });
+		}
+	});
+
+	it("saves mouseScroll flag alongside existing enabled", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-cfg-"));
+		const path = join(dir, "zentui.json");
+		try {
+			saveFixedEditorPatch({ enabled: true }, path);
+			const config = saveFixedEditorPatch({ mouseScroll: true }, path);
+			expect(config.fixedEditor).toEqual({ enabled: true, mouseScroll: true });
+		} finally {
+			rmSync(dir, { recursive: true });
+		}
 	});
 });

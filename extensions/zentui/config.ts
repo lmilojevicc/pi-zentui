@@ -61,6 +61,11 @@ export type FooterSegmentsConfig = {
 	packageVersion: boolean;
 };
 
+export type FixedEditorConfig = {
+	enabled: boolean;
+	mouseScroll: boolean;
+};
+
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
 export type ExtensionStatusColorMode = "zentui" | "original";
 
@@ -139,6 +144,7 @@ export type PolishedTuiConfig = {
 	gitCommit: GitCommitConfig;
 	gitMetrics: GitMetricsConfig;
 	extensionStatuses: ExtensionStatusesConfig;
+	fixedEditor: FixedEditorConfig;
 };
 
 /**
@@ -256,6 +262,10 @@ export const defaultConfig: PolishedTuiConfig = {
 		defaultPlacement: "right",
 		placements: {},
 		colorModes: {},
+	},
+	fixedEditor: {
+		enabled: false,
+		mouseScroll: false,
 	},
 };
 
@@ -508,6 +518,17 @@ function normalizeExtensionStatuses(record: Record<string, unknown>): ExtensionS
 	};
 }
 
+function normalizeFixedEditorConfig(record: Record<string, unknown>): FixedEditorConfig {
+	return {
+		enabled:
+			typeof record.enabled === "boolean" ? record.enabled : defaultConfig.fixedEditor.enabled,
+		mouseScroll:
+			typeof record.mouseScroll === "boolean"
+				? record.mouseScroll
+				: defaultConfig.fixedEditor.mouseScroll,
+	};
+}
+
 function isColorSourceKey(value: string): value is keyof ColorSourcesConfig {
 	return value === "starship" || value === "editor" || value === "userMessages";
 }
@@ -606,6 +627,9 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const gitMetrics = isRecord(config.gitMetrics)
 		? normalizeGitMetricsConfig(config.gitMetrics as Record<string, unknown>)
 		: defaultConfig.gitMetrics;
+	const fixedEditor = isRecord(config.fixedEditor)
+		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
+		: defaultConfig.fixedEditor;
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
@@ -627,6 +651,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 			placements: { ...extensionStatuses.placements },
 			colorModes: { ...extensionStatuses.colorModes },
 		},
+		fixedEditor,
 	};
 }
 
@@ -808,6 +833,23 @@ export function saveExtensionStatusColorMode(
 	record.extensionStatuses = {
 		...existingExtensionStatuses,
 		colorModes: existingColorModes,
+	};
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveFixedEditorPatch(
+	patch: Partial<FixedEditorConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.fixedEditor)
+		? { ...(record.fixedEditor as Record<string, unknown>) }
+		: {};
+	record.fixedEditor = {
+		...existing,
+		...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+		...(patch.mouseScroll !== undefined ? { mouseScroll: patch.mouseScroll } : {}),
 	};
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
