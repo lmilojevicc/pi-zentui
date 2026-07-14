@@ -10,11 +10,13 @@ export const ENTER_ALT_SCREEN = "\x1b[?1049h";
 /** Exit alternate screen buffer. */
 export const EXIT_ALT_SCREEN = "\x1b[?1049l";
 
-/** Enable SGR mouse mode (button-event + 1006 encoding). */
-export const ENABLE_MOUSE_SGR = "\x1b[?1002h\x1b[?1006h";
+/** Enable SGR mouse mode (normal tracking + 1006 encoding).
+ * Uses ?1000 (press/release only) not ?1002 (button-event/drag) so that
+ * terminal drag-selection and tmux/herdr copy still work natively. */
+export const ENABLE_MOUSE_SGR = "\x1b[?1000h\x1b[?1006h";
 
 /** Disable mouse reporting (all modes). */
-export const DISABLE_MOUSE = "\x1b[?1002l\x1b[?1006l\x1b[?1000l";
+export const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
 
 /** Disable alternate scroll (xterm wheel-as-arrow in alt screen). */
 export const DISABLE_ALT_SCROLL = "\x1b[?1007l";
