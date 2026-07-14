@@ -105,6 +105,7 @@ function installFromProbe(
 		() => ({
 			enabled: getConfig().fixedEditor?.enabled ?? false,
 			mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
+			copyNotice: getConfig().fixedEditor?.copyNotice ?? true,
 		}),
 		ctx.hasUI ? () => showCopyNotice(ctx, getConfig) : undefined,
 		ctx.hasUI ? () => clearCopyNotice(ctx) : undefined,

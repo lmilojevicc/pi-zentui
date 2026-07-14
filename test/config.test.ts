@@ -74,8 +74,16 @@ describe("mergeConfig", () => {
 	});
 
 	it("defaults fixedEditor to disabled with mouse scroll on", () => {
-		expect(mergeConfig({}).fixedEditor).toEqual({ enabled: false, mouseScroll: true });
-		expect(defaultConfig.fixedEditor).toEqual({ enabled: false, mouseScroll: true });
+		expect(mergeConfig({}).fixedEditor).toEqual({
+			enabled: false,
+			mouseScroll: true,
+			copyNotice: true,
+		});
+		expect(defaultConfig.fixedEditor).toEqual({
+			enabled: false,
+			mouseScroll: true,
+			copyNotice: true,
+		});
 	});
 
 	it("accepts fixedEditor config", () => {
@@ -83,6 +91,7 @@ describe("mergeConfig", () => {
 			{
 				enabled: true,
 				mouseScroll: false,
+				copyNotice: true,
 			},
 		);
 	});
@@ -91,6 +100,7 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ fixedEditor: { enabled: "yes" } }).fixedEditor).toEqual({
 			enabled: false,
 			mouseScroll: true,
+			copyNotice: true,
 		});
 	});
 
@@ -1044,7 +1054,7 @@ describe("saveFixedEditorPatch", () => {
 		try {
 			saveFixedEditorPatch({ enabled: true }, path);
 			const config = saveFixedEditorPatch({ mouseScroll: true }, path);
-			expect(config.fixedEditor).toEqual({ enabled: true, mouseScroll: true });
+			expect(config.fixedEditor).toEqual({ enabled: true, mouseScroll: true, copyNotice: true });
 		} finally {
 			rmSync(dir, { recursive: true });
 		}

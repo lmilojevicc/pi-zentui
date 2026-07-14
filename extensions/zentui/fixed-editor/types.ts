@@ -27,6 +27,7 @@ export type KeyboardScrollInput = {
 export type CompositorConfig = {
 	enabled: boolean;
 	mouseScroll: boolean;
+	copyNotice: boolean;
 };
 
 /** Result of rendering the pinned cluster. */

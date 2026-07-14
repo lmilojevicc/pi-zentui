@@ -443,7 +443,7 @@ export class TerminalSplitCompositor {
 			this.repaintViewport();
 			if (text) {
 				void copyToClipboard(text);
-				this.onCopy?.();
+				if (this.getConfig().copyNotice) this.onCopy?.();
 			}
 			return;
 		}

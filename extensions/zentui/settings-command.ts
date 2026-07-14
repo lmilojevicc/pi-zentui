@@ -729,6 +729,14 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									tui.requestRender();
 									return;
 								}
+								if (id === "fixedEditorCopyNotice" && isFeatureState(newValue)) {
+									deps.setFixedEditor({ copyNotice: newValue === "enabled" }, ctx);
+									settingsList.updateValue(id, newValue);
+									deps.requestRender();
+									ctx.ui.notify(`Copy notice: ${newValue}`, "info");
+									tui.requestRender();
+									return;
+								}
 
 								const thirdPartyStatusSetting = thirdPartyStatusSettingFromId(id);
 								if (

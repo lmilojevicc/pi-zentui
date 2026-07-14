@@ -64,6 +64,7 @@ export type FooterSegmentsConfig = {
 export type FixedEditorConfig = {
 	enabled: boolean;
 	mouseScroll: boolean;
+	copyNotice: boolean;
 };
 
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
@@ -266,6 +267,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	fixedEditor: {
 		enabled: false,
 		mouseScroll: true,
+		copyNotice: true,
 	},
 };
 
@@ -526,6 +528,10 @@ function normalizeFixedEditorConfig(record: Record<string, unknown>): FixedEdito
 			typeof record.mouseScroll === "boolean"
 				? record.mouseScroll
 				: defaultConfig.fixedEditor.mouseScroll,
+		copyNotice:
+			typeof record.copyNotice === "boolean"
+				? record.copyNotice
+				: defaultConfig.fixedEditor.copyNotice,
 	};
 }
 
@@ -850,6 +856,7 @@ export function saveFixedEditorPatch(
 		...existing,
 		...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
 		...(patch.mouseScroll !== undefined ? { mouseScroll: patch.mouseScroll } : {}),
+		...(patch.copyNotice !== undefined ? { copyNotice: patch.copyNotice } : {}),
 	};
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
