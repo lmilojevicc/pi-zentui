@@ -35,7 +35,7 @@ Zentui brings two popular aesthetics to Pi:
 - Configurable model, provider, and thinking-level indicator colors
 - Prompt-box-style user messages matching the ZentUI input chrome
 - Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
-- **Fixed editor** (opt-in): Pin the editor and footer at the bottom of the terminal while the transcript scrolls above
+- **Fixed editor** (experimental, opt-in): Pin the editor and footer at the bottom of the terminal while the transcript scrolls above
 
 ### Git Status Icons
 
@@ -350,7 +350,7 @@ Center the branch between directory and cost:
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
 
-## Fixed editor (opt-in)
+## Fixed editor (experimental, opt-in)
 
 The fixed editor pins the Zentui editor and footer at the bottom of the terminal while the transcript scrolls above. This enables composing follow-up messages while referencing earlier conversation history.
 

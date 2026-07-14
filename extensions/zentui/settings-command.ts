@@ -402,7 +402,7 @@ function buildItems(
 		);
 		items.push({
 			id: "fixedEditor",
-			label: "Fixed editor",
+			label: "Fixed editor (experimental)",
 			description:
 				"Pin editor + footer at bottom while transcript scrolls. Uses alternate screen mode.",
 			currentValue: featureValue(config.fixedEditor.enabled),
