@@ -73,9 +73,9 @@ describe("mergeConfig", () => {
 		});
 	});
 
-	it("defaults fixedEditor to disabled with mouse scroll off", () => {
-		expect(mergeConfig({}).fixedEditor).toEqual({ enabled: false, mouseScroll: false });
-		expect(defaultConfig.fixedEditor).toEqual({ enabled: false, mouseScroll: false });
+	it("defaults fixedEditor to disabled with mouse scroll on", () => {
+		expect(mergeConfig({}).fixedEditor).toEqual({ enabled: false, mouseScroll: true });
+		expect(defaultConfig.fixedEditor).toEqual({ enabled: false, mouseScroll: true });
 	});
 
 	it("accepts fixedEditor config", () => {
@@ -90,7 +90,7 @@ describe("mergeConfig", () => {
 	it("normalizes invalid fixedEditor values", () => {
 		expect(mergeConfig({ fixedEditor: { enabled: "yes" } }).fixedEditor).toEqual({
 			enabled: false,
-			mouseScroll: false,
+			mouseScroll: true,
 		});
 	});
 

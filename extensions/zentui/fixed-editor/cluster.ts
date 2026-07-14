@@ -113,7 +113,11 @@ function renderComponent(component: Renderable | null, width: number): string[] 
 	if (!component) return [];
 	const renderFn = component.__zentuiOriginalRender ?? component.render;
 	const lines = renderFn.call(component, width);
-	return lines.filter((line) => visibleWidth(line) > 0);
+	// Strip only trailing blank lines — internal blank lines (e.g. editor
+	// padding in copy-friendly mode) must be preserved.
+	let end = lines.length;
+	while (end > 0 && visibleWidth(lines[end - 1]) === 0) end--;
+	return lines.slice(0, Math.max(end, 1));
 }
 
 /**

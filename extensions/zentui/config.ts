@@ -265,7 +265,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	},
 	fixedEditor: {
 		enabled: false,
-		mouseScroll: false,
+		mouseScroll: true,
 	},
 };
 

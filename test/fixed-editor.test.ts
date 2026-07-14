@@ -238,6 +238,34 @@ describe("cluster", () => {
 			const result = renderCluster(cluster, 80, 10);
 			expect(result.lines.length).toBeLessThanOrEqual(9);
 		});
+
+		it("preserves internal blank lines (copy-friendly editor padding)", () => {
+			// In copy-friendly mode the editor renders truly empty strings as
+			// padding: [border, "", text, "", meta, border]. These must survive.
+			const editorFrame = ["border", "", "input text", "", "model provider", "border"];
+			const cluster = {
+				status: null,
+				aboveWidget: null,
+				editor: makeComponent(editorFrame),
+				belowWidget: null,
+				footer: null,
+			};
+			const result = renderCluster(cluster, 80, 24);
+			expect(result.lines).toEqual(editorFrame);
+		});
+
+		it("strips trailing blank lines from components", () => {
+			const cluster = {
+				status: makeComponent(["status", "", ""]),
+				aboveWidget: null,
+				editor: makeComponent(["editor"]),
+				belowWidget: null,
+				footer: makeComponent(["footer", ""]),
+			};
+			const result = renderCluster(cluster, 80, 24);
+			// Trailing blanks stripped, but content preserved
+			expect(result.lines).toEqual(["status", "editor", "footer"]);
+		});
 	});
 
 	describe("hideRenderable / restoreRenderable", () => {

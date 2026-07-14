@@ -263,7 +263,7 @@ Default config values — copy this and change any value you want:
 	},
 	"fixedEditor": {
 		"enabled": false,
-		"mouseScroll": false
+		"mouseScroll": true
 	}
 }
 ```
@@ -378,9 +378,9 @@ Or in `~/.pi/agent/zentui.json`:
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll transcript up/down (Kitty protocol variants supported) |
 | `Enter` | Jump to bottom (and submit message) |
 
-### Mouse scroll (opt-in)
+### Mouse scroll (default on)
 
-Mouse wheel scrolling is disabled by default. Enable it via `/zentui` Features or:
+Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it via `/zentui` Features or:
 
 ```json
 {
