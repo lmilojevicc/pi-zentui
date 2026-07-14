@@ -109,6 +109,7 @@ export class TerminalSplitCompositor {
 	private readonly selection = new SelectionState();
 	/** Timer for right-click context menu mouse reporting pause. */
 	private mouseResumeTimer: ReturnType<typeof setTimeout> | null = null;
+	private cursorVisible = true;
 
 	private readonly notify: ((message: string, type?: "info" | "warning" | "error") => void) | null;
 
@@ -474,10 +475,14 @@ export class TerminalSplitCompositor {
 			buf += cursorTo(startRow + i, 1) + CLEAR_LINE + sanitizeLine(cluster.lines[i] ?? "", width);
 		}
 		if (cluster.cursor) {
-			buf +=
-				cursorTo(startRow + cluster.cursor.row, Math.max(1, cluster.cursor.col + 1)) + SHOW_CURSOR;
-		} else {
+			buf += cursorTo(startRow + cluster.cursor.row, Math.max(1, cluster.cursor.col + 1));
+			if (!this.cursorVisible) {
+				buf += SHOW_CURSOR;
+				this.cursorVisible = true;
+			}
+		} else if (this.cursorVisible) {
 			buf += HIDE_CURSOR;
+			this.cursorVisible = false;
 		}
 		return buf;
 	}
