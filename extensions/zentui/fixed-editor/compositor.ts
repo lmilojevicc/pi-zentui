@@ -128,7 +128,7 @@ export class TerminalSplitCompositor {
 			SYNC_BEGIN +
 				ENTER_ALT_SCREEN +
 				DISABLE_ALT_SCROLL +
-				(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : "") +
+				(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
 				SYNC_END,
 		);
 
@@ -344,7 +344,7 @@ export class TerminalSplitCompositor {
 				DISABLE_AUTOWRAP +
 				this.paintCluster(cluster, rawRows, width) +
 				ENABLE_AUTOWRAP +
-				(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : "") +
+				(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
 				SYNC_END,
 		);
 	}
@@ -363,7 +363,10 @@ export class TerminalSplitCompositor {
 			buf += CLEAR_LINE + sanitizeLine(visible[row] ?? "", width);
 		}
 		buf += this.paintCluster(cluster, rawRows, width);
-		buf += ENABLE_AUTOWRAP + (this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : "") + SYNC_END;
+		buf +=
+			ENABLE_AUTOWRAP +
+			(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
+			SYNC_END;
 		this.originalWrite(buf);
 	}
 
@@ -391,7 +394,7 @@ export class TerminalSplitCompositor {
 					data +
 					this.paintCluster(cluster, rawRows, width) +
 					ENABLE_AUTOWRAP +
-					(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : "") +
+					(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
 					SYNC_END,
 			);
 		} finally {
@@ -403,7 +406,7 @@ export class TerminalSplitCompositor {
 		this.originalWrite(
 			SYNC_BEGIN +
 				RESET_SCROLL_REGION +
-				(this.getConfig().mouseScroll ? DISABLE_MOUSE : "") +
+				DISABLE_MOUSE +
 				ENABLE_ALT_SCROLL +
 				EXIT_ALT_SCREEN +
 				SHOW_CURSOR +

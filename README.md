@@ -402,7 +402,7 @@ Mouse wheel scrolling is disabled by default. Enable it via `/zentui` Features o
 
 ## Requirements
 
-- [Pi](https://pi.dev) coding agent 0.79 or newer
+- [Pi](https://pi.dev) coding agent 0.80 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for icons (or set `icons.mode` to `"ascii"`)
 
 ## Development
