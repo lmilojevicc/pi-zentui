@@ -491,6 +491,26 @@ export class TerminalSplitCompositor {
 		return buf;
 	}
 
+	/**
+	 * Restore the cursor to the row Pi's differential renderer expects.
+	 *
+	 * `setScrollRegion` (DECSTBM) homes the cursor to row 1, col 1, but Pi's
+	 * `doRender` emits *relative* cursor moves (CUU/CUD/`\r`) computed from
+	 * its tracked `hardwareCursorRow`. Without repositioning, a sparse
+	 * differential update (e.g. one selection-highlighted line) is written
+	 * at the wrong row because the relative move departs from (1,1)
+	 * instead of the tracked row.
+	 */
+	private syncTuiCursor(scrollBottom: number): string {
+		const hardwareCursorRow = this.tui.hardwareCursorRow;
+		const viewportTop = this.tui.previousViewportTop;
+		if (typeof hardwareCursorRow !== "number" || typeof viewportTop !== "number") {
+			return "";
+		}
+		const row = Math.max(1, Math.min(scrollBottom, hardwareCursorRow - viewportTop + 1));
+		return cursorTo(row, 1);
+	}
+
 	private requestRepaint(): void {
 		if (this.disposed || this.hasVisibleOverlay()) return;
 		const rawRows = this.getRawRows();
@@ -548,6 +568,7 @@ export class TerminalSplitCompositor {
 				SYNC_BEGIN +
 					DISABLE_AUTOWRAP +
 					setScrollRegion(1, scrollBottom) +
+					this.syncTuiCursor(scrollBottom) +
 					data +
 					this.paintCluster(cluster, rawRows, width) +
 					ENABLE_AUTOWRAP +
