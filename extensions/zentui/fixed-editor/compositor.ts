@@ -411,7 +411,7 @@ export class TerminalSplitCompositor {
 			}
 			this.selection.clear();
 			this.pauseMouseReporting();
-			this.repaintViewport();
+			this.tui.requestRender?.();
 			return;
 		}
 
@@ -427,12 +427,12 @@ export class TerminalSplitCompositor {
 
 		if (ev.action === "press") {
 			this.selection.start(lineIndex, col);
-			this.repaintViewport();
+			this.tui.requestRender?.();
 			return;
 		}
 		if (ev.action === "drag" && this.selection.isDragging) {
 			this.selection.extend(lineIndex, col);
-			this.repaintViewport();
+			this.tui.requestRender?.();
 			return;
 		}
 		if (ev.action === "release" && this.selection.isDragging) {
@@ -440,7 +440,7 @@ export class TerminalSplitCompositor {
 			this.selection.setDragging(false);
 			const text = this.selection.getSelectedText(this.rootLines);
 			this.selection.clear();
-			this.repaintViewport();
+			this.tui.requestRender?.();
 			if (text) {
 				void copyToClipboard(text);
 				if (this.getConfig().copyNotice) this.onCopy?.();
@@ -468,7 +468,7 @@ export class TerminalSplitCompositor {
 		const next = clampScrollOffset(this.scrollOffset + delta, this.maxScrollOffset);
 		if (next === this.scrollOffset) return;
 		this.scrollOffset = next;
-		this.repaintViewport();
+		this.tui.requestRender?.();
 	}
 
 	private paintCluster(cluster: ClusterRender, rawRows: number, width: number): string {
