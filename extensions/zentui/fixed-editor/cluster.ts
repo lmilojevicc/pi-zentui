@@ -175,7 +175,12 @@ export function renderCluster(
 
 	const status = statusLines.slice(-remaining);
 
-	const allLines = [...status, ...above, ...editorLines, ...below, ...footer];
+	let allLines = [...status, ...above, ...editorLines, ...below, ...footer];
+
+	// Strip leading blank lines (e.g. empty status line above the editor border).
+	let start = 0;
+	while (start < allLines.length - 1 && visibleWidth(allLines[start]) === 0) start++;
+	allLines = allLines.slice(start);
 
 	let cursor: { row: number; col: number } | null = null;
 	const cleaned = allLines.map((line, row) => {
