@@ -17,6 +17,19 @@ import type { TuiLike } from "./types";
 
 let compositor: TerminalSplitCompositor | null = null;
 let didWarnUnsupported = false;
+let copyNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+const COPY_NOTICE_KEY = "zentui-copy-notice";
+const COPY_NOTICE_MS = 2500;
+
+function showCopyNotice(ctx: ExtensionContext, _message: string): void {
+	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
+	ctx.ui.setWidget(COPY_NOTICE_KEY, ["  Copied to clipboard"]);
+	if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
+	copyNoticeTimer = setTimeout(() => {
+		ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
+		copyNoticeTimer = null;
+	}, COPY_NOTICE_MS);
+}
 
 /**
  * Minimal component that triggers a callback on first render, then returns [].
@@ -73,7 +86,7 @@ function installFromProbe(
 			enabled: getConfig().fixedEditor?.enabled ?? false,
 			mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
 		}),
-		ctx.hasUI ? (msg, type) => ctx.ui.notify?.(msg, type) : undefined,
+		ctx.hasUI ? (msg) => showCopyNotice(ctx, msg) : undefined,
 	);
 
 	if (!next.install()) {
@@ -116,6 +129,10 @@ export function installFixedEditorProbe(
 export function disposeFixedEditor(): void {
 	compositor?.dispose();
 	compositor = null;
+	if (copyNoticeTimer) {
+		clearTimeout(copyNoticeTimer);
+		copyNoticeTimer = null;
+	}
 }
 
 /**
