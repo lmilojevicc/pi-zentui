@@ -417,6 +417,13 @@ function buildItems(
 				currentValue: featureValue(config.fixedEditor.mouseScroll),
 				values: featureStateValues,
 			});
+			items.push({
+				id: "fixedEditorCopyNotice",
+				label: "Copy notice",
+				description: "Show a 'Copied to clipboard' message when drag-selecting text.",
+				currentValue: featureValue(config.fixedEditor.copyNotice),
+				values: featureStateValues,
+			});
 		}
 		return items;
 	}
