@@ -12,6 +12,7 @@ import {
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	savePathDisplayPatch,
+	saveSeparatorPatch,
 	saveUiFeaturesPatch,
 } from "../extensions/zentui/config";
 import {
@@ -139,6 +140,40 @@ describe("mergeConfig", () => {
 		expect(
 			mergeConfig({ projectRefreshIntervalMs: Number.POSITIVE_INFINITY }).projectRefreshIntervalMs,
 		).toBe(30_000);
+	});
+
+	it("defaults separator style to pipe and accepts supported values", () => {
+		expect(mergeConfig({}).separator).toBe("pipe");
+		expect(defaultConfig.separator).toBe("pipe");
+		for (const separator of ["pipe", "dot", "chevron", "none"] as const) {
+			expect(mergeConfig({ separator }).separator).toBe(separator);
+		}
+	});
+
+	it("falls back to pipe for invalid separator styles", () => {
+		for (const separator of ["arrow", "", 123, null, true]) {
+			expect(mergeConfig({ separator }).separator).toBe("pipe");
+		}
+	});
+
+	it("saves separator style without erasing unknown config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(path, `${JSON.stringify({ unknown: true, contextStyle: "gauge" }, null, 2)}\n`);
+
+			const config = saveSeparatorPatch("chevron", path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+
+			expect(config.separator).toBe("chevron");
+			expect(raw).toEqual({
+				unknown: true,
+				contextStyle: "gauge",
+				separator: "chevron",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("defaults context style/thresholds and accepts valid overrides", () => {

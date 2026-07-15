@@ -22,9 +22,11 @@ import {
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
+	isSeparatorStyle,
 	type PathDisplayConfig,
 	type PathDisplayMode,
 	type PolishedTuiConfig,
+	type SeparatorStyle,
 	type UiFeaturesConfig,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
@@ -40,6 +42,7 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 ];
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
+const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
 const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
@@ -58,7 +61,7 @@ type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
-type LayoutSettingId = "contextStyle" | "pathDisplay" | "pathDepth" | "iconMode";
+type LayoutSettingId = "contextStyle" | "separator" | "pathDisplay" | "pathDepth" | "iconMode";
 
 type SettingsCommandDeps = {
 	getConfig: () => PolishedTuiConfig;
@@ -71,6 +74,7 @@ type SettingsCommandDeps = {
 	setFooterFormat: (value: string) => void;
 	setIconMode: (mode: IconMode) => void;
 	setContextStyle: (style: ContextStyle) => void;
+	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
@@ -227,6 +231,7 @@ function isPathDepthValue(value: string): boolean {
 function isLayoutSettingId(value: string): value is LayoutSettingId {
 	return (
 		value === "contextStyle" ||
+		value === "separator" ||
 		value === "pathDisplay" ||
 		value === "pathDepth" ||
 		value === "iconMode"
@@ -436,6 +441,13 @@ function buildItems(
 				description: "Render context as text, a gauge bar, or both.",
 				currentValue: config.contextStyle,
 				values: contextStyleValues,
+			},
+			{
+				id: "separator",
+				label: "Separator",
+				description: "Choose the separator between default footer segments.",
+				currentValue: config.separator,
+				values: separatorStyleValues,
 			},
 			{
 				id: "pathDisplay",
@@ -675,6 +687,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Context style: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "separator" && isSeparatorStyle(newValue)) {
+										deps.setSeparator(newValue);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Separator: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}

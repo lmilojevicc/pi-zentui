@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig } from "./config";
+import type { PolishedTuiConfig, SeparatorStyle } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { collectExtensionStatusSegments, type ExtensionStatusSegment } from "./extension-status";
 import { parseFooterFormat, renderFormatSplit, stripOrphanSeparators } from "./footer-format";
@@ -20,6 +20,13 @@ import {
 import { resolveRuntimeSymbol } from "./icons";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
+
+const separatorText: Record<SeparatorStyle, string> = {
+	pipe: " | ",
+	dot: " · ",
+	chevron: " › ",
+	none: " ",
+};
 
 function joinStatusTexts(statusTexts: string[], separator: string): string {
 	return statusTexts.filter(Boolean).join(separator);
@@ -169,7 +176,12 @@ export function installFooter(
 				const config = getConfig();
 				const colorSource = config.colorSources.starship;
 				const iconMode = config.icons.mode;
-				const separator = renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
+				const separator = renderStyleForSource(
+					theme,
+					colorSource,
+					config.colors.separator,
+					separatorText[config.separator],
+				);
 				const innerWidth = Math.max(1, width - 2);
 				const cwdLabel = renderStyleForSource(
 					theme,

@@ -17,6 +17,7 @@ export type ColorSource = "theme" | "terminal";
 export type { IconMode } from "./icons";
 
 export type ContextStyle = "text" | "gauge" | "text+gauge";
+export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 
 export type ContextThresholds = {
 	warning: number;
@@ -103,6 +104,7 @@ const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
 	footerFormat: string;
+	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
@@ -195,6 +197,7 @@ export const configPath = join(getAgentDir(), "zentui.json");
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
 	footerFormat: "",
+	separator: "pipe",
 	contextStyle: "text",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
@@ -295,6 +298,14 @@ function clampPercent(value: number): number {
 function parseContextStyle(value: unknown): ContextStyle {
 	if (value === "text" || value === "gauge" || value === "text+gauge") return value;
 	return defaultConfig.contextStyle;
+}
+
+export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
+	return value === "pipe" || value === "dot" || value === "chevron" || value === "none";
+}
+
+function parseSeparatorStyle(value: unknown): SeparatorStyle {
+	return isSeparatorStyle(value) ? value : defaultConfig.separator;
 }
 
 function parseContextThresholds(value: unknown): ContextThresholds {
@@ -639,6 +650,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
+		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
@@ -753,6 +765,16 @@ export function saveIconsModePatch(mode: IconMode, path = configPath): PolishedT
 export function saveContextStylePatch(style: ContextStyle, path = configPath): PolishedTuiConfig {
 	const record = readConfigRecord(path);
 	record.contextStyle = parseContextStyle(style);
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveSeparatorPatch(
+	separator: SeparatorStyle,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	record.separator = parseSeparatorStyle(separator);
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
 }

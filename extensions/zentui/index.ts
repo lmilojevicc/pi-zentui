@@ -17,6 +17,7 @@ import {
 	loadConfig,
 	type PathDisplayConfig,
 	type PolishedTuiConfig,
+	type SeparatorStyle,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
 	saveExtensionStatusColorMode,
@@ -26,6 +27,7 @@ import {
 	saveFooterSegmentsPatch,
 	saveIconsModePatch,
 	savePathDisplayPatch,
+	saveSeparatorPatch,
 	saveUiFeaturesPatch,
 	type UiFeaturesConfig,
 } from "./config";
@@ -448,6 +450,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		setContextStyle(style: ContextStyle) {
 			currentConfig = saveContextStylePatch(style);
+		},
+		setSeparator(separator: SeparatorStyle) {
+			currentConfig = saveSeparatorPatch(separator);
 		},
 		setPathDisplay(patch: Partial<PathDisplayConfig>) {
 			currentConfig = savePathDisplayPatch(patch);

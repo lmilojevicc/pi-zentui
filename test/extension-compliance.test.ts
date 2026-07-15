@@ -12,6 +12,7 @@ import {
 	defaultConfig,
 	type ExtensionStatusPlacement,
 	type PolishedTuiConfig,
+	type SeparatorStyle,
 } from "../extensions/zentui/config";
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
@@ -927,6 +928,80 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("$0.001");
 	});
 
+	it.each([
+		["pipe", " | "],
+		["dot", " · "],
+		["chevron", " › "],
+		["none", " "],
+	] as Array<
+		[SeparatorStyle, string]
+	>)("renders %s separators between extension statuses and built-in right segments", (separator, expectedSeparator) => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.tokenLabel = "tokens";
+		state.costLabel = "cost";
+		const config = { ...defaultConfig, separator };
+
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () =>
+				new Map<string, string>([
+					["beta", "B"],
+					["alpha", "A"],
+				]),
+		});
+		const rendered = footer?.render(160).join("\n") ?? "";
+
+		expect(rendered).toContain(["A", "B", "1%/200k", "tokens", "cost"].join(expectedSeparator));
+	});
+
+	it("keeps custom footer format $sep as a pipe", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.tokenLabel = "tokens";
+		const config = {
+			...defaultConfig,
+			separator: "dot" as const,
+			footerFormat: "$cwd$fill$context$sep$tokens",
+		};
+
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+
+		expect(footer?.render(120).join("\n") ?? "").toContain("1%/200k | tokens");
+	});
+
 	it("honors third-party status placements and hides off statuses", () => {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
@@ -943,14 +1018,19 @@ describe("Pi docs compliance", () => {
 		state.contextLabel = "1%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
-		const config = configWithExtensionStatuses({
-			placements: {
-				alpha: "left",
-				beta: "middle",
-				gamma: "right",
-				hidden: "off",
-			},
-		});
+		const config = {
+			...configWithExtensionStatuses({
+				placements: {
+					alpha: "left",
+					alpha2: "left",
+					beta: "middle",
+					beta2: "middle",
+					gamma: "right",
+					hidden: "off",
+				},
+			}),
+			separator: "chevron" as const,
+		};
 
 		installFooter(ctx as never, state, () => config, {
 			setRequestRender() {},
@@ -962,16 +1042,17 @@ describe("Pi docs compliance", () => {
 			getExtensionStatuses: () =>
 				new Map<string, string>([
 					["alpha", "left-status"],
+					["alpha2", "left-status-2"],
 					["beta", "middle-status"],
+					["beta2", "middle-status-2"],
 					["gamma", "right-status"],
 					["hidden", "hidden-status"],
 				]),
 		});
 		const rendered = footer?.render(180).join("\n") ?? "";
 
-		expect(rendered).toContain("left-status");
-		expect(rendered).toContain(" | left-status");
-		expect(rendered).toContain("middle-status");
+		expect(rendered).toContain(" › left-status › left-status-2");
+		expect(rendered).toContain("middle-status › middle-status-2");
 		expect(rendered).toContain("right-status");
 		expect(rendered).not.toContain("hidden-status");
 	});
@@ -1710,6 +1791,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1753,6 +1835,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1799,6 +1882,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1845,6 +1929,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1881,6 +1966,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1925,6 +2011,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -1976,6 +2063,7 @@ describe("Pi docs compliance", () => {
 					setIconMode() {},
 					setContextStyle() {},
 					setPathDisplay() {},
+					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -2039,6 +2127,7 @@ describe("Pi docs compliance", () => {
 					setIconMode() {},
 					setContextStyle() {},
 					setPathDisplay() {},
+					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
@@ -2111,6 +2200,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2144,6 +2234,89 @@ describe("Pi docs compliance", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("cycles the separator from the Zentui layout settings", async () => {
+		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+		const changes: SeparatorStyle[] = [];
+		const notifications: string[] = [];
+		let dependencyRenderRequests = 0;
+		let tuiRenderRequests = 0;
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				getConfig: () => defaultConfig,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setPathDisplay() {},
+				setSeparator(separator) {
+					changes.push(separator);
+				},
+				getActiveExtensionStatuses: () => new Map<string, string>(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {
+					dependencyRenderRequests += 1;
+				},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: makeTheme(),
+				notify(message: string) {
+					notifications.push(message);
+				},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory(
+						{
+							requestRender() {
+								tuiRenderRequests += 1;
+							},
+						},
+						makeTheme(),
+						{},
+						() => {},
+					) as { handleInput?: (data: string) => void };
+					component.handleInput?.("\t");
+					component.handleInput?.("\t");
+					component.handleInput?.("\x1b[B");
+					component.handleInput?.(" ");
+					component.handleInput?.(" ");
+					component.handleInput?.(" ");
+					component.handleInput?.(" ");
+				},
+			},
+		});
+
+		expect(changes).toEqual(["dot", "chevron", "none", "pipe"]);
+		expect(notifications).toEqual([
+			"Separator: dot",
+			"Separator: chevron",
+			"Separator: none",
+			"Separator: pipe",
+		]);
+		expect(dependencyRenderRequests).toBe(4);
+		expect(tuiRenderRequests).toBe(6);
+	});
+
 	it("keeps the Zentui settings command open after applying a change", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
@@ -2168,6 +2341,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2238,6 +2412,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2303,6 +2478,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
@@ -2359,6 +2535,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () =>
 					new Map<string, string>([
 						["alpha", "A"],
@@ -2420,6 +2597,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2481,6 +2659,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["alpha", "ok"]]),
 				setExtensionStatusPlacement(key, placement) {
 					placements.push({ key, placement });
@@ -2550,6 +2729,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
