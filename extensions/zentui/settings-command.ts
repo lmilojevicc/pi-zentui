@@ -693,7 +693,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								}
 
 								if (isFeatureSettingId(id) && isFeatureState(newValue)) {
-									settingsList.updateValue(id, newValue);
 									if (id === "editor") {
 										done(undefined);
 										// Changing the editor component while ctx.ui.custom() is active clears the
@@ -712,6 +711,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 
 									applyFeatureChange(id, newValue);
+									settingsList.updateValue(id, newValue);
 									return;
 								}
 
@@ -841,6 +841,8 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									tui.requestRender();
 								}
 							} catch (error) {
+								settingsList = makeSettingsList();
+								tui.requestRender();
 								const message = error instanceof Error ? error.message : String(error);
 								ctx.ui.notify(`Could not update Zentui settings: ${message}`, "error");
 							}

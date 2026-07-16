@@ -2240,6 +2240,74 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
+	it("does not update a settings value when persistence fails", async () => {
+		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+		const attemptedPatches: Partial<PolishedTuiConfig["features"]>[] = [];
+		const notifications: string[] = [];
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: inactiveSessionLifecycle,
+				getConfig: () => defaultConfig,
+				setColorSources() {},
+				setUiFeatures(patch) {
+					attemptedPatches.push(patch);
+					throw new Error("config is corrupt");
+				},
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				setSeparator() {},
+				getActiveExtensionStatuses: () => new Map<string, string>(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: makeTaggedTheme(),
+				notify(message: string) {
+					notifications.push(message);
+				},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory({ requestRender() {} }, makeTaggedTheme(), {}, () => {}) as {
+						handleInput?: (data: string) => void;
+					};
+					component.handleInput?.("\t");
+					component.handleInput?.("\x1b[B");
+					component.handleInput?.(" ");
+					component.handleInput?.("\x1b[B");
+					component.handleInput?.(" ");
+				},
+			},
+		});
+
+		expect(attemptedPatches).toEqual([{ statusLine: false }, { statusLine: false }]);
+		expect(notifications).toEqual([
+			"Could not update Zentui settings: config is corrupt",
+			"Could not update Zentui settings: config is corrupt",
+		]);
+	});
+
 	it("drops a deferred settings editor swap after session shutdown", async () => {
 		vi.useFakeTimers();
 		try {
