@@ -32,6 +32,12 @@ export type PathDisplayConfig = {
 	depth: number;
 };
 
+export type GitBranchMaxLength = "full" | number;
+
+export type GitBranchConfig = {
+	maxLength: GitBranchMaxLength;
+};
+
 export type ColorSourcesConfig = {
 	starship: ColorSource;
 	editor: ColorSource;
@@ -108,6 +114,7 @@ export type PolishedTuiConfig = {
 	contextStyle: ContextStyle;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
+	gitBranch: GitBranchConfig;
 	icons: ResolvedIcons;
 	colors: {
 		cwd: ColorSpec;
@@ -201,6 +208,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	contextStyle: "text",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
+	gitBranch: { maxLength: "full" },
 	icons: {
 		mode: "auto",
 		...NERD_DEFAULT_ICONS,
@@ -340,6 +348,20 @@ function parsePathDisplay(value: unknown): PathDisplayConfig {
 			? Math.min(5, Math.floor(rawDepth))
 			: defaults.depth;
 	return { mode, depth };
+}
+
+function normalizeGitBranchMaxLength(value: unknown): GitBranchMaxLength {
+	if (value === "full") return value;
+	if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+	return defaultConfig.gitBranch.maxLength;
+}
+
+function parseGitBranchConfig(value: unknown): GitBranchConfig {
+	const defaults = defaultConfig.gitBranch;
+	if (!isRecord(value)) return { ...defaults };
+	return {
+		maxLength: normalizeGitBranchMaxLength(value.maxLength),
+	};
 }
 
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -644,6 +666,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const gitMetrics = isRecord(config.gitMetrics)
 		? normalizeGitMetricsConfig(config.gitMetrics as Record<string, unknown>)
 		: defaultConfig.gitMetrics;
+	const gitBranch = parseGitBranchConfig(config.gitBranch);
 	const fixedEditor = isRecord(config.fixedEditor)
 		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
 		: defaultConfig.fixedEditor;
@@ -654,6 +677,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		contextStyle: parseContextStyle(config.contextStyle),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
+		gitBranch,
 		icons: resolveConfiguredIcons(iconMode, iconOverrides),
 		colors: {
 			...defaultConfig.colors,
@@ -806,6 +830,21 @@ export function savePathDisplayPatch(
 	if (patch.mode !== undefined) existing.mode = patch.mode;
 	if (patch.depth !== undefined) existing.depth = patch.depth;
 	record.pathDisplay = existing;
+	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	return mergeConfig(record);
+}
+
+export function saveGitBranchPatch(
+	patch: Partial<GitBranchConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	const record = readConfigRecord(path);
+	const existing = isRecord(record.gitBranch)
+		? { ...(record.gitBranch as Record<string, unknown>) }
+		: {};
+	if (patch.maxLength !== undefined)
+		existing.maxLength = normalizeGitBranchMaxLength(patch.maxLength);
+	record.gitBranch = existing;
 	writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	return mergeConfig(record);
 }

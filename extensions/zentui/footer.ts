@@ -9,6 +9,7 @@ import {
 	buildSessionDurationLabel,
 	contextColorTier,
 	formatCwdLabel,
+	formatGitBranchText,
 	formatGitCommitSegment,
 	formatGitMetricsSegment,
 	formatOsLabel,
@@ -193,6 +194,9 @@ export function installFooter(
 					}),
 				);
 				const branch = state.branch;
+				const branchText = branch
+					? formatGitBranchText(branch, config.gitBranch.maxLength)
+					: undefined;
 				const contextUsage = ctx.getContextUsage();
 				const contextWindow = ctx.model?.contextWindow ?? contextUsage?.contextWindow;
 				const contextLabel = buildContextDisplayLabel({
@@ -252,7 +256,11 @@ export function installFooter(
 						case "cwd":
 							return cwdLabel;
 						case "git_branch":
-							return branch ? (gitIcon ? `${gitIcon} ${gitColor(branch)}` : gitColor(branch)) : "";
+							return branchText
+								? gitIcon
+									? `${gitIcon} ${gitColor(branchText)}`
+									: gitColor(branchText)
+								: "";
 						case "git_status":
 							return statusBlock;
 						case "git_state":
@@ -378,8 +386,8 @@ export function installFooter(
 				};
 				const branchParts: string[] = [];
 				if (config.footerSegments.gitBranch) {
-					if (branch) {
-						branchParts.push("on", gitIcon, gitColor(branch));
+					if (branchText) {
+						branchParts.push("on", gitIcon, gitColor(branchText));
 					} else if (state.commit?.detached) {
 						// `HEAD` uses git-branch style; `(hash)` uses git-commit style
 						// (bold green) per Starship `git_commit` format.

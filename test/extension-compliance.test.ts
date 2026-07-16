@@ -1158,6 +1158,42 @@ describe("Pi docs compliance", () => {
 		expect(visibleWidth(line)).toBeLessThanOrEqual(44);
 	});
 
+	it("truncates built-in and template branch aliases with the shared branch length", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.branch = "feature/very-long";
+		const baseConfig: PolishedTuiConfig = {
+			...defaultConfig,
+			gitBranch: { maxLength: 6 },
+			icons: { ...defaultConfig.icons, git: "" },
+		};
+		const render = (footerFormat: string) => {
+			installFooter(ctx as never, state, () => ({ ...baseConfig, footerFormat }), {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map<string, string>(),
+			});
+			return footer?.render(160).join("\n") ?? "";
+		};
+
+		expect(render("")).toContain("on featu…");
+		expect(render("$git_branch|$branch")).toContain("featu…|featu…");
+		expect(render("$git_branch|$branch")).not.toContain("feature/very-long");
+	});
+
 	it("does not leave an extra branch gap when the git icon is empty", () => {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
@@ -1321,6 +1357,7 @@ describe("Pi docs compliance", () => {
 			const config: PolishedTuiConfig = {
 				...defaultConfig,
 				footerSegments: { ...defaultConfig.footerSegments, gitCommit: true },
+				gitBranch: { maxLength: 1 },
 				gitCommit: { hashLength: 7, onlyDetached, showTag: true },
 			};
 			installFooter(ctx as never, state, () => config, {
@@ -1791,6 +1828,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -1835,6 +1873,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -1882,6 +1921,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -1929,6 +1969,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -1966,6 +2007,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2011,6 +2053,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2063,6 +2106,7 @@ describe("Pi docs compliance", () => {
 					setIconMode() {},
 					setContextStyle() {},
 					setPathDisplay() {},
+					setGitBranch() {},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
@@ -2127,6 +2171,7 @@ describe("Pi docs compliance", () => {
 					setIconMode() {},
 					setContextStyle() {},
 					setPathDisplay() {},
+					setGitBranch() {},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
@@ -2200,6 +2245,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2256,6 +2302,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator(separator) {
 					changes.push(separator);
 				},
@@ -2317,6 +2364,67 @@ describe("Pi docs compliance", () => {
 		expect(tuiRenderRequests).toBe(6);
 	});
 
+	it("cycles branch length presets and returns custom JSON values to full", async () => {
+		const run = async (maxLength: PolishedTuiConfig["gitBranch"]["maxLength"], presses: number) => {
+			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+			const changes: Array<PolishedTuiConfig["gitBranch"]["maxLength"]> = [];
+			registerZentuiSettingsCommand(
+				{
+					registerCommand(_name: string, options: unknown) {
+						command = options as typeof command;
+					},
+				} as never,
+				{
+					getConfig: () => ({ ...defaultConfig, gitBranch: { maxLength } }),
+					setColorSources() {},
+					setUiFeatures: () => ({ applied: true }),
+					setFooterSegments() {},
+					setFooterFormat() {},
+					setIconMode() {},
+					setContextStyle() {},
+					setPathDisplay() {},
+					setGitBranch(patch) {
+						if (patch.maxLength !== undefined) changes.push(patch.maxLength);
+					},
+					setSeparator() {},
+					getActiveExtensionStatuses: () => new Map<string, string>(),
+					setExtensionStatusPlacement() {},
+					setExtensionStatusColorMode() {},
+					setFixedEditor() {},
+					requestRender() {},
+					settingsListTheme: {
+						label: (text) => text,
+						value: (text) => text,
+						description: (text) => text,
+						cursor: "> ",
+						hint: (text) => text,
+					},
+				},
+			);
+			await command?.handler("", {
+				hasUI: true,
+				mode: "tui",
+				ui: {
+					theme: makeTheme(),
+					notify() {},
+					async custom(factory: (...args: unknown[]) => unknown) {
+						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+							handleInput?: (data: string) => void;
+						};
+						component.handleInput?.("\t");
+						component.handleInput?.("\t");
+						for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
+						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
+					},
+				},
+			});
+			return changes;
+		};
+
+		expect(await run("full", 6)).toEqual([10, 20, 30, 40, 50, "full"]);
+		expect(await run(17, 1)).toEqual(["full"]);
+	});
+
 	it("keeps the Zentui settings command open after applying a change", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
@@ -2341,6 +2449,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2412,6 +2521,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2478,6 +2588,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
@@ -2535,6 +2646,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () =>
 					new Map<string, string>([
@@ -2597,6 +2709,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement(key, placement) {
@@ -2659,6 +2772,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["alpha", "ok"]]),
 				setExtensionStatusPlacement(key, placement) {
@@ -2729,6 +2843,7 @@ describe("Pi docs compliance", () => {
 				setIconMode() {},
 				setContextStyle() {},
 				setPathDisplay() {},
+				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},

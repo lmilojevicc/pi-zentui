@@ -13,6 +13,7 @@ import {
 	ensureConfigExists,
 	type FixedEditorConfig,
 	type FooterSegmentsConfig,
+	type GitBranchConfig,
 	type IconMode,
 	loadConfig,
 	type PathDisplayConfig,
@@ -25,6 +26,7 @@ import {
 	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
+	saveGitBranchPatch,
 	saveIconsModePatch,
 	savePathDisplayPatch,
 	saveSeparatorPatch,
@@ -456,6 +458,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		setPathDisplay(patch: Partial<PathDisplayConfig>) {
 			currentConfig = savePathDisplayPatch(patch);
+		},
+		setGitBranch(patch: Partial<GitBranchConfig>) {
+			currentConfig = saveGitBranchPatch(patch);
 		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();

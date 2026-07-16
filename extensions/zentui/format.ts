@@ -1,11 +1,13 @@
 import { homedir, hostname, userInfo } from "node:os";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type {
 	ColorSource,
 	ColorSpec,
 	ContextStyle,
 	ContextThresholds,
+	GitBranchMaxLength,
 	PathDisplayMode,
 } from "./config";
 import type { GitCommitInfo, GitMetricsInfo } from "./git";
@@ -389,6 +391,18 @@ export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwd
 		pathText = parts[parts.length - 1] ?? cwd;
 	}
 	return cwdIcon ? `${cwdIcon} ${pathText}` : pathText;
+}
+
+function stripAnsi(text: string): string {
+	return text.replace(/\u001B\[[0-9;]*m/g, "");
+}
+
+export function formatGitBranchText(
+	branch: string,
+	maxLength: GitBranchMaxLength = "full",
+): string {
+	if (maxLength === "full" || visibleWidth(branch) <= maxLength) return branch;
+	return stripAnsi(truncateToWidth(branch, maxLength, "…"));
 }
 
 export function formatUsernameHostLabel(icon: string): string {
