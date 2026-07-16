@@ -6,6 +6,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
+import { installPrototypePatch } from "./prototype-patch-registry";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -16,22 +17,8 @@ const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
-type RenderFn = (width: number) => string[];
-type InvalidateFn = () => void;
-
 type PatchableUserMessagePrototype = {
-	render: RenderFn;
-	invalidate: InvalidateFn;
 	children?: unknown[];
-	__zentuiUserMessageOriginalRender?: RenderFn;
-	__zentuiUserMessageOriginalInvalidate?: InvalidateFn;
-	__zentuiUserMessagePatched?: boolean;
-	__zentuiUserMessageInvalidatePatched?: boolean;
-	__zentuiUserMessageWrapper?: RenderFn;
-	__zentuiUserMessageInvalidateWrapper?: InvalidateFn;
-	__zentuiUserMessageActive?: boolean;
-	__zentuiUserMessageGetTheme?: () => Theme | undefined;
-	__zentuiUserMessageGetConfig?: () => PolishedTuiConfig;
 };
 
 type Cleanup = () => void;
@@ -228,62 +215,39 @@ export function installUserMessageStyle(
 	getTheme: () => Theme | undefined,
 	getConfig: () => PolishedTuiConfig,
 ): Cleanup {
-	const prototype = UserMessageComponent.prototype as unknown as PatchableUserMessagePrototype;
-	prototype.__zentuiUserMessageGetTheme = getTheme;
-	prototype.__zentuiUserMessageGetConfig = getConfig;
-	prototype.__zentuiUserMessageActive = true;
-
-	if (
-		!(
-			prototype.__zentuiUserMessageInvalidatePatched &&
-			prototype.invalidate === prototype.__zentuiUserMessageInvalidateWrapper
-		)
-	) {
-		prototype.__zentuiUserMessageOriginalInvalidate = prototype.invalidate;
-		const invalidateWrapper = function invalidateWithZentuiUserMessage(this: unknown): void {
-			if (isObject(this)) userMessageRenderCache.delete(this);
-			const originalInvalidate = prototype.__zentuiUserMessageOriginalInvalidate;
-			originalInvalidate?.call(this);
-		};
-		prototype.__zentuiUserMessageInvalidateWrapper = invalidateWrapper;
-		prototype.invalidate = invalidateWrapper;
-		prototype.__zentuiUserMessageInvalidatePatched = true;
-	}
-
-	if (
-		prototype.__zentuiUserMessagePatched &&
-		prototype.render === prototype.__zentuiUserMessageWrapper
-	) {
-		return () => {
-			prototype.__zentuiUserMessageActive = false;
-		};
-	}
-
-	prototype.__zentuiUserMessageOriginalRender = prototype.render;
-	const wrapper = function renderWithZentuiUserMessage(this: unknown, width: number): string[] {
-		const original = prototype.__zentuiUserMessageOriginalRender ?? prototype.render;
-		if (!prototype.__zentuiUserMessageActive) return original.call(this, width);
-
-		const config = prototype.__zentuiUserMessageGetConfig?.();
-		if (!config) return original.call(this, width);
-
-		const lines = renderZentuiUserMessage(
-			this as PatchableUserMessagePrototype,
-			width,
-			prototype.__zentuiUserMessageGetTheme?.(),
-			config,
-		);
-
-		if (!lines) return original.call(this, width);
-		if (lines.length === 0) return lines;
-
-		return withPromptZoneMarkers(lines);
-	};
-	prototype.__zentuiUserMessageWrapper = wrapper;
-	prototype.render = wrapper;
-	prototype.__zentuiUserMessagePatched = true;
-
+	const prototype = UserMessageComponent.prototype;
+	const cleanupInvalidate = installPrototypePatch(
+		prototype,
+		"invalidate",
+		"user-message-invalidate",
+		({ predecessor, receiver, args }) => {
+			if (isObject(receiver)) userMessageRenderCache.delete(receiver);
+			return Reflect.apply(predecessor, receiver, args);
+		},
+	);
+	const cleanupRender = installPrototypePatch(
+		prototype,
+		"render",
+		"user-message-render",
+		({ predecessor, receiver, args }) => {
+			const width = args[0];
+			if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
+			const lines = renderZentuiUserMessage(
+				receiver as PatchableUserMessagePrototype,
+				width,
+				getTheme(),
+				getConfig(),
+			);
+			if (!lines) return Reflect.apply(predecessor, receiver, args);
+			if (lines.length === 0) return lines;
+			return withPromptZoneMarkers(lines);
+		},
+	);
+	let cleaned = false;
 	return () => {
-		prototype.__zentuiUserMessageActive = false;
+		if (cleaned) return;
+		cleaned = true;
+		cleanupRender();
+		cleanupInvalidate();
 	};
 }

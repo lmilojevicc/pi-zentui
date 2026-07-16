@@ -17,7 +17,11 @@ import {
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import zentui from "../extensions/zentui/index";
-import { patchSelectorBorderStyle } from "../extensions/zentui/selector-border";
+import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
+import {
+	installSelectorBorderStyle,
+	patchSelectorBorderStyle,
+} from "../extensions/zentui/selector-border";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
 import { createInitialState } from "../extensions/zentui/state";
@@ -261,16 +265,9 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 afterEach(() => {
 	UserMessageComponent.prototype.render = originalUserMessageRender;
 	UserMessageComponent.prototype.invalidate = originalUserMessageInvalidate;
-	const prototype = UserMessageComponent.prototype as unknown as Record<string, unknown>;
-	prototype.__zentuiUserMessageOriginalRender = undefined;
-	prototype.__zentuiUserMessageOriginalInvalidate = undefined;
-	prototype.__zentuiUserMessagePatched = undefined;
-	prototype.__zentuiUserMessageInvalidatePatched = undefined;
-	prototype.__zentuiUserMessageWrapper = undefined;
-	prototype.__zentuiUserMessageInvalidateWrapper = undefined;
-	prototype.__zentuiUserMessageActive = undefined;
-	prototype.__zentuiUserMessageGetTheme = undefined;
-	prototype.__zentuiUserMessageGetConfig = undefined;
+	delete (UserMessageComponent.prototype as unknown as Record<PropertyKey, unknown>)[
+		ZENTUI_PROTOTYPE_PATCH_REGISTRY
+	];
 
 	ModelSelectorComponent.prototype.render = originalModelSelectorRender;
 	SettingsSelectorComponent.prototype.render = originalSettingsSelectorRender;
@@ -278,13 +275,9 @@ afterEach(() => {
 		ModelSelectorComponent.prototype,
 		SettingsSelectorComponent.prototype,
 	]) {
-		const patchable = selectorPrototype as unknown as Record<string, unknown>;
-		patchable.__zentuiSelectorBorderOriginalRender = undefined;
-		patchable.__zentuiSelectorBorderPatched = undefined;
-		patchable.__zentuiSelectorBorderWrapper = undefined;
-		patchable.__zentuiSelectorBorderActive = undefined;
-		patchable.__zentuiSelectorBorderGetTheme = undefined;
-		patchable.__zentuiSelectorBorderGetConfig = undefined;
+		delete (selectorPrototype as unknown as Record<PropertyKey, unknown>)[
+			ZENTUI_PROTOTYPE_PATCH_REGISTRY
+		];
 	}
 });
 
@@ -817,13 +810,13 @@ describe("Pi docs compliance", () => {
 		expect(prototype.render(8)).toEqual(["Selector title", "────────", "help text"]);
 	});
 
-	it("selector cleanup disables patched border styling", () => {
+	it("selector cleanup restores its exact predecessor and is idempotent", () => {
 		const prototype = {
 			render(width: number) {
 				return ["─".repeat(width), "body", "─".repeat(width)];
 			},
 		};
-
+		const predecessor = prototype.render;
 		const cleanup = patchSelectorBorderStyle(
 			prototype,
 			() => makeTaggedTheme(),
@@ -832,7 +825,75 @@ describe("Pi docs compliance", () => {
 
 		expect(prototype.render(8)[0]).toContain("[borderMuted]────────");
 		cleanup();
-		expect(prototype.render(8)).toEqual(["────────", "body", "────────"]);
+		cleanup();
+		expect(prototype.render).toBe(predecessor);
+	});
+
+	it("does not stack selector wrappers and ignores stale cleanup", () => {
+		const predecessor = vi.fn((width: number) => ["─".repeat(width), "body", "─".repeat(width)]);
+		const prototype = { render: predecessor };
+		const firstCleanup = patchSelectorBorderStyle(
+			prototype,
+			() => makeTaggedTheme("first:"),
+			() => defaultConfig,
+		);
+		const wrapper = prototype.render;
+		const secondCleanup = patchSelectorBorderStyle(
+			prototype,
+			() => makeTaggedTheme("second:"),
+			() => defaultConfig,
+		);
+
+		expect(prototype.render).toBe(wrapper);
+		firstCleanup();
+		const rendered = prototype.render(8);
+		expect(rendered[0]).toContain("[second:borderMuted]────────");
+		expect(rendered[0]).not.toContain("first:");
+		expect(predecessor).toHaveBeenCalledTimes(1);
+		secondCleanup();
+		expect(prototype.render).toBe(predecessor);
+	});
+
+	it("preserves a later selector replacement and its predecessor chain", () => {
+		const predecessor = (width: number) => ["─".repeat(width), "body", "─".repeat(width)];
+		const prototype = { render: predecessor };
+		const getTheme = vi.fn(() => makeTaggedTheme());
+		const cleanup = patchSelectorBorderStyle(prototype, getTheme, () => defaultConfig);
+		const zentuiWrapper = prototype.render;
+		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
+			return ["third-party", ...zentuiWrapper.call(this, width)];
+		};
+		prototype.render = thirdParty;
+
+		cleanup();
+		getTheme.mockClear();
+
+		expect(prototype.render).toBe(thirdParty);
+		expect(prototype.render(4)).toEqual(["third-party", "────", "body", "────"]);
+		expect(getTheme).not.toHaveBeenCalled();
+	});
+
+	it("restores model and settings selector prototypes independently", () => {
+		const modelPredecessor = ModelSelectorComponent.prototype.render;
+		const settingsPredecessor = SettingsSelectorComponent.prototype.render;
+		const cleanup = installSelectorBorderStyle(
+			() => makeTaggedTheme(),
+			() => defaultConfig,
+		);
+		const modelZentuiWrapper = ModelSelectorComponent.prototype.render;
+		const thirdPartyModelRender = function thirdPartyModelRender(
+			this: unknown,
+			width: number,
+		): string[] {
+			return modelZentuiWrapper.call(this as never, width);
+		};
+		ModelSelectorComponent.prototype.render = thirdPartyModelRender;
+
+		cleanup();
+
+		expect(ModelSelectorComponent.prototype.render).toBe(thirdPartyModelRender);
+		expect(SettingsSelectorComponent.prototype.render).toBe(settingsPredecessor);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(modelPredecessor);
 	});
 
 	it("renders user-message borders from the user-message color source", () => {
@@ -851,30 +912,37 @@ describe("Pi docs compliance", () => {
 		expect(terminalRendered).toContain("\u001b[90m────");
 	});
 
-	it("user-message cleanup disables patched rendering", () => {
+	it("user-message cleanup restores exact render and invalidate predecessors", () => {
+		const predecessorRender = UserMessageComponent.prototype.render;
+		const predecessorInvalidate = UserMessageComponent.prototype.invalidate;
 		const cleanup = installUserMessageStyle(
 			() => makeTaggedTheme(),
 			() => defaultConfig,
 		);
 
+		expect(UserMessageComponent.prototype.render).not.toBe(predecessorRender);
+		expect(UserMessageComponent.prototype.invalidate).not.toBe(predecessorInvalidate);
 		expect(new UserMessageComponent("hello").render(80).join("\n")).toContain("[borderMuted]────");
-		const prototype = UserMessageComponent.prototype as unknown as Record<string, unknown>;
-		prototype.__zentuiUserMessageOriginalRender = (width: number) => [`original:${width}`];
 		cleanup();
-		expect(new UserMessageComponent("hello").render(80)).toEqual(["original:80"]);
+		cleanup();
+
+		expect(UserMessageComponent.prototype.render).toBe(predecessorRender);
+		expect(UserMessageComponent.prototype.invalidate).toBe(predecessorInvalidate);
 	});
 
-	it("falls back to the original user-message render when text cannot be found", () => {
-		installUserMessageStyle(
+	it("falls back to the predecessor user-message render when text cannot be found", () => {
+		const predecessor = (width: number) => [`fallback:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const cleanup = installUserMessageStyle(
 			() => makeTaggedTheme(),
 			() => defaultConfig,
 		);
-		const prototype = UserMessageComponent.prototype as unknown as Record<string, unknown>;
-		prototype.__zentuiUserMessageOriginalRender = (width: number) => [`fallback:${width}`];
 
 		const lines = UserMessageComponent.prototype.render.call({ children: [] }, 42);
 
 		expect(lines).toEqual(["fallback:42"]);
+		cleanup();
+		expect(UserMessageComponent.prototype.render).toBe(predecessor);
 	});
 
 	it("preserves OSC 133 prompt-zone markers around user-message output", async () => {
@@ -897,21 +965,58 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
 	});
 
-	it("refreshes user-message render state after extension reload", () => {
-		installUserMessageStyle(
+	it("reuses user-message wrappers while stale cleanup leaves the new registration active", () => {
+		const predecessorRender = UserMessageComponent.prototype.render;
+		const predecessorInvalidate = UserMessageComponent.prototype.invalidate;
+		const firstCleanup = installUserMessageStyle(
 			() => makeTaggedTheme("first:"),
 			() => defaultConfig,
 		);
+		const renderWrapper = UserMessageComponent.prototype.render;
+		const invalidateWrapper = UserMessageComponent.prototype.invalidate;
 		const firstRender = new UserMessageComponent("hello").render(80).join("\n");
 		expect(firstRender).toMatch(/\[first:accent\]│|\u001b\[34m│\u001b\[0m/);
 
-		installUserMessageStyle(
+		const secondCleanup = installUserMessageStyle(
 			() => makeTaggedTheme("second:"),
 			() => defaultConfig,
 		);
+		expect(UserMessageComponent.prototype.render).toBe(renderWrapper);
+		expect(UserMessageComponent.prototype.invalidate).toBe(invalidateWrapper);
+		firstCleanup();
 		const secondRender = new UserMessageComponent("hello").render(80).join("\n");
 		expect(secondRender).not.toContain("[first:accent]│");
 		expect(secondRender).toMatch(/\[second:accent\]│|\u001b\[34m│\u001b\[0m/);
+
+		secondCleanup();
+		expect(UserMessageComponent.prototype.render).toBe(predecessorRender);
+		expect(UserMessageComponent.prototype.invalidate).toBe(predecessorInvalidate);
+	});
+
+	it("keeps a later user-message replacement and releases old theme closures", () => {
+		const prototype = UserMessageComponent.prototype;
+		const predecessorRender = (width: number) => [`base:${width}`];
+		const predecessorInvalidate = vi.fn();
+		prototype.render = predecessorRender;
+		prototype.invalidate = predecessorInvalidate;
+		const getTheme = vi.fn(() => makeTaggedTheme("old:"));
+		const cleanup = installUserMessageStyle(getTheme, () => defaultConfig);
+		const zentuiWrapper = prototype.render;
+		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
+			return ["third-party", ...zentuiWrapper.call(this as never, width)];
+		};
+		prototype.render = thirdParty;
+
+		cleanup();
+		getTheme.mockClear();
+
+		expect(prototype.render).toBe(thirdParty);
+		expect(prototype.invalidate).toBe(predecessorInvalidate);
+		expect(prototype.render.call({ children: [{ text: "hello" }] } as never, 12)).toEqual([
+			"third-party",
+			"base:12",
+		]);
+		expect(getTheme).not.toHaveBeenCalled();
 	});
 
 	it("keeps custom footer output within the requested render width", async () => {

@@ -4,18 +4,11 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { PolishedTuiConfig } from "./config";
+import { installPrototypePatch } from "./prototype-patch-registry";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, renderEditorBorder } from "./style";
 
-type RenderFn = (width: number) => string[];
-
 type PatchableSelectorPrototype = {
-	render: RenderFn;
-	__zentuiSelectorBorderOriginalRender?: RenderFn;
-	__zentuiSelectorBorderPatched?: boolean;
-	__zentuiSelectorBorderWrapper?: RenderFn;
-	__zentuiSelectorBorderActive?: boolean;
-	__zentuiSelectorBorderGetTheme?: () => Theme | undefined;
-	__zentuiSelectorBorderGetConfig?: () => PolishedTuiConfig;
+	render: (width: number) => string[];
 };
 
 type Cleanup = () => void;
@@ -45,44 +38,22 @@ export function patchSelectorBorderStyle(
 	getTheme?: () => Theme | undefined,
 	getConfig?: () => PolishedTuiConfig,
 ): Cleanup {
-	prototype.__zentuiSelectorBorderGetTheme = getTheme;
-	prototype.__zentuiSelectorBorderGetConfig = getConfig;
-	prototype.__zentuiSelectorBorderActive = true;
+	return installPrototypePatch(
+		prototype,
+		"render",
+		"selector-border-render",
+		({ predecessor, receiver, args }) => {
+			const lines = Reflect.apply(predecessor, receiver, args) as string[];
+			const width = args[0];
+			if (lines.length === 0 || typeof width !== "number" || width <= 0) return lines;
 
-	if (
-		prototype.__zentuiSelectorBorderPatched &&
-		prototype.render === prototype.__zentuiSelectorBorderWrapper
-	) {
-		return () => {
-			prototype.__zentuiSelectorBorderActive = false;
-		};
-	}
-
-	prototype.__zentuiSelectorBorderOriginalRender = prototype.render;
-	const wrapper = function renderWithZentuiSelectorBorders(this: unknown, width: number): string[] {
-		const original = prototype.__zentuiSelectorBorderOriginalRender ?? prototype.render;
-		if (!prototype.__zentuiSelectorBorderActive) return original.call(this, width);
-
-		const lines = original.call(this, width);
-		if (lines.length === 0 || width <= 0) return lines;
-
-		return lines.map((line, index) => {
-			if (index !== 0 && index !== lines.length - 1) return line;
-			if (!isHorizontalBorderLine(line)) return line;
-			return renderBorderLine(
-				width,
-				prototype.__zentuiSelectorBorderGetTheme?.(),
-				prototype.__zentuiSelectorBorderGetConfig?.(),
-			);
-		});
-	};
-	prototype.__zentuiSelectorBorderWrapper = wrapper;
-	prototype.render = wrapper;
-	prototype.__zentuiSelectorBorderPatched = true;
-
-	return () => {
-		prototype.__zentuiSelectorBorderActive = false;
-	};
+			return lines.map((line, index) => {
+				if (index !== 0 && index !== lines.length - 1) return line;
+				if (!isHorizontalBorderLine(line)) return line;
+				return renderBorderLine(width, getTheme?.(), getConfig?.());
+			});
+		},
+	);
 }
 
 export function installSelectorBorderStyle(
