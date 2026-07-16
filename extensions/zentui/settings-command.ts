@@ -33,6 +33,7 @@ import {
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
+import type { SessionLifecycle } from "./session-lifecycle";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
@@ -73,6 +74,7 @@ type LayoutSettingId =
 	| "iconMode";
 
 type SettingsCommandDeps = {
+	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	setColorSources: (patch: Partial<ColorSourcesConfig>) => void;
 	setUiFeatures: (
@@ -697,14 +699,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										// Changing the editor component while ctx.ui.custom() is active clears the
 										// custom component without resolving it, leaving Pi's input loop stuck.
 										// Close the settings UI first, then apply the editor swap on the next tick.
-										setTimeout(() => {
+										const applyEditorChange = () => {
 											try {
 												applyFeatureChange(id, newValue);
 											} catch (error) {
 												const message = error instanceof Error ? error.message : String(error);
 												ctx.ui.notify(`Could not update Zentui settings: ${message}`, "error");
 											}
-										}, 0);
+										};
+										deps.sessionLifecycle.defer(applyEditorChange);
 										return;
 									}
 

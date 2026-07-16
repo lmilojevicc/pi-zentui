@@ -12,6 +12,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 
 import type { PolishedTuiConfig } from "../config";
+import type { SessionLifecycle } from "../session-lifecycle";
 import { renderStyleForSourceOrFallback } from "../style";
 import { TerminalSplitCompositor } from "./compositor";
 import type { TuiLike } from "./types";
@@ -20,15 +21,16 @@ let compositor: TerminalSplitCompositor | null = null;
 let didWarnUnsupported = false;
 let copyNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 let storedCtx: ExtensionContext | null = null;
+let probeGeneration = 0;
 const COPY_NOTICE_KEY = "zentui-copy-notice";
 const COPY_NOTICE_MS = 2500;
 
 function clearCopyNotice(ctx: ExtensionContext): void {
-	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
 	if (copyNoticeTimer) {
 		clearTimeout(copyNoticeTimer);
 		copyNoticeTimer = null;
 	}
+	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
 	ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
 }
 
@@ -79,9 +81,12 @@ function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfi
 		return new CopyNoticeComponent(text, border);
 	});
 	if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
+	const generation = probeGeneration;
 	copyNoticeTimer = setTimeout(() => {
-		ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
 		copyNoticeTimer = null;
+		if (generation !== probeGeneration || storedCtx !== ctx) return;
+		if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
+		ctx.ui.setWidget(COPY_NOTICE_KEY, undefined);
 	}, COPY_NOTICE_MS);
 }
 
@@ -89,17 +94,19 @@ function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfi
  * Minimal component that triggers a callback on first render, then returns [].
  */
 class ProbeComponent implements Component {
+	private readonly lifecycle: SessionLifecycle;
 	private readonly onInstall: () => void;
 	private hasQueuedInstall = false;
 
-	constructor(onInstall: () => void) {
+	constructor(lifecycle: SessionLifecycle, onInstall: () => void) {
+		this.lifecycle = lifecycle;
 		this.onInstall = onInstall;
 	}
 
 	render(): string[] {
 		if (!this.hasQueuedInstall) {
 			this.hasQueuedInstall = true;
-			queueMicrotask(this.onInstall);
+			this.lifecycle.queueMicrotask(this.onInstall);
 		}
 		return [];
 	}
@@ -163,17 +170,23 @@ const WIDGET_KEY = "zentui-fixed-editor-probe";
 export function installFixedEditorProbe(
 	ctx: ExtensionContext,
 	getConfig: () => PolishedTuiConfig,
+	lifecycle: SessionLifecycle,
 ): void {
-	if (!ctx.hasUI) return;
+	if (!lifecycle.isCurrent() || !ctx.hasUI) return;
 	if (typeof ctx.ui.setWidget !== "function") return;
 	didWarnUnsupported = false;
 	storedCtx = ctx;
+	probeGeneration += 1;
+	const generation = probeGeneration;
 
 	ctx.ui.setWidget(
 		WIDGET_KEY,
 		(tui: TUI) =>
-			new ProbeComponent(() => {
-				queueMicrotask(() => installFromProbe(ctx, tui, getConfig));
+			new ProbeComponent(lifecycle, () => {
+				lifecycle.queueMicrotask(() => {
+					if (generation !== probeGeneration) return;
+					installFromProbe(ctx, tui, getConfig);
+				});
 			}),
 		{ placement: "aboveEditor" },
 	);
@@ -184,6 +197,7 @@ export function installFixedEditorProbe(
  * Call from session_shutdown and cleanupUi.
  */
 export function disposeFixedEditor(): void {
+	probeGeneration += 1;
 	compositor?.dispose();
 	compositor = null;
 	if (copyNoticeTimer) {
@@ -191,7 +205,9 @@ export function disposeFixedEditor(): void {
 		copyNoticeTimer = null;
 	}
 	if (storedCtx) {
-		clearCopyNotice(storedCtx);
+		const ctx = storedCtx;
+		storedCtx = null;
+		clearCopyNotice(ctx);
 	}
 }
 
@@ -200,6 +216,7 @@ export function disposeFixedEditor(): void {
  * Useful for full UI cleanup.
  */
 export function removeFixedEditorProbe(ctx: ExtensionContext): void {
+	probeGeneration += 1;
 	if (!ctx.hasUI) return;
 	if (typeof ctx.ui.setWidget !== "function") return;
 	ctx.ui.setWidget(WIDGET_KEY, undefined);

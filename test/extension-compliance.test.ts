@@ -18,6 +18,7 @@ import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import zentui from "../extensions/zentui/index";
 import { patchSelectorBorderStyle } from "../extensions/zentui/selector-border";
+import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
 import { createInitialState } from "../extensions/zentui/state";
 import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
@@ -33,6 +34,7 @@ const originalUserMessageRender = UserMessageComponent.prototype.render;
 const originalUserMessageInvalidate = UserMessageComponent.prototype.invalidate;
 const originalModelSelectorRender = ModelSelectorComponent.prototype.render;
 const originalSettingsSelectorRender = SettingsSelectorComponent.prototype.render;
+const inactiveSessionLifecycle = new SessionLifecycle();
 
 function makeTheme(): Theme {
 	return {
@@ -423,11 +425,13 @@ describe("Pi docs compliance", () => {
 			setText() {},
 		});
 		let editorFactory: unknown = existingEditorFactory;
+		let setEditorCalls = 0;
 		const ctx = makeContext({
 			ui: {
 				theme: makeTheme(),
 				setFooter() {},
 				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
 					editorFactory = factory;
 				},
 				getEditorComponent() {
@@ -440,8 +444,43 @@ describe("Pi docs compliance", () => {
 		expect(editorFactory).not.toBe(existingEditorFactory);
 
 		await emit(handlers, "session_shutdown", ctx);
+		await emit(handlers, "session_shutdown", ctx);
 
 		expect(editorFactory).toBe(existingEditorFactory);
+		expect(setEditorCalls).toBe(2);
+	});
+
+	it("does not let an old session shutdown clean up the current session UI", async () => {
+		const handlers = loadExtension();
+		const makeSessionContext = () => {
+			let editorFactory: unknown;
+			let footerClears = 0;
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setFooter(factory: unknown) {
+						if (factory === undefined) footerClears += 1;
+					},
+					setEditorComponent(factory: unknown) {
+						editorFactory = factory;
+					},
+					getEditorComponent() {
+						return editorFactory;
+					},
+				},
+			});
+			return { ctx, getEditor: () => editorFactory, getFooterClears: () => footerClears };
+		};
+		const oldSession = makeSessionContext();
+		const currentSession = makeSessionContext();
+		await emit(handlers, "session_start", oldSession.ctx);
+		await emit(handlers, "session_start", currentSession.ctx);
+		const currentEditor = currentSession.getEditor();
+
+		await emit(handlers, "session_shutdown", oldSession.ctx);
+
+		expect(currentSession.getEditor()).toBe(currentEditor);
+		expect(currentSession.getFooterClears()).toBe(0);
 	});
 
 	it("refreshes a stale Zentui editor factory on extension reload instead of adopting old closures", async () => {
@@ -566,6 +605,48 @@ describe("Pi docs compliance", () => {
 		);
 		expect(editor.render(80).join("\n")).toContain("late vim editor");
 		expect(editor.render(80).join("\n")).toContain("NORMAL");
+	});
+
+	it("does not reconcile an editor after its session shuts down", async () => {
+		vi.useFakeTimers();
+		try {
+			const handlers = loadExtension();
+			const laterEditorFactory = () => ({
+				render: () => ["later"],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			});
+			let editorFactory: unknown;
+			let stale = false;
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setFooter() {
+						if (stale) throw new Error("stale setFooter");
+					},
+					setEditorComponent(factory: unknown) {
+						if (stale) throw new Error("stale setEditorComponent");
+						editorFactory = factory;
+					},
+					getEditorComponent() {
+						if (stale) throw new Error("stale getEditorComponent");
+						return editorFactory;
+					},
+				},
+			});
+
+			await emit(handlers, "session_start", ctx);
+			editorFactory = laterEditorFactory;
+			await emit(handlers, "session_shutdown", ctx);
+			stale = true;
+
+			expect(() => vi.runAllTimers()).not.toThrow();
+			expect(editorFactory).toBe(laterEditorFactory);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("renders user messages like the ZentUI prompt box", () => {
@@ -1820,6 +1901,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -1865,6 +1947,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -1910,6 +1993,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures(patch) {
@@ -1958,6 +2042,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures(patch) {
@@ -1996,6 +2081,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures(patch) {
@@ -2041,6 +2127,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({
@@ -2087,6 +2174,8 @@ describe("Pi docs compliance", () => {
 			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 			let doneCalls = 0;
 			const doneCallsAtFeatureChange: number[] = [];
+			const sessionLifecycle = new SessionLifecycle();
+			sessionLifecycle.start();
 
 			registerZentuiSettingsCommand(
 				{
@@ -2095,6 +2184,7 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					sessionLifecycle,
 					getConfig: () => defaultConfig,
 					setColorSources() {},
 					setUiFeatures() {
@@ -2150,6 +2240,78 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
+	it("drops a deferred settings editor swap after session shutdown", async () => {
+		vi.useFakeTimers();
+		try {
+			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+			let featureChanges = 0;
+			let stale = false;
+			const sessionLifecycle = new SessionLifecycle();
+			sessionLifecycle.start();
+			registerZentuiSettingsCommand(
+				{
+					registerCommand(_name: string, options: unknown) {
+						command = options as typeof command;
+					},
+				} as never,
+				{
+					sessionLifecycle,
+					getConfig: () => defaultConfig,
+					setColorSources() {},
+					setUiFeatures() {
+						featureChanges += 1;
+						return { applied: true };
+					},
+					setFooterSegments() {},
+					setFooterFormat() {},
+					setIconMode() {},
+					setContextStyle() {},
+					setPathDisplay() {},
+					setGitBranch() {},
+					setSeparator() {},
+					getActiveExtensionStatuses: () => new Map<string, string>(),
+					setExtensionStatusPlacement() {},
+					setExtensionStatusColorMode() {},
+					setFixedEditor() {},
+					requestRender() {},
+					settingsListTheme: {
+						label: (text) => text,
+						value: (text) => text,
+						description: (text) => text,
+						cursor: "> ",
+						hint: (text) => text,
+					},
+				},
+			);
+			const ctx = {
+				hasUI: true,
+				mode: "tui",
+				ui: {
+					theme: makeTaggedTheme(),
+					notify() {
+						if (stale) throw new Error("stale notify");
+					},
+					async custom(factory: (...args: unknown[]) => unknown) {
+						const component = factory({ requestRender() {} }, makeTaggedTheme(), {}, () => {}) as {
+							handleInput?: (data: string) => void;
+						};
+						component.handleInput?.("\t");
+						component.handleInput?.(" ");
+					},
+				},
+			};
+
+			await command?.handler("", ctx);
+			sessionLifecycle.shutdown();
+			stale = true;
+
+			expect(() => vi.runAllTimers()).not.toThrow();
+			expect(featureChanges).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("renders Zentui settings with mode-aware top and bottom borders", async () => {
 		const settingsWidth = 160;
 		async function renderSettings(config: PolishedTuiConfig) {
@@ -2163,6 +2325,7 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					sessionLifecycle: inactiveSessionLifecycle,
 					getConfig: () => config,
 					setColorSources() {},
 					setUiFeatures: () => ({ applied: true }),
@@ -2237,6 +2400,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2294,6 +2458,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2375,6 +2540,7 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					sessionLifecycle: inactiveSessionLifecycle,
 					getConfig: () => ({ ...defaultConfig, gitBranch: { maxLength } }),
 					setColorSources() {},
 					setUiFeatures: () => ({ applied: true }),
@@ -2439,6 +2605,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources(patch) {
 					changes.push(patch);
@@ -2511,6 +2678,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => configWithColorSources({ editor: "theme", userMessages: "terminal" }),
 				setColorSources(patch) {
 					changes.push(patch);
@@ -2580,6 +2748,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2638,6 +2807,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2701,6 +2871,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2764,6 +2935,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
 				setUiFeatures: () => ({ applied: true }),
@@ -2832,6 +3004,7 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () =>
 					configWithExtensionStatuses({
 						placements: { active: "middle", inactive: "left" },
