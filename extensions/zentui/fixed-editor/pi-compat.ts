@@ -35,6 +35,9 @@ export type PiFixedEditorCapabilities = {
 	addInputListener: (
 		listener: (data: string) => { consume?: boolean; data?: string } | undefined,
 	) => unknown;
+	removeInputListener: (
+		listener: (data: string) => { consume?: boolean; data?: string } | undefined,
+	) => void;
 	requestRender?: (force?: boolean) => void;
 };
 
@@ -157,12 +160,16 @@ function rowsReader(
 	fallback: number,
 ): () => number {
 	return () => {
-		const value = readRowsValue(terminal, descriptor);
-		return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+		try {
+			const value = readRowsValue(terminal, descriptor);
+			return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+		} catch {
+			return fallback;
+		}
 	};
 }
 
-export function inspectPiTui(value: unknown): PiFixedEditorCapabilities | undefined {
+function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefined {
 	if (!isRecord(value)) return undefined;
 	const terminalValue = Reflect.get(value, "terminal");
 	if (!isRecord(terminalValue)) return undefined;
@@ -173,7 +180,13 @@ export function inspectPiTui(value: unknown): PiFixedEditorCapabilities | undefi
 	if (!renderMethod || !doRenderMethod || !writeMethod) return undefined;
 
 	const addInputListenerValue = Reflect.get(value, "addInputListener");
-	if (typeof addInputListenerValue !== "function") return undefined;
+	const removeInputListenerValue = Reflect.get(value, "removeInputListener");
+	if (
+		typeof addInputListenerValue !== "function" ||
+		typeof removeInputListenerValue !== "function"
+	) {
+		return undefined;
+	}
 	const children = Reflect.get(value, "children");
 	if (!Array.isArray(children) || children.length < 3) return undefined;
 	const editorIndex = findEditorContainerIndex(children, Reflect.get(value, "focusedComponent"));
@@ -221,39 +234,63 @@ export function inspectPiTui(value: unknown): PiFixedEditorCapabilities | undefi
 		rowsOwnDescriptor,
 		readRawRows: rowsReader(terminalValue, rowsDescriptor, initialRows),
 		getColumns: () => {
-			const current = Reflect.get(terminalValue, "columns");
-			return typeof current === "number" && Number.isFinite(current) ? current : columns;
+			try {
+				const current = Reflect.get(terminalValue, "columns");
+				return typeof current === "number" && Number.isFinite(current) ? current : columns;
+			} catch {
+				return columns;
+			}
 		},
 		hasVisibleOverlay: () => {
-			if (
-				typeof hasOverlayValue === "function" &&
-				Reflect.apply(hasOverlayValue, value, []) === true
-			) {
+			try {
+				if (
+					typeof hasOverlayValue === "function" &&
+					Reflect.apply(hasOverlayValue, value, []) === true
+				) {
+					return true;
+				}
+				const stack = Reflect.get(value, "overlayStack");
+				return (
+					Array.isArray(stack) && stack.some((entry) => isRecord(entry) && entry.hidden !== true)
+				);
+			} catch {
 				return true;
 			}
-			const stack = Reflect.get(value, "overlayStack");
-			return (
-				Array.isArray(stack) && stack.some((entry) => isRecord(entry) && entry.hidden !== true)
-			);
 		},
 		getCursorBookkeeping: () => {
-			const currentHardwareCursorRow = Reflect.get(value, "hardwareCursorRow");
-			const currentViewportTop = Reflect.get(value, "previousViewportTop");
-			return {
-				hardwareCursorRow:
-					typeof currentHardwareCursorRow === "number" && Number.isFinite(currentHardwareCursorRow)
-						? currentHardwareCursorRow
-						: hardwareCursorRow,
-				previousViewportTop:
-					typeof currentViewportTop === "number" && Number.isFinite(currentViewportTop)
-						? currentViewportTop
-						: previousViewportTop,
-			};
+			try {
+				const currentHardwareCursorRow = Reflect.get(value, "hardwareCursorRow");
+				const currentViewportTop = Reflect.get(value, "previousViewportTop");
+				return {
+					hardwareCursorRow:
+						typeof currentHardwareCursorRow === "number" &&
+						Number.isFinite(currentHardwareCursorRow)
+							? currentHardwareCursorRow
+							: hardwareCursorRow,
+					previousViewportTop:
+						typeof currentViewportTop === "number" && Number.isFinite(currentViewportTop)
+							? currentViewportTop
+							: previousViewportTop,
+				};
+			} catch {
+				return { hardwareCursorRow, previousViewportTop };
+			}
 		},
 		addInputListener: (listener) => Reflect.apply(addInputListenerValue, value, [listener]),
+		removeInputListener: (listener) => {
+			Reflect.apply(removeInputListenerValue, value, [listener]);
+		},
 		requestRender:
 			typeof requestRenderValue === "function"
 				? (force) => Reflect.apply(requestRenderValue, value, [force])
 				: undefined,
 	};
+}
+
+export function inspectPiTui(value: unknown): PiFixedEditorCapabilities | undefined {
+	try {
+		return inspectPiTuiUnsafe(value);
+	} catch {
+		return undefined;
+	}
 }

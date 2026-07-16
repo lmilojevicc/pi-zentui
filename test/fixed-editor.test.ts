@@ -28,7 +28,14 @@ function makeValidPiFixture() {
 	let inputListener:
 		| ((data: string) => { consume?: boolean; data?: string } | undefined)
 		| undefined;
-	const removeInputListener = vi.fn();
+	const inputListenerDisposer = vi.fn(() => {
+		inputListener = undefined;
+	});
+	const removeInputListener = vi.fn(
+		(listener: (data: string) => { consume?: boolean; data?: string } | undefined) => {
+			if (inputListener === listener) inputListener = undefined;
+		},
+	);
 	const terminalWrite = vi.fn();
 	const makeRenderable = (label: string) => ({
 		render(width: number) {
@@ -63,7 +70,7 @@ function makeValidPiFixture() {
 	const addInputListener = vi.fn(
 		(listener: (data: string) => { consume?: boolean; data?: string } | undefined) => {
 			inputListener = listener;
-			return removeInputListener;
+			return inputListenerDisposer;
 		},
 	);
 	const tui = {
@@ -74,6 +81,7 @@ function makeValidPiFixture() {
 		doRender,
 		requestRender,
 		addInputListener,
+		removeInputListener,
 		hasOverlay: () => false,
 		overlayStack: [] as { hidden?: boolean }[],
 		hardwareCursorRow: 4,
@@ -88,6 +96,7 @@ function makeValidPiFixture() {
 		doRender,
 		requestRender,
 		addInputListener,
+		inputListenerDisposer,
 		removeInputListener,
 		getInputListener: () => inputListener,
 		setRows: (rows: number) => {
@@ -122,6 +131,11 @@ describe("Pi fixed-editor compatibility", () => {
 			"input listener",
 			(fixture: ReturnType<typeof makeValidPiFixture>) =>
 				Reflect.deleteProperty(fixture.tui, "addInputListener"),
+		],
+		[
+			"input listener removal",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "removeInputListener"),
 		],
 		[
 			"children",
@@ -174,6 +188,21 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.tui.render).toBe(render);
 		expect(fixture.tui.doRender).toBe(doRender);
 		expect(fixture.terminal.write).toBe(write);
+	});
+
+	it("fails closed when a private Pi getter or proxy trap throws", () => {
+		const fixture = makeValidPiFixture();
+		const throwingTui = new Proxy(fixture.tui, {
+			get(target, property, receiver) {
+				if (property === "children") throw new Error("private shape changed");
+				return Reflect.get(target, property, receiver);
+			},
+		});
+
+		expect(() => inspectPiTui(throwingTui)).not.toThrow();
+		expect(inspectPiTui(throwingTui)).toBeUndefined();
+		expect(fixture.terminalWrite).not.toHaveBeenCalled();
+		expect(fixture.addInputListener).not.toHaveBeenCalled();
 	});
 
 	it("rejects non-configurable rows and non-writable render methods before writes", () => {
@@ -252,7 +281,9 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(
 			fixture.cluster.map((component) => Object.getOwnPropertyDescriptor(component, "render")),
 		).toEqual(clusterDescriptors);
-		expect(fixture.removeInputListener).toHaveBeenCalledTimes(1);
+		expect(fixture.inputListenerDisposer).toHaveBeenCalledTimes(1);
+		expect(fixture.removeInputListener).not.toHaveBeenCalled();
+		expect(fixture.getInputListener()).toBeUndefined();
 		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
 	});
 
@@ -261,7 +292,10 @@ describe("Pi fixed-editor compatibility", () => {
 		Reflect.set(
 			fixture.tui,
 			"addInputListener",
-			vi.fn(() => undefined),
+			vi.fn((listener: (data: string) => { consume?: boolean; data?: string } | undefined) => {
+				fixture.addInputListener(listener);
+				return undefined;
+			}),
 		);
 		const capabilities = inspectPiTui(fixture.tui);
 		expect(capabilities).toBeDefined();
@@ -278,6 +312,8 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.tui.render).toBe(render);
 		expect(fixture.terminal.write).toBe(write);
 		expect(fixture.cluster.every((component) => component.render(80).length > 0)).toBe(true);
+		expect(fixture.removeInputListener).toHaveBeenCalledTimes(1);
+		expect(fixture.getInputListener()).toBeUndefined();
 		expect(fixture.terminalWrite).not.toHaveBeenCalled();
 	});
 

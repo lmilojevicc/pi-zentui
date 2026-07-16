@@ -86,7 +86,10 @@ function sanitizeLine(line: string, width: number): string {
 export class TerminalSplitCompositor {
 	private readonly capabilities: PiFixedEditorCapabilities;
 	private readonly getConfig: () => CompositorConfig;
-	private removeInputListener: (() => void) | null = null;
+	private inputListener:
+		| ((data: string) => { consume?: boolean; data?: string } | undefined)
+		| null = null;
+	private inputListenerDisposer: (() => void) | null = null;
 	private emergencyCleanup: (() => void) | null = null;
 
 	private installed = false;
@@ -162,11 +165,12 @@ export class TerminalSplitCompositor {
 			});
 			replaceMethod(this.capabilities.writeMethod, (data) => this.write(String(data)));
 
-			const removeInputListener = this.capabilities.addInputListener((data) =>
-				this.handleInput(data),
-			);
-			if (typeof removeInputListener !== "function") throw new TypeError("Invalid input listener");
-			this.removeInputListener = removeInputListener as () => void;
+			this.inputListener = (data) => this.handleInput(data);
+			const inputListenerDisposer = this.capabilities.addInputListener(this.inputListener);
+			if (typeof inputListenerDisposer !== "function") {
+				throw new TypeError("Invalid input listener disposer");
+			}
+			this.inputListenerDisposer = inputListenerDisposer as () => void;
 			this.emergencyCleanup = () => {
 				if (!this.disposed) this.restoreForExit();
 			};
@@ -195,11 +199,7 @@ export class TerminalSplitCompositor {
 		if (this.disposed) return;
 		this.disposed = true;
 		if (!this.installed) return;
-		const removeInputListener = this.removeInputListener;
-		this.removeInputListener = null;
-		try {
-			removeInputListener?.();
-		} catch {}
+		this.clearInputListener();
 		if (this.mouseResumeTimer) {
 			clearTimeout(this.mouseResumeTimer);
 			this.mouseResumeTimer = null;
@@ -218,11 +218,7 @@ export class TerminalSplitCompositor {
 	}
 
 	private rollbackInstallation(): void {
-		const removeInputListener = this.removeInputListener;
-		this.removeInputListener = null;
-		try {
-			removeInputListener?.();
-		} catch {}
+		this.clearInputListener();
 		if (this.emergencyCleanup) {
 			process.removeListener("exit", this.emergencyCleanup);
 			this.emergencyCleanup = null;
@@ -231,6 +227,25 @@ export class TerminalSplitCompositor {
 		if (this.terminalModesEntered) this.restoreForExit();
 		this.terminalModesEntered = false;
 		this.installed = false;
+	}
+
+	private clearInputListener(): void {
+		const listener = this.inputListener;
+		const disposer = this.inputListenerDisposer;
+		this.inputListener = null;
+		this.inputListenerDisposer = null;
+		let disposed = false;
+		if (disposer) {
+			try {
+				disposer();
+				disposed = true;
+			} catch {}
+		}
+		if (!disposed && listener) {
+			try {
+				this.capabilities.removeInputListener(listener);
+			} catch {}
+		}
 	}
 
 	private restorePatchedCapabilities(): void {

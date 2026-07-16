@@ -443,37 +443,44 @@ describe("Pi docs compliance", () => {
 		expect(setEditorCalls).toBe(2);
 	});
 
-	it("does not let an old session shutdown clean up the current session UI", async () => {
+	it("cleans up when start and shutdown use distinct context wrappers", async () => {
 		const handlers = loadExtension();
-		const makeSessionContext = () => {
-			let editorFactory: unknown;
-			let footerClears = 0;
-			const ctx = makeContext({
-				ui: {
-					theme: makeTheme(),
-					setFooter(factory: unknown) {
-						if (factory === undefined) footerClears += 1;
-					},
-					setEditorComponent(factory: unknown) {
-						editorFactory = factory;
-					},
-					getEditorComponent() {
-						return editorFactory;
-					},
-				},
-			});
-			return { ctx, getEditor: () => editorFactory, getFooterClears: () => footerClears };
+		const runner = {
+			editorFactory: undefined as unknown,
+			setEditorCalls: 0,
+			footerClears: 0,
 		};
-		const oldSession = makeSessionContext();
-		const currentSession = makeSessionContext();
-		await emit(handlers, "session_start", oldSession.ctx);
-		await emit(handlers, "session_start", currentSession.ctx);
-		const currentEditor = currentSession.getEditor();
+		let startContextStale = false;
+		const makeUiWrapper = (isStale: () => boolean) => ({
+			theme: makeTheme(),
+			setFooter(factory: unknown) {
+				if (isStale()) throw new Error("stale start ctx setFooter");
+				if (factory === undefined) runner.footerClears += 1;
+			},
+			setEditorComponent(factory: unknown) {
+				if (isStale()) throw new Error("stale start ctx setEditorComponent");
+				runner.setEditorCalls += 1;
+				runner.editorFactory = factory;
+			},
+			getEditorComponent() {
+				if (isStale()) throw new Error("stale start ctx getEditorComponent");
+				return runner.editorFactory;
+			},
+		});
+		const startCtx = makeContext({ ui: makeUiWrapper(() => startContextStale) });
+		const shutdownCtx = makeContext({ ui: makeUiWrapper(() => false) });
+		expect(shutdownCtx).not.toBe(startCtx);
+		expect(shutdownCtx.ui).not.toBe(startCtx.ui);
 
-		await emit(handlers, "session_shutdown", oldSession.ctx);
+		await emit(handlers, "session_start", startCtx);
+		expect(runner.editorFactory).toBeTypeOf("function");
+		startContextStale = true;
+		await expect(emit(handlers, "session_shutdown", shutdownCtx)).resolves.toBeUndefined();
+		await emit(handlers, "session_shutdown", shutdownCtx);
 
-		expect(currentSession.getEditor()).toBe(currentEditor);
-		expect(currentSession.getFooterClears()).toBe(0);
+		expect(runner.editorFactory).toBeUndefined();
+		expect(runner.setEditorCalls).toBe(2);
+		expect(runner.footerClears).toBe(1);
 	});
 
 	it("refreshes a stale Zentui editor factory on extension reload instead of adopting old closures", async () => {
@@ -873,6 +880,30 @@ describe("Pi docs compliance", () => {
 		expect(getTheme).not.toHaveBeenCalled();
 	});
 
+	it("deactivates an older selector record hidden inside a third-party predecessor chain", () => {
+		const predecessor = (width: number) => ["─".repeat(width), "body", "─".repeat(width)];
+		const prototype = { render: predecessor };
+		const firstTheme = vi.fn(() => makeTaggedTheme("first:"));
+		const secondTheme = vi.fn(() => makeTaggedTheme("second:"));
+		const cleanupFirst = patchSelectorBorderStyle(prototype, firstTheme, () => defaultConfig);
+		const firstWrapper = prototype.render;
+		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
+			return ["third-party", ...firstWrapper.call(this, width)];
+		};
+		prototype.render = thirdParty;
+		const cleanupSecond = patchSelectorBorderStyle(prototype, secondTheme, () => defaultConfig);
+
+		cleanupFirst();
+		cleanupSecond();
+		firstTheme.mockClear();
+		secondTheme.mockClear();
+
+		expect(prototype.render).toBe(thirdParty);
+		expect(prototype.render(4)).toEqual(["third-party", "────", "body", "────"]);
+		expect(firstTheme).not.toHaveBeenCalled();
+		expect(secondTheme).not.toHaveBeenCalled();
+	});
+
 	it("restores model and settings selector prototypes independently", () => {
 		const modelPredecessor = ModelSelectorComponent.prototype.render;
 		const settingsPredecessor = SettingsSelectorComponent.prototype.render;
@@ -991,6 +1022,37 @@ describe("Pi docs compliance", () => {
 		secondCleanup();
 		expect(UserMessageComponent.prototype.render).toBe(predecessorRender);
 		expect(UserMessageComponent.prototype.invalidate).toBe(predecessorInvalidate);
+	});
+
+	it("deactivates an older user-message record hidden inside a third-party predecessor chain", () => {
+		const prototype = UserMessageComponent.prototype;
+		const predecessorRender = (width: number) => [`base:${width}`];
+		const predecessorInvalidate = vi.fn();
+		prototype.render = predecessorRender;
+		prototype.invalidate = predecessorInvalidate;
+		const firstTheme = vi.fn(() => makeTaggedTheme("first:"));
+		const secondTheme = vi.fn(() => makeTaggedTheme("second:"));
+		const cleanupFirst = installUserMessageStyle(firstTheme, () => defaultConfig);
+		const firstWrapper = prototype.render;
+		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
+			return ["third-party", ...firstWrapper.call(this as never, width)];
+		};
+		prototype.render = thirdParty;
+		const cleanupSecond = installUserMessageStyle(secondTheme, () => defaultConfig);
+
+		cleanupFirst();
+		cleanupSecond();
+		firstTheme.mockClear();
+		secondTheme.mockClear();
+
+		expect(prototype.render).toBe(thirdParty);
+		expect(prototype.invalidate).toBe(predecessorInvalidate);
+		expect(prototype.render.call({ children: [{ text: "hello" }] } as never, 12)).toEqual([
+			"third-party",
+			"base:12",
+		]);
+		expect(firstTheme).not.toHaveBeenCalled();
+		expect(secondTheme).not.toHaveBeenCalled();
 	});
 
 	it("keeps a later user-message replacement and releases old theme closures", () => {

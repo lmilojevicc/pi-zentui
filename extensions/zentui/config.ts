@@ -2,10 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
+	fchmodSync,
 	fsyncSync,
+	lstatSync,
 	openSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
+	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -634,8 +638,8 @@ function validFooterSegmentEntries(record: Record<string, unknown>): Partial<Foo
 }
 
 type ConfigFileState =
-	| { kind: "missing"; record: ConfigRecord }
-	| { kind: "valid"; record: ConfigRecord }
+	| { kind: "missing"; record: ConfigRecord; writePath: string }
+	| { kind: "valid"; record: ConfigRecord; writePath: string; mode: number }
 	| { kind: "corrupt"; error: unknown };
 
 function errorCode(error: unknown): string | undefined {
@@ -645,23 +649,34 @@ function errorCode(error: unknown): string | undefined {
 }
 
 function readConfigFileState(path: string): ConfigFileState {
+	let writePath = path;
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf8"));
+		const pathStat = lstatSync(path);
+		if (pathStat.isSymbolicLink()) writePath = realpathSync(path);
+		const targetStat = statSync(writePath);
+		const parsed = JSON.parse(readFileSync(writePath, "utf8"));
 		return isRecord(parsed)
-			? { kind: "valid", record: parsed }
+			? { kind: "valid", record: parsed, writePath, mode: targetStat.mode & 0o7777 }
 			: { kind: "corrupt", error: new Error("top-level value must be a JSON object") };
 	} catch (error) {
-		return errorCode(error) === "ENOENT"
-			? { kind: "missing", record: {} }
-			: { kind: "corrupt", error };
+		if (errorCode(error) === "ENOENT") {
+			try {
+				lstatSync(path);
+			} catch (pathError) {
+				if (errorCode(pathError) === "ENOENT")
+					return { kind: "missing", record: {}, writePath: path };
+			}
+		}
+		return { kind: "corrupt", error };
 	}
 }
 
-function writeConfigAtomically(path: string, record: ConfigRecord): void {
+function writeConfigAtomically(path: string, record: ConfigRecord, mode?: number): void {
 	const tempPath = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
 	let file: number | undefined;
 	try {
-		file = openSync(tempPath, "wx");
+		file = openSync(tempPath, "wx", mode ?? 0o666);
+		if (mode !== undefined) fchmodSync(file, mode);
 		writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 		fsyncSync(file);
 		closeSync(file);
@@ -693,7 +708,11 @@ function mutateConfig(path: string, mutate: (record: ConfigRecord) => void): Pol
 		);
 	}
 	mutate(state.record);
-	writeConfigAtomically(path, state.record);
+	writeConfigAtomically(
+		state.writePath,
+		state.record,
+		state.kind === "valid" ? state.mode : undefined,
+	);
 	return mergeConfig(state.record);
 }
 

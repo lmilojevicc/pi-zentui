@@ -93,7 +93,6 @@ function isTuiContext(ctx: ExtensionContext): boolean {
 export default function (pi: ExtensionAPI) {
 	const state: FooterState = createInitialState(emptyGitStatus());
 	const sessionLifecycle = new SessionLifecycle();
-	const sessionGenerations = new WeakMap<object, number>();
 
 	let currentConfig: PolishedTuiConfig = loadConfig();
 	let activeTheme: Theme | undefined;
@@ -401,11 +400,10 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const cleanupUi = (ctx?: ExtensionContext) => {
-		if (!ctx) return;
-		const generation = sessionGenerations.get(ctx as object);
-		if (generation === undefined || !sessionLifecycle.isCurrent(generation)) return;
+		if (!ctx || !sessionLifecycle.isCurrent()) return;
+		sessionLifecycle.shutdown();
 		try {
-			disposeFixedEditor();
+			disposeFixedEditor(ctx);
 			if (isTuiContext(ctx)) removeFixedEditorProbe(ctx);
 			uninstallPrototypePatches();
 			stopSessionTimer();
@@ -431,7 +429,7 @@ export default function (pi: ExtensionAPI) {
 			editorInstalled = false;
 			activeTheme = undefined;
 		} finally {
-			sessionLifecycle.shutdown();
+			requestFooterRender = undefined;
 		}
 	};
 
@@ -443,8 +441,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		const generation = sessionLifecycle.start();
-		sessionGenerations.set(ctx as object, generation);
+		sessionLifecycle.start();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
 		lastProjectCwd = undefined;
@@ -503,7 +500,7 @@ export default function (pi: ExtensionAPI) {
 			if (patch.enabled === true) {
 				installFixedEditorProbe(ctx, getCurrentConfig, sessionLifecycle);
 			} else if (patch.enabled === false) {
-				disposeFixedEditor();
+				disposeFixedEditor(ctx);
 			}
 			refresh();
 		},

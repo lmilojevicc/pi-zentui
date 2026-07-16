@@ -127,32 +127,36 @@ function installFromProbe(
 	getConfig: () => PolishedTuiConfig,
 ): void {
 	if (compositor) return;
-	const config = getConfig();
-	if (!config.fixedEditor?.enabled) return;
+	try {
+		const config = getConfig();
+		if (!config.fixedEditor?.enabled) return;
 
-	const capabilities = inspectPiTui(tui);
-	if (!capabilities) {
+		const capabilities = inspectPiTui(tui);
+		if (!capabilities) {
+			warnUnsupported(ctx);
+			return;
+		}
+
+		const next = new TerminalSplitCompositor(
+			capabilities,
+			() => ({
+				enabled: getConfig().fixedEditor?.enabled ?? false,
+				mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
+				copyNotice: getConfig().fixedEditor?.copyNotice ?? true,
+			}),
+			ctx.hasUI ? () => showCopyNotice(ctx, getConfig) : undefined,
+			ctx.hasUI ? () => clearCopyNotice(ctx) : undefined,
+		);
+
+		if (!next.install()) {
+			warnUnsupported(ctx);
+			return;
+		}
+
+		compositor = next;
+	} catch {
 		warnUnsupported(ctx);
-		return;
 	}
-
-	const next = new TerminalSplitCompositor(
-		capabilities,
-		() => ({
-			enabled: getConfig().fixedEditor?.enabled ?? false,
-			mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
-			copyNotice: getConfig().fixedEditor?.copyNotice ?? true,
-		}),
-		ctx.hasUI ? () => showCopyNotice(ctx, getConfig) : undefined,
-		ctx.hasUI ? () => clearCopyNotice(ctx) : undefined,
-	);
-
-	if (!next.install()) {
-		warnUnsupported(ctx);
-		return;
-	}
-
-	compositor = next;
 }
 
 const WIDGET_KEY = "zentui-fixed-editor-probe";
@@ -193,7 +197,7 @@ export function installFixedEditorProbe(
  * Dispose the compositor if active.
  * Call from session_shutdown and cleanupUi.
  */
-export function disposeFixedEditor(): void {
+export function disposeFixedEditor(ctx?: ExtensionContext): void {
 	cancelProbeInstall?.();
 	cancelProbeInstall = null;
 	compositor?.dispose();
@@ -202,11 +206,8 @@ export function disposeFixedEditor(): void {
 		clearTimeout(copyNoticeTimer);
 		copyNoticeTimer = null;
 	}
-	if (storedCtx) {
-		const ctx = storedCtx;
-		storedCtx = null;
-		clearCopyNotice(ctx);
-	}
+	storedCtx = null;
+	if (ctx) clearCopyNotice(ctx);
 }
 
 /**

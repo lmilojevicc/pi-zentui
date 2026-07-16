@@ -54,12 +54,13 @@ function createCleanup(
 	return () => {
 		if (cleaned) return;
 		cleaned = true;
-		const current = registry.get(adapter);
-		if (current !== record || current.registration?.token !== token) return;
+		if (record.registration?.token !== token) return;
+		record.registration.behavior = undefined;
+		record.registration = undefined;
 
-		current.registration.behavior = undefined;
-		current.registration = undefined;
-		if (target[method] === current.wrapper) target[method] = current.predecessor;
+		const current = registry.get(adapter);
+		if (current !== record) return;
+		if (target[method] === record.wrapper) target[method] = record.predecessor;
 		registry.delete(adapter);
 		if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 	};
