@@ -17,6 +17,8 @@ import {
 	type ExtensionStatusPlacement,
 	type FixedEditorConfig,
 	type FooterSegmentsConfig,
+	type GitBranchConfig,
+	type GitBranchMaxLength,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
 	type IconMode,
@@ -45,6 +47,7 @@ const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
 const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
+const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 type FeatureState = "enabled" | "disabled";
 
@@ -61,7 +64,13 @@ type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
-type LayoutSettingId = "contextStyle" | "separator" | "pathDisplay" | "pathDepth" | "iconMode";
+type LayoutSettingId =
+	| "contextStyle"
+	| "separator"
+	| "pathDisplay"
+	| "pathDepth"
+	| "branchLength"
+	| "iconMode";
 
 type SettingsCommandDeps = {
 	getConfig: () => PolishedTuiConfig;
@@ -76,6 +85,7 @@ type SettingsCommandDeps = {
 	setContextStyle: (style: ContextStyle) => void;
 	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
+	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -228,12 +238,26 @@ function isPathDepthValue(value: string): boolean {
 	return (pathDepthValues as readonly string[]).includes(value);
 }
 
+function parseGitBranchLengthValue(value: string): GitBranchMaxLength | undefined {
+	if (value === "full") return value;
+	const parsed = Number(value);
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function branchLengthValues(maxLength: GitBranchMaxLength): string[] {
+	const current = String(maxLength);
+	return (branchLengthPresetValues as readonly string[]).includes(current)
+		? [...branchLengthPresetValues]
+		: [current, ...branchLengthPresetValues];
+}
+
 function isLayoutSettingId(value: string): value is LayoutSettingId {
 	return (
 		value === "contextStyle" ||
 		value === "separator" ||
 		value === "pathDisplay" ||
 		value === "pathDepth" ||
+		value === "branchLength" ||
 		value === "iconMode"
 	);
 }
@@ -463,6 +487,13 @@ function buildItems(
 					"In full mode, trailing directories to show (0 = all, max 5). Ignored for basename.",
 				currentValue: String(config.pathDisplay.depth),
 				values: [...pathDepthValues],
+			},
+			{
+				id: "branchLength",
+				label: "Branch length",
+				description: "Show the full branch name or truncate it to a preset visible width.",
+				currentValue: String(config.gitBranch.maxLength),
+				values: branchLengthValues(config.gitBranch.maxLength),
 			},
 			{
 				id: "iconMode",
@@ -714,6 +745,17 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Path depth: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "branchLength") {
+										const maxLength = parseGitBranchLengthValue(newValue);
+										if (maxLength === undefined) return;
+										deps.setGitBranch({ maxLength });
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Branch length: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}

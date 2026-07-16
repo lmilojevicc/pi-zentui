@@ -11,6 +11,7 @@ import {
 	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
+	saveGitBranchPatch,
 	savePathDisplayPatch,
 	saveSeparatorPatch,
 	saveUiFeaturesPatch,
@@ -251,6 +252,47 @@ describe("mergeConfig", () => {
 
 			const depthConfig = savePathDisplayPatch({ depth: 1 }, path);
 			expect(depthConfig.pathDisplay).toEqual({ mode: "full", depth: 1 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("defaults git branch length to full and accepts positive integer values", () => {
+		expect(mergeConfig({}).gitBranch).toEqual({ maxLength: "full" });
+		expect(defaultConfig.gitBranch).toEqual({ maxLength: "full" });
+		for (const maxLength of [1, 10, 17, 20, 30, 40, 50, 10_000]) {
+			expect(mergeConfig({ gitBranch: { maxLength } }).gitBranch).toEqual({ maxLength });
+		}
+		expect(mergeConfig({ gitBranch: { maxLength: "full" } }).gitBranch).toEqual({
+			maxLength: "full",
+		});
+	});
+
+	it("falls back to full for invalid git branch lengths", () => {
+		for (const maxLength of [0, -1, 1.5, "10", "short", null, true]) {
+			expect(mergeConfig({ gitBranch: { maxLength } }).gitBranch).toEqual({
+				maxLength: "full",
+			});
+		}
+		expect(mergeConfig({ gitBranch: 20 }).gitBranch).toEqual({ maxLength: "full" });
+	});
+
+	it("saves git branch length without erasing unknown config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				`${JSON.stringify({ unknown: true, gitBranch: { maxLength: 17, future: true } }, null, 2)}\n`,
+			);
+
+			const config = saveGitBranchPatch({ maxLength: 30 }, path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(config.gitBranch).toEqual({ maxLength: 30 });
+			expect(raw).toEqual({
+				unknown: true,
+				gitBranch: { maxLength: 30, future: true },
+			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

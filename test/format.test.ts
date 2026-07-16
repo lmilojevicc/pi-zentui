@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetUsageTotalsCacheForTests,
@@ -10,6 +11,7 @@ import {
 	contextColorTier,
 	formatCount,
 	formatCwdLabel,
+	formatGitBranchText,
 	formatGitCommitSegment,
 	formatGitMetricsSegment,
 	formatOsLabel,
@@ -275,6 +277,22 @@ describe("formatCwdLabel", () => {
 				depth: 1,
 			}),
 		).toBe("󰝰 …/zentui");
+	});
+});
+
+describe("formatGitBranchText", () => {
+	it("preserves full, under-limit, and exactly-at-limit branch names", () => {
+		expect(formatGitBranchText("feature/long-name", "full")).toBe("feature/long-name");
+		expect(formatGitBranchText("main", 10)).toBe("main");
+		expect(formatGitBranchText("1234567890", 10)).toBe("1234567890");
+	});
+
+	it("includes the ellipsis inside the configured visible width", () => {
+		expect(formatGitBranchText("feature", 4)).toBe("fea…");
+		expect(formatGitBranchText("feature", 1)).toBe("…");
+		const unicode = formatGitBranchText("你好世界", 5);
+		expect(unicode).toBe("你好…");
+		expect(visibleWidth(unicode)).toBe(5);
 	});
 });
 
