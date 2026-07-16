@@ -1,19 +1,18 @@
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
-import {
-	buildCluster,
-	capEditorLines,
-	findEditorContainerIndex,
-	hideRenderable,
-	renderCluster,
-	restoreRenderable,
-} from "../extensions/zentui/fixed-editor/cluster";
+import { describe, expect, it, vi } from "vitest";
+import { capEditorLines, renderCluster } from "../extensions/zentui/fixed-editor/cluster";
+import { TerminalSplitCompositor } from "../extensions/zentui/fixed-editor/compositor";
 import {
 	clampScrollOffset,
 	parseKeyboardScroll,
 	parseMouseEvent,
 	parseMouseScroll,
 } from "../extensions/zentui/fixed-editor/input";
+import {
+	findEditorContainerIndex,
+	inspectPiTui,
+	type PiRenderableCapability,
+} from "../extensions/zentui/fixed-editor/pi-compat";
 import { highlightSelection, SelectionState } from "../extensions/zentui/fixed-editor/selection";
 import {
 	DISABLE_MOUSE,
@@ -23,6 +22,317 @@ import {
 	RESET_SCROLL_REGION,
 	SHOW_CURSOR,
 } from "../extensions/zentui/fixed-editor/terminal-modes";
+
+function makeValidPiFixture() {
+	let rawRows = 24;
+	let inputListener:
+		| ((data: string) => { consume?: boolean; data?: string } | undefined)
+		| undefined;
+	const removeInputListener = vi.fn();
+	const terminalWrite = vi.fn();
+	const makeRenderable = (label: string) => ({
+		render(width: number) {
+			return [`${label}:${width}`];
+		},
+	});
+	const editorComponent = {
+		getText: () => "",
+		setText() {},
+		handleInput() {},
+	};
+	const status = makeRenderable("status");
+	const above = makeRenderable("above");
+	const editor = { ...makeRenderable("editor"), children: [editorComponent] };
+	const below = makeRenderable("below");
+	const footer = makeRenderable("footer");
+	const terminal = {
+		columns: 80,
+		rows: rawRows,
+		write: terminalWrite,
+	};
+	Object.defineProperty(terminal, "rows", {
+		configurable: true,
+		enumerable: true,
+		get: () => rawRows,
+	});
+	const rootRender = vi.fn((width: number) =>
+		Array.from({ length: 30 }, (_, index) => `root-${index}:${width}`),
+	);
+	const doRender = vi.fn();
+	const requestRender = vi.fn();
+	const addInputListener = vi.fn(
+		(listener: (data: string) => { consume?: boolean; data?: string } | undefined) => {
+			inputListener = listener;
+			return removeInputListener;
+		},
+	);
+	const tui = {
+		children: [status, above, editor, below, footer],
+		focusedComponent: editorComponent,
+		terminal,
+		render: rootRender,
+		doRender,
+		requestRender,
+		addInputListener,
+		hasOverlay: () => false,
+		overlayStack: [] as { hidden?: boolean }[],
+		hardwareCursorRow: 4,
+		previousViewportTop: 1,
+	};
+	return {
+		tui,
+		terminal,
+		cluster: [status, above, editor, below, footer],
+		terminalWrite,
+		rootRender,
+		doRender,
+		requestRender,
+		addInputListener,
+		removeInputListener,
+		getInputListener: () => inputListener,
+		setRows: (rows: number) => {
+			rawRows = rows;
+		},
+	};
+}
+
+describe("Pi fixed-editor compatibility", () => {
+	it.each([
+		[
+			"terminal",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "terminal"),
+		],
+		[
+			"terminal write",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.terminal, "write"),
+		],
+		[
+			"terminal rows",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.terminal, "rows"),
+		],
+		[
+			"terminal columns",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.terminal, "columns"),
+		],
+		[
+			"input listener",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "addInputListener"),
+		],
+		[
+			"children",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "children"),
+		],
+		[
+			"editor layout",
+			(fixture: ReturnType<typeof makeValidPiFixture>) => {
+				Reflect.set(fixture.tui.children[2], "children", []);
+			},
+		],
+		[
+			"render",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "render"),
+		],
+		[
+			"doRender",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "doRender"),
+		],
+		[
+			"overlay visibility",
+			(fixture: ReturnType<typeof makeValidPiFixture>) => {
+				Reflect.deleteProperty(fixture.tui, "hasOverlay");
+				Reflect.deleteProperty(fixture.tui, "overlayStack");
+			},
+		],
+		[
+			"hardware cursor row",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "hardwareCursorRow"),
+		],
+		[
+			"viewport top",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "previousViewportTop"),
+		],
+	] as const)("rejects a missing %s capability without side effects", (_name, removeCapability) => {
+		const fixture = makeValidPiFixture();
+		removeCapability(fixture);
+		const render = fixture.tui.render;
+		const doRender = fixture.tui.doRender;
+		const write = fixture.terminal.write;
+
+		expect(inspectPiTui(fixture.tui)).toBeUndefined();
+		expect(fixture.terminalWrite).not.toHaveBeenCalled();
+		expect(fixture.addInputListener).not.toHaveBeenCalled();
+		expect(fixture.tui.render).toBe(render);
+		expect(fixture.tui.doRender).toBe(doRender);
+		expect(fixture.terminal.write).toBe(write);
+	});
+
+	it("rejects non-configurable rows and non-writable render methods before writes", () => {
+		const rowsFixture = makeValidPiFixture();
+		const rowsDescriptor = Object.getOwnPropertyDescriptor(rowsFixture.terminal, "rows");
+		Object.defineProperty(rowsFixture.terminal, "rows", { ...rowsDescriptor, configurable: false });
+		expect(inspectPiTui(rowsFixture.tui)).toBeUndefined();
+		expect(rowsFixture.terminalWrite).not.toHaveBeenCalled();
+
+		const renderFixture = makeValidPiFixture();
+		Object.defineProperty(renderFixture.tui, "render", {
+			value: renderFixture.tui.render,
+			configurable: true,
+			writable: false,
+		});
+		expect(inspectPiTui(renderFixture.tui)).toBeUndefined();
+		expect(renderFixture.terminalWrite).not.toHaveBeenCalled();
+
+		const doRenderFixture = makeValidPiFixture();
+		Object.defineProperty(doRenderFixture.tui, "doRender", {
+			value: doRenderFixture.tui.doRender,
+			configurable: true,
+			writable: false,
+		});
+		expect(inspectPiTui(doRenderFixture.tui)).toBeUndefined();
+		expect(doRenderFixture.terminalWrite).not.toHaveBeenCalled();
+
+		const writeFixture = makeValidPiFixture();
+		Object.defineProperty(writeFixture.terminal, "write", {
+			value: writeFixture.terminal.write,
+			configurable: true,
+			writable: false,
+		});
+		expect(inspectPiTui(writeFixture.tui)).toBeUndefined();
+		expect(writeFixture.terminalWrite).not.toHaveBeenCalled();
+
+		const frozenFixture = makeValidPiFixture();
+		Object.freeze(frozenFixture.tui.children[0]);
+		expect(inspectPiTui(frozenFixture.tui)).toBeUndefined();
+		expect(frozenFixture.terminalWrite).not.toHaveBeenCalled();
+	});
+
+	it("installs from verified capabilities and restores exact identities and descriptors", () => {
+		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		expect(capabilities).toBeDefined();
+		if (!capabilities) return;
+		const render = fixture.tui.render;
+		const doRender = fixture.tui.doRender;
+		const write = fixture.terminal.write;
+		const rowsDescriptor = Object.getOwnPropertyDescriptor(fixture.terminal, "rows");
+		const clusterDescriptors = fixture.cluster.map((component) =>
+			Object.getOwnPropertyDescriptor(component, "render"),
+		);
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+
+		expect(compositor.install()).toBe(true);
+		expect(fixture.tui.render).not.toBe(render);
+		expect(fixture.tui.doRender).not.toBe(doRender);
+		expect(fixture.terminal.write).not.toBe(write);
+		expect(fixture.cluster.every((component) => component.render(80).length === 0)).toBe(true);
+		expect(fixture.addInputListener).toHaveBeenCalledTimes(1);
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(1);
+
+		compositor.dispose();
+		compositor.dispose();
+
+		expect(fixture.tui.render).toBe(render);
+		expect(fixture.tui.doRender).toBe(doRender);
+		expect(fixture.terminal.write).toBe(write);
+		expect(Object.getOwnPropertyDescriptor(fixture.terminal, "rows")).toEqual(rowsDescriptor);
+		expect(
+			fixture.cluster.map((component) => Object.getOwnPropertyDescriptor(component, "render")),
+		).toEqual(clusterDescriptors);
+		expect(fixture.removeInputListener).toHaveBeenCalledTimes(1);
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
+	});
+
+	it("rolls back patches when listener registration does not return cleanup", () => {
+		const fixture = makeValidPiFixture();
+		Reflect.set(
+			fixture.tui,
+			"addInputListener",
+			vi.fn(() => undefined),
+		);
+		const capabilities = inspectPiTui(fixture.tui);
+		expect(capabilities).toBeDefined();
+		if (!capabilities) return;
+		const render = fixture.tui.render;
+		const write = fixture.terminal.write;
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+
+		expect(compositor.install()).toBe(false);
+		expect(fixture.tui.render).toBe(render);
+		expect(fixture.terminal.write).toBe(write);
+		expect(fixture.cluster.every((component) => component.render(80).length > 0)).toBe(true);
+		expect(fixture.terminalWrite).not.toHaveBeenCalled();
+	});
+
+	it("keeps overlays visible and responds to rows, cursor, and wheel input", () => {
+		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		const patchedRender = fixture.tui.render;
+		const narrowRows = fixture.terminal.rows;
+		fixture.setRows(40);
+		expect(fixture.terminal.rows).toBeGreaterThan(narrowRows);
+
+		fixture.tui.overlayStack = [{}];
+		expect(patchedRender(80)).toEqual(fixture.rootRender(80));
+		fixture.tui.overlayStack = [];
+		fixture.setRows(12);
+		patchedRender(80);
+		fixture.terminal.write("update");
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toContain("\u001b[4;1H");
+		fixture.requestRender.mockClear();
+		fixture.getInputListener()?.("\u001b[<64;1;1M");
+		expect(fixture.requestRender).toHaveBeenCalled();
+		compositor.dispose();
+	});
+
+	it("clears the right-click mouse-resume timer on disposal", () => {
+		vi.useFakeTimers();
+		try {
+			const fixture = makeValidPiFixture();
+			const capabilities = inspectPiTui(fixture.tui);
+			if (!capabilities) throw new Error("expected valid fixture");
+			const compositor = new TerminalSplitCompositor(capabilities, () => ({
+				enabled: true,
+				mouseScroll: true,
+				copyNotice: true,
+			}));
+			expect(compositor.install()).toBe(true);
+			fixture.getInputListener()?.("\u001b[<2;1;1M");
+			expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toContain(DISABLE_MOUSE);
+
+			compositor.dispose();
+			const writesAfterDispose = fixture.terminalWrite.mock.calls.length;
+			vi.advanceTimersByTime(1_200);
+			expect(fixture.terminalWrite).toHaveBeenCalledTimes(writesAfterDispose);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
 
 describe("input", () => {
 	describe("parseMouseScroll", () => {
@@ -155,6 +465,15 @@ describe("cluster", () => {
 		return { render: () => [], invalidate: () => {}, children };
 	}
 
+	function makeCapability(lines: string[]): PiRenderableCapability {
+		const target = makeComponent(lines);
+		return {
+			target,
+			render: target.render,
+			ownDescriptor: Object.getOwnPropertyDescriptor(target, "render"),
+		};
+	}
+
 	function makeEditor() {
 		return {
 			render: () => ["editor"],
@@ -185,36 +504,6 @@ describe("cluster", () => {
 		});
 	});
 
-	describe("buildCluster", () => {
-		it("builds the 5-component cluster", () => {
-			const status = makeComponent(["status"]);
-			const above = makeComponent(["above"]);
-			const editor = makeContainer([makeEditor()]);
-			const below = makeComponent(["below"]);
-			const footer = makeComponent(["footer"]);
-			const children = [status, above, editor, below, footer];
-			const cluster = buildCluster(children, 2);
-			expect(cluster).not.toBeNull();
-			expect(cluster?.status).toBe(status);
-			expect(cluster?.aboveWidget).toBe(above);
-			expect(cluster?.editor).toBe(editor);
-			expect(cluster?.belowWidget).toBe(below);
-			expect(cluster?.footer).toBe(footer);
-		});
-
-		it("handles missing neighbors gracefully", () => {
-			const editor = makeContainer([makeEditor()]);
-			const children = [editor];
-			const cluster = buildCluster(children, 0);
-			expect(cluster).not.toBeNull();
-			expect(cluster?.status).toBeNull();
-			expect(cluster?.aboveWidget).toBeNull();
-			expect(cluster?.editor).toBe(editor);
-			expect(cluster?.belowWidget).toBeNull();
-			expect(cluster?.footer).toBeNull();
-		});
-	});
-
 	describe("capEditorLines", () => {
 		it("keeps last N lines when no cursor marker", () => {
 			const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`);
@@ -240,11 +529,11 @@ describe("cluster", () => {
 	describe("renderCluster", () => {
 		it("renders and concatenates all cluster components", () => {
 			const cluster = {
-				status: makeComponent(["status"]),
-				aboveWidget: makeComponent(["above"]),
-				editor: makeComponent(["editor-line"]),
-				belowWidget: makeComponent(["below"]),
-				footer: makeComponent(["footer"]),
+				status: makeCapability(["status"]),
+				aboveWidget: makeCapability(["above"]),
+				editor: makeCapability(["editor-line"]),
+				belowWidget: makeCapability(["below"]),
+				footer: makeCapability(["footer"]),
 			};
 			const result = renderCluster(cluster, 80, 24);
 			expect(result.lines).toEqual(["status", "above", "editor-line", "below", "footer"]);
@@ -254,7 +543,7 @@ describe("cluster", () => {
 			const cluster = {
 				status: null,
 				aboveWidget: null,
-				editor: makeComponent([`hello${CURSOR_MARKER}world`]),
+				editor: makeCapability([`hello${CURSOR_MARKER}world`]),
 				belowWidget: null,
 				footer: null,
 			};
@@ -268,7 +557,7 @@ describe("cluster", () => {
 			const cluster = {
 				status: null,
 				aboveWidget: null,
-				editor: makeComponent(manyLines),
+				editor: makeCapability(manyLines),
 				belowWidget: null,
 				footer: null,
 			};
@@ -284,7 +573,7 @@ describe("cluster", () => {
 			const cluster = {
 				status: null,
 				aboveWidget: null,
-				editor: makeComponent(editorFrame),
+				editor: makeCapability(editorFrame),
 				belowWidget: null,
 				footer: null,
 			};
@@ -294,60 +583,15 @@ describe("cluster", () => {
 
 		it("strips trailing blank lines from components", () => {
 			const cluster = {
-				status: makeComponent(["status", "", ""]),
+				status: makeCapability(["status", "", ""]),
 				aboveWidget: null,
-				editor: makeComponent(["editor"]),
+				editor: makeCapability(["editor"]),
 				belowWidget: null,
-				footer: makeComponent(["footer", ""]),
+				footer: makeCapability(["footer", ""]),
 			};
 			const result = renderCluster(cluster, 80, 24);
 			// Trailing blanks stripped, but content preserved
 			expect(result.lines).toEqual(["status", "editor", "footer"]);
-		});
-	});
-
-	describe("hideRenderable / restoreRenderable", () => {
-		it("patches render to return [] and saves original", () => {
-			const comp: {
-				render(width: number): string[];
-				__zentuiOriginalRender?: (w: number) => string[];
-			} = {
-				render: () => ["real", "lines"],
-			};
-			hideRenderable(comp);
-			expect(comp.render(80)).toEqual([]);
-			expect(comp.__zentuiOriginalRender).toBeDefined();
-			expect(comp.__zentuiOriginalRender?.(80)).toEqual(["real", "lines"]);
-		});
-
-		it("restores original render on restoreRenderable", () => {
-			const comp: {
-				render(width: number): string[];
-				__zentuiOriginalRender?: (w: number) => string[];
-			} = {
-				render: () => ["real", "lines"],
-			};
-			hideRenderable(comp);
-			restoreRenderable(comp);
-			expect(comp.render(80)).toEqual(["real", "lines"]);
-			expect(comp.__zentuiOriginalRender).toBeUndefined();
-		});
-
-		it("is idempotent (double-hide does not overwrite original)", () => {
-			const comp: {
-				render(width: number): string[];
-				__zentuiOriginalRender?: (w: number) => string[];
-			} = {
-				render: () => ["real"],
-			};
-			hideRenderable(comp);
-			hideRenderable(comp);
-			expect(comp.__zentuiOriginalRender?.(80)).toEqual(["real"]);
-		});
-
-		it("handles null gracefully", () => {
-			hideRenderable(null);
-			restoreRenderable(null);
 		});
 	});
 });

@@ -14,15 +14,13 @@
 import { copyToClipboard } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import {
-	buildCluster,
-	type FixedCluster,
-	findEditorContainerIndex,
-	hideRenderable,
-	renderCluster,
-	restoreRenderable,
-} from "./cluster";
+import { renderCluster } from "./cluster";
 import { clampScrollOffset, parseKeyboardScroll, parseMouseEvent } from "./input";
+import type {
+	PiFixedEditorCapabilities,
+	PiMethodCapability,
+	PiRenderableCapability,
+} from "./pi-compat";
 import { highlightSelection, SelectionState } from "./selection";
 import {
 	CLEAR_LINE,
@@ -43,32 +41,42 @@ import {
 	SYNC_END,
 	setScrollRegion,
 } from "./terminal-modes";
-import type { ClusterRender, CompositorConfig, TerminalLike, TuiLike } from "./types";
+import type { ClusterRender, CompositorConfig } from "./types";
 
-/** Property descriptor for the original `terminal.rows` getter. */
-type RowsDescriptor = PropertyDescriptor | undefined;
-
-function descriptorForRows(terminal: TerminalLike): RowsDescriptor {
-	let target: object | null = terminal;
-	while (target) {
-		const descriptor = Object.getOwnPropertyDescriptor(target, "rows");
-		if (descriptor) return descriptor;
-		target = Object.getPrototypeOf(target);
-	}
-	return undefined;
+function replaceMethod(
+	capability: PiMethodCapability,
+	method: (...args: unknown[]) => unknown,
+): void {
+	const descriptor = capability.ownDescriptor;
+	Object.defineProperty(capability.target, capability.key, {
+		...(descriptor ?? { configurable: true, enumerable: false, writable: true }),
+		value: method,
+	});
 }
 
-function readRawRows(terminal: TerminalLike, descriptor: RowsDescriptor): number {
-	if (descriptor?.get) {
-		const value = descriptor.get.call(terminal);
-		return typeof value === "number" && Number.isFinite(value) ? value : 24;
+function restoreMethod(capability: PiMethodCapability): void {
+	if (capability.ownDescriptor) {
+		Object.defineProperty(capability.target, capability.key, capability.ownDescriptor);
+	} else {
+		Reflect.deleteProperty(capability.target, capability.key);
 	}
-	if (descriptor && "value" in descriptor) {
-		const value = descriptor.value;
-		return typeof value === "number" && Number.isFinite(value) ? value : 24;
+}
+
+function hideRenderable(capability: PiRenderableCapability | null): void {
+	if (!capability) return;
+	Object.defineProperty(capability.target, "render", {
+		...(capability.ownDescriptor ?? { configurable: true, enumerable: false, writable: true }),
+		value: () => [],
+	});
+}
+
+function restoreRenderable(capability: PiRenderableCapability | null): void {
+	if (!capability) return;
+	if (capability.ownDescriptor) {
+		Object.defineProperty(capability.target, "render", capability.ownDescriptor);
+	} else {
+		Reflect.deleteProperty(capability.target, "render");
 	}
-	const value = Reflect.get(terminal, "rows");
-	return typeof value === "number" && Number.isFinite(value) ? value : 24;
 }
 
 function sanitizeLine(line: string, width: number): string {
@@ -76,20 +84,14 @@ function sanitizeLine(line: string, width: number): string {
 }
 
 export class TerminalSplitCompositor {
-	private readonly tui: TuiLike;
-	private readonly terminal: TerminalLike;
+	private readonly capabilities: PiFixedEditorCapabilities;
 	private readonly getConfig: () => CompositorConfig;
-	private cluster: FixedCluster | null = null;
-
-	private readonly rowsDescriptor: RowsDescriptor;
-	private readonly originalWrite: (data: string) => void;
-	private readonly originalDoRender: (() => void) | null;
-	private readonly originalRender: ((width: number) => string[]) | null;
 	private removeInputListener: (() => void) | null = null;
 	private emergencyCleanup: (() => void) | null = null;
 
 	private installed = false;
 	private disposed = false;
+	private terminalModesEntered = false;
 	private writing = false;
 	private renderingCluster = false;
 	private checkingOverlay = false;
@@ -117,146 +119,160 @@ export class TerminalSplitCompositor {
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
 
 	constructor(
-		tui: TuiLike,
-		terminal: TerminalLike,
+		capabilities: PiFixedEditorCapabilities,
 		getConfig: () => CompositorConfig,
 		onCopy?: () => void,
 		onDismissNotice?: () => void,
 	) {
-		this.tui = tui;
-		this.terminal = terminal;
+		this.capabilities = capabilities;
 		this.getConfig = getConfig;
 		this.onCopy = onCopy ?? null;
 		this.onDismissNotice = onDismissNotice ?? null;
-		this.rowsDescriptor = descriptorForRows(terminal);
-		this.originalWrite = terminal.write.bind(terminal);
-		this.originalDoRender = typeof tui.doRender === "function" ? tui.doRender.bind(tui) : null;
-		this.originalRender = typeof tui.render === "function" ? tui.render.bind(tui) : null;
 	}
 
-	/** Install all patches. Returns true on success, false if capabilities missing. */
 	install(): boolean {
 		if (this.installed) return true;
-		if (typeof this.terminal.write !== "function") return false;
-		if (typeof this.tui.addInputListener !== "function") return false;
-		if (!this.originalDoRender || !this.originalRender) return false;
-
-		const children = this.tui.children;
-		if (!Array.isArray(children) || children.length < 3) return false;
-
-		const editorIdx = findEditorContainerIndex(children, this.tui.focusedComponent);
-		if (editorIdx === undefined) return false;
-
-		const cluster = buildCluster(children, editorIdx);
-		if (!cluster) return false;
-		this.cluster = cluster;
-
-		// Hide cluster components from Pi's normal render so they don't appear
-		// in the scrollable transcript. Their original render output is captured
-		// via __zentuiOriginalRender and painted separately by paintCluster.
-		for (const component of [
-			cluster.status,
-			cluster.aboveWidget,
-			cluster.editor,
-			cluster.belowWidget,
-			cluster.footer,
-		]) {
-			hideRenderable(component);
-		}
-
-		// Enter terminal modes.
-		this.originalWrite(
-			SYNC_BEGIN +
-				ENTER_ALT_SCREEN +
-				DISABLE_ALT_SCROLL +
-				(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
-				SYNC_END,
-		);
-
-		// Emergency cleanup on crash.
-		this.emergencyCleanup = () => {
-			if (!this.disposed) this.restoreForExit();
-		};
-		process.once("exit", this.emergencyCleanup);
-
-		// Redefine terminal.rows so Pi renders only the scrollable region.
-		Object.defineProperty(this.terminal, "rows", {
-			configurable: true,
-			get: () => this.getScrollableRows(),
-		});
-
-		// Patch tui.render to apply scroll offset.
-		this.tui.render = (width: number) => this.renderScrollableRoot(width);
-
-		// Patch tui.doRender to paint cluster after original render.
-		this.tui.doRender = () => {
-			this.cachedClusterRender = null; // Invalidate cluster cache per render pass.
-			try {
-				this.originalDoRender?.();
-				this.requestRepaint();
-			} catch {
-				// If doRender throws, the original write already happened.
+		if (this.disposed) return false;
+		const cluster = this.capabilities.cluster;
+		try {
+			for (const component of [
+				cluster.status,
+				cluster.aboveWidget,
+				cluster.editor,
+				cluster.belowWidget,
+				cluster.footer,
+			]) {
+				hideRenderable(component);
 			}
-		};
+			Object.defineProperty(this.capabilities.terminal, "rows", {
+				configurable: true,
+				get: () => this.getScrollableRows(),
+			});
+			replaceMethod(this.capabilities.renderMethod, (width) =>
+				this.renderScrollableRoot(Number(width)),
+			);
+			replaceMethod(this.capabilities.doRenderMethod, () => {
+				this.cachedClusterRender = null;
+				try {
+					this.callOriginalDoRender();
+					this.requestRepaint();
+				} catch {
+					// If doRender throws, the original write already happened.
+				}
+			});
+			replaceMethod(this.capabilities.writeMethod, (data) => this.write(String(data)));
 
-		// Patch terminal.write to wrap in scroll region.
-		this.terminal.write = (data: string) => this.write(data);
+			const removeInputListener = this.capabilities.addInputListener((data) =>
+				this.handleInput(data),
+			);
+			if (typeof removeInputListener !== "function") throw new TypeError("Invalid input listener");
+			this.removeInputListener = removeInputListener as () => void;
+			this.emergencyCleanup = () => {
+				if (!this.disposed) this.restoreForExit();
+			};
+			process.once("exit", this.emergencyCleanup);
 
-		// Register input listener for scroll.
-		this.removeInputListener = this.tui.addInputListener((data: string) => this.handleInput(data));
-
-		this.installed = true;
-		this.tui.requestRender?.(true);
+			this.terminalModesEntered = true;
+			this.callOriginalWrite(
+				SYNC_BEGIN +
+					ENTER_ALT_SCREEN +
+					DISABLE_ALT_SCROLL +
+					(this.getConfig().mouseScroll ? ENABLE_MOUSE_SGR : DISABLE_MOUSE) +
+					SYNC_END,
+			);
+			this.installed = true;
+		} catch {
+			this.rollbackInstallation();
+			return false;
+		}
+		try {
+			this.capabilities.requestRender?.(true);
+		} catch {}
 		return true;
 	}
 
-	/** Full teardown — restore all patches, reset terminal modes. */
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
-
-		this.removeInputListener?.();
+		if (!this.installed) return;
+		const removeInputListener = this.removeInputListener;
 		this.removeInputListener = null;
-
+		try {
+			removeInputListener?.();
+		} catch {}
 		if (this.mouseResumeTimer) {
 			clearTimeout(this.mouseResumeTimer);
 			this.mouseResumeTimer = null;
 		}
-
 		if (this.emergencyCleanup) {
 			process.removeListener("exit", this.emergencyCleanup);
 			this.emergencyCleanup = null;
 		}
+		this.restorePatchedCapabilities();
+		this.restoreForExit();
+		this.terminalModesEntered = false;
+		this.installed = false;
+		try {
+			this.capabilities.requestRender?.(true);
+		} catch {}
+	}
 
-		this.terminal.write = this.originalWrite;
-		if (this.originalDoRender) this.tui.doRender = this.originalDoRender;
-		if (this.originalRender) this.tui.render = this.originalRender;
-
-		// Restore cluster components' original render methods.
-		if (this.cluster) {
-			for (const component of [
-				this.cluster.status,
-				this.cluster.aboveWidget,
-				this.cluster.editor,
-				this.cluster.belowWidget,
-				this.cluster.footer,
-			]) {
-				restoreRenderable(component);
-			}
+	private rollbackInstallation(): void {
+		const removeInputListener = this.removeInputListener;
+		this.removeInputListener = null;
+		try {
+			removeInputListener?.();
+		} catch {}
+		if (this.emergencyCleanup) {
+			process.removeListener("exit", this.emergencyCleanup);
+			this.emergencyCleanup = null;
 		}
+		this.restorePatchedCapabilities();
+		if (this.terminalModesEntered) this.restoreForExit();
+		this.terminalModesEntered = false;
+		this.installed = false;
+	}
 
-		if (this.rowsDescriptor) {
-			Object.defineProperty(this.terminal, "rows", this.rowsDescriptor);
+	private restorePatchedCapabilities(): void {
+		restoreMethod(this.capabilities.writeMethod);
+		restoreMethod(this.capabilities.doRenderMethod);
+		restoreMethod(this.capabilities.renderMethod);
+		for (const component of [
+			this.capabilities.cluster.status,
+			this.capabilities.cluster.aboveWidget,
+			this.capabilities.cluster.editor,
+			this.capabilities.cluster.belowWidget,
+			this.capabilities.cluster.footer,
+		]) {
+			restoreRenderable(component);
+		}
+		if (this.capabilities.rowsOwnDescriptor) {
+			Object.defineProperty(
+				this.capabilities.terminal,
+				"rows",
+				this.capabilities.rowsOwnDescriptor,
+			);
 		} else {
-			Reflect.deleteProperty(this.terminal, "rows");
+			Reflect.deleteProperty(this.capabilities.terminal, "rows");
 		}
+	}
 
-		this.restoreTerminalState();
-		this.tui.requestRender?.(true);
+	private callOriginalWrite(data: string): void {
+		Reflect.apply(this.capabilities.writeMethod.method, this.capabilities.terminal, [data]);
+	}
+
+	private callOriginalDoRender(): void {
+		Reflect.apply(this.capabilities.doRenderMethod.method, this.capabilities.tui, []);
+	}
+
+	private callOriginalRender(width: number): string[] {
+		return Reflect.apply(this.capabilities.renderMethod.method, this.capabilities.tui, [
+			width,
+		]) as string[];
 	}
 
 	private getRawRows(): number {
-		return Math.max(2, readRawRows(this.terminal, this.rowsDescriptor));
+		return Math.max(2, this.capabilities.readRawRows());
 	}
 
 	private getClusterRender(width: number, rawRows: number): ClusterRender {
@@ -266,9 +282,7 @@ export class TerminalSplitCompositor {
 		const wasRendering = this.renderingCluster;
 		this.renderingCluster = true;
 		try {
-			const render = this.cluster
-				? renderCluster(this.cluster, width, rawRows)
-				: { lines: [], cursor: null };
+			const render = renderCluster(this.capabilities.cluster, width, rawRows);
 			this.cachedClusterRender = { width, rows: rawRows, render };
 			return render;
 		} finally {
@@ -287,7 +301,7 @@ export class TerminalSplitCompositor {
 			return this.getRawRows();
 		}
 		const rawRows = this.getRawRows();
-		const width = Math.max(1, this.terminal.columns || 80);
+		const width = Math.max(1, this.capabilities.getColumns() || 80);
 		const cluster = this.getClusterRender(width, rawRows);
 		return Math.max(1, rawRows - cluster.lines.length);
 	}
@@ -296,27 +310,22 @@ export class TerminalSplitCompositor {
 		if (this.checkingOverlay) return false;
 		this.checkingOverlay = true;
 		try {
-			if (typeof this.tui.hasOverlay === "function" && this.tui.hasOverlay()) return true;
-			const stack = this.tui.overlayStack;
-			if (!Array.isArray(stack)) return false;
-			return stack.some((entry) => entry && entry.hidden !== true);
+			return this.capabilities.hasVisibleOverlay();
 		} finally {
 			this.checkingOverlay = false;
 		}
 	}
 
 	private renderScrollableRoot(width: number): string[] {
-		if (!this.originalRender || this.disposed) return this.originalRender?.(width) ?? [];
+		if (this.disposed) return this.callOriginalRender(width);
 
-		if (this.hasVisibleOverlay()) {
-			return this.originalRender(width);
-		}
+		if (this.hasVisibleOverlay()) return this.callOriginalRender(width);
 
 		const rawRows = this.getRawRows();
 		const cluster = this.getClusterRender(Math.max(1, width), rawRows);
 		const scrollableRows = Math.max(1, rawRows - cluster.lines.length);
 
-		const lines = this.originalRender(Math.max(1, width));
+		const lines = this.callOriginalRender(Math.max(1, width));
 
 		// Adjust scroll offset when new content arrives while scrolled up.
 		if (
@@ -362,14 +371,14 @@ export class TerminalSplitCompositor {
 		if (keyboard.action === "jumpBottom") {
 			this.scrollOffset = 0;
 			this.selection.clear();
-			this.tui.requestRender?.();
+			this.capabilities.requestRender?.();
 			return undefined; // Let Enter propagate to the editor.
 		}
 
 		const rawRows = this.getRawRows();
 		const scrollableRows = Math.max(
 			1,
-			rawRows - this.getClusterRender(this.terminal.columns || 80, rawRows).lines.length,
+			rawRows - this.getClusterRender(this.capabilities.getColumns() || 80, rawRows).lines.length,
 		);
 
 		if (keyboard.action === "pageUp") {
@@ -411,7 +420,7 @@ export class TerminalSplitCompositor {
 			}
 			this.selection.clear();
 			this.pauseMouseReporting();
-			this.tui.requestRender?.();
+			this.capabilities.requestRender?.();
 			return;
 		}
 
@@ -427,12 +436,12 @@ export class TerminalSplitCompositor {
 
 		if (ev.action === "press") {
 			this.selection.start(lineIndex, col);
-			this.tui.requestRender?.();
+			this.capabilities.requestRender?.();
 			return;
 		}
 		if (ev.action === "drag" && this.selection.isDragging) {
 			this.selection.extend(lineIndex, col + 1);
-			this.tui.requestRender?.();
+			this.capabilities.requestRender?.();
 			return;
 		}
 		if (ev.action === "release" && this.selection.isDragging) {
@@ -440,7 +449,7 @@ export class TerminalSplitCompositor {
 			this.selection.setDragging(false);
 			const text = this.selection.getSelectedText(this.rootLines);
 			this.selection.clear();
-			this.tui.requestRender?.();
+			this.capabilities.requestRender?.();
 			if (text) {
 				void copyToClipboard(text);
 				if (this.getConfig().copyNotice) this.onCopy?.();
@@ -452,11 +461,11 @@ export class TerminalSplitCompositor {
 	/** Temporarily disable mouse reporting so the terminal's native context menu works. */
 	private pauseMouseReporting(): void {
 		if (this.mouseResumeTimer) clearTimeout(this.mouseResumeTimer);
-		this.originalWrite(SYNC_BEGIN + DISABLE_MOUSE + SYNC_END);
+		this.callOriginalWrite(SYNC_BEGIN + DISABLE_MOUSE + SYNC_END);
 		this.mouseResumeTimer = setTimeout(() => {
 			this.mouseResumeTimer = null;
 			if (!this.disposed) {
-				this.originalWrite(SYNC_BEGIN + ENABLE_MOUSE_SGR + SYNC_END);
+				this.callOriginalWrite(SYNC_BEGIN + ENABLE_MOUSE_SGR + SYNC_END);
 			}
 		}, 1200);
 		if (typeof this.mouseResumeTimer === "object" && "unref" in this.mouseResumeTimer) {
@@ -468,7 +477,7 @@ export class TerminalSplitCompositor {
 		const next = clampScrollOffset(this.scrollOffset + delta, this.maxScrollOffset);
 		if (next === this.scrollOffset) return;
 		this.scrollOffset = next;
-		this.tui.requestRender?.();
+		this.capabilities.requestRender?.();
 	}
 
 	private paintCluster(cluster: ClusterRender, rawRows: number, width: number): string {
@@ -502,11 +511,8 @@ export class TerminalSplitCompositor {
 	 * instead of the tracked row.
 	 */
 	private syncTuiCursor(scrollBottom: number): string {
-		const hardwareCursorRow = this.tui.hardwareCursorRow;
-		const viewportTop = this.tui.previousViewportTop;
-		if (typeof hardwareCursorRow !== "number" || typeof viewportTop !== "number") {
-			return "";
-		}
+		const { hardwareCursorRow, previousViewportTop: viewportTop } =
+			this.capabilities.getCursorBookkeeping();
 		const row = Math.max(1, Math.min(scrollBottom, hardwareCursorRow - viewportTop + 1));
 		return cursorTo(row, 1);
 	}
@@ -514,10 +520,10 @@ export class TerminalSplitCompositor {
 	private requestRepaint(): void {
 		if (this.disposed || this.hasVisibleOverlay()) return;
 		const rawRows = this.getRawRows();
-		const width = Math.max(1, this.terminal.columns || 80);
+		const width = Math.max(1, this.capabilities.getColumns() || 80);
 		const cluster = this.getClusterRender(width, rawRows);
 		if (cluster.lines.length === 0) return;
-		this.originalWrite(
+		this.callOriginalWrite(
 			SYNC_BEGIN +
 				DISABLE_AUTOWRAP +
 				this.paintCluster(cluster, rawRows, width) +
@@ -529,21 +535,21 @@ export class TerminalSplitCompositor {
 
 	private write(data: string): void {
 		if (this.disposed || this.writing || this.hasVisibleOverlay()) {
-			this.originalWrite(data);
+			this.callOriginalWrite(data);
 			return;
 		}
 		this.writing = true;
 		try {
 			const rawRows = this.getRawRows();
-			const width = Math.max(1, this.terminal.columns || 80);
+			const width = Math.max(1, this.capabilities.getColumns() || 80);
 			const cluster = this.getClusterRender(width, rawRows);
 			const reservedRows = cluster.lines.length;
 			if (reservedRows === 0 || rawRows <= 2) {
-				this.originalWrite(data);
+				this.callOriginalWrite(data);
 				return;
 			}
 			const scrollBottom = Math.max(1, rawRows - reservedRows);
-			this.originalWrite(
+			this.callOriginalWrite(
 				SYNC_BEGIN +
 					DISABLE_AUTOWRAP +
 					setScrollRegion(1, scrollBottom) +
@@ -560,7 +566,7 @@ export class TerminalSplitCompositor {
 	}
 
 	private restoreTerminalState(): void {
-		this.originalWrite(
+		this.callOriginalWrite(
 			SYNC_BEGIN +
 				RESET_SCROLL_REGION +
 				DISABLE_MOUSE +

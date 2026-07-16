@@ -28,12 +28,15 @@ export class SessionLifecycle {
 		this.timeouts.add(timeout);
 	}
 
-	queueMicrotask(callback: () => void): void {
-		if (!this.active) return;
+	queueMicrotask(callback: () => void): () => void {
+		let canceled = !this.active;
 		const generation = this.generation;
 		queueMicrotask(() => {
-			if (this.isCurrent(generation)) callback();
+			if (!canceled && this.isCurrent(generation)) callback();
 		});
+		return () => {
+			canceled = true;
+		};
 	}
 
 	shutdown(): void {

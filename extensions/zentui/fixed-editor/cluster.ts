@@ -1,118 +1,22 @@
 /**
- * Cluster discovery and rendering for the fixed editor.
+ * Cluster rendering for the fixed editor.
  *
- * The "cluster" is the set of Pi TUI children around the editor that should be
- * pinned at the bottom: status container, above-editor widget, editor,
- * below-editor widget, and footer.
+ * Pi-specific cluster discovery and validation live in pi-compat.ts. This module
+ * only renders the already-verified pinned components.
  *
  * @internal
  */
 
 import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
+import type { PiFixedCluster, PiRenderableCapability } from "./pi-compat";
 import type { ClusterRender } from "./types";
 
-/** Minimal Component shape needed for rendering. */
-type Renderable = {
-	render(width: number): string[];
-	/** Saved original render when the compositor has patched render → [] */
-	__zentuiOriginalRender?: (width: number) => string[];
-};
+export type FixedCluster = PiFixedCluster;
 
-/** Minimal Container shape for child scanning. */
-type ContainerLike = Renderable & {
-	children: unknown[];
-};
-
-/** Check if a value is a container-like object (has children + render). */
-function isContainerLike(value: unknown): value is ContainerLike {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		Array.isArray(Reflect.get(value, "children")) &&
-		typeof Reflect.get(value, "render") === "function"
-	);
-}
-
-/** Check if a value looks like an editor component (duck-typed). */
-function isEditorLike(value: unknown): boolean {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof Reflect.get(value, "getText") === "function" &&
-		typeof Reflect.get(value, "setText") === "function" &&
-		typeof Reflect.get(value, "handleInput") === "function"
-	);
-}
-
-/**
- * Find the index in `children` of the container holding the editor.
- * Prefers the focused component's parent; falls back to scanning for
- * an editor-like grandchild.
- */
-export function findEditorContainerIndex(
-	children: unknown[],
-	focusedComponent?: unknown,
-): number | undefined {
-	// Try focused component first.
-	if (focusedComponent && typeof focusedComponent === "object") {
-		const idx = children.findIndex(
-			(c) => isContainerLike(c) && c.children.includes(focusedComponent),
-		);
-		if (idx !== -1) return idx;
-	}
-
-	// Scan for a container with an editor-like child.
-	const idx = children.findIndex(
-		(c) => isContainerLike(c) && c.children.some((gc) => isEditorLike(gc)),
-	);
-	return idx === -1 ? undefined : idx;
-}
-
-/** The 5-component cluster pinned at the bottom. */
-export type FixedCluster = {
-	status: Renderable | null;
-	aboveWidget: Renderable | null;
-	editor: Renderable;
-	belowWidget: Renderable | null;
-	footer: Renderable | null;
-};
-
-/**
- * Patch a cluster component's render to return [] (hide from transcript).
- * Saves the original render for cluster painting.
- */
-export function hideRenderable(component: Renderable | null): void {
-	if (!component || component.__zentuiOriginalRender) return;
-	component.__zentuiOriginalRender = component.render.bind(component);
-	component.render = () => [];
-}
-
-/** Restore a cluster component's original render. */
-export function restoreRenderable(component: Renderable | null): void {
-	if (!component?.__zentuiOriginalRender) return;
-	component.render = component.__zentuiOriginalRender;
-	delete component.__zentuiOriginalRender;
-}
-
-/** Build the cluster from children around the editor index. */
-export function buildCluster(children: unknown[], editorIdx: number): FixedCluster | null {
-	const editor = children[editorIdx];
-	if (!editor || typeof (editor as Renderable).render !== "function") return null;
-	return {
-		status: (children[editorIdx - 2] as Renderable | undefined) ?? null,
-		aboveWidget: (children[editorIdx - 1] as Renderable | undefined) ?? null,
-		editor: editor as Renderable,
-		belowWidget: (children[editorIdx + 1] as Renderable | undefined) ?? null,
-		footer: (children[editorIdx + 2] as Renderable | undefined) ?? null,
-	};
-}
-
-/** Render a component at `width`, using the saved original render if hidden. */
-function renderComponent(component: Renderable | null, width: number): string[] {
+function renderComponent(component: PiRenderableCapability | null, width: number): string[] {
 	if (!component) return [];
-	const renderFn = component.__zentuiOriginalRender ?? component.render;
-	const lines = renderFn.call(component, width);
+	const lines = component.render.call(component.target, width);
 	// Strip only trailing blank lines — internal blank lines (e.g. editor
 	// padding in copy-friendly mode) must be preserved.
 	let end = lines.length;
