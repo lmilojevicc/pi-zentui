@@ -19,6 +19,7 @@ import {
 	formatUsernameHostLabel,
 } from "./format";
 import { resolveRuntimeSymbol } from "./icons";
+import type { LiveContextOverride } from "./live-context";
 import type { FooterState } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -155,6 +156,7 @@ export function installFooter(
 		setRequestRender: (fn: (() => void) | undefined) => void;
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
+		getLiveContext?: () => LiveContextOverride | undefined;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -198,14 +200,20 @@ export function installFooter(
 					? formatGitBranchText(branch, config.gitBranch.maxLength)
 					: undefined;
 				const contextUsage = ctx.getContextUsage();
+				const liveContext = hooks.getLiveContext?.();
 				const contextWindow = ctx.model?.contextWindow ?? contextUsage?.contextWindow;
+				const useLiveContext =
+					liveContext !== undefined && contextWindow !== undefined && contextWindow > 0;
+				const contextPercent = useLiveContext
+					? (liveContext.tokens / contextWindow) * 100
+					: contextUsage?.percent;
 				const contextLabel = buildContextDisplayLabel({
-					percent: contextUsage?.percent,
+					percent: contextPercent,
 					contextWindow,
 					style: config.contextStyle,
 					asciiGauge: iconMode === "ascii",
 				});
-				const tier = contextColorTier(contextUsage?.percent, config.contextThresholds);
+				const tier = contextColorTier(contextPercent, config.contextThresholds);
 				const contextColor =
 					tier === "error"
 						? config.colors.contextError

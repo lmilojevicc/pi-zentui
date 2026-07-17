@@ -18,14 +18,21 @@ export class SessionLifecycle {
 		return this.active && generation === this.generation;
 	}
 
-	defer(callback: () => void): void {
-		if (!this.active) return;
+	defer(callback: () => void, delayMs = 0): () => void {
+		if (!this.active) return () => {};
 		const generation = this.generation;
+		let canceled = false;
 		const timeout = setTimeout(() => {
 			this.timeouts.delete(timeout);
-			if (this.isCurrent(generation)) callback();
-		}, 0);
+			if (!canceled && this.isCurrent(generation)) callback();
+		}, delayMs);
 		this.timeouts.add(timeout);
+		return () => {
+			if (canceled) return;
+			canceled = true;
+			clearTimeout(timeout);
+			this.timeouts.delete(timeout);
+		};
 	}
 
 	queueMicrotask(callback: () => void): () => void {

@@ -41,6 +41,7 @@ import {
 import { installFooter } from "./footer";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
+import { LiveContextController } from "./live-context";
 import { readPackageVersionResult } from "./package-version";
 import {
 	createProjectRefreshScheduler,
@@ -113,6 +114,7 @@ export default function (pi: ExtensionAPI) {
 	const refresh = () => {
 		if (sessionLifecycle.isCurrent()) requestFooterRender?.();
 	};
+	const liveContext = new LiveContextController(sessionLifecycle, refresh);
 	const getActiveTheme = () => activeTheme;
 	const getCurrentConfig = () => currentConfig;
 	const getThinkingLevel = () =>
@@ -330,6 +332,7 @@ export default function (pi: ExtensionAPI) {
 			setExtensionStatusesGetter(fn) {
 				getActiveExtensionStatuses = fn ?? (() => new Map());
 			},
+			getLiveContext: () => liveContext.get(),
 		});
 		footerInstalled = true;
 		stopProjectRefresh();
@@ -442,6 +445,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
+		liveContext.clear();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
 		lastProjectCwd = undefined;
@@ -510,6 +514,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		liveContext.clear();
 		cleanupUi(ctx);
 	});
 
@@ -518,12 +523,44 @@ export default function (pi: ExtensionAPI) {
 		refreshInteractiveState(ctx, true);
 	};
 
-	pi.on("agent_start", syncInteractiveState);
-	pi.on("agent_end", syncInteractiveAndProjectState);
-	pi.on("model_select", syncInteractiveState);
+	pi.on("agent_start", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveState(event, ctx);
+	});
+	pi.on("agent_end", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveAndProjectState(event, ctx);
+	});
+	pi.on("model_select", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveState(event, ctx);
+	});
 	pi.on("thinking_level_select", syncInteractiveState);
-	pi.on("message_end", syncInteractiveAndProjectStateWithUsage);
+	pi.on("message_update", (event) => {
+		liveContext.update(event.message);
+	});
+	pi.on("message_end", (event, ctx) => {
+		// Pi notifies extensions before persisting a successful message, so retain its live
+		// context until agent_end; failed messages clear immediately instead of showing stale usage.
+		if (
+			event.message.role === "assistant" &&
+			(event.message.stopReason === "error" || event.message.stopReason === "aborted")
+		) {
+			liveContext.clear();
+		}
+		syncInteractiveAndProjectStateWithUsage(event, ctx);
+	});
+	pi.on("tool_execution_start", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveState(event, ctx);
+	});
 	pi.on("tool_execution_end", syncInteractiveAndProjectState);
-	pi.on("session_compact", syncInteractiveAndProjectStateWithUsage);
-	pi.on("session_tree", syncInteractiveAndProjectStateWithUsage);
+	pi.on("session_compact", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveAndProjectStateWithUsage(event, ctx);
+	});
+	pi.on("session_tree", (event, ctx) => {
+		liveContext.clear();
+		syncInteractiveAndProjectStateWithUsage(event, ctx);
+	});
 }
