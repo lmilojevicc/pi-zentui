@@ -1181,42 +1181,43 @@ describe("Pi docs compliance", () => {
 		["dot", " · "],
 		["chevron", " › "],
 		["none", " "],
-	] as Array<
-		[SeparatorStyle, string]
-	>)("renders %s separators between extension statuses and built-in right segments", (separator, expectedSeparator) => {
-		let footerFactory: FooterFactory | undefined;
-		const ctx = makeContext({
-			cwd: "/tmp/project",
-			ui: {
-				theme: makeTheme(),
-				setFooter(factory: FooterFactory | undefined) {
-					footerFactory = factory;
+	] as Array<[SeparatorStyle, string]>)(
+		"renders %s separators between extension statuses and built-in right segments",
+		(separator, expectedSeparator) => {
+			let footerFactory: FooterFactory | undefined;
+			const ctx = makeContext({
+				cwd: "/tmp/project",
+				ui: {
+					theme: makeTheme(),
+					setFooter(factory: FooterFactory | undefined) {
+						footerFactory = factory;
+					},
+					setEditorComponent() {},
 				},
-				setEditorComponent() {},
-			},
-		});
-		const state = createInitialState(emptyGitStatus());
-		state.tokenLabel = "tokens";
-		state.costLabel = "cost";
-		const config = { ...defaultConfig, separator };
+			});
+			const state = createInitialState(emptyGitStatus());
+			state.tokenLabel = "tokens";
+			state.costLabel = "cost";
+			const config = { ...defaultConfig, separator };
 
-		installFooter(ctx as never, state, () => config, {
-			setRequestRender() {},
-			scheduleProjectRefresh() {},
-		});
+			installFooter(ctx as never, state, () => config, {
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+			});
 
-		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
-			onBranchChange: () => () => {},
-			getExtensionStatuses: () =>
-				new Map<string, string>([
-					["beta", "B"],
-					["alpha", "A"],
-				]),
-		});
-		const rendered = footer?.render(160).join("\n") ?? "";
+			const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () =>
+					new Map<string, string>([
+						["beta", "B"],
+						["alpha", "A"],
+					]),
+			});
+			const rendered = footer?.render(160).join("\n") ?? "";
 
-		expect(rendered).toContain(["A", "B", "1%/200k", "tokens", "cost"].join(expectedSeparator));
-	});
+			expect(rendered).toContain(["A", "B", "1%/200k", "tokens", "cost"].join(expectedSeparator));
+		},
+	);
 
 	it("keeps custom footer format $sep as a pipe", () => {
 		let footerFactory: FooterFactory | undefined;
