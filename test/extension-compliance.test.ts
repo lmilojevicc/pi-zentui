@@ -3290,25 +3290,31 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("middle");
 		expect(rendered).not.toContain("inactive");
 	});
-	function renderSessionNameFooter({
-		name,
-		width,
-		theme = makeTheme(),
-		footerFormat = "",
-		segmentEnabled = true,
-		sessionNameColor = "success",
-	}: {
-		name: string | undefined;
-		width: number;
+	type SessionNameFooterOptions = {
+		name?: string;
+		getSessionName?: () => string | undefined;
 		theme?: Theme;
 		footerFormat?: string;
 		segmentEnabled?: boolean;
 		sessionNameColor?: string;
-	}): string[] {
+		branch?: string;
+		branchEnabled?: boolean;
+	};
+
+	function createSessionNameFooter({
+		name,
+		getSessionName = () => name,
+		theme = makeTheme(),
+		footerFormat = "",
+		segmentEnabled = true,
+		sessionNameColor = "success",
+		branch,
+		branchEnabled = false,
+	}: SessionNameFooterOptions) {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
 			cwd: "/tmp/project",
-			sessionManager: { getBranch: () => [], getSessionName: () => name },
+			sessionManager: { getBranch: () => [], getSessionName },
 			ui: {
 				theme,
 				setFooter(factory: FooterFactory | undefined) {
@@ -3325,7 +3331,7 @@ describe("Pi docs compliance", () => {
 				...defaultConfig.footerSegments,
 				cwd: true,
 				sessionName: segmentEnabled,
-				gitBranch: false,
+				gitBranch: branchEnabled,
 				gitStatus: false,
 				runtime: false,
 				context: false,
@@ -3333,25 +3339,36 @@ describe("Pi docs compliance", () => {
 				cost: false,
 			},
 		};
-		installFooter(ctx as never, createInitialState(emptyGitStatus()), () => config, {
+		installFooter(ctx as never, createInitialState({ ...emptyGitStatus(), branch }), () => config, {
 			setRequestRender() {},
 			scheduleProjectRefresh() {},
 		});
-		const footer = footerFactory?.({ requestRender() {} }, theme, {
+		return footerFactory?.({ requestRender() {} }, theme, {
 			onBranchChange: () => () => {},
 			getExtensionStatuses: () => new Map<string, string>(),
 		});
-		return footer?.render(width) ?? [];
 	}
 
-	it("renders the opt-in session name immediately after cwd with its dedicated color", () => {
+	function renderSessionNameFooter({
+		width,
+		...options
+	}: SessionNameFooterOptions & { width: number }): string[] {
+		return createSessionNameFooter(options)?.render(width) ?? [];
+	}
+
+	it("renders the default session name as 'in <name>' between cwd and branch", () => {
 		const rendered = renderSessionNameFooter({
 			name: "release prep",
-			width: 120,
+			width: 500,
 			theme: makeTaggedTheme(),
+			branch: "feat/session-name-footer",
+			branchEnabled: true,
 		}).join("\n");
+		expect(rendered).toContain("project in [success]release prep on");
 		expect(rendered.indexOf("project")).toBeLessThan(rendered.indexOf("release prep"));
-		expect(rendered).toContain("[success]release prep");
+		expect(rendered.indexOf("release prep")).toBeLessThan(
+			rendered.indexOf("feat/session-name-footer"),
+		);
 	});
 
 	it("omits absent names and keeps Unicode names within narrow footer widths", () => {
@@ -3362,11 +3379,60 @@ describe("Pi docs compliance", () => {
 		}).join("\n");
 		expect(absent).not.toContain("undefined");
 		expect(absent).not.toContain("[success]");
+		expect(absent).not.toContain(" in ");
 		const lines = renderSessionNameFooter({ name: "研究 🚀 ".repeat(20), width: 18 });
 		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
 	});
 
-	it("renders $session_name in footerFormat when the built-in segment is disabled", () => {
+	it("sanitizes terminal controls while preserving ordinary Unicode session names", () => {
+		const rendered = renderSessionNameFooter({
+			name: "\x1b[31mrelease\x1b[0m\tprep\x07\x1b]0;owned\x07研究 🚀",
+			width: 120,
+			theme: makeTaggedTheme(),
+		}).join("\n");
+		expect(rendered).toContain("release prep研究 🚀");
+		expect(rendered).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+		expect(rendered).not.toContain("owned");
+
+		const controlsOnly = renderSessionNameFooter({
+			name: "\x1b[2J\x1b]0;owned\x07\t\x07",
+			width: 120,
+			theme: makeTaggedTheme(),
+		}).join("\n");
+		expect(controlsOnly).not.toContain("[success]");
+		expect(controlsOnly).not.toContain("owned");
+		expect(controlsOnly).not.toContain(" in ");
+	});
+
+	it("respects an explicit disabled setting and skips unused session-name lookups", () => {
+		const getSessionName = vi.fn(() => "hidden");
+		const disabled = renderSessionNameFooter({
+			getSessionName,
+			width: 120,
+			segmentEnabled: false,
+		}).join("\n");
+		expect(disabled).not.toContain("hidden");
+		expect(disabled).not.toContain(" in ");
+		expect(getSessionName).not.toHaveBeenCalled();
+
+		renderSessionNameFooter({
+			getSessionName,
+			width: 120,
+			footerFormat: "$cwd",
+			segmentEnabled: true,
+		});
+		expect(getSessionName).not.toHaveBeenCalled();
+
+		renderSessionNameFooter({
+			getSessionName,
+			width: 120,
+			footerFormat: "${" + "session_name}",
+			segmentEnabled: false,
+		});
+		expect(getSessionName).toHaveBeenCalledOnce();
+	});
+
+	it("renders raw session-name tokens in custom formats without the built-in prefix", () => {
 		const named = renderSessionNameFooter({
 			name: "release prep",
 			width: 120,
@@ -3374,6 +3440,15 @@ describe("Pi docs compliance", () => {
 			segmentEnabled: false,
 		}).join("\n");
 		expect(named).toContain("release prep");
+		expect(named).not.toContain("in release prep");
+		const braced = renderSessionNameFooter({
+			name: "release prep",
+			width: 120,
+			footerFormat: "$cwd ${" + "session_name}",
+			segmentEnabled: false,
+		}).join("\n");
+		expect(braced).toContain("project release prep");
+		expect(braced).not.toContain("in release prep");
 		const unnamed = renderSessionNameFooter({
 			name: undefined,
 			width: 120,
@@ -3382,6 +3457,17 @@ describe("Pi docs compliance", () => {
 		}).join("\n");
 		expect(unnamed).toContain("project");
 		expect(unnamed).not.toContain(" | ");
+	});
+
+	it("reads an updated session name on the next footer render", () => {
+		let sessionName = "draft";
+		const footer = createSessionNameFooter({ getSessionName: () => sessionName });
+		expect(footer?.render(120).join("\n")).toContain("draft");
+
+		sessionName = "release prep";
+		const renamed = footer?.render(120).join("\n") ?? "";
+		expect(renamed).toContain("release prep");
+		expect(renamed).not.toContain("draft");
 	});
 
 	it("requests one footer render on session_info_changed", async () => {
@@ -3412,7 +3498,7 @@ describe("Pi docs compliance", () => {
 		);
 		const handler = handlers.get("session_info_changed")?.[0];
 		const before = renderRequests;
-		expect(handler?.({}, ctx)).toBeUndefined();
+		expect(handler?.({ type: "session_info_changed", name: "release prep" }, ctx)).toBeUndefined();
 		expect(renderRequests).toBe(before + 1);
 		await emit(handlers, "session_shutdown", ctx);
 	});

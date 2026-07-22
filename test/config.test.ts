@@ -74,7 +74,7 @@ describe("mergeConfig", () => {
 		});
 		expect(config.footerSegments).toEqual({
 			cwd: true,
-			sessionName: false,
+			sessionName: true,
 			gitBranch: true,
 			gitStatus: true,
 			runtime: true,
@@ -661,7 +661,7 @@ describe("mergeConfig", () => {
 	it("accepts valid footer segment preferences and ignores invalid values", () => {
 		expect(mergeConfig({ footerSegments: { cwd: false, tokens: false } }).footerSegments).toEqual({
 			cwd: false,
-			sessionName: false,
+			sessionName: true,
 			gitBranch: true,
 			gitStatus: true,
 			runtime: true,
@@ -682,7 +682,7 @@ describe("mergeConfig", () => {
 				.footerSegments,
 		).toEqual({
 			cwd: true,
-			sessionName: false,
+			sessionName: true,
 			gitBranch: false,
 			gitStatus: false,
 			runtime: true,
@@ -702,14 +702,14 @@ describe("mergeConfig", () => {
 
 	it("normalizes session-name preferences", () => {
 		expect(mergeConfig({ colors: { sessionName: "success" } }).colors.sessionName).toBe("success");
-		expect(mergeConfig({ footerSegments: { sessionName: true } }).footerSegments.sessionName).toBe(
-			true,
+		expect(mergeConfig({ footerSegments: { sessionName: false } }).footerSegments.sessionName).toBe(
+			false,
 		);
 		expect(mergeConfig({ colors: { sessionName: "not-a-color" } }).colors.sessionName).toBe(
 			"bold green",
 		);
 		expect(mergeConfig({ footerSegments: { sessionName: "on" } }).footerSegments.sessionName).toBe(
-			false,
+			true,
 		);
 	});
 
@@ -896,7 +896,7 @@ describe("mergeConfig", () => {
 
 			expect(config.footerSegments).toEqual({
 				cwd: true,
-				sessionName: false,
+				sessionName: true,
 				gitBranch: true,
 				gitStatus: true,
 				runtime: true,
@@ -933,7 +933,7 @@ describe("mergeConfig", () => {
 
 			expect(config.footerSegments).toEqual({
 				cwd: true,
-				sessionName: false,
+				sessionName: true,
 				gitBranch: true,
 				gitStatus: true,
 				runtime: false,

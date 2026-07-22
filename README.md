@@ -237,7 +237,7 @@ Default config values — copy this and change any value you want:
 	},
 	"footerSegments": {
 		"cwd": true,
-		"sessionName": false,
+		"sessionName": true,
 		"gitBranch": true,
 		"gitStatus": true,
 		"gitCounts": false,
@@ -413,7 +413,7 @@ Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable
 
 ## Requirements
 
-- [Pi](https://pi.dev) coding agent 0.80 or newer
+- [Pi](https://pi.dev) coding agent 0.80.3 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for icons (or set `icons.mode` to `"ascii"`)
 
 ## Development

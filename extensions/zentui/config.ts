@@ -264,7 +264,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	},
 	footerSegments: {
 		cwd: true,
-		sessionName: false,
+		sessionName: true,
 		gitBranch: true,
 		gitStatus: true,
 		gitCounts: false,
