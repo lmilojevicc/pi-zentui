@@ -9,12 +9,20 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
+import { renderEditorMetadataFormat } from "./editor-metadata-format";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallback,
 	safeThemeFg,
 } from "./style";
+
+const SPLIT_POLISHED_FRAME: unique symbol = Symbol.for("pi-zentui.polished-frame");
+
+type PolishedFrameSplit = {
+	editorLines: string[];
+	trailingLines: string[];
+};
 
 type AutocompleteEditorInternals = {
 	autocompleteList?: Pick<Component, "render">;
@@ -42,11 +50,15 @@ type WrappedEditor = EditorComponent &
 		setAutocompleteProvider?: (provider: AutocompleteProvider) => void;
 		setPaddingX?: (padding: number) => void;
 		setAutocompleteMaxVisible?: (maxVisible: number) => void;
+		[SPLIT_POLISHED_FRAME]?: (lines: string[]) => PolishedFrameSplit | undefined;
 	};
 
 type EditorMeta = {
 	modelLabel: string;
+	modelId?: string;
+	modelName?: string;
 	providerLabel: string;
+	sessionName?: string;
 };
 
 type PolishedFrameOptions = {
@@ -56,9 +68,9 @@ type PolishedFrameOptions = {
 	uiTheme: Theme;
 	config: PolishedTuiConfig;
 	modelMeta: EditorMeta;
-	previousModelMeta?: EditorMeta;
 	thinkingLevel: string | undefined;
 	rightStatus?: string;
+	splitBaseFrame?: (lines: string[]) => PolishedFrameSplit | undefined;
 };
 
 function clampRenderedLines(lines: string[], width: number): string[] {
@@ -70,23 +82,6 @@ function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");
 	const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
 	return `${truncated}${pad}`;
-}
-
-function editorThinkingStyle(config: PolishedTuiConfig, level: string): string | undefined {
-	switch (level.toLowerCase()) {
-		case "minimal":
-			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
-		case "low":
-			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
-		case "medium":
-			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
-		case "high":
-			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
-		case "xhigh":
-			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
-		default:
-			return config.colors.editorThinking;
-	}
 }
 
 function copyFriendlyPrompt(config: PolishedTuiConfig, uiTheme: Theme, reset: string): string {
@@ -137,7 +132,7 @@ function plainRenderedText(line: string): string {
 	return line
 		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
 		.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-		.replace(/\[[/?][^\]]+\]/g, "");
+		.replace(/\[\/?[^\]]+\]/g, "");
 }
 
 function isHorizontalBorder(line: string): boolean {
@@ -145,70 +140,67 @@ function isHorizontalBorder(line: string): boolean {
 	return plain.length > 0 && /^─+$/.test(plain);
 }
 
-function isRenderedModelMetaLine(line: string, modelMeta: EditorMeta): boolean {
-	const plain = plainRenderedText(line);
-	return plain.includes(modelMeta.modelLabel) && plain.includes(modelMeta.providerLabel);
-}
-
-function matchesAnyModelMeta(
-	line: string,
-	modelMeta: EditorMeta,
-	previousMeta?: EditorMeta,
-): boolean {
-	if (isRenderedModelMetaLine(line, modelMeta)) return true;
-	if (previousMeta && isRenderedModelMetaLine(line, previousMeta)) return true;
-	return false;
-}
-
-function hasRenderedModelMetaLine(
+function unwrapPolishedFrameOnly(
 	lines: string[],
-	modelMeta: EditorMeta,
-	previousMeta?: EditorMeta,
-): boolean {
-	return lines.some((line) => matchesAnyModelMeta(line, modelMeta, previousMeta));
-}
+	config: PolishedTuiConfig,
+	uiTheme: Theme,
+): string[] | undefined {
+	if (
+		lines.length < 5 ||
+		!isHorizontalBorder(lines[0] ?? "") ||
+		!isHorizontalBorder(lines.at(-1) ?? "")
+	)
+		return undefined;
 
-function isAlreadyPolishedFrame(
-	lines: string[],
-	modelMeta: EditorMeta,
-	previousMeta?: EditorMeta,
-): boolean {
-	return (
-		lines.length >= 3 &&
-		isHorizontalBorder(lines[0] ?? "") &&
-		isHorizontalBorder(lines.at(-1) ?? "") &&
-		hasRenderedModelMetaLine(lines.slice(1, -1), modelMeta, previousMeta)
-	);
-}
+	const interior = lines.slice(1, -1);
+	if (interior.length < 3) return undefined;
 
-function removeRenderedModelMetaLines(
-	lines: string[],
-	modelMeta: EditorMeta,
-	previousMeta?: EditorMeta,
-): string[] {
-	const result: string[] = [];
-	for (let index = 0; index < lines.length; index++) {
-		const line = lines[index] ?? "";
-		if (matchesAnyModelMeta(line, modelMeta, previousMeta)) continue;
+	if (config.features.copyFriendly) {
+		if (
+			plainRenderedText(interior[0] ?? "").trim() !== "" ||
+			plainRenderedText(interior.at(-2) ?? "").trim() !== "" ||
+			!(interior.at(-1) ?? "").startsWith(" ")
+		)
+			return undefined;
 
-		const plain = plainRenderedText(line).trim();
-		const previousWasMeta =
-			index > 0 && matchesAnyModelMeta(lines[index - 1] ?? "", modelMeta, previousMeta);
-		const nextIsMeta =
-			index < lines.length - 1 &&
-			matchesAnyModelMeta(lines[index + 1] ?? "", modelMeta, previousMeta);
-		if (!plain && (previousWasMeta || nextIsMeta)) continue;
-
-		result.push(line);
+		const { prompt, promptWidth } = getEditorChromeWidths(config, uiTheme, "\x1b[0m");
+		const continuation = " ".repeat(promptWidth);
+		const content = interior.slice(1, -2);
+		const unwrapped: string[] = [];
+		for (let index = 0; index < content.length; index++) {
+			const prefix = index === 0 ? prompt : continuation;
+			const line = content[index] ?? "";
+			if (prefix && !line.startsWith(prefix)) return undefined;
+			unwrapped.push(prefix ? line.slice(prefix.length) : line);
+		}
+		return unwrapped;
 	}
-	return result;
+
+	const { rail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m");
+	if (!rail || interior.some((line) => !line.startsWith(rail))) return undefined;
+	const unrailed = interior.map((line) => line.slice(rail.length));
+	if (
+		plainRenderedText(unrailed[0] ?? "").trim() !== "" ||
+		plainRenderedText(unrailed.at(-2) ?? "").trim() !== ""
+	)
+		return undefined;
+	return unrailed.slice(1, -2);
 }
 
-function removeStalePolishedLeadingSpacer(lines: string[], shouldRemove: boolean): string[] {
-	if (!shouldRemove || lines.length === 0) return lines;
-	const firstLine = lines[0] ?? "";
-	if (plainRenderedText(firstLine).trim()) return lines;
-	return lines.slice(1);
+function splitPolishedFrame(
+	lines: string[],
+	config: PolishedTuiConfig,
+	uiTheme: Theme,
+): PolishedFrameSplit | undefined {
+	if (!isHorizontalBorder(lines[0] ?? "")) return undefined;
+	for (let bottomIndex = lines.length - 1; bottomIndex >= 4; bottomIndex--) {
+		if (!isHorizontalBorder(lines[bottomIndex] ?? "")) continue;
+		const editorLines = unwrapPolishedFrameOnly(lines.slice(0, bottomIndex + 1), config, uiTheme);
+		if (editorLines) {
+			return { editorLines, trailingLines: lines.slice(bottomIndex + 1) };
+		}
+	}
+	return undefined;
 }
 
 function vimModeColor(mode: string): string {
@@ -244,9 +236,9 @@ function renderPolishedFrame({
 	uiTheme,
 	config,
 	modelMeta,
-	previousModelMeta,
 	thinkingLevel,
 	rightStatus,
+	splitBaseFrame,
 }: PolishedFrameOptions): string[] {
 	if (width <= 2) return clampRenderedLines(baseRendered, width);
 
@@ -262,56 +254,37 @@ function renderPolishedFrame({
 
 	if (baseRendered.length < 2) return clampRenderedLines(baseRendered, width);
 
+	const ownedFrame = splitBaseFrame?.(baseRendered);
 	const { autocompleteList } = autocompleteSource;
 	const autocompleteCount =
-		isShowingAutocomplete && typeof autocompleteList?.render === "function"
+		!ownedFrame && isShowingAutocomplete && typeof autocompleteList?.render === "function"
 			? autocompleteList.render(innerWidth).length
 			: 0;
 	const editorFrame =
-		autocompleteCount > 0 && autocompleteCount < baseRendered.length
+		!ownedFrame && autocompleteCount > 0 && autocompleteCount < baseRendered.length
 			? baseRendered.slice(0, -autocompleteCount)
 			: baseRendered;
-	const autocompleteLines =
-		autocompleteCount > 0 && autocompleteCount < baseRendered.length
+	const autocompleteLines = ownedFrame
+		? ownedFrame.trailingLines
+		: autocompleteCount > 0 && autocompleteCount < baseRendered.length
 			? baseRendered.slice(-autocompleteCount)
 			: [];
 	if (editorFrame.length < 2) return clampRenderedLines(baseRendered, width);
 
-	const stalePolishedFrame = isAlreadyPolishedFrame(editorFrame, modelMeta, previousModelMeta);
-	const editorLines = removeStalePolishedLeadingSpacer(
-		removeRenderedModelMetaLines(editorFrame.slice(1, -1), modelMeta, previousModelMeta),
-		stalePolishedFrame,
-	);
-	const model = renderStyleForSourceOrFallback(
+	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
+	const meta = renderEditorMetadataFormat(
+		config.editorMetadataFormat,
+		{
+			model: modelMeta.modelLabel,
+			modelId: modelMeta.modelId ?? "",
+			modelName: modelMeta.modelName ?? "",
+			provider: modelMeta.providerLabel,
+			thinking: thinkingLevel ?? "",
+			sessionName: modelMeta.sessionName ?? "",
+		},
 		uiTheme,
-		colorSource,
-		config.colors.editorModel,
-		EDITOR_ACCENT_FALLBACK,
-		modelMeta.modelLabel,
+		config,
 	);
-	const provider = renderStyleForSourceOrFallback(
-		uiTheme,
-		colorSource,
-		config.colors.editorProvider,
-		"text",
-		modelMeta.providerLabel,
-	);
-	const renderedModelMeta = [model, provider]
-		.filter(Boolean)
-		.join(safeThemeFg(uiTheme, "borderMuted", "  "));
-	const metaParts = [renderedModelMeta];
-	if (thinkingLevel && thinkingLevel !== "off") {
-		metaParts.push(
-			renderStyleForSourceOrFallback(
-				uiTheme,
-				colorSource,
-				editorThinkingStyle(config, thinkingLevel),
-				"muted",
-				thinkingLevel,
-			),
-		);
-	}
-	const meta = metaParts.filter(Boolean).join(safeThemeFg(uiTheme, "border", "  "));
 	const copyFriendlyMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
 
@@ -358,7 +331,6 @@ export class PolishedEditor extends CustomEditor {
 	private readonly getThinkingLevel: () => string | undefined;
 	private readonly getConfig: () => PolishedTuiConfig;
 	private readonly uiTheme: Theme;
-	private previousModelMeta?: EditorMeta;
 
 	constructor(
 		tui: TUI,
@@ -394,17 +366,17 @@ export class PolishedEditor extends CustomEditor {
 			uiTheme: this.uiTheme,
 			config,
 			modelMeta,
-			previousModelMeta: this.previousModelMeta,
 			thinkingLevel: this.getThinkingLevel(),
 		});
-		this.previousModelMeta = modelMeta;
 		return result;
+	}
+
+	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
+		return splitPolishedFrame(lines, this.getConfig(), this.uiTheme);
 	}
 }
 
 export class WrappedPolishedEditor implements EditorComponent {
-	private previousModelMeta?: EditorMeta;
-
 	constructor(
 		private readonly base: WrappedEditor,
 		private readonly uiTheme: Theme,
@@ -499,19 +471,21 @@ export class WrappedPolishedEditor implements EditorComponent {
 		const rendered = this.base.render(innerWidth);
 		const vimStatus = readVimStatus(this.base, this.uiTheme);
 		const modelMeta = this.getModelMeta();
-		const result = renderPolishedFrame({
+		return renderPolishedFrame({
 			width,
 			baseRendered: rendered,
 			autocompleteSource: this.base,
 			uiTheme: this.uiTheme,
 			config,
 			modelMeta,
-			previousModelMeta: this.previousModelMeta,
 			thinkingLevel: this.getThinkingLevel(),
 			rightStatus: vimStatus,
+			splitBaseFrame: this.base[SPLIT_POLISHED_FRAME]?.bind(this.base),
 		});
-		this.previousModelMeta = modelMeta;
-		return result;
+	}
+
+	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
+		return splitPolishedFrame(lines, this.getConfig(), this.uiTheme);
 	}
 
 	invalidate(): void {
