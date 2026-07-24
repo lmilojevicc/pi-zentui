@@ -157,6 +157,7 @@ Default config values — copy this and change any value you want:
 {
 	"projectRefreshIntervalMs": 30000,
 	"footerFormat": "",
+	"editorMetadataFormat": "$model  $provider(  $thinking)",
 	"separator": "pipe",
 	"contextStyle": "text",
 	"modelLabel": "id",
@@ -280,6 +281,7 @@ Default config values — copy this and change any value you want:
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
 - `modelLabel`: controls the model shown in the editor frame. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
+- `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
 - `separator`: controls the default footer layout and extension-status connectors: `pipe` (default, ` | `), `dot` (` · `), `chevron` (` › `), or `none` (one space). Cycle it from the `/zentui` **Layout** tab. This selects the separator glyph; `colors.separator` controls its color. Custom `footerFormat` literals and `$sep` keep their existing behavior.
 - `contextThresholds`: `{ warning, error }` percentages (default `70` / `90`) that select contextNormal / contextWarning / contextError colors.
 - `pathDisplay`: controls how the cwd/`$cwd` path is shown. `mode` is `basename` (default, last segment only) or `full` (path with home contracted to `~`). In `full` mode, `depth` keeps only the last N trailing directories (`0` = entire path after `~`, max `5`); when parents are dropped the path is prefixed with `…/` (Starship-style). The `/zentui` **Layout** tab cycles path mode and path depth (`0`–`5`; depth is ignored for basename). Example: `~/Projects/foo/bar` with `depth: 2` → `…/foo/bar`.
@@ -299,6 +301,31 @@ Default config values — copy this and change any value you want:
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: when using copy-friendly mode, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+
+## Editor Metadata Format
+
+Set `editorMetadataFormat` in `~/.pi/agent/zentui.json` to customize the left side of the editor metadata row:
+
+```json
+{
+	"editorMetadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
+}
+```
+
+The syntax follows the relevant `footerFormat` conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
+
+| Token           | Renders                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------- |
+| `$model`        | label selected by `modelLabel` (`id`, or name with ID fallback)                              |
+| `$model_id`     | active Pi model ID                                                                            |
+| `$model_name`   | active Pi model display name; empty when no name is set                                       |
+| `$provider`     | provider label using Zentui's existing formatting                                             |
+| `$thinking`     | current thinking level; empty when thinking is `off`                                          |
+| `$session_name` | current Pi session name; empty when unnamed                                                    |
+
+Model variables use `editorModel`, provider uses `editorProvider`, and thinking uses the matching `editorThinking*` style. Literal text and `$session_name` use the neutral editor border theme style. The template controls spacing. ANSI/VT sequences, control characters, and line-breaking whitespace are sanitized before rendering without collapsing ordinary spaces.
+
+Missing, non-string, or empty values use the default `$model  $provider(  $thinking)`. A non-empty format that resolves to no visible metadata keeps the normal blank spacer and metadata rows so the editor frame height remains stable. This option is configured only through JSON in its first version; `/zentui format` continues to control the footer only.
 
 ## Footer Format Template
 

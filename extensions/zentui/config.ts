@@ -122,10 +122,12 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
+export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
 
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
 	footerFormat: string;
+	editorMetadataFormat: string;
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
 	modelLabel: ModelLabelSource;
@@ -223,6 +225,7 @@ export const configPath = join(getAgentDir(), "zentui.json");
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
 	footerFormat: "",
+	editorMetadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
 	separator: "pipe",
 	contextStyle: "text",
 	modelLabel: "id",
@@ -769,9 +772,14 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const fixedEditor = isRecord(config.fixedEditor)
 		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
 		: defaultConfig.fixedEditor;
+	const editorMetadataFormat = stringValue(config, "editorMetadataFormat");
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
+		editorMetadataFormat:
+			editorMetadataFormat && editorMetadataFormat.length > 0
+				? editorMetadataFormat
+				: DEFAULT_EDITOR_METADATA_FORMAT,
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
 		modelLabel: parseModelLabel(config.modelLabel),

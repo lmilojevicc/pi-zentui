@@ -244,7 +244,10 @@ export default function (pi: ExtensionAPI) {
 				getCurrentConfig,
 				() => ({
 					modelLabel: state.modelLabel,
+					modelId: state.modelId,
+					modelName: state.modelName,
 					providerLabel: state.providerLabel,
+					sessionName: ctx.sessionManager.getSessionName() ?? "",
 				}),
 				getThinkingLevel,
 			)) as ZentuiEditorFactory;
@@ -264,7 +267,10 @@ export default function (pi: ExtensionAPI) {
 				getCurrentConfig,
 				() => ({
 					modelLabel: state.modelLabel,
+					modelId: state.modelId,
+					modelName: state.modelName,
 					providerLabel: state.providerLabel,
+					sessionName: ctx.sessionManager.getSessionName() ?? "",
 				}),
 				getThinkingLevel,
 			)) as ZentuiEditorFactory;

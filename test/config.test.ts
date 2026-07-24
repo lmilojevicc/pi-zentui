@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	DEFAULT_EDITOR_METADATA_FORMAT,
 	defaultConfig,
 	mergeConfig,
 	saveColorSourcesPatch,
@@ -137,6 +138,19 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ footerFormat: "$cwd on $git_branch $fill $cost" }).footerFormat).toBe(
 			"$cwd on $git_branch $fill $cost",
 		);
+	});
+
+	it("defaults editorMetadataFormat and preserves non-empty strings", () => {
+		expect(defaultConfig.editorMetadataFormat).toBe(DEFAULT_EDITOR_METADATA_FORMAT);
+		for (const value of [undefined, null, 123, true, ""]) {
+			expect(mergeConfig({ editorMetadataFormat: value }).editorMetadataFormat).toBe(
+				DEFAULT_EDITOR_METADATA_FORMAT,
+			);
+		}
+		expect(mergeConfig({ editorMetadataFormat: "$model · $provider" }).editorMetadataFormat).toBe(
+			"$model · $provider",
+		);
+		expect(mergeConfig({ editorMetadataFormat: "   " }).editorMetadataFormat).toBe("   ");
 	});
 
 	it("ignores non-string footerFormat values", () => {

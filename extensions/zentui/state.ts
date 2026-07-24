@@ -13,6 +13,8 @@ import type { RuntimeInfo } from "./runtime";
 
 export type FooterState = GitStatusSummary & {
 	modelLabel: string;
+	modelId: string;
+	modelName: string;
 	providerLabel: string;
 	contextLabel: string;
 	tokenLabel: string;
@@ -25,6 +27,8 @@ export type FooterState = GitStatusSummary & {
 export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
 	return {
 		modelLabel: "no-model",
+		modelId: "",
+		modelName: "",
 		providerLabel: "Unknown",
 		contextLabel: "--",
 		tokenLabel: "↑0 ↓0",
@@ -44,6 +48,8 @@ export function syncState(
 ): void {
 	const totals = getUsageTotals(ctx);
 	const m = ctx.model;
+	state.modelId = m?.id ?? "";
+	state.modelName = m?.name ?? "";
 	state.modelLabel = (modelLabelSource === "name" ? m?.name || m?.id : m?.id) ?? "no-model";
 	state.providerLabel = formatProviderLabel(ctx.model?.provider);
 	state.contextLabel = buildContextLabel(ctx);
