@@ -32,6 +32,7 @@ export type { IconMode } from "./icons";
 
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
+export type ModelLabelSource = "id" | "name";
 
 export type ContextThresholds = {
 	warning: number;
@@ -121,12 +122,15 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
+export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
 
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
 	footerFormat: string;
+	editorMetadataFormat: string;
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
+	modelLabel: ModelLabelSource;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
 	gitBranch: GitBranchConfig;
@@ -221,8 +225,10 @@ export const configPath = join(getAgentDir(), "zentui.json");
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
 	footerFormat: "",
+	editorMetadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
 	separator: "pipe",
 	contextStyle: "text",
+	modelLabel: "id",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
 	gitBranch: { maxLength: "full" },
@@ -325,6 +331,11 @@ function clampPercent(value: number): number {
 function parseContextStyle(value: unknown): ContextStyle {
 	if (value === "text" || value === "gauge" || value === "text+gauge") return value;
 	return defaultConfig.contextStyle;
+}
+
+function parseModelLabel(value: unknown): ModelLabelSource {
+	if (value === "id" || value === "name") return value;
+	return defaultConfig.modelLabel;
 }
 
 export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
@@ -761,11 +772,17 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const fixedEditor = isRecord(config.fixedEditor)
 		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
 		: defaultConfig.fixedEditor;
+	const editorMetadataFormat = stringValue(config, "editorMetadataFormat");
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
+		editorMetadataFormat:
+			editorMetadataFormat && editorMetadataFormat.length > 0
+				? editorMetadataFormat
+				: DEFAULT_EDITOR_METADATA_FORMAT,
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
+		modelLabel: parseModelLabel(config.modelLabel),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
 		gitBranch,

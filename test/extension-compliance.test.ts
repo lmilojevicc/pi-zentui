@@ -1111,6 +1111,7 @@ describe("Pi docs compliance", () => {
 	it("does not crash when config colors contain Starship modifiers", () => {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
+			cwd: "/tmp/project",
 			ui: {
 				theme: makeStrictTheme(),
 				setFooter(factory: FooterFactory | undefined) {
@@ -1709,6 +1710,143 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[text]Anthropic");
 	});
 
+	it("renders custom editor metadata variables", () => {
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => ({
+				...defaultConfig,
+				editorMetadataFormat: "$model|$model_id|$model_name|$provider|$thinking|$session_name",
+			}),
+			() => ({
+				modelLabel: "selected-model",
+				modelId: "model-id",
+				modelName: "Model Name",
+				providerLabel: "Provider",
+				sessionName: "Session",
+			}),
+			() => "high",
+		);
+
+		const rendered = editor.render(240).join("\n");
+		expect(rendered).toContain("[accent]selected-model");
+		expect(rendered).toContain("[accent]model-id");
+		expect(rendered).toContain("[accent]Model Name");
+		expect(rendered).toContain("[text]Provider");
+		expect(rendered).toContain("[muted]high");
+		expect(rendered).toContain("[border]Session");
+	});
+
+	it("keeps custom metadata output identical in standalone and wrapped editors", () => {
+		const config = {
+			...defaultConfig,
+			editorMetadataFormat: "meta:$model|$provider|$thinking|$session_name",
+		};
+		const getMeta = () => ({
+			modelLabel: "parity-model",
+			providerLabel: "parity-provider",
+			sessionName: "parity-session",
+		});
+		const standalone = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 200 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => config,
+			getMeta,
+			() => "medium",
+		);
+		const wrapped = new WrappedPolishedEditor(
+			{
+				render: (width: number) => ["─".repeat(width), "", "─".repeat(width)],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			},
+			makeTaggedTheme(),
+			() => config,
+			getMeta,
+			() => "medium",
+		);
+
+		const standaloneMeta = standalone.render(200).find((line) => line.includes("parity-model"));
+		const wrappedMeta = wrapped.render(200).find((line) => line.includes("parity-model"));
+		expect(standaloneMeta).toBe(wrappedMeta);
+	});
+
+	it("renders Unicode and sanitized ANSI metadata safely at narrow widths", () => {
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 16 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTheme(),
+			() => ({ ...defaultConfig, editorMetadataFormat: "界🙂:$model" }),
+			() => ({
+				modelLabel: "\u001b]8;;https://example.com\u001b\\表示\u001b]8;;\u001b\\\u001b[31m危険",
+				providerLabel: "provider",
+			}),
+			() => "off",
+		);
+
+		const lines = editor.render(16);
+		const metadata = lines.find((line) => line.includes("界")) ?? "";
+		expect(metadata).toContain("表示");
+		expect(metadata).not.toContain("\u001b]");
+		expect(lines.every((line) => visibleWidth(line) <= 16)).toBe(true);
+	});
+
+	it("keeps Vim status when long custom metadata collides in rail and copy-friendly modes", () => {
+		for (const copyFriendly of [false, true]) {
+			const config = {
+				...configWithFeatures({ copyFriendly }),
+				editorMetadataFormat: "very-long-custom-metadata-$model-$provider",
+			};
+			const editor = new WrappedPolishedEditor(
+				{
+					render: (width: number) => ["─".repeat(width), "", "─".repeat(width)],
+					invalidate() {},
+					handleInput() {},
+					getText: () => "",
+					setText() {},
+					getMode: () => "insert",
+				},
+				makeTheme(),
+				() => config,
+				() => ({ modelLabel: "model-with-long-name", providerLabel: "provider-with-long-name" }),
+				() => "off",
+			);
+
+			const lines = editor.render(32);
+			const metadata = lines.find((line) => line.includes("INSERT")) ?? "";
+			expect(metadata.trimEnd().endsWith("INSERT")).toBe(true);
+			expect(metadata).not.toContain("provider-with-long-name");
+			expect(lines.every((line) => visibleWidth(line) <= 32)).toBe(true);
+		}
+	});
+
+	it("keeps blank structural metadata rows in copy-friendly mode", () => {
+		const editor = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => ({
+				...configWithFeatures({ copyFriendly: true }),
+				editorMetadataFormat: "($unknown)",
+			}),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+
+		const lines = editor.render(120);
+		expect(stripTestTags(lines.at(-2) ?? "").trim()).toBe("");
+		expect(stripTestTags(lines.at(-3) ?? "").trim()).toBe("");
+		expect(lines.at(-2)).toBe(" ");
+	});
+
 	it("uses custom copy-friendly editor prompt icon and color", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
@@ -1840,146 +1978,232 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[accent]claude-sonnet");
 	});
 
-	it("does not add another model line when wrapping an editor that already includes Zentui chrome", () => {
-		const meta = "[accent]claude-sonnet  [text]Anthropic  [muted]medium";
-		const base = {
-			render: (width: number) => ["─".repeat(width), "", meta, meta, "─".repeat(width)],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "",
-			setText() {},
-		};
-		const editor = new WrappedPolishedEditor(
-			base,
+	it("unwraps a branded nested editor without duplicating literal-only metadata", () => {
+		const config = { ...defaultConfig, editorMetadataFormat: "literal-only" };
+		const inner = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
 			makeTaggedTheme(),
-			() => defaultConfig,
-			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
-			() => "medium",
+			() => config,
+			() => ({ modelLabel: "old-model", providerLabel: "old-provider" }),
+			() => "off",
+		);
+		inner.setText("typed text");
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "new-model", providerLabel: "new-provider" }),
+			() => "off",
 		);
 
 		const lines = editor.render(120);
 		const rendered = lines.join("\n");
 
-		expect(rendered.match(/claude-sonnet/g)).toHaveLength(1);
-		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
-		expect(rendered.match(/medium/g)).toHaveLength(1);
-		expect(lines).toHaveLength(5);
+		expect(rendered.match(/literal-only/g)).toHaveLength(1);
+		expect(rendered).toContain("typed text");
+		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
 	});
 
-	it("drops the stale leading spacer when wrapping an already-polished editor with text", () => {
-		const staleMeta = "claude-sonnet  Anthropic  xhigh";
-		const base = {
-			render: (width: number) => [
-				"─".repeat(width),
-				"",
-				"typed text",
-				"",
-				staleMeta,
-				"─".repeat(width),
-			],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "typed text",
-			setText() {},
+	it("unwraps branded copy-friendly frames without duplicating metadata", () => {
+		const config = {
+			...configWithFeatures({ copyFriendly: true }),
+			editorMetadataFormat: "copy-meta",
 		};
-		const editor = new WrappedPolishedEditor(
-			base,
+		const inner = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
 			makeTaggedTheme(),
-			() => defaultConfig,
-			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
-			() => "xhigh",
+			() => config,
+			() => ({ modelLabel: "old-model", providerLabel: "old-provider" }),
+			() => "off",
+		);
+		inner.setText("typed text");
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "new-model", providerLabel: "new-provider" }),
+			() => "off",
+		);
+
+		const rendered = editor.render(120).join("\n");
+		expect(rendered.match(/copy-meta/g)).toHaveLength(1);
+		expect(rendered.match(/typed text/g)).toHaveLength(1);
+		expect(rendered).not.toContain("│");
+	});
+
+	it("unwraps branded frames when metadata resolves blank", () => {
+		const config = { ...defaultConfig, editorMetadataFormat: "($unknown)" };
+		const inner = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "old-model", providerLabel: "old-provider" }),
+			() => "off",
+		);
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "new-model", providerLabel: "new-provider" }),
+			() => "off",
 		);
 
 		const lines = editor.render(120);
-		const textIndex = lines.findIndex((line) => line.includes("typed text"));
-
-		expect(textIndex).toBe(2);
 		expect(lines).toHaveLength(6);
-		expect(stripTestTags(lines[textIndex - 2] ?? "").trim()).toMatch(/^─+$/);
-		expect(stripTestTags(lines[textIndex - 1] ?? "").trim()).toBe("│");
+		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
+		expect(lines.slice(1, -1).every((line) => stripTestTags(line).trim() === "│")).toBe(true);
 	});
 
-	it("preserves a user blank line after removing stale polished editor spacing", () => {
-		const staleMeta = "claude-sonnet  Anthropic  xhigh";
-		const base = {
-			render: (width: number) => [
-				"─".repeat(width),
-				"",
-				"",
-				"typed text",
-				"",
-				staleMeta,
-				"─".repeat(width),
-			],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "\ntyped text",
-			setText() {},
-		};
-		const editor = new WrappedPolishedEditor(
-			base,
+	it("preserves a user blank line while unwrapping branded editor chrome", () => {
+		const inner = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
 			makeTaggedTheme(),
 			() => defaultConfig,
-			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
-			() => "xhigh",
+			() => ({ modelLabel: "old-model", providerLabel: "old-provider" }),
+			() => "off",
+		);
+		inner.setText("\ntyped text");
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => defaultConfig,
+			() => ({ modelLabel: "new-model", providerLabel: "new-provider" }),
+			() => "off",
 		);
 
 		const lines = editor.render(120);
 		const textIndex = lines.findIndex((line) => line.includes("typed text"));
 
 		expect(textIndex).toBe(3);
-		expect(lines).toHaveLength(7);
-		expect(stripTestTags(lines[textIndex - 3] ?? "").trim()).toMatch(/^─+$/);
 		expect(stripTestTags(lines[textIndex - 2] ?? "").trim()).toBe("│");
 		expect(stripTestTags(lines[textIndex - 1] ?? "").trim()).toBe("│");
 	});
 
-	it("collapses accumulated model and vim status lines from a nested polished editor", () => {
-		const staleMeta = "claude-sonnet  Anthropic  xhigh                               INSERT";
-		const base = {
-			render: (width: number) => [
-				"─".repeat(width),
-				"",
-				staleMeta,
-				"",
-				staleMeta,
-				"",
-				staleMeta,
-				"─".repeat(width),
-			],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "",
-			setText() {},
-			getMode: () => "insert",
+	it("does not accumulate stale metadata or chrome across repeated nested renders", () => {
+		let config = { ...defaultConfig, editorMetadataFormat: "first:$model:$session_name" };
+		let meta = {
+			modelLabel: "model-one",
+			providerLabel: "provider-one",
+			sessionName: "session-one",
 		};
-		const editor = new WrappedPolishedEditor(
-			base,
+		let thinking = "low";
+		const inner = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
 			makeTaggedTheme(),
-			() => defaultConfig,
-			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
-			() => "xhigh",
+			() => config,
+			() => meta,
+			() => thinking,
 		);
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => config,
+			() => meta,
+			() => thinking,
+		);
+		const assertSingleFrame = (lines: string[]) => {
+			expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
+		};
 
-		const lines = editor.render(120);
-		const rendered = lines.join("\n");
+		const first = editor.render(120);
+		expect(first.join("\n")).toContain("first:");
+		expect(first.join("\n")).toContain("model-one");
+		assertSingleFrame(first);
 
-		expect(rendered.match(/claude-sonnet/g)).toHaveLength(1);
-		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
-		expect(rendered.match(/xhigh/g)).toHaveLength(1);
-		expect(rendered.match(/INSERT/g)).toHaveLength(1);
-		expect(lines).toHaveLength(5);
+		config = { ...config, editorMetadataFormat: "second:$provider:$thinking:$session_name" };
+		meta = {
+			modelLabel: "model-two",
+			providerLabel: "provider-two",
+			sessionName: "session-two",
+		};
+		thinking = "xhigh";
+		const second = editor.render(120);
+		const secondText = second.join("\n");
+		expect(secondText).toContain("second:");
+		expect(secondText).toContain("provider-two");
+		expect(secondText).toContain("xhigh");
+		expect(secondText).toContain("session-two");
+		expect(secondText).not.toContain("first:");
+		expect(secondText).not.toContain("model-one");
+		expect(secondText).not.toContain("session-one");
+		assertSingleFrame(second);
+
+		config = { ...config, editorMetadataFormat: "$model($model_name)($session_name)" };
+		meta = { modelLabel: "model-three", providerLabel: "", sessionName: "" };
+		thinking = "off";
+		const third = editor.render(120);
+		const thirdText = third.join("\n");
+		expect(thirdText.match(/model-three/g)).toHaveLength(1);
+		expect(thirdText).not.toContain("second:");
+		expect(thirdText).not.toContain("provider-two");
+		expect(thirdText).not.toContain("session-two");
+		assertSingleFrame(third);
 	});
 
-	it("replaces nested model lines with the current model and vim status line", () => {
-		const staleMeta = "claude-sonnet  Anthropic  xhigh                               INSERT";
+	it("preserves every autocomplete row outside multiply wrapped branded frames", () => {
+		const config = { ...defaultConfig, editorMetadataFormat: "autocomplete-meta" };
+		const base = new PolishedEditor(
+			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+		base.setText("typed");
+		const autocomplete = base as unknown as {
+			autocompleteState: string;
+			autocompleteList: { render: (width: number) => string[] };
+		};
+		autocomplete.autocompleteState = "force";
+		autocomplete.autocompleteList = {
+			render: () => ["suggestion-one", "suggestion-two", "suggestion-three"],
+		};
+		const inner = new WrappedPolishedEditor(
+			base as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+		const outer = new WrappedPolishedEditor(
+			inner as never,
+			makeTaggedTheme(),
+			() => config,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+
+		const lines = outer.render(120);
+		const rendered = lines.join("\n");
+		const bottom = lines.findLastIndex((line) => /^─+$/.test(stripTestTags(line).trim()));
+		expect(rendered.match(/autocomplete-meta/g)).toHaveLength(1);
+		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
+		for (const suggestion of ["suggestion-one", "suggestion-two", "suggestion-three"]) {
+			expect(rendered.match(new RegExp(suggestion, "g"))).toHaveLength(1);
+			expect(lines.findIndex((line) => line.includes(suggestion))).toBeGreaterThan(bottom);
+		}
+	});
+
+	it("does not delete metadata-like content from an unbranded third-party editor", () => {
+		const staleMeta = "claude-sonnet  Anthropic  xhigh";
 		const base = {
-			render: () => ["not a plain border", staleMeta, "not a plain border"],
+			render: (width: number) => ["─".repeat(width), staleMeta, "─".repeat(width)],
 			invalidate() {},
 			handleInput() {},
-			getText: () => "",
+			getText: () => staleMeta,
 			setText() {},
-			getMode: () => "insert",
 		};
 		const editor = new WrappedPolishedEditor(
 			base,
@@ -1990,11 +2214,9 @@ describe("Pi docs compliance", () => {
 		);
 
 		const rendered = editor.render(120).join("\n");
-
-		expect(rendered.match(/claude-sonnet/g)).toHaveLength(1);
-		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
-		expect(rendered.match(/xhigh/g)).toHaveLength(1);
-		expect(rendered.match(/INSERT/g)).toHaveLength(1);
+		expect(rendered.match(/claude-sonnet/g)).toHaveLength(2);
+		expect(rendered.match(/Anthropic/g)).toHaveLength(2);
+		expect(rendered.match(/xhigh/g)).toHaveLength(2);
 	});
 
 	it("proxies mutable editor callbacks and app-action state to the wrapped editor", () => {
