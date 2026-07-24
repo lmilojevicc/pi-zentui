@@ -120,7 +120,7 @@ export default function (pi: ExtensionAPI) {
 	const getThinkingLevel = () =>
 		sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : ("off" as const);
 	const syncFooterState = (ctx: ExtensionContext) =>
-		syncState(state, ctx, currentConfig.icons.cacheHit);
+		syncState(state, ctx, currentConfig.icons.cacheHit, currentConfig.modelLabel);
 
 	type ProjectRefreshTarget = { cwd: string; generation: number };
 	const refreshProjectState = async ({ cwd, generation }: ProjectRefreshTarget) => {

@@ -32,6 +32,7 @@ export type { IconMode } from "./icons";
 
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
+export type ModelLabelSource = "id" | "name";
 
 export type ContextThresholds = {
 	warning: number;
@@ -127,6 +128,7 @@ export type PolishedTuiConfig = {
 	footerFormat: string;
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
+	modelLabel: ModelLabelSource;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
 	gitBranch: GitBranchConfig;
@@ -223,6 +225,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	footerFormat: "",
 	separator: "pipe",
 	contextStyle: "text",
+	modelLabel: "id",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
 	gitBranch: { maxLength: "full" },
@@ -325,6 +328,11 @@ function clampPercent(value: number): number {
 function parseContextStyle(value: unknown): ContextStyle {
 	if (value === "text" || value === "gauge" || value === "text+gauge") return value;
 	return defaultConfig.contextStyle;
+}
+
+function parseModelLabel(value: unknown): ModelLabelSource {
+	if (value === "id" || value === "name") return value;
+	return defaultConfig.modelLabel;
 }
 
 export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
@@ -766,6 +774,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		footerFormat: stringValue(config, "footerFormat") ?? "",
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
+		modelLabel: parseModelLabel(config.modelLabel),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
 		gitBranch,
