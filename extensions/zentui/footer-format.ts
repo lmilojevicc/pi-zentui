@@ -13,6 +13,8 @@ export type FormatToken =
 	| { kind: "fill" }
 	| { kind: "group"; tokens: FormatToken[] };
 
+export type CompactFormatChunk = { kind: "tokens"; tokens: FormatToken[] } | { kind: "extensions" };
+
 const TOKEN_REGEX = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 
 /**
@@ -149,6 +151,81 @@ export function renderFormatSplit(
 		middle: renderTokenSlice(tokens, first + 1, second, renderVariable),
 		right: renderTokenSlice(tokens, second + 1, tokens.length, renderVariable),
 	};
+}
+
+export function compileCompactFormat(tokens: FormatToken[]): CompactFormatChunk[] {
+	const chunks: CompactFormatChunk[] = [];
+	let current: FormatToken[] = [];
+
+	const flush = () => {
+		const normalized = trimBoundaryWhitespace(current);
+		current = [];
+		if (normalized.length === 0) return;
+		if (
+			normalized.length === 1 &&
+			normalized[0]?.kind === "var" &&
+			normalized[0].name === "extensions"
+		) {
+			chunks.push({ kind: "extensions" });
+			return;
+		}
+		chunks.push({ kind: "tokens", tokens: normalized });
+	};
+
+	for (const token of tokens) {
+		if (token.kind === "var" && token.name === "wrap") {
+			flush();
+			continue;
+		}
+		if (token.kind === "fill") continue;
+		current.push(token);
+	}
+	flush();
+	return chunks;
+}
+
+function trimBoundaryWhitespace(tokens: FormatToken[]): FormatToken[] {
+	const result = tokens.map((token) => (token.kind === "text" ? { ...token } : token));
+	while (result[0]?.kind === "text") {
+		result[0].value = result[0].value.replace(/^\s+/, "");
+		if (result[0].value) break;
+		result.shift();
+	}
+	while (result.at(-1)?.kind === "text") {
+		const last = result.at(-1);
+		if (last?.kind !== "text") break;
+		last.value = last.value.replace(/\s+$/, "");
+		if (last.value) break;
+		result.pop();
+	}
+	return result;
+}
+
+export function renderFormatTokens(
+	tokens: FormatToken[],
+	renderVariable: (name: string) => string,
+): string {
+	return renderTokenSlice(tokens, 0, tokens.length, renderVariable);
+}
+
+export function collectFooterFormatReferences(
+	tokens: FormatToken[],
+	aliases: Record<string, string> = {},
+): Set<string> {
+	const references = new Set<string>();
+	const visit = (items: FormatToken[]) => {
+		for (const token of items) {
+			if (token.kind === "group") {
+				visit(token.tokens);
+				continue;
+			}
+			if (token.kind !== "var") continue;
+			const canonical = aliases[token.name] ?? token.name;
+			if (canonical !== "wrap" && canonical !== "extensions") references.add(canonical);
+		}
+	};
+	visit(tokens);
+	return references;
 }
 
 function findTopLevelFillIndices(tokens: FormatToken[]): number[] {

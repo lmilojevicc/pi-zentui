@@ -7,7 +7,20 @@ import {
 	type ExtensionStatusSegment,
 	sanitizeExtensionStatusText,
 } from "./extension-status";
-import { parseFooterFormat, renderFormatSplit, stripOrphanSeparators } from "./footer-format";
+import {
+	collectFooterFormatReferences,
+	compileCompactFormat,
+	parseFooterFormat,
+	renderFormatSplit,
+	renderFormatTokens,
+	stripOrphanSeparators,
+} from "./footer-format";
+import {
+	compactChunkBudget,
+	fullFooterFitsAligned,
+	packCompactChunks,
+	reflowFullFooter,
+} from "./footer-layout";
 import {
 	buildContextDisplayLabel,
 	buildSessionDurationLabel,
@@ -181,6 +194,18 @@ export function installFooter(
 			render(width: number): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
+				const wideFormatTokens = config.footerFormat ? parseFooterFormat(config.footerFormat) : [];
+				const compactFormatTokens = config.responsiveFooter
+					? parseFooterFormat(config.compactFooterFormat)
+					: [];
+				const wideReferences = collectFooterFormatReferences(
+					wideFormatTokens,
+					FOOTER_FORMAT_ALIASES,
+				);
+				const compactReferences = collectFooterFormatReferences(
+					compactFormatTokens,
+					FOOTER_FORMAT_ALIASES,
+				);
 				const colorSource = config.colorSources.starship;
 				const iconMode = config.icons.mode;
 				const separator = renderStyleForSource(
@@ -199,9 +224,10 @@ export function installFooter(
 						depth: config.pathDisplay.depth,
 					}),
 				);
-				const needsSessionName = config.footerFormat
-					? /(?:\$session_name\b|\$\{session_name\})/.test(config.footerFormat)
-					: config.footerSegments.sessionName;
+				const needsSessionName =
+					(config.footerFormat
+						? wideReferences.has("session_name")
+						: config.footerSegments.sessionName) || compactReferences.has("session_name");
 				const sessionName = needsSessionName
 					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
 					: "";
@@ -549,7 +575,7 @@ export function installFooter(
 						left: fmtLeft,
 						middle: fmtMiddle,
 						right: fmtRight,
-					} = renderFormatSplit(parseFooterFormat(config.footerFormat), renderVariable);
+					} = renderFormatSplit(wideFormatTokens, renderVariable);
 					contentLeft = stripOrphanSeparators(fmtLeft);
 					contentMiddle = stripOrphanSeparators(fmtMiddle);
 					contentRight = stripOrphanSeparators(fmtRight);
@@ -563,21 +589,114 @@ export function installFooter(
 					segment.colorMode === "original"
 						? segment.text
 						: renderStyleForSource(theme, colorSource, config.colors.extensionStatus, segment.text);
+				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
 				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
+				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);
 				const middleSegments = contentMiddle
 					? [contentMiddle, ...extensionMiddleSegments]
 					: extensionMiddleSegments;
-				const content = composeFooterContent(
-					contentLeft,
-					contentRight,
-					extensionStatuses.left.map(renderExtensionStatus),
-					middleSegments,
-					extensionStatuses.right.map(renderExtensionStatus),
-					separator,
-					innerWidth,
+				const renderLegacyContent = () =>
+					composeFooterContent(
+						contentLeft,
+						contentRight,
+						extensionLeftSegments,
+						middleSegments,
+						extensionRightSegments,
+						separator,
+						innerWidth,
+					);
+				const frameRows = (rows: string[]) =>
+					rows.map((row) => {
+						const framed = width > 2 ? ` ${truncateToWidth(row, width - 2, "")} ` : row;
+						return truncateToWidth(framed, width, "");
+					});
+
+				if (!config.responsiveFooter) return frameRows([renderLegacyContent()]);
+
+				const fullZones = {
+					left: appendStatusArea(
+						contentLeft,
+						joinStatusTexts(extensionLeftSegments, separator),
+						separator,
+					),
+					middle: appendStatusArea(
+						contentMiddle,
+						joinStatusTexts(extensionMiddleSegments, separator),
+						separator,
+					),
+					right: prependStatusArea(
+						contentRight,
+						joinStatusTexts(extensionRightSegments, separator),
+						separator,
+					),
+				};
+				if (fullFooterFitsAligned(fullZones, innerWidth)) {
+					return frameRows([renderLegacyContent()]);
+				}
+
+				const reflowed = reflowFullFooter(fullZones, innerWidth);
+				if (reflowed) return frameRows(reflowed);
+
+				const chunkBudget = compactChunkBudget(innerWidth);
+				const compactCwdLabel = truncateToWidth(
+					renderStyleForSource(
+						theme,
+						colorSource,
+						config.colors.cwd,
+						formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
+					),
+					chunkBudget,
+					"…",
 				);
-				const framed = width > 2 ? ` ${truncateToWidth(content, width - 2, "")} ` : content;
-				return [truncateToWidth(framed, width, "")];
+				const compactSessionNameLabel = truncateToWidth(
+					sessionNameLabel,
+					Math.max(1, chunkBudget - visibleWidth("in ")),
+					"…",
+				);
+				const compactBranchBudget = Math.max(
+					1,
+					chunkBudget - visibleWidth("on ") - (statusBlock ? visibleWidth(statusBlock) + 1 : 0),
+				);
+				const compactBranchLabel = truncateToWidth(
+					renderVariable("git_branch"),
+					compactBranchBudget,
+					"…",
+				);
+				const renderCompactVariable = (name: string): string => {
+					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
+					switch (canonical) {
+						case "cwd":
+							return compactCwdLabel;
+						case "session_name":
+							return compactSessionNameLabel;
+						case "git_branch":
+							return compactBranchLabel;
+						default:
+							return renderVariable(name);
+					}
+				};
+				const compactChunks: string[] = [];
+				for (const chunk of compileCompactFormat(compactFormatTokens)) {
+					if (chunk.kind === "extensions") {
+						compactChunks.push(
+							...extensionLeftSegments,
+							...extensionMiddleSegments,
+							...extensionRightSegments,
+						);
+						continue;
+					}
+					let rendered = stripOrphanSeparators(
+						renderFormatTokens(chunk.tokens, renderCompactVariable),
+					);
+					const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
+					if (["cwd", "session_name", "git_branch"].some((name) => references.has(name))) {
+						rendered = truncateToWidth(rendered, chunkBudget, "…");
+					}
+					if (rendered) compactChunks.push(rendered);
+				}
+				return frameRows(
+					packCompactChunks(compactChunks, innerWidth, config.compactFooterMaxLines),
+				);
 			},
 		};
 	});

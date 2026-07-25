@@ -12,6 +12,7 @@ import {
 import {
 	type ColorSource,
 	type ColorSourcesConfig,
+	type CompactFooterMaxLines,
 	type ContextStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -50,6 +51,7 @@ const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
+const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"] as const;
 type FeatureState = "enabled" | "disabled";
 
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
@@ -66,6 +68,8 @@ type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
 type LayoutSettingId =
+	| "responsiveFooter"
+	| "compactFooterMaxLines"
 	| "contextStyle"
 	| "separator"
 	| "pathDisplay"
@@ -81,8 +85,12 @@ type SettingsCommandDeps = {
 		patch: Partial<UiFeaturesConfig>,
 		ctx: ExtensionContext,
 	) => { applied: boolean; reason?: string };
-	setFooterSegments: (patch: Partial<FooterSegmentsConfig>) => void;
-	setFooterFormat: (value: string) => void;
+	setFooterSegments: (patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) => void;
+	setFooterFormat: (value: string, ctx: ExtensionContext) => void;
+	setResponsiveFooter?: (
+		patch: Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>,
+		ctx: ExtensionContext,
+	) => void;
 	setIconMode: (mode: IconMode) => void;
 	setContextStyle: (style: ContextStyle) => void;
 	setSeparator: (separator: SeparatorStyle) => void;
@@ -256,8 +264,19 @@ function branchLengthValues(maxLength: GitBranchMaxLength): string[] {
 		: [current, ...branchLengthPresetValues];
 }
 
+function isCompactFooterMaxLines(value: string): value is `${CompactFooterMaxLines}` {
+	return (compactFooterMaxLineValues as readonly string[]).includes(value);
+}
+
+function parseCompactFooterMaxLines(value: string): CompactFooterMaxLines | undefined {
+	if (!isCompactFooterMaxLines(value)) return undefined;
+	return value === "unlimited" ? value : (Number(value) as 1 | 2 | 3);
+}
+
 function isLayoutSettingId(value: string): value is LayoutSettingId {
 	return (
+		value === "responsiveFooter" ||
+		value === "compactFooterMaxLines" ||
 		value === "contextStyle" ||
 		value === "separator" ||
 		value === "pathDisplay" ||
@@ -465,6 +484,21 @@ function buildItems(
 	if (section === "layout") {
 		return [
 			{
+				id: "responsiveFooter",
+				label: "Responsive footer",
+				description: "Reflow complete content, then use the compact template when space is tight.",
+				currentValue: featureValue(config.responsiveFooter),
+				values: featureStateValues,
+			},
+			{
+				id: "compactFooterMaxLines",
+				label: "Compact footer rows",
+				description:
+					"Maximum compact rows before remaining template content is cropped with an ellipsis.",
+				currentValue: String(config.compactFooterMaxLines),
+				values: [...compactFooterMaxLineValues],
+			},
+			{
 				id: "contextStyle",
 				label: "Context style",
 				description: "Render context as text, a gauge bar, or both.",
@@ -605,7 +639,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 			const formatCommand = parseFormatCommand(args);
 			if (formatCommand) {
 				try {
-					deps.setFooterFormat(formatCommand.value ?? "");
+					deps.setFooterFormat(formatCommand.value ?? "", ctx);
 					deps.requestRender();
 					if (ctx.hasUI) {
 						if (formatCommand.value === undefined) {
@@ -719,6 +753,26 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								}
 
 								if (isLayoutSettingId(id)) {
+									if (id === "responsiveFooter" && isFeatureState(newValue)) {
+										deps.setResponsiveFooter?.({ responsiveFooter: newValue === "enabled" }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Responsive footer: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "compactFooterMaxLines") {
+										const maxLines = parseCompactFooterMaxLines(newValue);
+										if (maxLines === undefined) return;
+										deps.setResponsiveFooter?.({ compactFooterMaxLines: maxLines }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Compact footer rows: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
 									if (id === "contextStyle" && isContextStyle(newValue)) {
 										deps.setContextStyle(newValue);
 										settingsList.updateValue(id, newValue);
@@ -778,7 +832,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 
 								const footerSegmentSetting = footerSegmentSettingFromId(id);
 								if (footerSegmentSetting && isFeatureState(newValue)) {
-									deps.setFooterSegments(footerSegmentPatch(footerSegmentSetting, newValue));
+									deps.setFooterSegments(footerSegmentPatch(footerSegmentSetting, newValue), ctx);
 									settingsList.updateValue(id, newValue);
 									deps.requestRender();
 									ctx.ui.notify(

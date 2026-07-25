@@ -30,6 +30,7 @@ export function createProjectRefreshScheduler<T>(
 ): ProjectRefreshScheduler<T> {
 	let refreshInFlight = false;
 	let refreshPending = false;
+	let pendingForce = false;
 	let pendingTarget: T | undefined;
 	let delayedRefresh: ReturnType<typeof setTimeout> | undefined;
 	let lastRefreshStartedAt: number | undefined;
@@ -41,10 +42,11 @@ export function createProjectRefreshScheduler<T>(
 		delayedRefresh = undefined;
 	};
 
-	const runRefresh = (target: T) => {
+	const runRefresh = (target: T, options: ScheduleProjectRefreshOptions = {}) => {
 		clearDelayedRefresh();
 		if (refreshInFlight) {
 			refreshPending = true;
+			pendingForce ||= options.force === true;
 			pendingTarget = target;
 			return;
 		}
@@ -60,16 +62,18 @@ export function createProjectRefreshScheduler<T>(
 				afterRefresh();
 				if (refreshPending) {
 					refreshPending = false;
+					const nextForce = pendingForce;
+					pendingForce = false;
 					const nextTarget = pendingTarget ?? target;
 					pendingTarget = undefined;
-					schedule(nextTarget);
+					schedule(nextTarget, { force: nextForce });
 				}
 			});
 	};
 
 	const schedule = (target: T, options: ScheduleProjectRefreshOptions = {}) => {
 		if (options.force || throttleMs <= 0 || lastRefreshStartedAt === undefined) {
-			runRefresh(target);
+			runRefresh(target, options);
 			return;
 		}
 
@@ -97,6 +101,7 @@ export function createProjectRefreshScheduler<T>(
 			clearDelayedRefresh();
 			refreshInFlight = false;
 			refreshPending = false;
+			pendingForce = false;
 			pendingTarget = undefined;
 			lastRefreshStartedAt = undefined;
 		},

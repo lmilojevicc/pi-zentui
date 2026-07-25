@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	DEFAULT_COMPACT_FOOTER_FORMAT,
 	DEFAULT_EDITOR_METADATA_FORMAT,
 	defaultConfig,
 	mergeConfig,
@@ -28,6 +29,7 @@ import {
 	saveFooterSegmentsPatch,
 	saveGitBranchPatch,
 	savePathDisplayPatch,
+	saveResponsiveFooterPatch,
 	saveSeparatorPatch,
 	saveUiFeaturesPatch,
 } from "../extensions/zentui/config";
@@ -138,6 +140,60 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ footerFormat: "$cwd on $git_branch $fill $cost" }).footerFormat).toBe(
 			"$cwd on $git_branch $fill $cost",
 		);
+	});
+
+	it("defaults and normalizes responsive footer settings", () => {
+		expect(mergeConfig({})).toMatchObject({
+			responsiveFooter: true,
+			compactFooterFormat: DEFAULT_COMPACT_FOOTER_FORMAT,
+			compactFooterMaxLines: 2,
+		});
+		expect(
+			mergeConfig({
+				responsiveFooter: false,
+				compactFooterFormat: "$cwd$wrap$context",
+				compactFooterMaxLines: "unlimited",
+			}),
+		).toMatchObject({
+			responsiveFooter: false,
+			compactFooterFormat: "$cwd$wrap$context",
+			compactFooterMaxLines: "unlimited",
+		});
+		for (const compactFooterMaxLines of [1, 2, 3, "unlimited"] as const) {
+			expect(mergeConfig({ compactFooterMaxLines }).compactFooterMaxLines).toBe(
+				compactFooterMaxLines,
+			);
+		}
+		for (const value of [0, 4, "2", null, false]) {
+			expect(mergeConfig({ compactFooterMaxLines: value }).compactFooterMaxLines).toBe(2);
+		}
+		expect(mergeConfig({ responsiveFooter: "false" }).responsiveFooter).toBe(true);
+		expect(mergeConfig({ compactFooterFormat: "" }).compactFooterFormat).toBe(
+			DEFAULT_COMPACT_FOOTER_FORMAT,
+		);
+	});
+
+	it("persists responsive footer patches without replacing unrelated keys", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-responsive-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(path, JSON.stringify({ unknown: { keep: true }, footerFormat: "$cwd" }));
+			const config = saveResponsiveFooterPatch(
+				{ responsiveFooter: false, compactFooterMaxLines: 3 },
+				path,
+			);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw).toMatchObject({
+				unknown: { keep: true },
+				footerFormat: "$cwd",
+				responsiveFooter: false,
+				compactFooterMaxLines: 3,
+			});
+			expect(config.responsiveFooter).toBe(false);
+			expect(config.compactFooterMaxLines).toBe(3);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("defaults editorMetadataFormat and preserves non-empty strings", () => {

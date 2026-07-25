@@ -16,7 +16,7 @@ import {
 } from "../extensions/zentui/config";
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
-import zentui from "../extensions/zentui/index";
+import zentui, { activeFooterReferences } from "../extensions/zentui/index";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
 	installSelectorBorderStyle,
@@ -282,6 +282,24 @@ afterEach(() => {
 });
 
 describe("Pi docs compliance", () => {
+	it("derives lazy data requirements from only the active wide and compact candidates", () => {
+		const customWide = {
+			...defaultConfig,
+			footerFormat: "$cwd",
+			compactFooterFormat: "$package $git_tag $git_metrics $time",
+			footerSegments: {
+				...defaultConfig.footerSegments,
+				packageVersion: true,
+				gitCommit: true,
+			},
+		};
+		expect(activeFooterReferences(customWide)).toEqual(
+			new Set(["cwd", "package", "git_tag", "git_metrics", "time"]),
+		);
+		expect(activeFooterReferences({ ...customWide, responsiveFooter: false })).toEqual(
+			new Set(["cwd"]),
+		);
+	});
 	it("uses the current @earendil-works Pi packages instead of the old @mariozechner scope", () => {
 		const files = [
 			"package.json",
@@ -1400,12 +1418,135 @@ describe("Pi docs compliance", () => {
 			getExtensionStatuses: () =>
 				new Map<string, string>([["long", "middle-status-is-far-too-long"]]),
 		});
-		const line = footer?.render(44)[0] ?? "";
+		const lines = footer?.render(44) ?? [];
+		const rendered = lines.join("\n");
 
-		expect(line).toContain("1%/200k");
-		expect(line).toContain("↑1 ↓2");
-		expect(line).toContain("$0.001");
-		expect(visibleWidth(line)).toBeLessThanOrEqual(44);
+		expect(rendered).toContain("1%/200k");
+		expect(rendered).toContain("↑1 ↓2");
+		expect(rendered).toContain("$0.001");
+		expect(lines.every((line) => visibleWidth(line) <= 44)).toBe(true);
+	});
+
+	it("selects aligned, full reflow, and compact stages at exact target widths", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			getContextUsage: () => ({ percent: 48, tokens: 96_000, contextWindow: 200_000 }),
+			sessionManager: { getBranch: () => [], getSessionName: () => "responsive" },
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState({ ...emptyGitStatus(), branch: "main" });
+		const fillToken = `\${fill}`;
+		const left = "L".repeat(70);
+		const middle = "M".repeat(20);
+		const right = "R".repeat(48);
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			footerFormat: `${left}${fillToken}${middle}${fillToken}${right}`,
+			icons: { ...defaultConfig.icons, cwd: "", git: "" },
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+
+		const at145 = footer?.render(145) ?? [];
+		const at139 = footer?.render(139) ?? [];
+		const at122 = footer?.render(122) ?? [];
+		const at47 = footer?.render(47) ?? [];
+		expect(at145).toEqual([` ${left}  ${middle}   ${right} `]);
+		expect(at139).toEqual([` ${left} `, ` ${middle} ${right} `]);
+		expect(at122).toEqual([` ${left} `, ` ${middle} ${right} `]);
+		expect(at47.length).toBeLessThanOrEqual(2);
+		expect(at47.join("\n")).toContain("project");
+		expect(at47.join("\n")).toContain("responsive");
+		expect(at47.join("\n")).toContain("main");
+		expect(at47.join("\n")).toContain("48%/200k");
+		for (const [width, lines] of [
+			[145, at145],
+			[139, at139],
+			[122, at122],
+			[47, at47],
+		] as const) {
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+		for (const [width, expected] of [
+			[145, at145],
+			[139, at139],
+			[122, at122],
+			[47, at47],
+			[122, at122],
+			[139, at139],
+			[145, at145],
+		] as const) {
+			expect(footer?.render(width)).toEqual(expected);
+		}
+
+		const legacyConfig = { ...config, responsiveFooter: false };
+		installFooter(ctx as never, state, () => legacyConfig, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const legacy = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(legacy?.render(145)).toEqual(at145);
+		expect(legacy?.render(139)).toEqual([
+			` ${left}${middle.slice(0, 18)}\u001b[0m…\u001b[0m${right} `,
+		]);
+	});
+
+	it("expands compact extension statuses once in placement order and excludes off", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/x",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const config = configWithExtensionStatuses({
+			placements: { alpha: "left", beta: "middle", gamma: "right", hidden: "off" },
+		});
+		config.footerFormat = "X".repeat(100);
+		config.compactFooterFormat = "$cwd$wrap$extensions$wrap$context";
+		installFooter(ctx as never, createInitialState(emptyGitStatus()), () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () =>
+				new Map([
+					["gamma", "RIGHT"],
+					["hidden", "HIDDEN"],
+					["beta", "MIDDLE"],
+					["alpha", "LEFT"],
+				]),
+		});
+		const lines = footer?.render(80) ?? [];
+		const rendered = lines.join("\n");
+		expect(rendered.indexOf("LEFT")).toBeLessThan(rendered.indexOf("MIDDLE"));
+		expect(rendered.indexOf("MIDDLE")).toBeLessThan(rendered.indexOf("RIGHT"));
+		expect(rendered).not.toContain("HIDDEN");
+		expect(rendered.match(/LEFT/g)).toHaveLength(1);
+		expect(rendered.match(/MIDDLE/g)).toHaveLength(1);
+		expect(rendered.match(/RIGHT/g)).toHaveLength(1);
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
 	it("truncates built-in and template branch aliases with the shared branch length", () => {
@@ -2902,6 +3043,67 @@ describe("Pi docs compliance", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("changes responsive footer enablement and compact rows from layout settings", async () => {
+		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+		const patches: Array<
+			Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>
+		> = [];
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: inactiveSessionLifecycle,
+				getConfig: () => defaultConfig,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setResponsiveFooter(patch) {
+					patches.push(patch);
+				},
+				setIconMode() {},
+				setContextStyle() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				setSeparator() {},
+				getActiveExtensionStatuses: () => new Map<string, string>(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: makeTheme(),
+				notify() {},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+						handleInput?: (data: string) => void;
+					};
+					component.handleInput?.("\t");
+					component.handleInput?.("\t");
+					component.handleInput?.(" ");
+					component.handleInput?.("\x1b[B");
+					component.handleInput?.(" ");
+				},
+			},
+		});
+		expect(patches).toEqual([{ responsiveFooter: false }, { compactFooterMaxLines: 3 }]);
+	});
+
 	it("cycles the separator from the Zentui layout settings", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const changes: SeparatorStyle[] = [];
@@ -2967,6 +3169,8 @@ describe("Pi docs compliance", () => {
 					) as { handleInput?: (data: string) => void };
 					component.handleInput?.("\t");
 					component.handleInput?.("\t");
+					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -3037,7 +3241,7 @@ describe("Pi docs compliance", () => {
 						};
 						component.handleInput?.("\t");
 						component.handleInput?.("\t");
-						for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
+						for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
 				},
@@ -3521,6 +3725,7 @@ describe("Pi docs compliance", () => {
 		sessionNameColor?: string;
 		branch?: string;
 		branchEnabled?: boolean;
+		responsiveFooter?: boolean;
 	};
 
 	function createSessionNameFooter({
@@ -3532,6 +3737,7 @@ describe("Pi docs compliance", () => {
 		sessionNameColor = "success",
 		branch,
 		branchEnabled = false,
+		responsiveFooter = true,
 	}: SessionNameFooterOptions) {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
@@ -3548,6 +3754,7 @@ describe("Pi docs compliance", () => {
 		const config: PolishedTuiConfig = {
 			...defaultConfig,
 			footerFormat,
+			responsiveFooter,
 			colors: { ...defaultConfig.colors, sessionName: sessionNameColor },
 			footerSegments: {
 				...defaultConfig.footerSegments,
@@ -3632,6 +3839,7 @@ describe("Pi docs compliance", () => {
 			getSessionName,
 			width: 120,
 			segmentEnabled: false,
+			responsiveFooter: false,
 		}).join("\n");
 		expect(disabled).not.toContain("hidden");
 		expect(disabled).not.toContain(" in ");
@@ -3642,6 +3850,7 @@ describe("Pi docs compliance", () => {
 			width: 120,
 			footerFormat: "$cwd",
 			segmentEnabled: true,
+			responsiveFooter: false,
 		});
 		expect(getSessionName).not.toHaveBeenCalled();
 
@@ -3650,6 +3859,7 @@ describe("Pi docs compliance", () => {
 			width: 120,
 			footerFormat: "${" + "session_name}",
 			segmentEnabled: false,
+			responsiveFooter: false,
 		});
 		expect(getSessionName).toHaveBeenCalledOnce();
 	});

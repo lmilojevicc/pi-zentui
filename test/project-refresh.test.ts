@@ -114,6 +114,46 @@ describe("createProjectRefreshScheduler", () => {
 		expect(refresh).toHaveBeenLastCalledWith("pending");
 	});
 
+	it("preserves force intent while a refresh is in flight", async () => {
+		vi.useFakeTimers();
+		let finishInitialRefresh: (() => void) | undefined;
+		const refresh = vi.fn((target: string) => {
+			if (target !== "initial") return Promise.resolve();
+			return new Promise<void>((resolve) => {
+				finishInitialRefresh = resolve;
+			});
+		});
+		const afterRefresh = vi.fn();
+		const scheduler = createProjectRefreshScheduler(refresh, afterRefresh, 5_000);
+
+		scheduler.schedule("initial");
+		scheduler.schedule("dependency-change", { force: true });
+		await flushPromises();
+
+		expect(refresh).toHaveBeenCalledTimes(1);
+
+		finishInitialRefresh?.();
+		await flushPromises();
+		await flushPromises();
+
+		expect(refresh).toHaveBeenCalledTimes(2);
+		expect(refresh).toHaveBeenLastCalledWith("dependency-change");
+		expect(afterRefresh).toHaveBeenCalledTimes(2);
+
+		scheduler.schedule("ordinary-follow-up");
+		await flushPromises();
+		expect(refresh).toHaveBeenCalledTimes(2);
+
+		vi.advanceTimersByTime(4_999);
+		await flushPromises();
+		expect(refresh).toHaveBeenCalledTimes(2);
+
+		vi.advanceTimersByTime(1);
+		await flushPromises();
+		expect(refresh).toHaveBeenCalledTimes(3);
+		expect(refresh).toHaveBeenLastCalledWith("ordinary-follow-up");
+	});
+
 	it("supports forced refreshes for initial status reads", async () => {
 		vi.useFakeTimers();
 		const refresh = vi.fn<(...args: [string]) => Promise<void>>(() => Promise.resolve());

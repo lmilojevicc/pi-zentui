@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { FOOTER_FORMAT_ALIASES } from "../extensions/zentui/config";
 import {
+	collectFooterFormatReferences,
+	compileCompactFormat,
 	joinNonEmpty,
 	parseFooterFormat,
 	renderFormatSplit,
+	renderFormatTokens,
 	stripOrphanSeparators,
 } from "../extensions/zentui/footer-format";
 
@@ -256,6 +260,65 @@ describe("joinNonEmpty", () => {
 		expect(joinNonEmpty(["a", "", "b", ""], " | ")).toBe("a | b");
 		expect(joinNonEmpty(["", ""], " | ")).toBe("");
 		expect(joinNonEmpty(["only"], " | ")).toBe("only");
+	});
+});
+
+describe("compact footer format", () => {
+	it("splits only at top-level plain and braced wrap variables", () => {
+		const expected = [
+			{ kind: "tokens", tokens: [{ kind: "var", name: "cwd" }] },
+			{ kind: "tokens", tokens: [{ kind: "var", name: "context" }] },
+		];
+		expect(compileCompactFormat(parseFooterFormat("$cwd$wrap$context"))).toEqual(expected);
+		expect(compileCompactFormat(parseFooterFormat("$cwd$" + "{wrap}$context"))).toEqual(expected);
+	});
+
+	it("keeps nested wrap empty without splitting and leaves wide rendering unchanged", () => {
+		const [nested] = compileCompactFormat(parseFooterFormat("$cwd(foo $wrap $context)"));
+		expect(nested?.kind).toBe("tokens");
+		if (nested?.kind !== "tokens") return;
+		expect(
+			renderFormatTokens(nested.tokens, (name) => ({ cwd: "DIR", context: "CTX" })[name] ?? ""),
+		).toBe("DIRfoo  CTX");
+		expect(
+			renderFormatSplit(
+				parseFooterFormat("$cwd$wrap$context"),
+				(name) => ({ cwd: "DIR", context: "CTX" })[name] ?? "",
+			).left,
+		).toBe("DIRCTX");
+	});
+
+	it("ignores fill and recognizes only a standalone extensions chunk", () => {
+		const chunks = compileCompactFormat(
+			parseFooterFormat("$cwd$fill$wrap $extensions $wrap prefix $extensions$wrap($extensions)"),
+		);
+		expect(chunks.map((chunk) => chunk.kind)).toEqual(["tokens", "extensions", "tokens", "tokens"]);
+	});
+
+	it("renders conditional chunk literals and empty chunks with existing semantics", () => {
+		const chunks = compileCompactFormat(
+			parseFooterFormat("$cwd$wrap(in $session_name)$wrap$context"),
+		);
+		expect(chunks).toHaveLength(3);
+		const rendered = chunks.flatMap((chunk) =>
+			chunk.kind === "tokens" ? [renderFormatTokens(chunk.tokens, () => "").trim()] : [],
+		);
+		expect(rendered.filter(Boolean)).toEqual([]);
+		const session = chunks[1];
+		expect(session?.kind).toBe("tokens");
+		if (session?.kind !== "tokens") return;
+		expect(
+			renderFormatTokens(session.tokens, (name) => (name === "session_name" ? "work" : "")),
+		).toBe("in work");
+	});
+
+	it("collects canonical data references and excludes layout variables", () => {
+		expect(
+			collectFooterFormatReferences(
+				parseFooterFormat("$directory $branch $wrap $extensions $fill $duration"),
+				FOOTER_FORMAT_ALIASES,
+			),
+		).toEqual(new Set(["cwd", "git_branch", "session_duration"]));
 	});
 });
 

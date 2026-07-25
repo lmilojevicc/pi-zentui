@@ -33,6 +33,10 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
+export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
+
+export const DEFAULT_COMPACT_FOOTER_FORMAT =
+	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context";
 
 export type ContextThresholds = {
 	warning: number;
@@ -127,6 +131,9 @@ export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
 export type PolishedTuiConfig = {
 	projectRefreshIntervalMs: number;
 	footerFormat: string;
+	responsiveFooter: boolean;
+	compactFooterFormat: string;
+	compactFooterMaxLines: CompactFooterMaxLines;
 	editorMetadataFormat: string;
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
@@ -225,6 +232,9 @@ export const configPath = join(getAgentDir(), "zentui.json");
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
 	footerFormat: "",
+	responsiveFooter: true,
+	compactFooterFormat: DEFAULT_COMPACT_FOOTER_FORMAT,
+	compactFooterMaxLines: 2,
 	editorMetadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
 	separator: "pipe",
 	contextStyle: "text",
@@ -397,6 +407,10 @@ function parseGitBranchConfig(value: unknown): GitBranchConfig {
 function stringValue(record: Record<string, unknown>, key: string): string | undefined {
 	const value = record[key];
 	return typeof value === "string" ? value : undefined;
+}
+
+function parseCompactFooterMaxLines(value: unknown): CompactFooterMaxLines {
+	return value === 1 || value === 2 || value === 3 || value === "unlimited" ? value : 2;
 }
 
 function colorValue(record: Record<string, unknown>, key: string): string | undefined {
@@ -773,9 +787,19 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
 		: defaultConfig.fixedEditor;
 	const editorMetadataFormat = stringValue(config, "editorMetadataFormat");
+	const compactFooterFormat = stringValue(config, "compactFooterFormat");
 	return {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		footerFormat: stringValue(config, "footerFormat") ?? "",
+		responsiveFooter:
+			typeof config.responsiveFooter === "boolean"
+				? config.responsiveFooter
+				: defaultConfig.responsiveFooter,
+		compactFooterFormat:
+			compactFooterFormat && compactFooterFormat.length > 0
+				? compactFooterFormat
+				: DEFAULT_COMPACT_FOOTER_FORMAT,
+		compactFooterMaxLines: parseCompactFooterMaxLines(config.compactFooterMaxLines),
 		editorMetadataFormat:
 			editorMetadataFormat && editorMetadataFormat.length > 0
 				? editorMetadataFormat
@@ -876,6 +900,25 @@ export function saveFooterSegmentsPatch(
 export function saveFooterFormatPatch(value: string, path = configPath): PolishedTuiConfig {
 	return mutateConfig(path, (record) => {
 		record.footerFormat = typeof value === "string" ? value : "";
+	});
+}
+
+export function saveResponsiveFooterPatch(
+	patch: Partial<
+		Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterFormat" | "compactFooterMaxLines">
+	>,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		if (typeof patch.responsiveFooter === "boolean") {
+			record.responsiveFooter = patch.responsiveFooter;
+		}
+		if (typeof patch.compactFooterFormat === "string") {
+			record.compactFooterFormat = patch.compactFooterFormat;
+		}
+		if (patch.compactFooterMaxLines !== undefined) {
+			record.compactFooterMaxLines = parseCompactFooterMaxLines(patch.compactFooterMaxLines);
+		}
 	});
 }
 

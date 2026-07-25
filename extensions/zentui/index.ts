@@ -12,6 +12,7 @@ import {
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
 	type FixedEditorConfig,
+	FOOTER_FORMAT_ALIASES,
 	type FooterSegmentsConfig,
 	type GitBranchConfig,
 	type IconMode,
@@ -29,6 +30,7 @@ import {
 	saveGitBranchPatch,
 	saveIconsModePatch,
 	savePathDisplayPatch,
+	saveResponsiveFooterPatch,
 	saveSeparatorPatch,
 	saveUiFeaturesPatch,
 	type UiFeaturesConfig,
@@ -39,6 +41,7 @@ import {
 	removeFixedEditorProbe,
 } from "./fixed-editor";
 import { installFooter } from "./footer";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import { LiveContextController } from "./live-context";
@@ -82,6 +85,28 @@ function getZentuiEditorBaseFactory(factory: EditorFactory | undefined): EditorF
 	return (factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_BASE_FACTORY];
 }
 
+export function activeFooterReferences(config: PolishedTuiConfig): Set<string> {
+	const references = config.footerFormat
+		? collectFooterFormatReferences(parseFooterFormat(config.footerFormat), FOOTER_FORMAT_ALIASES)
+		: new Set<string>([
+				...(config.footerSegments.sessionName ? ["session_name"] : []),
+				...(config.footerSegments.gitCommit ? ["git_commit"] : []),
+				...(config.footerSegments.gitMetrics ? ["git_metrics"] : []),
+				...(config.footerSegments.packageVersion ? ["package"] : []),
+				...(config.footerSegments.sessionDuration ? ["session_duration"] : []),
+				...(config.footerSegments.time ? ["time"] : []),
+			]);
+	if (config.responsiveFooter) {
+		for (const name of collectFooterFormatReferences(
+			parseFooterFormat(config.compactFooterFormat),
+			FOOTER_FORMAT_ALIASES,
+		)) {
+			references.add(name);
+		}
+	}
+	return references;
+}
+
 function isTuiContext(ctx: ExtensionContext): boolean {
 	try {
 		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
@@ -108,6 +133,7 @@ export default function (pi: ExtensionAPI) {
 	let wrappedEditorFactory: EditorFactory | undefined;
 	let prototypePatchesInstalled = false;
 	let stopSessionTimer: () => void = () => {};
+	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
 
@@ -127,19 +153,12 @@ export default function (pi: ExtensionAPI) {
 		if (!sessionLifecycle.isCurrent(generation)) return;
 		const gitCommitConfig = currentConfig.gitCommit;
 		const gitMetricsConfig = currentConfig.gitMetrics;
-		const segments = currentConfig.footerSegments;
-		const fmt = currentConfig.footerFormat;
-		// Enable optional probes when the segment is on OR a custom footerFormat
-		// references the relevant variable. Mirrors the session-duration timer
-		// pattern so format-only users still get data.
-		const formatNeedsTag = /\$\{?(?:git_tag|tag)\b/.test(fmt);
-		const formatNeedsCommit = /\$\{?(?:git_commit|commit)\b/.test(fmt);
-		const formatNeedsMetrics = /\$\{?(?:git_metrics|git_added|git_deleted)\b/.test(fmt);
-		const formatNeedsPackage = /\$\{?(?:package|package_version)\b/.test(fmt);
+		const references = activeFooterReferences(currentConfig);
 		const wantExactTag =
-			((segments.gitCommit || formatNeedsCommit) && gitCommitConfig.showTag) || formatNeedsTag;
-		const wantMetrics = segments.gitMetrics || formatNeedsMetrics;
-		const wantPackage = segments.packageVersion || formatNeedsPackage;
+			(references.has("git_commit") && gitCommitConfig.showTag) || references.has("git_tag");
+		const wantMetrics =
+			references.has("git_metrics") || references.has("git_added") || references.has("git_deleted");
+		const wantPackage = references.has("package") || references.has("package_version");
 		const [git, runtime, packageVersion] = await Promise.all([
 			readGitStatus(cwd, {
 				readExactTag: wantExactTag,
@@ -183,23 +202,30 @@ export default function (pi: ExtensionAPI) {
 		projectRefreshScheduler.stop();
 	};
 
-	const startSessionTimer = () => {
+	const reconcileSessionTimer = () => {
+		const references = activeFooterReferences(currentConfig);
+		const needsTime = references.has("time");
+		const needsDuration = references.has("session_duration");
+		const nextRequirements = needsTime || needsDuration ? `${needsTime}:${needsDuration}` : "";
+		if (
+			!sessionLifecycle.isCurrent() ||
+			!footerInstalled ||
+			!currentConfig.features.statusLine ||
+			!nextRequirements
+		) {
+			stopSessionTimer();
+			sessionTimerRequirements = "";
+			lastDurationLabel = "";
+			return;
+		}
+		if (sessionTimerRequirements === nextRequirements) return;
+
 		stopSessionTimer();
+		sessionTimerRequirements = nextRequirements;
 		lastDurationLabel = "";
 		const timer = setInterval(() => {
 			if (!sessionLifecycle.isCurrent()) return;
-			const segments = currentConfig.footerSegments;
-			const formatNeedsTimer =
-				currentConfig.footerFormat &&
-				/\$\{?(?:time|session_duration|duration)\b/.test(currentConfig.footerFormat);
-			if (
-				!(
-					currentConfig.features.statusLine &&
-					(segments.sessionDuration || segments.time || formatNeedsTimer)
-				)
-			)
-				return;
-			if (segments.time || formatNeedsTimer) {
+			if (needsTime) {
 				refresh();
 				return;
 			}
@@ -212,8 +238,25 @@ export default function (pi: ExtensionAPI) {
 		}, 1000);
 		stopSessionTimer = () => {
 			clearInterval(timer);
+			sessionTimerRequirements = "";
 			stopSessionTimer = () => {};
 		};
+	};
+
+	const sameReferences = (left: Set<string>, right: Set<string>) =>
+		left.size === right.size && [...left].every((name) => right.has(name));
+
+	const applyFooterDependencyConfigChange = (
+		ctx: ExtensionContext,
+		save: () => PolishedTuiConfig,
+	) => {
+		const before = activeFooterReferences(currentConfig);
+		const nextConfig = save();
+		const after = activeFooterReferences(nextConfig);
+		currentConfig = nextConfig;
+		if (sameReferences(before, after)) return;
+		reconcileSessionTimer();
+		if (footerInstalled) scheduleProjectRefresh(ctx, { force: true });
 	};
 
 	const installPrototypePatches = () => {
@@ -347,7 +390,7 @@ export default function (pi: ExtensionAPI) {
 		);
 		scheduleProjectRefresh(ctx, { force: true });
 		refresh();
-		startSessionTimer();
+		reconcileSessionTimer();
 	};
 
 	const uninstallStatusLine = (ctx: ExtensionContext) => {
@@ -475,11 +518,17 @@ export default function (pi: ExtensionAPI) {
 					: undefined,
 			};
 		},
-		setFooterSegments(patch: Partial<FooterSegmentsConfig>) {
-			currentConfig = saveFooterSegmentsPatch(patch);
+		setFooterSegments(patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) {
+			applyFooterDependencyConfigChange(ctx, () => saveFooterSegmentsPatch(patch));
 		},
-		setFooterFormat(value: string) {
-			currentConfig = saveFooterFormatPatch(value);
+		setFooterFormat(value: string, ctx: ExtensionContext) {
+			applyFooterDependencyConfigChange(ctx, () => saveFooterFormatPatch(value));
+		},
+		setResponsiveFooter(
+			patch: Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>,
+			ctx: ExtensionContext,
+		) {
+			applyFooterDependencyConfigChange(ctx, () => saveResponsiveFooterPatch(patch));
 		},
 		setIconMode(mode: IconMode) {
 			currentConfig = saveIconsModePatch(mode);
