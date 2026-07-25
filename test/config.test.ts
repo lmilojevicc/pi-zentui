@@ -360,11 +360,11 @@ describe("mergeConfig", () => {
 		).toEqual({ warning: 70, error: 90 });
 	});
 
-	it("defaults modelLabel to id and accepts valid overrides", () => {
-		expect(mergeConfig({}).modelLabel).toBe("id");
-		expect(mergeConfig({ modelLabel: "name" }).modelLabel).toBe("name");
-		expect(mergeConfig({ modelLabel: "id" }).modelLabel).toBe("id");
-		expect(mergeConfig({ modelLabel: "title" }).modelLabel).toBe("id");
+	it("defaults editorModelLabel to id and accepts valid overrides", () => {
+		expect(mergeConfig({}).editorModelLabel).toBe("id");
+		expect(mergeConfig({ editorModelLabel: "name" }).editorModelLabel).toBe("name");
+		expect(mergeConfig({ editorModelLabel: "id" }).editorModelLabel).toBe("id");
+		expect(mergeConfig({ editorModelLabel: "title" }).editorModelLabel).toBe("id");
 	});
 
 	it("defaults pathDisplay and accepts mode/depth overrides", () => {

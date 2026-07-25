@@ -128,7 +128,7 @@ export type PolishedTuiConfig = {
 	footerFormat: string;
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
-	modelLabel: ModelLabelSource;
+	editorModelLabel: ModelLabelSource;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
 	gitBranch: GitBranchConfig;
@@ -225,7 +225,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	footerFormat: "",
 	separator: "pipe",
 	contextStyle: "text",
-	modelLabel: "id",
+	editorModelLabel: "id",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
 	gitBranch: { maxLength: "full" },
@@ -330,9 +330,9 @@ function parseContextStyle(value: unknown): ContextStyle {
 	return defaultConfig.contextStyle;
 }
 
-function parseModelLabel(value: unknown): ModelLabelSource {
+function parseEditorModelLabel(value: unknown): ModelLabelSource {
 	if (value === "id" || value === "name") return value;
-	return defaultConfig.modelLabel;
+	return defaultConfig.editorModelLabel;
 }
 
 export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
@@ -774,7 +774,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		footerFormat: stringValue(config, "footerFormat") ?? "",
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
-		modelLabel: parseModelLabel(config.modelLabel),
+		editorModelLabel: parseEditorModelLabel(config.editorModelLabel),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
 		gitBranch,

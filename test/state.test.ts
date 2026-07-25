@@ -12,14 +12,14 @@ function makeCtx(model: unknown) {
 
 const model = { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai" };
 
-describe("syncState modelLabel", () => {
-	it("shows the model id when modelLabel is 'id'", () => {
+describe("syncState model label", () => {
+	it("shows the model id when the label source is 'id'", () => {
 		const state = createInitialState(emptyGitStatus());
 		syncState(state, makeCtx(model), "", "id");
 		expect(state.modelLabel).toBe("gpt-5.6-terra");
 	});
 
-	it("shows the model name when modelLabel is 'name'", () => {
+	it("shows the model name when the label source is 'name'", () => {
 		const state = createInitialState(emptyGitStatus());
 		syncState(state, makeCtx(model), "", "name");
 		expect(state.modelLabel).toBe("GPT-5.6 Terra");
