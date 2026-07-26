@@ -264,28 +264,41 @@ describe("joinNonEmpty", () => {
 });
 
 describe("compact footer format", () => {
-	it("splits only at top-level plain and braced wrap variables", () => {
+	it("splits top-level wrap variables and records incoming boundary kinds", () => {
 		const expected = [
-			{ kind: "tokens", tokens: [{ kind: "var", name: "cwd" }] },
-			{ kind: "tokens", tokens: [{ kind: "var", name: "context" }] },
+			{ kind: "tokens", tokens: [{ kind: "var", name: "cwd" }], boundary: "space" },
+			{ kind: "tokens", tokens: [{ kind: "var", name: "context" }], boundary: "space" },
 		];
 		expect(compileCompactFormat(parseFooterFormat("$cwd$wrap$context"))).toEqual(expected);
 		expect(compileCompactFormat(parseFooterFormat("$cwd$" + "{wrap}$context"))).toEqual(expected);
+		expect(
+			compileCompactFormat(parseFooterFormat("$context$wrap_sep$tokens")).map(
+				({ kind, boundary }) => ({ kind, boundary }),
+			),
+		).toEqual([
+			{ kind: "tokens", boundary: "space" },
+			{ kind: "tokens", boundary: "separator" },
+		]);
 	});
 
-	it("keeps nested wrap empty without splitting and leaves wide rendering unchanged", () => {
-		const [nested] = compileCompactFormat(parseFooterFormat("$cwd(foo $wrap $context)"));
+	it("keeps nested boundaries empty without splitting and leaves wide rendering unchanged", () => {
+		const [nested] = compileCompactFormat(
+			parseFooterFormat("$cwd(foo $wrap $context bar $wrap_sep $tokens)"),
+		);
 		expect(nested?.kind).toBe("tokens");
 		if (nested?.kind !== "tokens") return;
 		expect(
-			renderFormatTokens(nested.tokens, (name) => ({ cwd: "DIR", context: "CTX" })[name] ?? ""),
-		).toBe("DIRfoo  CTX");
+			renderFormatTokens(
+				nested.tokens,
+				(name) => ({ cwd: "DIR", context: "CTX", tokens: "TOK" })[name] ?? "",
+			),
+		).toBe("DIRfoo  CTX bar  TOK");
 		expect(
 			renderFormatSplit(
-				parseFooterFormat("$cwd$wrap$context"),
-				(name) => ({ cwd: "DIR", context: "CTX" })[name] ?? "",
+				parseFooterFormat("$cwd$wrap$context$wrap_sep$tokens"),
+				(name) => ({ cwd: "DIR", context: "CTX", tokens: "TOK" })[name] ?? "",
 			).left,
-		).toBe("DIRCTX");
+		).toBe("DIRCTXTOK");
 	});
 
 	it("ignores fill and recognizes only a standalone extensions chunk", () => {
@@ -295,27 +308,40 @@ describe("compact footer format", () => {
 		expect(chunks.map((chunk) => chunk.kind)).toEqual(["tokens", "extensions", "tokens", "tokens"]);
 	});
 
-	it("renders conditional chunk literals and empty chunks with existing semantics", () => {
+	it("renders conditional chunks and preserves incoming boundaries around empty content", () => {
 		const chunks = compileCompactFormat(
-			parseFooterFormat("$cwd$wrap(in $session_name)$wrap$context"),
+			parseFooterFormat("$cwd$wrap_sep$missing$wrap(on $git_branch) $git_status$wrap_sep$context"),
 		);
-		expect(chunks).toHaveLength(3);
+		expect(chunks.map((chunk) => chunk.boundary)).toEqual([
+			"space",
+			"separator",
+			"space",
+			"separator",
+		]);
 		const rendered = chunks.flatMap((chunk) =>
-			chunk.kind === "tokens" ? [renderFormatTokens(chunk.tokens, () => "").trim()] : [],
+			chunk.kind === "tokens"
+				? [
+						{
+							text: renderFormatTokens(chunk.tokens, (name) =>
+								name === "git_status" ? "[!]" : "",
+							).trim(),
+							boundary: chunk.boundary,
+						},
+					]
+				: [],
 		);
-		expect(rendered.filter(Boolean)).toEqual([]);
-		const session = chunks[1];
-		expect(session?.kind).toBe("tokens");
-		if (session?.kind !== "tokens") return;
-		expect(
-			renderFormatTokens(session.tokens, (name) => (name === "session_name" ? "work" : "")),
-		).toBe("in work");
+		expect(rendered).toEqual([
+			{ text: "", boundary: "space" },
+			{ text: "", boundary: "separator" },
+			{ text: "[!]", boundary: "space" },
+			{ text: "", boundary: "separator" },
+		]);
 	});
 
 	it("collects canonical data references and excludes layout variables", () => {
 		expect(
 			collectFooterFormatReferences(
-				parseFooterFormat("$directory $branch $wrap $extensions $fill $duration"),
+				parseFooterFormat("$directory $branch $wrap $wrap_sep $extensions $fill $duration"),
 				FOOTER_FORMAT_ALIASES,
 			),
 		).toEqual(new Set(["cwd", "git_branch", "session_duration"]));

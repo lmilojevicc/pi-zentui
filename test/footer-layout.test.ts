@@ -8,6 +8,11 @@ import {
 	reflowFullFooter,
 } from "../extensions/zentui/footer-layout";
 
+const chunk = (text: string, boundary: "space" | "separator" = "space") => ({
+	text,
+	boundary,
+});
+
 describe("responsive footer layout", () => {
 	it("models centered-middle placement and its floor bias", () => {
 		expect(fullFooterFitsAligned({ left: "LLLLL", middle: "MMMM", right: "" }, 10)).toBe(false);
@@ -49,35 +54,60 @@ describe("responsive footer layout", () => {
 		expect(compactChunkBudget(5)).toBe(8);
 	});
 
-	it("packs chunks greedily with one same-row gap and legal row breaks", () => {
-		expect(packCompactChunks(["one", "two"], 7, 2)).toEqual(["one two"]);
-		expect(packCompactChunks(["one", "two"], 6, 2)).toEqual(["one", "two"]);
-		expect(packCompactChunks(["one", "", "  ", "two"], 7, 2)).toEqual(["one two"]);
+	it("packs chunks with boundary-aware same-row joins and no divider at breaks", () => {
+		expect(packCompactChunks([chunk("one"), chunk("two")], 7, 2, " | ")).toEqual(["one two"]);
+		expect(packCompactChunks([chunk("one"), chunk("two", "separator")], 9, 2, " | ")).toEqual([
+			"one | two",
+		]);
+		expect(packCompactChunks([chunk("one"), chunk("two", "separator")], 8, 2, " | ")).toEqual([
+			"one",
+			"two",
+		]);
+		expect(
+			packCompactChunks([chunk("one"), chunk(""), chunk("  "), chunk("two")], 7, 2, " | "),
+		).toEqual(["one two"]);
+	});
+
+	it("retains the next surviving chunk's incoming boundary", () => {
+		expect(
+			packCompactChunks([chunk("A"), chunk("", "separator"), chunk("B", "space")], 5, 2, " | "),
+		).toEqual(["A B"]);
+		expect(
+			packCompactChunks([chunk("A"), chunk("", "space"), chunk("B", "separator")], 5, 2, " | "),
+		).toEqual(["A | B"]);
 	});
 
 	it("supports every finite line limit and unlimited rows", () => {
-		expect(packCompactChunks(["one", "two", "three"], 5, 1)).toEqual(["one…"]);
-		expect(packCompactChunks(["one", "two", "three"], 7, 2)).toEqual(["one two", "three"]);
-		expect(packCompactChunks(["one", "two", "three"], 5, 3)).toEqual(["one", "two", "three"]);
-		expect(packCompactChunks(["one", "two", "three"], 5, "unlimited")).toEqual([
-			"one",
-			"two",
-			"three",
-		]);
+		const chunks = [chunk("one"), chunk("two"), chunk("three")];
+		expect(packCompactChunks(chunks, 5, 1, " | ")).toEqual(["one…"]);
+		expect(packCompactChunks(chunks, 7, 2, " | ")).toEqual(["one two", "three"]);
+		expect(packCompactChunks(chunks, 5, 3, " | ")).toEqual(["one", "two", "three"]);
+		expect(packCompactChunks(chunks, 5, "unlimited", " | ")).toEqual(["one", "two", "three"]);
 	});
 
 	it("marks finite-cap omissions with exactly one ellipsis", () => {
-		expect(packCompactChunks(["12345", "later"], 5, 1).map(stripVTControlCharacters)).toEqual([
-			"1234…",
-		]);
-		expect(packCompactChunks(["123456789", "later"], 5, 1).map(stripVTControlCharacters)).toEqual([
-			"1234…",
-		]);
+		expect(
+			packCompactChunks([chunk("12345"), chunk("later")], 5, 1, " | ").map(
+				stripVTControlCharacters,
+			),
+		).toEqual(["1234…"]);
+		expect(
+			packCompactChunks([chunk("123456789"), chunk("later")], 5, 1, " | ").map(
+				stripVTControlCharacters,
+			),
+		).toEqual(["1234…"]);
 	});
 
 	it("keeps every ANSI and wide-glyph row within width, even below the compact budget", () => {
-		const rows = packCompactChunks(["\u001b[31mabcdef\u001b[0m", "界界界", "\ue0a0"], 5, 3);
+		const rows = packCompactChunks(
+			[chunk("\u001b[31mabcdef\u001b[0m"), chunk("界界界"), chunk("\ue0a0")],
+			5,
+			3,
+			" | ",
+		);
 		expect(rows.every((row) => visibleWidth(row) <= 5)).toBe(true);
-		expect(packCompactChunks(["abcdefgh"], 5, 1).every((row) => visibleWidth(row) <= 5)).toBe(true);
+		expect(
+			packCompactChunks([chunk("abcdefgh")], 5, 1, " | ").every((row) => visibleWidth(row) <= 5),
+		).toBe(true);
 	});
 });

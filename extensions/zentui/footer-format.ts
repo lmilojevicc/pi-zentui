@@ -13,7 +13,11 @@ export type FormatToken =
 	| { kind: "fill" }
 	| { kind: "group"; tokens: FormatToken[] };
 
-export type CompactFormatChunk = { kind: "tokens"; tokens: FormatToken[] } | { kind: "extensions" };
+export type CompactBoundaryKind = "space" | "separator";
+
+export type CompactFormatChunk =
+	| { kind: "tokens"; tokens: FormatToken[]; boundary: CompactBoundaryKind }
+	| { kind: "extensions"; boundary: CompactBoundaryKind };
 
 const TOKEN_REGEX = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 
@@ -156,6 +160,7 @@ export function renderFormatSplit(
 export function compileCompactFormat(tokens: FormatToken[]): CompactFormatChunk[] {
 	const chunks: CompactFormatChunk[] = [];
 	let current: FormatToken[] = [];
+	let incomingBoundary: CompactBoundaryKind = "space";
 
 	const flush = () => {
 		const normalized = trimBoundaryWhitespace(current);
@@ -166,15 +171,16 @@ export function compileCompactFormat(tokens: FormatToken[]): CompactFormatChunk[
 			normalized[0]?.kind === "var" &&
 			normalized[0].name === "extensions"
 		) {
-			chunks.push({ kind: "extensions" });
+			chunks.push({ kind: "extensions", boundary: incomingBoundary });
 			return;
 		}
-		chunks.push({ kind: "tokens", tokens: normalized });
+		chunks.push({ kind: "tokens", tokens: normalized, boundary: incomingBoundary });
 	};
 
 	for (const token of tokens) {
-		if (token.kind === "var" && token.name === "wrap") {
+		if (token.kind === "var" && (token.name === "wrap" || token.name === "wrap_sep")) {
 			flush();
+			incomingBoundary = token.name === "wrap_sep" ? "separator" : "space";
 			continue;
 		}
 		if (token.kind === "fill") continue;
@@ -221,7 +227,9 @@ export function collectFooterFormatReferences(
 			}
 			if (token.kind !== "var") continue;
 			const canonical = aliases[token.name] ?? token.name;
-			if (canonical !== "wrap" && canonical !== "extensions") references.add(canonical);
+			if (canonical !== "wrap" && canonical !== "wrap_sep" && canonical !== "extensions") {
+				references.add(canonical);
+			}
 		}
 	};
 	visit(tokens);

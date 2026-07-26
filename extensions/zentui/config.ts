@@ -36,7 +36,7 @@ export type ModelLabelSource = "id" | "name";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
 export const DEFAULT_COMPACT_FOOTER_FORMAT =
-	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context";
+	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens";
 
 export type ContextThresholds = {
 	warning: number;

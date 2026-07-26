@@ -143,6 +143,9 @@ describe("mergeConfig", () => {
 	});
 
 	it("defaults and normalizes responsive footer settings", () => {
+		expect(DEFAULT_COMPACT_FOOTER_FORMAT).toBe(
+			"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+		);
 		expect(mergeConfig({})).toMatchObject({
 			responsiveFooter: true,
 			compactFooterFormat: DEFAULT_COMPACT_FOOTER_FORMAT,

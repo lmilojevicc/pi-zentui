@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { CompactFooterMaxLines } from "./config";
+import type { CompactBoundaryKind } from "./footer-format";
 
 export type FooterZones = {
 	left: string;
@@ -43,6 +44,11 @@ export function compactChunkBudget(innerWidth: number): number {
 	return Math.max(8, Math.floor((innerWidth - 1) / 2));
 }
 
+export type CompactLayoutChunk = {
+	text: string;
+	boundary: CompactBoundaryKind;
+};
+
 type PackedRow = {
 	text: string;
 	endsWithRendererEllipsis: boolean;
@@ -68,12 +74,15 @@ function appendOmissionMarker(row: PackedRow, innerWidth: number): PackedRow {
 }
 
 export function packCompactChunks(
-	chunks: string[],
+	chunks: CompactLayoutChunk[],
 	innerWidth: number,
 	maxLines: CompactFooterMaxLines,
+	separator: string,
 ): string[] {
 	if (innerWidth <= 0) return [""];
-	const content = chunks.map((chunk) => chunk.trim()).filter(Boolean);
+	const content = chunks
+		.map((chunk) => ({ ...chunk, text: chunk.text.trim() }))
+		.filter((chunk) => chunk.text.length > 0);
 	if (content.length === 0) return [""];
 
 	const finiteLimit = maxLines === "unlimited" ? Number.POSITIVE_INFINITY : maxLines;
@@ -82,13 +91,14 @@ export function packCompactChunks(
 	let omitted = false;
 
 	for (const chunk of content) {
-		const fitted = fitChunk(chunk, innerWidth);
+		const fitted = fitChunk(chunk.text, innerWidth);
 		if (!current) {
 			current = fitted;
 			continue;
 		}
 
-		const candidate = `${current.text} ${fitted.text}`;
+		const join = chunk.boundary === "separator" ? separator : " ";
+		const candidate = `${current.text}${join}${fitted.text}`;
 		if (visibleWidth(candidate) <= innerWidth) {
 			current = {
 				text: candidate,

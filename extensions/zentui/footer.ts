@@ -675,14 +675,23 @@ export function installFooter(
 							return renderVariable(name);
 					}
 				};
-				const compactChunks: string[] = [];
+				const compactChunks: Array<{
+					text: string;
+					boundary: "space" | "separator";
+				}> = [];
 				for (const chunk of compileCompactFormat(compactFormatTokens)) {
 					if (chunk.kind === "extensions") {
-						compactChunks.push(
+						const statuses = [
 							...extensionLeftSegments,
 							...extensionMiddleSegments,
 							...extensionRightSegments,
-						);
+						];
+						for (const [index, text] of statuses.entries()) {
+							compactChunks.push({
+								text,
+								boundary: index === 0 ? chunk.boundary : "space",
+							});
+						}
 						continue;
 					}
 					let rendered = stripOrphanSeparators(
@@ -692,10 +701,15 @@ export function installFooter(
 					if (["cwd", "session_name", "git_branch"].some((name) => references.has(name))) {
 						rendered = truncateToWidth(rendered, chunkBudget, "…");
 					}
-					if (rendered) compactChunks.push(rendered);
+					if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
 				}
 				return frameRows(
-					packCompactChunks(compactChunks, innerWidth, config.compactFooterMaxLines),
+					packCompactChunks(
+						compactChunks,
+						innerWidth,
+						config.compactFooterMaxLines,
+						renderVariable("sep"),
+					),
 				);
 			},
 		};

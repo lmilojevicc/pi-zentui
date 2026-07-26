@@ -1432,7 +1432,7 @@ describe("Pi docs compliance", () => {
 		const ctx = makeContext({
 			cwd: "/tmp/project",
 			getContextUsage: () => ({ percent: 48, tokens: 96_000, contextWindow: 200_000 }),
-			sessionManager: { getBranch: () => [], getSessionName: () => "responsive" },
+			sessionManager: { getBranch: () => [], getSessionName: () => "responsive-layout-long" },
 			ui: {
 				theme: makeTheme(),
 				setFooter(factory: FooterFactory | undefined) {
@@ -1442,6 +1442,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState({ ...emptyGitStatus(), branch: "main" });
+		state.tokenLabel = "↑466k ↓54k 󰆼 99.3%";
 		const fillToken = `\${fill}`;
 		const left = "L".repeat(70);
 		const middle = "M".repeat(20);
@@ -1471,7 +1472,7 @@ describe("Pi docs compliance", () => {
 		expect(at47.join("\n")).toContain("project");
 		expect(at47.join("\n")).toContain("responsive");
 		expect(at47.join("\n")).toContain("main");
-		expect(at47.join("\n")).toContain("48%/200k");
+		expect(at47.join("\n")).toContain("48%/200k | ↑466k ↓54k 󰆼 99.3%");
 		for (const [width, lines] of [
 			[145, at145],
 			[139, at139],
@@ -1505,6 +1506,42 @@ describe("Pi docs compliance", () => {
 		expect(legacy?.render(139)).toEqual([
 			` ${left}${middle.slice(0, 18)}\u001b[0m…\u001b[0m${right} `,
 		]);
+	});
+
+	it("keeps compact context when the row cap omits token metrics", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/x",
+			getContextUsage: () => ({ percent: 48, tokens: 96_000, contextWindow: 200_000 }),
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.tokenLabel = "↑466k ↓54k 󰆼 99.3%";
+		const config: PolishedTuiConfig = {
+			...defaultConfig,
+			footerFormat: "X".repeat(100),
+			compactFooterFormat: "$context$wrap_sep$tokens",
+			compactFooterMaxLines: 1,
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+
+		const rendered = footer?.render(15).join("\n") ?? "";
+		expect(rendered).toContain("48%/200k…");
+		expect(rendered).not.toContain("↑466k");
+		expect(rendered).not.toContain("|");
 	});
 
 	it("expands compact extension statuses once in placement order and excludes off", () => {
