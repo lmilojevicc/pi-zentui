@@ -998,6 +998,62 @@ export function saveGitBranchPatch(
 	});
 }
 
+export function saveEditorModelLabel(
+	value: ModelLabelSource,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.editorModelLabel = parseEditorModelLabel(value);
+	});
+}
+
+export function saveGitCommitPatch(
+	patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const existing = isRecord(record.gitCommit)
+			? { ...(record.gitCommit as Record<string, unknown>) }
+			: {};
+		if (typeof patch.onlyDetached === "boolean") existing.onlyDetached = patch.onlyDetached;
+		if (typeof patch.showTag === "boolean") existing.showTag = patch.showTag;
+		record.gitCommit = existing;
+	});
+}
+
+export function saveGitMetricsPatch(
+	patch: Partial<GitMetricsConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const existing = isRecord(record.gitMetrics)
+			? { ...(record.gitMetrics as Record<string, unknown>) }
+			: {};
+		if (typeof patch.onlyNonzero === "boolean") existing.onlyNonzero = patch.onlyNonzero;
+		if (typeof patch.ignoreSubmodules === "boolean") {
+			existing.ignoreSubmodules = patch.ignoreSubmodules;
+		}
+		record.gitMetrics = existing;
+	});
+}
+
+export function saveExtensionStatusDefaultPlacement(
+	placement: ExtensionStatusPlacement,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const existing = isRecord(record.extensionStatuses)
+			? { ...(record.extensionStatuses as Record<string, unknown>) }
+			: {};
+		record.extensionStatuses = {
+			...existing,
+			defaultPlacement: isExtensionStatusPlacement(placement)
+				? placement
+				: defaultConfig.extensionStatuses.defaultPlacement,
+		};
+	});
+}
+
 export function saveExtensionStatusPlacement(
 	key: string,
 	placement: ExtensionStatusPlacement,

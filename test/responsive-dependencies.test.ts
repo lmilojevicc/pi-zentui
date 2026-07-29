@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	readGitStatus: vi.fn(),
 	readRuntimeInfo: vi.fn(),
 	readPackageVersionResult: vi.fn(),
+	syncState: vi.fn(),
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
@@ -29,6 +30,10 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		...actual,
 		ensureConfigExists: () => {},
 		loadConfig: () => mocks.config,
+		saveEditorModelLabel(value: "id" | "name") {
+			mocks.config = { ...mocks.config, editorModelLabel: value };
+			return mocks.config;
+		},
 		saveFooterFormatPatch(value: string) {
 			mocks.config = { ...mocks.config, footerFormat: value };
 			return mocks.config;
@@ -44,6 +49,20 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			mocks.config = { ...mocks.config, ...patch };
 			return mocks.config;
 		},
+		saveGitCommitPatch(patch: Record<string, boolean>) {
+			mocks.config = {
+				...mocks.config,
+				gitCommit: { ...mocks.config.gitCommit, ...patch },
+			};
+			return mocks.config;
+		},
+		saveGitMetricsPatch(patch: Record<string, boolean>) {
+			mocks.config = {
+				...mocks.config,
+				gitMetrics: { ...mocks.config.gitMetrics, ...patch },
+			};
+			return mocks.config;
+		},
 	};
 });
 
@@ -56,6 +75,16 @@ vi.mock("../extensions/zentui/runtime", () => ({ readRuntimeInfo: mocks.readRunt
 vi.mock("../extensions/zentui/package-version", () => ({
 	readPackageVersionResult: mocks.readPackageVersionResult,
 }));
+vi.mock("../extensions/zentui/state", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../extensions/zentui/state")>();
+	return {
+		...actual,
+		syncState(...args: Parameters<typeof actual.syncState>) {
+			mocks.syncState(...args);
+			return actual.syncState(...args);
+		},
+	};
+});
 
 import { defaultConfig } from "../extensions/zentui/config";
 import zentui from "../extensions/zentui/index";
@@ -146,6 +175,7 @@ beforeEach(() => {
 	mocks.readGitStatus.mockClear();
 	mocks.readRuntimeInfo.mockReset().mockResolvedValue(undefined);
 	mocks.readPackageVersionResult.mockReset().mockResolvedValue(undefined);
+	mocks.syncState.mockClear();
 });
 
 afterEach(() => {
@@ -178,6 +208,7 @@ describe("responsive footer dependency reconciliation", () => {
 			};
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
+			component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
@@ -190,6 +221,65 @@ describe("responsive footer dependency reconciliation", () => {
 		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
 	});
 
+	it("immediately resyncs editor state when the model label source changes", async () => {
+		const ctx = createContext(async (factory) => {
+			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+				render(width: number): string[];
+				handleInput(data: string): void;
+			};
+			component.handleInput("\t");
+			for (let attempts = 0; attempts < 8; attempts++) {
+				if (component.render(120).some((line) => line.includes("> Editor model label"))) break;
+				component.handleInput("\x1b[B");
+			}
+			component.handleInput(" ");
+		});
+		const { handlers, command } = loadExtension();
+		await emit(handlers, "session_start", ctx);
+		const before = mocks.syncState.mock.calls.length;
+		await command.handler("", ctx);
+		expect(mocks.config.editorModelLabel).toBe("name");
+		expect(mocks.syncState).toHaveBeenCalledTimes(before + 1);
+		expect(mocks.syncState.mock.calls.at(-1)?.[3]).toBe("name");
+	});
+
+	it("forces Git refreshes for exact-tag and submodule probe changes", async () => {
+		mocks.config = {
+			...mocks.config,
+			footerFormat: "$git_commit $git_metrics",
+			responsiveFooter: false,
+		};
+		let target: "showTag" | "ignoreSubmodules" = "showTag";
+		const ctx = createContext(async (factory) => {
+			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+				render(width: number): string[];
+				handleInput(data: string): void;
+			};
+			for (let index = 0; index < 4; index++) component.handleInput("\t");
+			const label = target === "showTag" ? "Show exact-match tag" : "Ignore submodules";
+			for (let attempts = 0; attempts < 12; attempts++) {
+				if (component.render(140).some((line) => line.includes(`> ${label}`))) break;
+				component.handleInput("\x1b[B");
+			}
+			component.handleInput(" ");
+		});
+		const { handlers, command } = loadExtension();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+
+		const initialReads = mocks.readGitStatus.mock.calls.length;
+		await command.handler("", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledTimes(initialReads + 1);
+		expect(mocks.readGitStatus.mock.calls.at(-1)?.[1]).toMatchObject({ readExactTag: false });
+
+		target = "ignoreSubmodules";
+		await command.handler("", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledTimes(initialReads + 2);
+		expect(mocks.readGitStatus.mock.calls.at(-1)?.[1]).toMatchObject({ ignoreSubmodules: true });
+	});
+
 	it("refreshes probes activated by built-in segment settings", async () => {
 		mocks.config = { ...mocks.config, footerFormat: "", compactFooterFormat: "$cwd" };
 		const ctx = createContext(async (factory) => {
@@ -199,7 +289,7 @@ describe("responsive footer dependency reconciliation", () => {
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
-			for (let index = 0; index < 13; index++) component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 10; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
@@ -220,6 +310,7 @@ describe("responsive footer dependency reconciliation", () => {
 			};
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
+			component.handleInput?.("\x1b[B");
 			component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});

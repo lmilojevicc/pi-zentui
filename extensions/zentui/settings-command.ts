@@ -8,6 +8,7 @@ import {
 	SettingsList,
 	type SettingsListTheme,
 	truncateToWidth,
+	visibleWidth,
 } from "@earendil-works/pi-tui";
 import {
 	type ColorSource,
@@ -20,12 +21,15 @@ import {
 	type FooterSegmentsConfig,
 	type GitBranchConfig,
 	type GitBranchMaxLength,
+	type GitCommitConfig,
+	type GitMetricsConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
 	isSeparatorStyle,
+	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PathDisplayMode,
 	type PolishedTuiConfig,
@@ -51,23 +55,25 @@ const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
+const modelLabelValues: ModelLabelSource[] = ["id", "name"];
 const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"] as const;
 type FeatureState = "enabled" | "disabled";
 
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
 const settingsSections = [
-	"coloring",
-	"features",
-	"layout",
-	"builtinSegments",
-	"extensionSegments",
+	"appearance",
+	"editor",
+	"footer",
+	"segments",
+	"git",
+	"extensions",
 ] as const;
 
 type ColorSettingId = "starship" | "editorMessages";
 type FeatureSettingId = keyof UiFeaturesConfig;
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type SettingsSection = (typeof settingsSections)[number];
-type LayoutSettingId =
+type BoundedSettingId =
 	| "responsiveFooter"
 	| "compactFooterMaxLines"
 	| "contextStyle"
@@ -75,7 +81,13 @@ type LayoutSettingId =
 	| "pathDisplay"
 	| "pathDepth"
 	| "branchLength"
-	| "iconMode";
+	| "iconMode"
+	| "editorModelLabel"
+	| "gitCommitOnlyDetached"
+	| "gitCommitShowTag"
+	| "gitMetricsOnlyNonzero"
+	| "gitMetricsIgnoreSubmodules"
+	| "extensionStatusDefaultPlacement";
 
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
@@ -96,7 +108,14 @@ type SettingsCommandDeps = {
 	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
+	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
+	setGitCommit?: (
+		patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
+		ctx: ExtensionContext,
+	) => void;
+	setGitMetrics?: (patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
+	setExtensionStatusDefaultPlacement?: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	setFixedEditor: (patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) => void;
@@ -196,11 +215,12 @@ const directCommandSuggestions = [
 ];
 
 const sectionLabels: Record<SettingsSection, string> = {
-	coloring: "Coloring",
-	features: "Features",
-	layout: "Layout",
-	builtinSegments: "Built-in segments",
-	extensionSegments: "Extension segments",
+	appearance: "Appearance",
+	editor: "Editor",
+	footer: "Footer",
+	segments: "Segments",
+	git: "Git",
+	extensions: "Extensions",
 };
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
@@ -283,7 +303,7 @@ function parseCompactFooterMaxLines(value: string): CompactFooterMaxLines | unde
 	return value === "unlimited" ? value : (Number(value) as 1 | 2 | 3);
 }
 
-function isLayoutSettingId(value: string): value is LayoutSettingId {
+function isBoundedSettingId(value: string): value is BoundedSettingId {
 	return (
 		value === "responsiveFooter" ||
 		value === "compactFooterMaxLines" ||
@@ -292,7 +312,13 @@ function isLayoutSettingId(value: string): value is LayoutSettingId {
 		value === "pathDisplay" ||
 		value === "pathDepth" ||
 		value === "branchLength" ||
-		value === "iconMode"
+		value === "iconMode" ||
+		value === "editorModelLabel" ||
+		value === "gitCommitOnlyDetached" ||
+		value === "gitCommitShowTag" ||
+		value === "gitMetricsOnlyNonzero" ||
+		value === "gitMetricsIgnoreSubmodules" ||
+		value === "extensionStatusDefaultPlacement"
 	);
 }
 
@@ -446,26 +472,49 @@ function buildItems(
 	config: PolishedTuiConfig,
 	activeStatuses: ReadonlyMap<string, string>,
 ): SettingItem[] {
-	if (section === "coloring") {
-		return (Object.keys(colorSettingLabels) as ColorSettingId[]).map((key) => ({
+	if (section === "appearance") {
+		const items = (Object.keys(colorSettingLabels) as ColorSettingId[]).map((key) => ({
 			id: key,
 			label: colorSettingLabels[key],
 			description: colorSettingDescriptions[key],
 			currentValue: key === "starship" ? config.colorSources.starship : editorMessageValue(config),
 			values: colorSourceValues,
 		}));
+		return [
+			...items,
+			{
+				id: "separator",
+				label: "Separator",
+				description: "Choose the separator between default footer segments.",
+				currentValue: config.separator,
+				values: separatorStyleValues,
+			},
+			{
+				id: "iconMode",
+				label: "Icon mode",
+				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
+				currentValue: config.icons.mode,
+				values: iconModeValues,
+			},
+		];
 	}
 
-	if (section === "features") {
-		const items: SettingItem[] = (Object.keys(featureSettingLabels) as FeatureSettingId[]).map(
-			(key) => ({
-				id: key,
-				label: featureSettingLabels[key],
-				description: featureSettingDescriptions[key],
-				currentValue: featureValue(config.features[key]),
-				values: featureStateValues,
-			}),
-		);
+	if (section === "editor") {
+		const editorFeatures: FeatureSettingId[] = ["editor", "copyFriendly", "viewportIndicators"];
+		const items: SettingItem[] = editorFeatures.map((key) => ({
+			id: key,
+			label: featureSettingLabels[key],
+			description: featureSettingDescriptions[key],
+			currentValue: featureValue(config.features[key]),
+			values: featureStateValues,
+		}));
+		items.splice(1, 0, {
+			id: "editorModelLabel",
+			label: "Editor model label",
+			description: "Show the model id or display name in the editor frame.",
+			currentValue: config.editorModelLabel,
+			values: modelLabelValues,
+		});
 		items.push({
 			id: "fixedEditor",
 			label: "Fixed editor (experimental)",
@@ -494,8 +543,15 @@ function buildItems(
 		return items;
 	}
 
-	if (section === "layout") {
+	if (section === "footer") {
 		return [
+			{
+				id: "statusLine",
+				label: featureSettingLabels.statusLine,
+				description: featureSettingDescriptions.statusLine,
+				currentValue: featureValue(config.features.statusLine),
+				values: featureStateValues,
+			},
 			{
 				id: "responsiveFooter",
 				label: "Responsive footer",
@@ -519,13 +575,6 @@ function buildItems(
 				values: contextStyleValues,
 			},
 			{
-				id: "separator",
-				label: "Separator",
-				description: "Choose the separator between default footer segments.",
-				currentValue: config.separator,
-				values: separatorStyleValues,
-			},
-			{
 				id: "pathDisplay",
 				label: "Path display",
 				description: "Show cwd as basename or full path (home contracted to ~).",
@@ -540,25 +589,24 @@ function buildItems(
 				currentValue: String(config.pathDisplay.depth),
 				values: [...pathDepthValues],
 			},
-			{
-				id: "branchLength",
-				label: "Branch length",
-				description: "Show the full branch name or truncate it to a preset visible width.",
-				currentValue: String(config.gitBranch.maxLength),
-				values: branchLengthValues(config.gitBranch.maxLength),
-			},
-			{
-				id: "iconMode",
-				label: "Icon mode",
-				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
-				currentValue: config.icons.mode,
-				values: iconModeValues,
-			},
 		];
 	}
 
-	if (section === "builtinSegments") {
-		return (Object.keys(footerSegmentSettingLabels) as FooterSegmentSettingId[]).map((key) => ({
+	const nonGitSegmentKeys: FooterSegmentSettingId[] = [
+		"cwd",
+		"sessionName",
+		"runtime",
+		"context",
+		"tokens",
+		"cost",
+		"sessionDuration",
+		"username",
+		"time",
+		"os",
+		"packageVersion",
+	];
+	if (section === "segments") {
+		return nonGitSegmentKeys.map((key) => ({
 			id: footerSegmentSettingId(key),
 			label: footerSegmentSettingLabels[key],
 			description: footerSegmentSettingDescriptions[key],
@@ -567,11 +615,71 @@ function buildItems(
 		}));
 	}
 
+	if (section === "git") {
+		const segmentItem = (key: FooterSegmentSettingId): SettingItem => ({
+			id: footerSegmentSettingId(key),
+			label: footerSegmentSettingLabels[key],
+			description: footerSegmentSettingDescriptions[key],
+			currentValue: featureValue(config.footerSegments[key]),
+			values: featureStateValues,
+		});
+		return [
+			segmentItem("gitBranch"),
+			{
+				id: "branchLength",
+				label: "Branch length",
+				description: "Show the full branch name or truncate it to a preset visible width.",
+				currentValue: String(config.gitBranch.maxLength),
+				values: branchLengthValues(config.gitBranch.maxLength),
+			},
+			segmentItem("gitStatus"),
+			segmentItem("gitCounts"),
+			segmentItem("gitCommit"),
+			{
+				id: "gitCommitOnlyDetached",
+				label: "Commit only on detached HEAD",
+				description: "Show the commit segment only when HEAD is detached.",
+				currentValue: featureValue(config.gitCommit.onlyDetached),
+				values: featureStateValues,
+			},
+			{
+				id: "gitCommitShowTag",
+				label: "Show exact-match tag",
+				description: "Append an exact-match tag to the commit hash.",
+				currentValue: featureValue(config.gitCommit.showTag),
+				values: featureStateValues,
+			},
+			segmentItem("gitMetrics"),
+			{
+				id: "gitMetricsOnlyNonzero",
+				label: "Hide zero metrics",
+				description: "Hide zero added/deleted components and an all-zero metrics segment.",
+				currentValue: featureValue(config.gitMetrics.onlyNonzero),
+				values: featureStateValues,
+			},
+			{
+				id: "gitMetricsIgnoreSubmodules",
+				label: "Ignore submodules",
+				description: "Exclude submodule changes from Git line metrics.",
+				currentValue: featureValue(config.gitMetrics.ignoreSubmodules),
+				values: featureStateValues,
+			},
+		];
+	}
+
+	const defaultPlacementItem: SettingItem = {
+		id: "extensionStatusDefaultPlacement",
+		label: "Default placement",
+		description: "Placement used for active statuses without a keyed override.",
+		currentValue: config.extensionStatuses.defaultPlacement,
+		values: extensionStatusPlacementValues,
+	};
 	const statuses = Array.from(activeStatuses.entries()).sort(([a], [b]) =>
 		a < b ? -1 : a > b ? 1 : 0,
 	);
 	if (statuses.length === 0) {
 		return [
+			defaultPlacementItem,
 			{
 				id: "noThirdPartyStatuses",
 				label: "No active statuses",
@@ -581,50 +689,58 @@ function buildItems(
 		];
 	}
 
-	return statuses.flatMap(([key, value]) => {
-		const sanitizedText = sanitizeExtensionStatusText(value);
-		const description = sanitizedText ? `Current status: ${sanitizedText}` : undefined;
-		return [
-			{
-				id: thirdPartyStatusSettingId(key, "placement"),
-				label: `${key} placement`,
-				description,
-				currentValue: getExtensionStatusPlacement(config, key),
-				values: extensionStatusPlacementValues,
-			},
-			{
-				id: thirdPartyStatusSettingId(key, "colorMode"),
-				label: `${key} color`,
-				description,
-				currentValue: getExtensionStatusColorMode(config, key),
-				values: extensionStatusColorModeValues,
-			},
-		];
-	});
+	return [
+		defaultPlacementItem,
+		...statuses.flatMap(([key, value]) => {
+			const sanitizedText = sanitizeExtensionStatusText(value);
+			const description = sanitizedText ? `Current status: ${sanitizedText}` : undefined;
+			return [
+				{
+					id: thirdPartyStatusSettingId(key, "placement"),
+					label: `${key} placement`,
+					description,
+					currentValue: getExtensionStatusPlacement(config, key),
+					values: extensionStatusPlacementValues,
+				},
+				{
+					id: thirdPartyStatusSettingId(key, "colorMode"),
+					label: `${key} color`,
+					description,
+					currentValue: getExtensionStatusColorMode(config, key),
+					values: extensionStatusColorModeValues,
+				},
+			];
+		}),
+	];
 }
 
 function nextSection(section: SettingsSection): SettingsSection {
 	const currentIndex = settingsSections.indexOf(section);
-	return settingsSections[(currentIndex + 1) % settingsSections.length] ?? "coloring";
+	return settingsSections[(currentIndex + 1) % settingsSections.length] ?? "appearance";
 }
 
 function previousSection(section: SettingsSection): SettingsSection {
 	const currentIndex = settingsSections.indexOf(section);
 	return (
 		settingsSections[(currentIndex - 1 + settingsSections.length) % settingsSections.length] ??
-		"coloring"
+		"appearance"
 	);
 }
 
 function formatSectionTabs(
 	activeSection: SettingsSection,
 	theme: ExtensionContext["ui"]["theme"],
+	width: number,
 ): string {
 	const rendered = settingsSections.map((section) => {
 		const label = sectionLabels[section];
 		return section === activeSection ? theme.bold(label) : safeThemeFg(theme, "muted", label);
 	});
-	return `  ${rendered.join(safeThemeFg(theme, "muted", " / "))}`;
+	const full = `  ${rendered.join(safeThemeFg(theme, "muted", " / "))}`;
+	if (visibleWidth(full) <= width) return full;
+
+	const activeIndex = settingsSections.indexOf(activeSection);
+	return `  ${theme.bold(sectionLabels[activeSection])} (${activeIndex + 1}/${settingsSections.length})`;
 }
 
 function withSectionFooter(lines: string[], theme: ExtensionContext["ui"]["theme"]): string[] {
@@ -718,7 +834,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
 				const settingsListTheme = deps.settingsListTheme ?? getSettingsListTheme();
-				let activeSection: SettingsSection = "coloring";
+				let activeSection: SettingsSection = "appearance";
 				const applyFeatureChange = (id: FeatureSettingId, newValue: FeatureState) => {
 					const result = deps.setUiFeatures(featurePatch(id, newValue), ctx);
 					deps.requestRender();
@@ -765,7 +881,17 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									return;
 								}
 
-								if (isLayoutSettingId(id)) {
+								if (isBoundedSettingId(id)) {
+									if (id === "editorModelLabel" && (newValue === "id" || newValue === "name")) {
+										if (!deps.setEditorModelLabel) return;
+										deps.setEditorModelLabel(newValue, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Editor model label: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
 									if (id === "responsiveFooter" && isFeatureState(newValue)) {
 										deps.setResponsiveFooter?.({ responsiveFooter: newValue === "enabled" }, ctx);
 										settingsList.updateValue(id, newValue);
@@ -838,6 +964,59 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Icon mode: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "gitCommitOnlyDetached" && isFeatureState(newValue)) {
+										if (!deps.setGitCommit) return;
+										deps.setGitCommit({ onlyDetached: newValue === "enabled" }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Commit only on detached HEAD: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "gitCommitShowTag" && isFeatureState(newValue)) {
+										if (!deps.setGitCommit) return;
+										deps.setGitCommit({ showTag: newValue === "enabled" }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Show exact-match tag: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "gitMetricsOnlyNonzero" && isFeatureState(newValue)) {
+										if (!deps.setGitMetrics) return;
+										deps.setGitMetrics({ onlyNonzero: newValue === "enabled" }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Hide zero metrics: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (id === "gitMetricsIgnoreSubmodules" && isFeatureState(newValue)) {
+										if (!deps.setGitMetrics) return;
+										deps.setGitMetrics({ ignoreSubmodules: newValue === "enabled" }, ctx);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Ignore submodules: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (
+										id === "extensionStatusDefaultPlacement" &&
+										isExtensionStatusPlacement(newValue)
+									) {
+										if (!deps.setExtensionStatusDefaultPlacement) return;
+										deps.setExtensionStatusDefaultPlacement(newValue);
+										settingsList = makeSettingsList();
+										deps.requestRender();
+										ctx.ui.notify(`Default extension status placement: ${newValue}`, "info");
 										tui.requestRender();
 									}
 									return;
@@ -938,7 +1117,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						);
 						return [
 							truncateToWidth(border, width, ""),
-							truncateToWidth(formatSectionTabs(activeSection, theme), width, ""),
+							truncateToWidth(formatSectionTabs(activeSection, theme, width), width, ""),
 							truncateToWidth(border, width, ""),
 							...withSectionFooter(settingsList.render(width), theme).map((line) =>
 								truncateToWidth(line, width, ""),

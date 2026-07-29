@@ -15,19 +15,26 @@ import {
 	FOOTER_FORMAT_ALIASES,
 	type FooterSegmentsConfig,
 	type GitBranchConfig,
+	type GitCommitConfig,
+	type GitMetricsConfig,
 	type IconMode,
 	loadConfig,
+	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PolishedTuiConfig,
 	type SeparatorStyle,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
+	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
+	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
 	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	saveGitBranchPatch,
+	saveGitCommitPatch,
+	saveGitMetricsPatch,
 	saveIconsModePatch,
 	savePathDisplayPatch,
 	saveResponsiveFooterPatch,
@@ -545,8 +552,30 @@ export default function (pi: ExtensionAPI) {
 		setGitBranch(patch: Partial<GitBranchConfig>) {
 			currentConfig = saveGitBranchPatch(patch);
 		},
+		setEditorModelLabel(value: ModelLabelSource, ctx: ExtensionContext) {
+			currentConfig = saveEditorModelLabel(value);
+			syncFooterState(ctx);
+		},
+		setGitCommit(
+			patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
+			ctx: ExtensionContext,
+		) {
+			currentConfig = saveGitCommitPatch(patch);
+			if (patch.showTag !== undefined && footerInstalled) {
+				scheduleProjectRefresh(ctx, { force: true });
+			}
+		},
+		setGitMetrics(patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) {
+			currentConfig = saveGitMetricsPatch(patch);
+			if (patch.ignoreSubmodules !== undefined && footerInstalled) {
+				scheduleProjectRefresh(ctx, { force: true });
+			}
+		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();
+		},
+		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
+			currentConfig = saveExtensionStatusDefaultPlacement(placement);
 		},
 		setExtensionStatusPlacement(key: string, placement: ExtensionStatusPlacement) {
 			currentConfig = saveExtensionStatusPlacement(key, placement);

@@ -22,12 +22,16 @@ import {
 	mergeConfig,
 	saveColorSourcesPatch,
 	saveContextThresholdsPatch,
+	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
+	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
 	saveFixedEditorPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	saveGitBranchPatch,
+	saveGitCommitPatch,
+	saveGitMetricsPatch,
 	savePathDisplayPatch,
 	saveResponsiveFooterPatch,
 	saveSeparatorPatch,
@@ -1387,6 +1391,93 @@ describe("style rendering", () => {
 		);
 		expect(renderChromeBorder(thinkingTheme, "terminal", "bright-black", "────")).toBe(
 			"\u001b[90m────\u001b[0m",
+		);
+	});
+});
+
+describe("bounded settings persistence", () => {
+	function withConfig(initial: Record<string, unknown>, assertions: (path: string) => void): void {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-bounded-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(path, `${JSON.stringify(initial, null, 2)}\n`);
+			assertions(path);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	it("saves editorModelLabel while preserving unrelated root config", () => {
+		withConfig({ editorModelLabel: "id", unknown: { keep: true } }, (path) => {
+			const config = saveEditorModelLabel("name", path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(config.editorModelLabel).toBe("name");
+			expect(raw).toEqual({ editorModelLabel: "name", unknown: { keep: true } });
+		});
+	});
+
+	it("saves git commit booleans while preserving hashLength and unknown siblings", () => {
+		withConfig(
+			{
+				unknown: true,
+				gitCommit: { hashLength: 12, onlyDetached: true, showTag: true, future: "keep" },
+			},
+			(path) => {
+				const config = saveGitCommitPatch({ onlyDetached: false, showTag: false }, path);
+				const raw = JSON.parse(readFileSync(path, "utf8"));
+				expect(config.gitCommit).toEqual({ hashLength: 12, onlyDetached: false, showTag: false });
+				expect(raw.gitCommit).toEqual({
+					hashLength: 12,
+					onlyDetached: false,
+					showTag: false,
+					future: "keep",
+				});
+				expect(raw.unknown).toBe(true);
+			},
+		);
+	});
+
+	it("saves git metrics booleans while preserving unknown siblings", () => {
+		withConfig(
+			{ unknown: true, gitMetrics: { onlyNonzero: true, ignoreSubmodules: false, future: 1 } },
+			(path) => {
+				const config = saveGitMetricsPatch({ onlyNonzero: false, ignoreSubmodules: true }, path);
+				const raw = JSON.parse(readFileSync(path, "utf8"));
+				expect(config.gitMetrics).toEqual({ onlyNonzero: false, ignoreSubmodules: true });
+				expect(raw.gitMetrics).toEqual({
+					onlyNonzero: false,
+					ignoreSubmodules: true,
+					future: 1,
+				});
+				expect(raw.unknown).toBe(true);
+			},
+		);
+	});
+
+	it("saves default extension placement while preserving keyed and unknown config", () => {
+		withConfig(
+			{
+				unknown: true,
+				extensionStatuses: {
+					defaultPlacement: "right",
+					placements: { alpha: "left" },
+					colorModes: { alpha: "original" },
+					future: "keep",
+				},
+			},
+			(path) => {
+				const config = saveExtensionStatusDefaultPlacement("middle", path);
+				const raw = JSON.parse(readFileSync(path, "utf8"));
+				expect(config.extensionStatuses).toEqual({
+					defaultPlacement: "middle",
+					placements: { alpha: "left" },
+					colorModes: { alpha: "original" },
+				});
+				expect(raw.extensionStatuses.future).toBe("keep");
+				expect(raw.extensionStatuses.placements).toEqual({ alpha: "left" });
+				expect(raw.extensionStatuses.colorModes).toEqual({ alpha: "original" });
+				expect(raw.unknown).toBe(true);
+			},
 		);
 	});
 });

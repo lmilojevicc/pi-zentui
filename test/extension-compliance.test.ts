@@ -2910,9 +2910,8 @@ describe("Pi docs compliance", () => {
 						handleInput?: (data: string) => void;
 					};
 					component.handleInput?.("\t");
-					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\t");
 					component.handleInput?.(" ");
-					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
@@ -3056,11 +3055,9 @@ describe("Pi docs compliance", () => {
 
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
-		expect(themeLines.join("\n")).toContain("Coloring");
-		expect(themeLines.join("\n")).toContain("Features");
-		expect(themeLines.join("\n")).toContain("Layout");
-		expect(themeLines.join("\n")).toContain("Built-in segments");
-		expect(themeLines.join("\n")).toContain("Extension segments");
+		for (const section of ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"]) {
+			expect(themeLines.join("\n")).toContain(section);
+		}
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -3181,6 +3178,7 @@ describe("Pi docs compliance", () => {
 					};
 					component.handleInput?.("\t");
 					component.handleInput?.("\t");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -3253,9 +3251,6 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
-					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -3274,7 +3269,7 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(6);
+		expect(tuiRenderRequests).toBe(4);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
@@ -3325,9 +3320,8 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						component.handleInput?.("\t");
-						component.handleInput?.("\t");
-						for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
+						for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
 				},
@@ -3477,12 +3471,14 @@ describe("Pi docs compliance", () => {
 		expect(changes).toEqual([{ editor: "theme", userMessages: "theme" }]);
 	});
 
-	function navigateToExtensionSegmentsSection(component: { handleInput?: (data: string) => void }) {
-		// Coloring → Features → Layout → Built-in segments → Extension segments
-		component.handleInput?.("\t");
-		component.handleInput?.("\t");
-		component.handleInput?.("\t");
-		component.handleInput?.("\t");
+	function navigateToSettingsSection(
+		component: { handleInput?: (data: string) => void },
+		section: "Appearance" | "Editor" | "Footer" | "Segments" | "Git" | "Extensions",
+	) {
+		const sections = ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"];
+		for (let index = 0; index < sections.indexOf(section); index += 1) {
+			component.handleInput?.("\t");
+		}
 	}
 
 	it("cycles extension segments tabs backward with shift+tab", async () => {
@@ -3533,14 +3529,14 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToExtensionSegmentsSection(component);
+					navigateToSettingsSection(component, "Extensions");
 					component.handleInput?.("\x1b[Z");
 					rendered = component.render?.(120).join("\n") ?? "";
 				},
 			},
 		});
 
-		expect(rendered).toContain("Current directory");
+		expect(rendered).toContain("Git branch");
 		expect(rendered).not.toContain("No active statuses");
 	});
 
@@ -3596,7 +3592,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToExtensionSegmentsSection(component);
+					navigateToSettingsSection(component, "Extensions");
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},
@@ -3658,7 +3654,8 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToExtensionSegmentsSection(component);
+					navigateToSettingsSection(component, "Extensions");
+					component.handleInput?.("\x1b[B");
 					rendered = component.render?.(120).join("\n") ?? "";
 					component.handleInput?.("\x1b");
 				},
@@ -3730,7 +3727,8 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					navigateToExtensionSegmentsSection(component);
+					navigateToSettingsSection(component, "Extensions");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
@@ -3738,7 +3736,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(5);
+		expect(tuiRenderRequests).toBe(6);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -3792,7 +3790,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToExtensionSegmentsSection(component);
+					navigateToSettingsSection(component, "Extensions");
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},
