@@ -74,6 +74,7 @@ describe("mergeConfig", () => {
 			editor: true,
 			statusLine: true,
 			copyFriendly: false,
+			viewportIndicators: true,
 		});
 		expect(config.footerSegments).toEqual({
 			cwd: true,
@@ -727,15 +728,26 @@ describe("mergeConfig", () => {
 			editor: false,
 			statusLine: true,
 			copyFriendly: false,
+			viewportIndicators: true,
 		});
 		expect(
-			mergeConfig({ features: { editor: "off", statusLine: false, copyFriendly: true } }).features,
+			mergeConfig({
+				features: {
+					editor: "off",
+					statusLine: false,
+					copyFriendly: true,
+					viewportIndicators: false,
+				},
+			}).features,
 		).toEqual({
 			editor: true,
 			statusLine: false,
 			copyFriendly: true,
+			viewportIndicators: false,
 		});
-		expect(mergeConfig({ features: { copyFriendly: "on" } }).features.copyFriendly).toBe(false);
+		expect(
+			mergeConfig({ features: { copyFriendly: "on", viewportIndicators: "off" } }).features,
+		).toMatchObject({ copyFriendly: false, viewportIndicators: true });
 	});
 
 	it("accepts valid footer segment preferences and ignores invalid values", () => {
@@ -915,19 +927,21 @@ describe("mergeConfig", () => {
 				)}\n`,
 			);
 
-			const config = saveUiFeaturesPatch({ statusLine: false }, path);
+			const config = saveUiFeaturesPatch({ statusLine: false, viewportIndicators: false }, path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.features).toEqual({
 				editor: true,
 				statusLine: false,
 				copyFriendly: false,
+				viewportIndicators: false,
 			});
 			expect(raw.unknown).toBe(true);
 			expect(raw.features).toEqual({
 				editor: true,
 				futureKey: "future",
 				statusLine: false,
+				viewportIndicators: false,
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -945,6 +959,7 @@ describe("mergeConfig", () => {
 				editor: false,
 				statusLine: true,
 				copyFriendly: false,
+				viewportIndicators: true,
 			});
 			expect(raw).toEqual({ features: { editor: false } });
 		} finally {

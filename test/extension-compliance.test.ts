@@ -2684,6 +2684,55 @@ describe("Pi docs compliance", () => {
 		expect(notifications).toEqual([{ message: "Copy-friendly mode: enabled", level: "info" }]);
 	});
 
+	it("toggles viewport indicators from direct Zentui slash-command arguments", async () => {
+		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+		const featureChanges: Partial<PolishedTuiConfig["features"]>[] = [];
+		const notifications: Array<{ message: string; level: string }> = [];
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: inactiveSessionLifecycle,
+				getConfig: () => defaultConfig,
+				setColorSources() {},
+				setUiFeatures(patch) {
+					featureChanges.push(patch);
+					return { applied: true };
+				},
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				setSeparator() {},
+				getActiveExtensionStatuses: () => new Map<string, string>(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+			},
+		);
+
+		await command?.handler("viewport-indicators toggle", {
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					notifications.push({ message, level });
+				},
+			},
+		});
+
+		expect(featureChanges).toEqual([{ viewportIndicators: false }]);
+		expect(notifications).toEqual([
+			{ message: "Editor viewport indicators: disabled", level: "info" },
+		]);
+	});
+
 	it("shows when an editor toggle needs reload because another extension owns the editor", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const notifications: Array<{ message: string; level: string }> = [];

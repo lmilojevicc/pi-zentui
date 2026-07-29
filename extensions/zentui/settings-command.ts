@@ -120,6 +120,7 @@ const featureSettingLabels: Record<FeatureSettingId, string> = {
 	editor: "Editor",
 	statusLine: "Status line",
 	copyFriendly: "Copy-friendly mode",
+	viewportIndicators: "Editor viewport indicators",
 };
 
 const featureSettingDescriptions: Record<FeatureSettingId, string> = {
@@ -128,6 +129,7 @@ const featureSettingDescriptions: Record<FeatureSettingId, string> = {
 	statusLine: "Enable or disable Zentui's custom footer/status line.",
 	copyFriendly:
 		"Hide editor and previous-message rail glyphs for cleaner native terminal selection.",
+	viewportIndicators: "Show Pi's native wrapped-row counts in the editor's top and bottom borders.",
 };
 
 const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
@@ -182,6 +184,9 @@ const directCommandSuggestions = [
 	"copy-friendly enable",
 	"copy-friendly disable",
 	"copy-friendly toggle",
+	"viewport-indicators enable",
+	"viewport-indicators disable",
+	"viewport-indicators toggle",
 	"fixed-editor enable",
 	"fixed-editor disable",
 	"fixed-editor toggle",
@@ -211,7 +216,12 @@ function isColorSettingId(value: string): value is ColorSettingId {
 }
 
 function isFeatureSettingId(value: string): value is FeatureSettingId {
-	return value === "editor" || value === "statusLine" || value === "copyFriendly";
+	return (
+		value === "editor" ||
+		value === "statusLine" ||
+		value === "copyFriendly" ||
+		value === "viewportIndicators"
+	);
 }
 
 function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingId {
@@ -322,7 +332,7 @@ function footerSegmentPatch(
 }
 
 function usageText(): string {
-	return 'Usage: /zentui [editor|statusline|copy-friendly] [enable|disable|toggle] or /zentui format "<template>"';
+	return 'Usage: /zentui [editor|statusline|copy-friendly|viewport-indicators] [enable|disable|toggle] or /zentui format "<template>"';
 }
 
 function featureNotification(
@@ -343,13 +353,16 @@ function parseDirectFeatureCommand(
 
 	const words = normalized.split(/\s+/g).filter(Boolean);
 	const hasWord = (value: string) => words.includes(value);
-	const feature = hasWord("editor")
-		? "editor"
-		: hasWord("footer") || hasWord("statusline") || hasWord("status")
-			? "statusLine"
-			: hasWord("copyfriendly") || hasWord("copy")
-				? "copyFriendly"
-				: undefined;
+	const feature =
+		hasWord("viewportindicators") || (hasWord("viewport") && hasWord("indicators"))
+			? "viewportIndicators"
+			: hasWord("editor")
+				? "editor"
+				: hasWord("footer") || hasWord("statusline") || hasWord("status")
+					? "statusLine"
+					: hasWord("copyfriendly") || hasWord("copy")
+						? "copyFriendly"
+						: undefined;
 	const action = hasWord("toggle")
 		? "toggle"
 		: hasWord("enable") || hasWord("enabled") || hasWord("on")

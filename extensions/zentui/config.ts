@@ -67,6 +67,7 @@ export type UiFeaturesConfig = {
 	editor: boolean;
 	statusLine: boolean;
 	copyFriendly: boolean;
+	viewportIndicators: boolean;
 };
 
 export type FooterSegmentsConfig = {
@@ -277,6 +278,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		editor: true,
 		statusLine: true,
 		copyFriendly: false,
+		viewportIndicators: true,
 	},
 	footerSegments: {
 		cwd: true,
@@ -507,6 +509,7 @@ function normalizeUiFeatures(record: Record<string, unknown>): UiFeaturesConfig 
 		editor: booleanValue(record, "editor"),
 		statusLine: booleanValue(record, "statusLine"),
 		copyFriendly: booleanValue(record, "copyFriendly"),
+		viewportIndicators: booleanValue(record, "viewportIndicators"),
 	};
 }
 
@@ -619,7 +622,12 @@ function isColorSourceKey(value: string): value is keyof ColorSourcesConfig {
 }
 
 function isUiFeatureKey(value: string): value is keyof UiFeaturesConfig {
-	return value === "editor" || value === "statusLine" || value === "copyFriendly";
+	return (
+		value === "editor" ||
+		value === "statusLine" ||
+		value === "copyFriendly" ||
+		value === "viewportIndicators"
+	);
 }
 
 function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig {

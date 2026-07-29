@@ -144,6 +144,9 @@ Useful slash-command shortcuts:
 /zentui copy-friendly enable
 /zentui copy-friendly disable
 /zentui copy-friendly toggle
+/zentui viewport-indicators enable
+/zentui viewport-indicators disable
+/zentui viewport-indicators toggle
 /zentui fixed-editor enable
 /zentui fixed-editor disable
 /zentui fixed-editor toggle
@@ -238,7 +241,8 @@ Default config values — copy this and change any value you want:
 	"features": {
 		"editor": true,
 		"statusLine": true,
-		"copyFriendly": false
+		"copyFriendly": false,
+		"viewportIndicators": true
 	},
 	"footerSegments": {
 		"cwd": true,
@@ -291,7 +295,7 @@ Default config values — copy this and change any value you want:
 - `gitBranch.maxLength`: visible width of the built-in branch name and `$git_branch` / `$branch`. The default `full` preserves the complete name; any positive integer uses that width including the trailing `…`. `/zentui` **Layout** cycles `full`, `10`, `20`, `30`, `40`, and `50`; custom positive integers can be set in JSON.
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `icons.mode` is `auto` | `nerd` | `ascii` (default `auto`, same glyphs as nerd). ASCII mode swaps in plain fallbacks for statusline icons and runtime symbols — useful without a Nerd Font. Custom per-icon strings always win over mode defaults. Custom `icons.os` always wins; when left at the mode default, Zentui maps the OS icon by platform. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
-- `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. All three can be changed from `/zentui` or direct slash-command arguments.
+- `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. `viewportIndicators` preserves Pi's native `↑ N more` / `↓ N more` wrapped-row counts in Zentui's editor borders (default `true`). All four can be changed from `/zentui` or direct slash-command arguments.
 - `footerSegments`: show or hide individual built-in footer segments (`cwd`, `sessionName`, `gitBranch`, `gitStatus`, `gitCounts`, `gitCommit`, `gitMetrics`, `runtime`, `packageVersion`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). Toggle them from the `Built-in segments` tab in `/zentui`.
 - `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Layout** tab configures responsive behavior, compact rows, context style, separator, path display mode/depth, branch length, and icon mode; set or clear custom formats with `/zentui format`.
 - `responsiveFooter`: enabled by default. Zentui keeps the current aligned one-row footer while every settings-resolved left/middle/right zone fits without layout truncation. Otherwise it tries two complete left-aligned rows, preferring `left` / `middle right` and then `left middle` / `right`. Only when neither split fits does it use `compactFooterFormat`. Set `false` to restore the legacy one-row fitting behavior. Selection uses measured terminal-cell width, not fixed device breakpoints.

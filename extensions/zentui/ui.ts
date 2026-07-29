@@ -19,10 +19,18 @@ import {
 
 const SPLIT_POLISHED_FRAME: unique symbol = Symbol.for("pi-zentui.polished-frame");
 
+type ViewportCounts = {
+	above?: string;
+	below?: string;
+};
+
 type PolishedFrameSplit = {
 	editorLines: string[];
 	trailingLines: string[];
+	viewport: ViewportCounts;
 };
+
+const POLISHED_FRAME_SPLITS = new WeakMap<string[], PolishedFrameSplit>();
 
 type AutocompleteEditorInternals = {
 	autocompleteList?: Pick<Component, "render">;
@@ -128,30 +136,48 @@ function composeMetadataLine(left: string, right: string | undefined, width: num
 	return `${leftText}${gap}${right}`;
 }
 
-function plainRenderedText(line: string): string {
-	return line
-		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-		.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-		.replace(/\[\/?[^\]]+\]/g, "");
+function ansiStrippedText(line: string): string {
+	return line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
 }
 
-function isHorizontalBorder(line: string): boolean {
-	const plain = plainRenderedText(line).trim();
-	return plain.length > 0 && /^─+$/.test(plain);
+function plainRenderedText(line: string): string {
+	return ansiStrippedText(line).replace(/\[\/?[^\]]+\]/g, "");
+}
+
+function parseEditorBorder(
+	line: string,
+	direction: keyof ViewportCounts,
+): { count?: string } | undefined {
+	const plain = ansiStrippedText(line);
+	if (/^─+$/.test(plain)) return {};
+
+	const arrow = direction === "above" ? "↑" : "↓";
+	const match = new RegExp(`^─── ${arrow} ([1-9]\\d*) more ─*$`).exec(plain);
+	return match?.[1] ? { count: match[1] } : undefined;
+}
+
+function renderEditorBorder(
+	width: number,
+	direction: keyof ViewportCounts,
+	count: string | undefined,
+): string {
+	if (!count) return "─".repeat(width);
+	const arrow = direction === "above" ? "↑" : "↓";
+	const indicator = `─── ${arrow} ${count} more `;
+	return `${indicator}${"─".repeat(Math.max(0, width - visibleWidth(indicator)))}`;
 }
 
 function unwrapPolishedFrameOnly(
 	lines: string[],
 	config: PolishedTuiConfig,
 	uiTheme: Theme,
-): string[] | undefined {
-	if (
-		lines.length < 5 ||
-		!isHorizontalBorder(lines[0] ?? "") ||
-		!isHorizontalBorder(lines.at(-1) ?? "")
-	)
-		return undefined;
+): { editorLines: string[]; viewport: ViewportCounts } | undefined {
+	if (lines.length < 5) return undefined;
+	const top = parseEditorBorder(lines[0] ?? "", "above");
+	const bottom = parseEditorBorder(lines.at(-1) ?? "", "below");
+	if (!top || !bottom) return undefined;
 
+	const viewport = { above: top.count, below: bottom.count };
 	const interior = lines.slice(1, -1);
 	if (interior.length < 3) return undefined;
 
@@ -173,7 +199,7 @@ function unwrapPolishedFrameOnly(
 			if (prefix && !line.startsWith(prefix)) return undefined;
 			unwrapped.push(prefix ? line.slice(prefix.length) : line);
 		}
-		return unwrapped;
+		return { editorLines: unwrapped, viewport };
 	}
 
 	const { rail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m");
@@ -184,7 +210,7 @@ function unwrapPolishedFrameOnly(
 		plainRenderedText(unrailed.at(-2) ?? "").trim() !== ""
 	)
 		return undefined;
-	return unrailed.slice(1, -2);
+	return { editorLines: unrailed.slice(1, -2), viewport };
 }
 
 function splitPolishedFrame(
@@ -192,12 +218,12 @@ function splitPolishedFrame(
 	config: PolishedTuiConfig,
 	uiTheme: Theme,
 ): PolishedFrameSplit | undefined {
-	if (!isHorizontalBorder(lines[0] ?? "")) return undefined;
+	if (!parseEditorBorder(lines[0] ?? "", "above")) return undefined;
 	for (let bottomIndex = lines.length - 1; bottomIndex >= 4; bottomIndex--) {
-		if (!isHorizontalBorder(lines[bottomIndex] ?? "")) continue;
-		const editorLines = unwrapPolishedFrameOnly(lines.slice(0, bottomIndex + 1), config, uiTheme);
-		if (editorLines) {
-			return { editorLines, trailingLines: lines.slice(bottomIndex + 1) };
+		if (!parseEditorBorder(lines[bottomIndex] ?? "", "below")) continue;
+		const frame = unwrapPolishedFrameOnly(lines.slice(0, bottomIndex + 1), config, uiTheme);
+		if (frame) {
+			return { ...frame, trailingLines: lines.slice(bottomIndex + 1) };
 		}
 	}
 	return undefined;
@@ -272,6 +298,12 @@ function renderPolishedFrame({
 	if (editorFrame.length < 2) return clampRenderedLines(baseRendered, width);
 
 	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
+	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
+	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
+	const viewport = ownedFrame?.viewport ?? {
+		above: parsedTop?.count,
+		below: parsedBottom?.count,
+	};
 	const meta = renderEditorMetadataFormat(
 		config.editorMetadataFormat,
 		{
@@ -293,14 +325,22 @@ function renderPolishedFrame({
 		colorSource,
 		config.colors.editorBorder,
 		EDITOR_BORDER_FALLBACK,
-		"─".repeat(width),
+		renderEditorBorder(
+			width,
+			"above",
+			config.features.viewportIndicators ? viewport.above : undefined,
+		),
 	);
 	const bottom = renderStyleForSourceOrFallback(
 		uiTheme,
 		colorSource,
 		config.colors.editorBorder,
 		EDITOR_BORDER_FALLBACK,
-		"─".repeat(width),
+		renderEditorBorder(
+			width,
+			"below",
+			config.features.viewportIndicators ? viewport.below : undefined,
+		),
 	);
 	const lines = ["", ...editorLines, "", railedMeta];
 	const renderedLines = config.features.copyFriendly
@@ -323,7 +363,13 @@ function renderPolishedFrame({
 				...autocompleteLines,
 			];
 
-	return clampRenderedLines(renderedLines, width);
+	const clamped = clampRenderedLines(renderedLines, width);
+	POLISHED_FRAME_SPLITS.set(clamped, {
+		editorLines,
+		trailingLines: autocompleteLines.length > 0 ? clamped.slice(-autocompleteLines.length) : [],
+		viewport,
+	});
+	return clamped;
 }
 
 export class PolishedEditor extends CustomEditor {
@@ -372,7 +418,9 @@ export class PolishedEditor extends CustomEditor {
 	}
 
 	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
-		return splitPolishedFrame(lines, this.getConfig(), this.uiTheme);
+		return (
+			POLISHED_FRAME_SPLITS.get(lines) ?? splitPolishedFrame(lines, this.getConfig(), this.uiTheme)
+		);
 	}
 }
 
@@ -485,7 +533,9 @@ export class WrappedPolishedEditor implements EditorComponent {
 	}
 
 	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
-		return splitPolishedFrame(lines, this.getConfig(), this.uiTheme);
+		return (
+			POLISHED_FRAME_SPLITS.get(lines) ?? splitPolishedFrame(lines, this.getConfig(), this.uiTheme)
+		);
 	}
 
 	invalidate(): void {
