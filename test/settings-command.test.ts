@@ -374,6 +374,7 @@ describe("bounded /zentui settings", () => {
 			"Current directory",
 			"Session name",
 			"Runtime",
+			"Model info",
 			"Context usage",
 			"Token counts",
 			"Session cost",
@@ -518,6 +519,161 @@ describe("bounded /zentui settings", () => {
 		expect(closeCalls).toBe(2);
 		expect(rows[0]).toContain("name");
 		expect(rows[1]).toContain("enabled");
+	});
+
+	it("toggles model info, persists each change, and reopens with the effective value", async () => {
+		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
+		const config = cloneConfig();
+		const patches: Array<Record<string, boolean>> = [];
+		const rows: string[] = [];
+		let invocation = 0;
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: new SessionLifecycle(),
+				getConfig: () => config,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments(patch) {
+					patches.push(patch as Record<string, boolean>);
+					Object.assign(config.footerSegments, patch);
+				},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setSeparator() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				getActiveExtensionStatuses: () => new Map(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		const ctx = {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: theme(),
+				notify() {},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					invocation += 1;
+					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
+					goToSection(component, "Segments");
+					selectLabel(component, "Model info");
+					if (invocation === 1) {
+						rows.push(renderedValue(component, "Model info"));
+						component.handleInput(" ");
+						rows.push(renderedValue(component, "Model info"));
+						component.handleInput(" ");
+						rows.push(renderedValue(component, "Model info"));
+						component.handleInput(" ");
+					}
+					rows.push(renderedValue(component, "Model info"));
+					component.handleInput("\x1b");
+				},
+			},
+		};
+
+		await command?.handler("", ctx);
+		await command?.handler("", ctx);
+
+		expect(patches).toEqual([{ modelInfo: true }, { modelInfo: false }, { modelInfo: true }]);
+		expect(config.footerSegments.modelInfo).toBe(true);
+		expect(rows).toEqual([
+			expect.stringContaining("disabled"),
+			expect.stringContaining("enabled"),
+			expect.stringContaining("disabled"),
+			expect.stringContaining("enabled"),
+			expect.stringContaining("enabled"),
+		]);
+	});
+
+	it("rolls back the model-info control when persistence fails", async () => {
+		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
+		const config = cloneConfig();
+		const patches: Array<Record<string, boolean>> = [];
+		const rows: string[] = [];
+		const notifications: Array<{ message: string; level: string }> = [];
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: new SessionLifecycle(),
+				getConfig: () => config,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments(patch) {
+					patches.push(patch as Record<string, boolean>);
+					throw new Error("config is read-only");
+				},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setSeparator() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				getActiveExtensionStatuses: () => new Map(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: theme(),
+				notify(message: string, level: string) {
+					notifications.push({ message, level });
+				},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
+					goToSection(component, "Segments");
+					selectLabel(component, "Model info");
+					rows.push(renderedValue(component, "Model info"));
+					component.handleInput(" ");
+					rows.push(renderedValue(component, "Model info"));
+				},
+			},
+		});
+
+		expect(patches).toEqual([{ modelInfo: true }]);
+		expect(config.footerSegments.modelInfo).toBe(false);
+		expect(rows).toEqual([
+			expect.stringContaining("disabled"),
+			expect.stringContaining("disabled"),
+		]);
+		expect(notifications).toEqual([
+			{ message: "Could not update Zentui settings: config is read-only", level: "error" },
+		]);
 	});
 
 	it("keeps a new control unchanged when persistence fails", async () => {

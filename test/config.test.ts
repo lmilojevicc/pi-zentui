@@ -88,6 +88,7 @@ describe("mergeConfig", () => {
 			gitBranch: true,
 			gitStatus: true,
 			runtime: true,
+			modelInfo: false,
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
@@ -800,12 +801,16 @@ describe("mergeConfig", () => {
 	});
 
 	it("accepts valid footer segment preferences and ignores invalid values", () => {
-		expect(mergeConfig({ footerSegments: { cwd: false, tokens: false } }).footerSegments).toEqual({
+		expect(
+			mergeConfig({ footerSegments: { cwd: false, modelInfo: true, tokens: false } })
+				.footerSegments,
+		).toEqual({
 			cwd: false,
 			sessionName: true,
 			gitBranch: true,
 			gitStatus: true,
 			runtime: true,
+			modelInfo: true,
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
@@ -819,14 +824,16 @@ describe("mergeConfig", () => {
 			cost: true,
 		});
 		expect(
-			mergeConfig({ footerSegments: { cost: "off", gitBranch: false, gitStatus: false } })
-				.footerSegments,
+			mergeConfig({
+				footerSegments: { cost: "off", gitBranch: false, gitStatus: false, modelInfo: "on" },
+			}).footerSegments,
 		).toEqual({
 			cwd: true,
 			sessionName: true,
 			gitBranch: false,
 			gitStatus: false,
 			runtime: true,
+			modelInfo: false,
 			context: true,
 			gitCounts: false,
 			sessionDuration: false,
@@ -1035,7 +1042,7 @@ describe("mergeConfig", () => {
 				)}\n`,
 			);
 
-			const config = saveFooterSegmentsPatch({ tokens: false, cost: false }, path);
+			const config = saveFooterSegmentsPatch({ modelInfo: true, tokens: false, cost: false }, path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.footerSegments).toEqual({
@@ -1044,6 +1051,7 @@ describe("mergeConfig", () => {
 				gitBranch: true,
 				gitStatus: true,
 				runtime: true,
+				modelInfo: true,
 				context: true,
 				gitCounts: false,
 				sessionDuration: false,
@@ -1060,8 +1068,25 @@ describe("mergeConfig", () => {
 			expect(raw.footerSegments).toEqual({
 				cwd: true,
 				futureKey: "future",
+				modelInfo: true,
 				tokens: false,
 				cost: false,
+			});
+			expect(mergeConfig(raw).footerSegments.modelInfo).toBe(true);
+
+			const disabled = saveFooterSegmentsPatch({ modelInfo: false }, path);
+			const disabledRaw = JSON.parse(readFileSync(path, "utf8"));
+			expect(disabled.footerSegments.modelInfo).toBe(false);
+			expect(mergeConfig(disabledRaw).footerSegments.modelInfo).toBe(false);
+			expect(disabledRaw).toEqual({
+				unknown: true,
+				footerSegments: {
+					cwd: true,
+					futureKey: "future",
+					modelInfo: false,
+					tokens: false,
+					cost: false,
+				},
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -1081,6 +1106,7 @@ describe("mergeConfig", () => {
 				gitBranch: true,
 				gitStatus: true,
 				runtime: false,
+				modelInfo: false,
 				context: true,
 				gitCounts: false,
 				sessionDuration: false,

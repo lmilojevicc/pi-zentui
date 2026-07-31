@@ -35,6 +35,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			...actual.defaultConfig,
 			projectRefreshIntervalMs: 0,
 			features: { ...actual.defaultConfig.features, editor: false, statusLine: true },
+			footerSegments: { ...actual.defaultConfig.footerSegments, modelInfo: true },
 		}),
 	};
 });
@@ -172,13 +173,20 @@ describe("telemetry lifecycle integration", () => {
 
 		await emit(handlers, "session_start", harness.ctx);
 		const footer = harness.createFooter();
+		expect(rendered(footer)).toContain("telemetry-events-model Test");
 		expect(rendered(footer)).toContain("$0.000 (sub)");
 		expect(rendered(footer)).not.toContain("(auto)");
 
-		harness.state.model = { ...harness.state.model, provider: "changed" };
+		harness.state.model = {
+			...harness.state.model,
+			id: "selected-model",
+			provider: "changed-provider",
+		};
 		capabilities.subscription = false;
 		capabilities.autoCompaction = false;
 		await emit(handlers, "model_select", harness.ctx);
+		expect(rendered(footer)).toContain("selected-model Changed Provider");
+		expect(rendered(footer)).not.toContain("telemetry-events-model Test");
 		expect(rendered(footer)).not.toContain("(sub)");
 
 		capabilities.subscription = false;

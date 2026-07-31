@@ -51,6 +51,18 @@ function joinStatusTexts(statusTexts: string[], separator: string): string {
 	return statusTexts.filter(Boolean).join(separator);
 }
 
+function normalizeModelInfoPart(value: string): string {
+	return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function composeModelInfoLabel(model: string, provider: string): string {
+	const normalizedModel = normalizeModelInfoPart(model);
+	const normalizedProvider = normalizeModelInfoPart(provider);
+	const providerIsDuplicated =
+		normalizedProvider.length > 0 && normalizedModel.includes(normalizedProvider);
+	return [model, providerIsDuplicated ? "" : provider].filter(Boolean).join(" ");
+}
+
 function fitStatusTexts(statusTexts: string[], maxWidth: number, separator: string): string {
 	if (maxWidth <= 0) return "";
 
@@ -337,6 +349,10 @@ export function installFooter(
 							const label = state.runtime.version ? `${symbol} ${state.runtime.version}` : symbol;
 							return renderStyleForSource(theme, colorSource, state.runtime.style, label);
 						}
+						case "model":
+							return sanitizeExtensionStatusText(state.modelLabel);
+						case "provider":
+							return sanitizeExtensionStatusText(state.providerLabel);
 						case "session_duration":
 							return state.sessionStartEpoch
 								? renderStyleForSource(
@@ -564,6 +580,12 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 
+				const modelInfoSegment = config.footerSegments.modelInfo
+					? composeModelInfoLabel(
+							sanitizeExtensionStatusText(state.modelLabel),
+							sanitizeExtensionStatusText(state.providerLabel),
+						)
+					: "";
 				const timeSegment = config.footerSegments.time
 					? renderStyleForSource(
 							theme,
@@ -592,6 +614,7 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const right = [
+					modelInfoSegment,
 					config.footerSegments.context ? builtInContextLabel : "",
 					config.footerSegments.tokens ? builtInTokenLabel : "",
 					config.footerSegments.cost ? builtInCostLabel : "",

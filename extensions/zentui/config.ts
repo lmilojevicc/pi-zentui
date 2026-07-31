@@ -80,6 +80,7 @@ export type FooterSegmentsConfig = {
 	gitCommit: boolean;
 	gitMetrics: boolean;
 	runtime: boolean;
+	modelInfo: boolean;
 	context: boolean;
 	tokens: boolean;
 	cost: boolean;
@@ -198,6 +199,8 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"git_status",
 	"git_state",
 	"runtime",
+	"model",
+	"provider",
 	"session_duration",
 	"username",
 	"os",
@@ -294,6 +297,7 @@ export const defaultConfig: PolishedTuiConfig = {
 		gitStatus: true,
 		gitCounts: false,
 		runtime: true,
+		modelInfo: false,
 		context: true,
 		tokens: true,
 		cost: true,
@@ -533,6 +537,7 @@ function normalizeFooterSegments(record: Record<string, unknown>): FooterSegment
 		gitStatus: footerSegmentValue(record, "gitStatus"),
 		gitCounts: footerSegmentValue(record, "gitCounts"),
 		runtime: footerSegmentValue(record, "runtime"),
+		modelInfo: footerSegmentValue(record, "modelInfo"),
 		context: footerSegmentValue(record, "context"),
 		tokens: footerSegmentValue(record, "tokens"),
 		cost: footerSegmentValue(record, "cost"),
@@ -650,6 +655,7 @@ function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig 
 		value === "gitStatus" ||
 		value === "gitCounts" ||
 		value === "runtime" ||
+		value === "modelInfo" ||
 		value === "context" ||
 		value === "tokens" ||
 		value === "cost" ||

@@ -166,6 +166,7 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 	time: "Current time",
 	os: "OS icon",
 	runtime: "Runtime",
+	modelInfo: "Model info",
 	context: "Context usage",
 	tokens: "Token counts",
 	cost: "Session cost",
@@ -186,6 +187,7 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	time: "Show the current time (HH:MM) on the right.",
 	os: "Show an operating-system icon on the left.",
 	runtime: "Show or hide the detected runtime/language segment on the left.",
+	modelInfo: "Show the selected model and non-duplicate provider on the right.",
 	context: "Show or hide context usage on the right.",
 	tokens: "Show or hide input/output token counts on the right.",
 	cost: "Show or hide session cost on the right.",
@@ -257,6 +259,7 @@ function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingI
 		value === "gitCounts" ||
 		value === "sessionDuration" ||
 		value === "runtime" ||
+		value === "modelInfo" ||
 		value === "context" ||
 		value === "tokens" ||
 		value === "cost" ||
@@ -612,6 +615,7 @@ function buildItems(
 		"cwd",
 		"sessionName",
 		"runtime",
+		"modelInfo",
 		"context",
 		"tokens",
 		"cost",

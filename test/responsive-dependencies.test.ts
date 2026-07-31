@@ -289,7 +289,7 @@ describe("responsive footer dependency reconciliation", () => {
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
 			component.handleInput?.("\t");
-			for (let index = 0; index < 10; index++) component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 11; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
