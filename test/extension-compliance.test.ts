@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
@@ -7,7 +7,7 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
 	defaultConfig,
 	type ExtensionStatusPlacement,
@@ -27,6 +27,16 @@ import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-com
 import { createInitialState } from "../extensions/zentui/state";
 import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
 import { installUserMessageStyle } from "../extensions/zentui/user-message";
+
+const isolatedAgentDir = vi.hoisted(() => {
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const path = `/tmp/pi-zentui-extension-compliance-${process.pid}`;
+	const fs = process.getBuiltinModule("node:fs");
+	fs.rmSync(path, { recursive: true, force: true });
+	fs.mkdirSync(path, { recursive: true });
+	process.env.PI_CODING_AGENT_DIR = path;
+	return { path, previous };
+});
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
 type FooterFactory = (...args: unknown[]) => {
@@ -138,9 +148,16 @@ function makeStrictTheme(): Theme {
 
 function makeUi(prefix = "") {
 	let editorComponent: unknown;
+	let editorText = "";
 	return {
 		theme: makeTaggedTheme(prefix),
 		setFooter() {},
+		getEditorText() {
+			return editorText;
+		},
+		setEditorText(text: string) {
+			editorText = text;
+		},
 		setEditorComponent(factory: unknown) {
 			editorComponent = factory;
 		},
@@ -238,9 +255,16 @@ async function emit(handlers: Map<string, Handler[]>, eventName: string, ctx: un
 function makeContext(overrides: Record<string, unknown> = {}) {
 	const theme = makeTheme();
 	let editorComponent: unknown;
+	let editorText = "";
 	const ui = {
 		theme,
 		setFooter() {},
+		getEditorText() {
+			return editorText;
+		},
+		setEditorText(text: string) {
+			editorText = text;
+		},
 		setEditorComponent(factory: unknown) {
 			editorComponent = factory;
 		},
@@ -262,7 +286,14 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+afterAll(() => {
+	rmSync(isolatedAgentDir.path, { recursive: true, force: true });
+	if (isolatedAgentDir.previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = isolatedAgentDir.previous;
+});
+
 afterEach(() => {
+	rmSync(join(isolatedAgentDir.path, "zentui.json"), { force: true });
 	UserMessageComponent.prototype.render = originalUserMessageRender;
 	UserMessageComponent.prototype.invalidate = originalUserMessageInvalidate;
 	delete (UserMessageComponent.prototype as unknown as Record<PropertyKey, unknown>)[
@@ -384,6 +415,261 @@ describe("Pi docs compliance", () => {
 		await emit(handlers, "session_start", ctx);
 
 		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+	});
+
+	it("expands collapsed paste content across install, reload, toggle, and cleanup replacements", async () => {
+		const firstHandlers = loadExtension();
+		const marker = "[paste #1 +12 lines]";
+		const expanded = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
+		let editorFactory: unknown;
+		let editorText = marker;
+		const transferred: string[] = [];
+		const operations: string[] = [];
+		const patchPresenceDuringReplacements: boolean[] = [];
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				getEditorText() {
+					operations.push("getEditorText");
+					return editorText === marker ? expanded : editorText;
+				},
+				setEditorText(text: string) {
+					operations.push("setEditorText");
+					editorText = text;
+				},
+				setEditorComponent(factory: unknown) {
+					operations.push("setEditorComponent");
+					patchPresenceDuringReplacements.push(
+						UserMessageComponent.prototype.render !== originalUserMessageRender ||
+							ModelSelectorComponent.prototype.render !== originalModelSelectorRender,
+					);
+					transferred.push(editorText);
+					editorFactory = factory;
+				},
+				getEditorComponent() {
+					return editorFactory;
+				},
+				notify() {},
+			},
+		});
+
+		await emit(firstHandlers, "session_start", ctx);
+		expect(patchPresenceDuringReplacements).toEqual([false]);
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+
+		editorText = marker;
+		const commands = new Map<string, unknown>();
+		const reloadedHandlers = loadExtension({ commands });
+		await emit(reloadedHandlers, "session_start", ctx);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+
+		editorText = marker;
+		await command.handler("editor disable", ctx);
+		editorText = marker;
+		await command.handler("editor enable", ctx);
+		editorText = marker;
+		await emit(reloadedHandlers, "session_shutdown", ctx);
+
+		expect(operations).toEqual(
+			Array.from({ length: 5 }, () => [
+				"getEditorText",
+				"setEditorText",
+				"setEditorComponent",
+			]).flat(),
+		);
+		expect(transferred).toEqual(Array.from({ length: 5 }, () => expanded));
+		expect(transferred).not.toContain(marker);
+		expect(patchPresenceDuringReplacements).toEqual([false, true, true, false, true]);
+	});
+
+	it("keeps the active factory when expanded editor text cannot be read", async () => {
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const existingFactory = () => ({
+			render: () => ["third-party"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "draft",
+			setText() {},
+		});
+		const editorFactory: unknown = existingFactory;
+		let setEditorCalls = 0;
+		const notifications: string[] = [];
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				getEditorText() {
+					throw new Error("unavailable");
+				},
+				setEditorText() {},
+				setEditorComponent() {
+					setEditorCalls += 1;
+				},
+				getEditorComponent() {
+					return editorFactory;
+				},
+				notify(message: string) {
+					notifications.push(message);
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+		await command.handler("editor enable", ctx);
+
+		expect(setEditorCalls).toBe(0);
+		expect(editorFactory).toBe(existingFactory);
+		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		expect(notifications.at(-1)).toContain("expanded editor text could not be read safely");
+	});
+
+	it("rolls back editor activation and all prototype patches when patch installation fails", async () => {
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let setEditorCalls = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				getEditorText: () => "draft",
+				setEditorText() {},
+				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		const userPrototype = UserMessageComponent.prototype as unknown as {
+			render: typeof originalUserMessageRender | undefined;
+		};
+		userPrototype.render = undefined;
+		try {
+			await emit(handlers, "session_start", ctx);
+			expect(editorFactory).toBeUndefined();
+			expect(setEditorCalls).toBe(2);
+			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			expect(SettingsSelectorComponent.prototype.render).toBe(originalSettingsSelectorRender);
+			expect(UserMessageComponent.prototype.invalidate).toBe(originalUserMessageInvalidate);
+			for (const prototype of [
+				ModelSelectorComponent.prototype,
+				SettingsSelectorComponent.prototype,
+				UserMessageComponent.prototype,
+			]) {
+				expect(
+					(prototype as unknown as Record<PropertyKey, unknown>)[ZENTUI_PROTOTYPE_PATCH_REGISTRY],
+				).toBeUndefined();
+			}
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			userPrototype.render = originalUserMessageRender;
+		}
+	});
+
+	it("tracks the active Zentui factory after nested patch-rollback failure", async () => {
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const existingFactory = () => ({
+			render: () => ["existing"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "draft",
+			setText() {},
+		});
+		let editorFactory: unknown = existingFactory;
+		const assignedFactories: unknown[] = [];
+		let failedPreviousFactoryRestore = false;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				getEditorText: () => "draft",
+				setEditorText() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+					assignedFactories.push(factory);
+					if (factory === existingFactory && !failedPreviousFactoryRestore) {
+						failedPreviousFactoryRestore = true;
+						throw new Error("previous factory construction failed after assignment");
+					}
+				},
+				getEditorComponent: () => editorFactory,
+				notify() {},
+			},
+		});
+		const userPrototype = UserMessageComponent.prototype as unknown as {
+			render: typeof originalUserMessageRender | undefined;
+		};
+		userPrototype.render = undefined;
+		try {
+			await emit(handlers, "session_start", ctx);
+			expect(editorFactory).toBeTypeOf("function");
+			expect(editorFactory).not.toBe(existingFactory);
+			expect(assignedFactories).toHaveLength(3);
+			userPrototype.render = originalUserMessageRender;
+
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			await command.handler("editor disable", ctx);
+			expect(editorFactory).toBe(existingFactory);
+			expect(assignedFactories).toHaveLength(4);
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			userPrototype.render = originalUserMessageRender;
+		}
+	});
+
+	it("retains shutdown ownership when restoration fails and rollback leaves Zentui active", async () => {
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		let editorFactory: unknown;
+		const assignedFactories: unknown[] = [];
+		let failNextDefaultRestore = false;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				getEditorText: () => "draft",
+				setEditorText() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+					assignedFactories.push(factory);
+					if (factory === undefined && failNextDefaultRestore) {
+						failNextDefaultRestore = false;
+						throw new Error("default restoration failed after assignment");
+					}
+				},
+				getEditorComponent: () => editorFactory,
+				notify() {},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		const zentuiFactory = editorFactory;
+		expect(zentuiFactory).toBeTypeOf("function");
+		failNextDefaultRestore = true;
+		await emit(handlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(zentuiFactory);
+		expect(assignedFactories).toHaveLength(3);
+
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+		await command.handler("editor disable", ctx);
+		expect(editorFactory).toBeUndefined();
+		expect(assignedFactories).toHaveLength(4);
 	});
 
 	it("wraps an editor component already installed by another extension", async () => {
@@ -583,47 +869,67 @@ describe("Pi docs compliance", () => {
 		expect(rendered.match(/Anthropic/g)).toHaveLength(1);
 	});
 
-	it("re-wraps an editor component that loads after Zentui", async () => {
-		const handlers = loadExtension();
-		const laterEditorFactory = () => ({
-			render: (width: number) => ["─".repeat(width), "late vim editor", "─".repeat(width)],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "",
-			setText() {},
-			getMode: () => "normal",
-		});
-		let editorFactory: unknown;
-		const ctx = makeContext({
-			ui: {
-				theme: makeTheme(),
-				setFooter() {},
-				setEditorComponent(factory: unknown) {
-					editorFactory = factory;
+	it.each([
+		["the default editor", undefined],
+		[
+			"a non-Zentui editor",
+			() => ({
+				render: () => ["external editor"],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			}),
+		],
+	] as const)(
+		"preserves post-start takeover by %s through reconciliation, disable, and shutdown",
+		async (_label, takeoverFactory) => {
+			const commands = new Map<string, unknown>();
+			const handlers = loadExtension({ commands });
+			let editorFactory: unknown;
+			let setEditorCalls = 0;
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setFooter() {},
+					setEditorComponent(factory: unknown) {
+						setEditorCalls += 1;
+						editorFactory = factory;
+					},
+					getEditorComponent() {
+						return editorFactory;
+					},
+					notify() {},
 				},
-				getEditorComponent() {
-					return editorFactory;
-				},
-			},
-		});
+			});
 
-		await emit(handlers, "session_start", ctx);
-		const originalZentuiFactory = editorFactory;
-		editorFactory = laterEditorFactory;
+			await emit(handlers, "session_start", ctx);
+			expect(editorFactory).toBeTypeOf("function");
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+			editorFactory = takeoverFactory;
 
-		await new Promise((resolve) => setTimeout(resolve, 1));
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			expect(editorFactory).toBe(takeoverFactory);
+			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
 
-		expect(editorFactory).not.toBe(originalZentuiFactory);
-		expect(editorFactory).not.toBe(laterEditorFactory);
-		expect(editorFactory).toBeTypeOf("function");
-		const editor = (editorFactory as (...args: unknown[]) => ReturnType<typeof laterEditorFactory>)(
-			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
-			{ borderColor: (text: string) => text, selectList: {} } as never,
-			{} as never,
-		);
-		expect(editor.render(80).join("\n")).toContain("late vim editor");
-		expect(editor.render(80).join("\n")).toContain("NORMAL");
-	});
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			await command.handler("editor enable", ctx);
+			expect(editorFactory).toBeTypeOf("function");
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			editorFactory = takeoverFactory;
+			await command.handler("editor disable", ctx);
+			expect(editorFactory).toBe(takeoverFactory);
+			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			await emit(handlers, "session_shutdown", ctx);
+			expect(editorFactory).toBe(takeoverFactory);
+			expect(setEditorCalls).toBe(2);
+		},
+	);
 
 	it("does not reconcile an editor after its session shuts down", async () => {
 		vi.useFakeTimers();
@@ -2111,7 +2417,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[thinkingText]low");
 	});
 
-	it("wraps a vim editor by delegating input and rendering a mode segment", () => {
+	it("delegates vim input and leaves an unrecognized vim frame untouched", () => {
 		const inputs: string[] = [];
 		let text = "hello";
 		let mode = "normal";
@@ -2151,9 +2457,9 @@ describe("Pi docs compliance", () => {
 		expect(inputs).toEqual(["i", "j", "k"]);
 		expect(editor.getText()).toBe("changed");
 		expect(rendered).toContain("changed");
-		expect(rendered).toContain("[success]INSERT");
-		expect(rendered).toMatch(/ {2,}\[success\]INSERT/);
-		expect(rendered).toContain("[accent]claude-sonnet");
+		expect(rendered).toContain("NORMAL");
+		expect(rendered).not.toContain("[success]INSERT");
+		expect(rendered).not.toContain("[accent]claude-sonnet");
 	});
 
 	it("unwraps a branded nested editor without duplicating literal-only metadata", () => {

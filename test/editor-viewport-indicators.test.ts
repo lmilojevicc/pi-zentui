@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import { WrappedPolishedEditor } from "../extensions/zentui/ui";
 
@@ -148,11 +148,233 @@ describe("editor viewport indicators", () => {
 		"─── ↑ 07 more ─────────",
 		"prefix ─── ↑ 7 more ─────────",
 		"[muted]─── ↑ 7 more ─────────[/muted]",
-	])("fails closed for an unknown top border form: %s", (malformedTop) => {
+	])("fails open for an unknown top border form: %s", (malformedTop) => {
 		const lines = wrapped(baseEditor({ below: 2, malformedTop })).render(80);
-		expect(lines[0]).toMatch(/^─+$/);
-		expect(lines[0]).not.toContain("more");
+		expect(lines[0]).toBe(malformedTop);
+		expect(lines).toContain("typed text");
 		expect(lines.at(-1)).toContain("↓ 2 more");
+	});
+
+	it("preserves every row from a minimal public-contract third-party editor", () => {
+		let text = "draft";
+		const inputs: string[] = [];
+		const base = {
+			render: () => ["third-party header", text, "third-party help"],
+			invalidate() {},
+			handleInput(data: string) {
+				inputs.push(data);
+				text += data;
+			},
+			getText: () => text,
+			setText(next: string) {
+				text = next;
+			},
+		};
+		const editor = wrapped(base as never);
+
+		expect(editor.render(80)).toEqual(["third-party header", "draft", "third-party help"]);
+		editor.handleInput("!");
+		expect(editor.getText()).toBe("draft!");
+		expect(inputs).toEqual(["!"]);
+	});
+
+	it("preserves autocomplete rows when Pi-private inspection fields are absent", () => {
+		const base = {
+			render: (width: number) => [
+				nativeBorder(width, "above"),
+				"typed text",
+				nativeBorder(width, "below"),
+				"suggestion-one",
+				"suggestion-two",
+			],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+
+		const lines = wrapped(base as never).render(80);
+		expect(lines).toContain("typed text");
+		expect(lines).toContain("suggestion-one");
+		expect(lines).toContain("suggestion-two");
+		expect(lines).toHaveLength(5);
+	});
+
+	it.each(["visibility method", "autocomplete getter", "autocomplete render"])(
+		"returns base rows when %s throws",
+		(failure) => {
+			const rendered = ["header", "typed text", "suggestion"];
+			const base: Record<string, unknown> = {
+				render: () => rendered,
+				invalidate() {},
+				handleInput() {},
+				getText: () => "typed text",
+				setText() {},
+			};
+			if (failure === "visibility method") {
+				base.isShowingAutocomplete = () => {
+					throw new Error("visibility failed");
+				};
+			} else {
+				base.isShowingAutocomplete = () => true;
+				if (failure === "autocomplete getter") {
+					Object.defineProperty(base, "autocompleteList", {
+						get() {
+							throw new Error("getter failed");
+						},
+					});
+				} else {
+					base.autocompleteList = {
+						render() {
+							throw new Error("render failed");
+						},
+					};
+				}
+			}
+
+			expect(wrapped(base as never).render(80)).toEqual(rendered);
+		},
+	);
+
+	it("does not trust or invoke a generic editor's spoofed polished-frame splitter", () => {
+		const widths: number[] = [];
+		const spoofedSplit = vi.fn(() => ({
+			editorLines: ["spoofed"],
+			trailingLines: [],
+			viewport: {},
+		}));
+		const base = {
+			render(width: number) {
+				widths.push(width);
+				return [nativeBorder(width, "above"), "typed text", nativeBorder(width, "below")];
+			},
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+			[Symbol.for("pi-zentui.polished-frame")]: spoofedSplit,
+		};
+		expect(wrapped(base as never).render(80)).toEqual([
+			nativeBorder(80, "above"),
+			"typed text",
+			nativeBorder(80, "below"),
+		]);
+		expect(widths).toEqual([78, 80]);
+		expect(spoofedSplit).not.toHaveBeenCalled();
+	});
+
+	it("fails open for polished-looking rows without exact module-owned array provenance", () => {
+		const trusted = wrapped(baseEditor({ above: 2, below: 3 })).render(80);
+		const staleClone = trusted.slice();
+		const base = {
+			render: () => staleClone,
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+
+		const lines = wrapped(base as never).render(80);
+		expect(lines).toEqual(staleClone);
+		expect(lines.join("\n").match(/model/g)).toHaveLength(1);
+	});
+
+	it("rejects in-place mutation of an otherwise provenance-owned rendered array", () => {
+		const rendered = wrapped(baseEditor({ above: 2, below: 3 })).render(80);
+		rendered[1] = "changed-row";
+		rendered.splice(2, 0, "added-row");
+		const base = {
+			render: () => rendered,
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+
+		const lines = wrapped(base as never).render(80);
+		expect(lines).toEqual(rendered);
+		expect(lines).toContain("changed-row");
+		expect(lines).toContain("added-row");
+	});
+
+	it("falls back to caller-width rendering when the inner-width probe throws", () => {
+		const widths: number[] = [];
+		const base = {
+			render(width: number) {
+				widths.push(width);
+				if (width < 80) throw new Error("inner-width render failed");
+				return ["caller-width-header", "x".repeat(width + 4), "caller-width-help"];
+			},
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+
+		const lines = wrapped(base as never).render(80);
+		expect(widths).toEqual([78, 80]);
+		expect(lines[0]).toBe("caller-width-header");
+		expect(lines.at(-1)).toBe("caller-width-help");
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+	});
+
+	it("re-renders unknown third-party output at the caller width before failing open", () => {
+		const widths: number[] = [];
+		const base = {
+			render(width: number) {
+				widths.push(width);
+				return [`header-${width}`, "x".repeat(width + 5), `help-${width}`];
+			},
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+
+		const lines = wrapped(base as never).render(80);
+		expect(widths).toEqual([78, 80]);
+		expect(lines[0]).toBe("header-80");
+		expect(lines.at(-1)).toBe("help-80");
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+	});
+
+	it("only exposes optional editor methods implemented by the base", () => {
+		const withoutCapabilities = wrapped({
+			render: () => ["plain"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		} as never);
+		for (const method of [
+			"addToHistory",
+			"insertTextAtCursor",
+			"setAutocompleteProvider",
+			"setPaddingX",
+			"setAutocompleteMaxVisible",
+		]) {
+			expect(method in withoutCapabilities).toBe(false);
+		}
+
+		const calls: string[] = [];
+		const withCapabilities = wrapped({
+			render: () => ["plain"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+			addToHistory: () => calls.push("history"),
+			insertTextAtCursor: () => calls.push("insert"),
+			setAutocompleteProvider: () => calls.push("autocomplete"),
+			setPaddingX: () => calls.push("padding"),
+			setAutocompleteMaxVisible: () => calls.push("max-visible"),
+		} as never);
+		withCapabilities.addToHistory?.("history");
+		withCapabilities.insertTextAtCursor?.("insert");
+		withCapabilities.setAutocompleteProvider?.({} as never);
+		withCapabilities.setPaddingX?.(1);
+		withCapabilities.setAutocompleteMaxVisible?.(5);
+		expect(calls).toEqual(["history", "insert", "autocomplete", "padding", "max-visible"]);
 	});
 
 	it("keeps every rendered line within narrow ANSI-aware widths in both chrome modes", () => {
@@ -169,7 +391,6 @@ describe("editor viewport indicators", () => {
 	it("matches Pi's complete native form rather than reconstructing a truncated count", () => {
 		const truncatedNativeTop = truncateToWidth("─── ↑ 12 more ", 10, "");
 		const lines = wrapped(baseEditor({ below: 1, malformedTop: truncatedNativeTop })).render(40);
-		expect(lines[0]).toMatch(/^─+$/);
-		expect(lines[0]).not.toContain("↑");
+		expect(lines[0]).toBe(truncatedNativeTop);
 	});
 });

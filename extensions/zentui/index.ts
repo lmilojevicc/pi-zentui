@@ -43,6 +43,10 @@ import {
 	type UiFeaturesConfig,
 } from "./config";
 import {
+	type EditorTransferFailureReason,
+	replaceEditorComponentWithExpandedText,
+} from "./editor-transfer";
+import {
 	disposeFixedEditor,
 	installFixedEditorProbe,
 	removeFixedEditorProbe,
@@ -80,9 +84,29 @@ type ZentuiEditorFactory = EditorFactory & {
 
 type ApplyUiResult = {
 	editorBlocked: boolean;
+	editorReason?: string;
 };
 
+type EditorChangeResult = { ok: true } | { ok: false; reason: string };
+
 type EditorInstallMode = "none" | "standalone" | "wrapper";
+
+function editorTransferFailureMessage(reason: EditorTransferFailureReason): string {
+	switch (reason) {
+		case "unsupported-transfer-api":
+			return "this Pi version cannot safely transfer expanded editor text; reload Pi to apply this change";
+		case "editor-factory-snapshot-failed":
+			return "the current editor factory could not be read safely; reload Pi to apply this change";
+		case "editor-text-snapshot-failed":
+			return "expanded editor text could not be read safely; reload Pi to apply this change";
+		case "editor-text-preparation-failed":
+			return "expanded editor text could not be prepared safely; reload Pi to apply this change";
+		case "editor-replacement-failed-with-rollback":
+			return "the editor replacement failed; the previous factory was reapplied, but editor instance identity is not guaranteed";
+		case "editor-replacement-rollback-failed":
+			return "the editor replacement and previous-factory rollback both failed; reload Pi before editing";
+	}
+}
 
 function isZentuiEditorFactory(factory: EditorFactory | undefined): boolean {
 	return Boolean((factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_FACTORY]);
@@ -266,21 +290,71 @@ export default function (pi: ExtensionAPI) {
 		if (footerInstalled) scheduleProjectRefresh(ctx, { force: true });
 	};
 
-	const installPrototypePatches = () => {
-		if (prototypePatchesInstalled) return;
-		const cleanupSelectorBorderStyle = installSelectorBorderStyle(getActiveTheme, getCurrentConfig);
-		const cleanupUserMessageStyle = installUserMessageStyle(getActiveTheme, getCurrentConfig);
-		cleanupPrototypePatches = () => {
-			cleanupSelectorBorderStyle();
-			cleanupUserMessageStyle();
-		};
-		prototypePatchesInstalled = true;
+	const installPrototypePatches = (): boolean => {
+		if (prototypePatchesInstalled) return true;
+		let cleanupSelectorBorderStyle: (() => void) | undefined;
+		try {
+			cleanupSelectorBorderStyle = installSelectorBorderStyle(getActiveTheme, getCurrentConfig);
+			const cleanupUserMessageStyle = installUserMessageStyle(getActiveTheme, getCurrentConfig);
+			cleanupPrototypePatches = () => {
+				cleanupSelectorBorderStyle?.();
+				cleanupUserMessageStyle();
+			};
+			prototypePatchesInstalled = true;
+			return true;
+		} catch {
+			try {
+				cleanupSelectorBorderStyle?.();
+			} catch {
+				// Best effort: each installer is locally transactional as well.
+			}
+			cleanupPrototypePatches = () => {};
+			prototypePatchesInstalled = false;
+			return false;
+		}
 	};
 
 	const uninstallPrototypePatches = () => {
 		cleanupPrototypePatches();
 		cleanupPrototypePatches = () => {};
 		prototypePatchesInstalled = false;
+	};
+
+	const clearEditorOwnership = () => {
+		wrappedEditorFactory = undefined;
+		installedEditorFactory = undefined;
+		editorInstallMode = "none";
+		editorInstalled = false;
+	};
+
+	const trackZentuiEditorFactory = (factory: EditorFactory) => {
+		const baseFactory = getZentuiEditorBaseFactory(factory);
+		wrappedEditorFactory = baseFactory;
+		installedEditorFactory = factory;
+		editorInstallMode = baseFactory ? "wrapper" : "standalone";
+		editorInstalled = true;
+	};
+
+	const observeEditorFactory = (
+		ctx: ExtensionContext,
+	): { known: true; factory: EditorFactory | undefined } | { known: false } => {
+		try {
+			return { known: true, factory: ctx.ui.getEditorComponent() };
+		} catch {
+			return { known: false };
+		}
+	};
+
+	const reconcileObservedEditorOwnership = (ctx: ExtensionContext) => {
+		const observed = observeEditorFactory(ctx);
+		if (!observed.known) return observed;
+		if (observed.factory && isZentuiEditorFactory(observed.factory)) {
+			trackZentuiEditorFactory(observed.factory);
+		} else {
+			uninstallPrototypePatches();
+			clearEditorOwnership();
+		}
+		return observed;
 	};
 
 	const makeEditorFactory = (ctx: ExtensionContext): ZentuiEditorFactory => {
@@ -329,53 +403,73 @@ export default function (pi: ExtensionAPI) {
 		return factory;
 	};
 
-	const installEditor = (ctx: ExtensionContext): boolean => {
+	const replaceEditor = (
+		ctx: ExtensionContext,
+		factory: EditorFactory | undefined,
+	): EditorChangeResult => {
+		const result = replaceEditorComponentWithExpandedText(ctx.ui, factory);
+		return result.ok ? result : { ok: false, reason: editorTransferFailureMessage(result.reason) };
+	};
+
+	const installEditor = (ctx: ExtensionContext): EditorChangeResult => {
 		const currentFactory = ctx.ui.getEditorComponent();
 		if (currentFactory && currentFactory === installedEditorFactory) {
 			editorInstalled = true;
-			return true;
+			return { ok: true };
 		}
 
-		installPrototypePatches();
 		const currentZentuiBaseFactory = getZentuiEditorBaseFactory(currentFactory);
-		if (currentFactory && isZentuiEditorFactory(currentFactory)) {
-			wrappedEditorFactory = currentZentuiBaseFactory;
-			const nextFactory = currentZentuiBaseFactory
-				? makeWrappedEditorFactory(ctx, currentZentuiBaseFactory)
-				: makeEditorFactory(ctx);
-			ctx.ui.setEditorComponent(nextFactory);
-			installedEditorFactory = nextFactory;
-			editorInstallMode = currentZentuiBaseFactory ? "wrapper" : "standalone";
-		} else if (currentFactory) {
-			wrappedEditorFactory = currentFactory;
-			const nextFactory = makeWrappedEditorFactory(ctx, currentFactory);
-			ctx.ui.setEditorComponent(nextFactory);
-			installedEditorFactory = nextFactory;
-			editorInstallMode = "wrapper";
-		} else {
-			wrappedEditorFactory = undefined;
-			const nextFactory = makeEditorFactory(ctx);
-			ctx.ui.setEditorComponent(nextFactory);
-			installedEditorFactory = nextFactory;
-			editorInstallMode = "standalone";
+		const baseFactory =
+			currentZentuiBaseFactory ??
+			(currentFactory && !isZentuiEditorFactory(currentFactory) ? currentFactory : undefined);
+		const nextFactory = baseFactory
+			? makeWrappedEditorFactory(ctx, baseFactory)
+			: makeEditorFactory(ctx);
+		const replacement = replaceEditor(ctx, nextFactory);
+		if (!replacement.ok) return replacement;
+		if (!installPrototypePatches()) {
+			const rollback = replaceEditor(ctx, currentFactory);
+			reconcileObservedEditorOwnership(ctx);
+			return {
+				ok: false,
+				reason: rollback.ok
+					? "editor chrome patch installation failed; the previous factory was reapplied, but editor instance identity is not guaranteed"
+					: "editor chrome patch installation failed and the previous factory could not be restored; reload Pi before editing",
+			};
 		}
-		editorInstalled = true;
-		return true;
+
+		trackZentuiEditorFactory(nextFactory);
+		return { ok: true };
 	};
 
-	const uninstallEditor = (ctx: ExtensionContext): boolean => {
-		const currentFactory = ctx.ui.getEditorComponent();
-		if (currentFactory && !isZentuiEditorFactory(currentFactory)) return false;
+	const uninstallEditor = (ctx: ExtensionContext): EditorChangeResult => {
+		const observed = observeEditorFactory(ctx);
+		if (!observed.known) {
+			return {
+				ok: false,
+				reason:
+					"the current editor factory could not be observed safely; reload Pi to apply this change",
+			};
+		}
+		const currentFactory = observed.factory;
+		if (!currentFactory || !isZentuiEditorFactory(currentFactory)) {
+			uninstallPrototypePatches();
+			clearEditorOwnership();
+			return { ok: true };
+		}
+
+		const replacement = replaceEditor(
+			ctx,
+			getZentuiEditorBaseFactory(currentFactory) ??
+				(editorInstallMode === "wrapper" && wrappedEditorFactory
+					? wrappedEditorFactory
+					: undefined),
+		);
+		if (!replacement.ok) return replacement;
 
 		uninstallPrototypePatches();
-		ctx.ui.setEditorComponent(
-			editorInstallMode === "wrapper" && wrappedEditorFactory ? wrappedEditorFactory : undefined,
-		);
-		wrappedEditorFactory = undefined;
-		installedEditorFactory = undefined;
-		editorInstallMode = "none";
-		editorInstalled = false;
-		return true;
+		clearEditorOwnership();
+		return { ok: true };
 	};
 
 	const installStatusLine = (ctx: ExtensionContext) => {
@@ -413,12 +507,17 @@ export default function (pi: ExtensionAPI) {
 		const result: ApplyUiResult = { editorBlocked: false };
 		if (!isTuiContext(ctx)) return result;
 		activeTheme = ctx.ui.theme;
+		let editorChange: EditorChangeResult | undefined;
 		if (currentConfig.features.editor) {
 			const currentFactory = ctx.ui.getEditorComponent();
 			const editorMissingOrReplaced = !editorInstalled || !isZentuiEditorFactory(currentFactory);
-			if (editorMissingOrReplaced) result.editorBlocked = !installEditor(ctx);
+			if (editorMissingOrReplaced) editorChange = installEditor(ctx);
 		} else if (editorInstalled || prototypePatchesInstalled) {
-			result.editorBlocked = !uninstallEditor(ctx);
+			editorChange = uninstallEditor(ctx);
+		}
+		if (editorChange && !editorChange.ok) {
+			result.editorBlocked = true;
+			result.editorReason = editorChange.reason;
 		}
 
 		if (currentConfig.features.statusLine) {
@@ -450,11 +549,16 @@ export default function (pi: ExtensionAPI) {
 	const scheduleEditorReconciliation = (ctx: ExtensionContext) => {
 		sessionLifecycle.defer(() => {
 			if (!isTuiContext(ctx) || !currentConfig.features.editor) return;
-			const currentFactory = ctx.ui.getEditorComponent();
-			if (currentFactory && currentFactory !== installedEditorFactory) {
-				applyConfiguredUi(ctx);
+			const observed = observeEditorFactory(ctx);
+			if (!observed.known || observed.factory === installedEditorFactory) return;
+			if (!observed.factory || !isZentuiEditorFactory(observed.factory)) {
+				uninstallPrototypePatches();
+				clearEditorOwnership();
 				refresh();
+				return;
 			}
+			trackZentuiEditorFactory(observed.factory);
+			refresh();
 		});
 	};
 
@@ -464,28 +568,29 @@ export default function (pi: ExtensionAPI) {
 		try {
 			disposeFixedEditor(ctx);
 			if (isTuiContext(ctx)) removeFixedEditorProbe(ctx);
-			uninstallPrototypePatches();
 			stopSessionTimer();
 			stopProjectRefresh();
 			requestFooterRender = undefined;
 			getActiveExtensionStatuses = () => new Map();
 			if (isTuiContext(ctx)) {
 				ctx.ui.setFooter(undefined);
-				const currentFactory = ctx.ui.getEditorComponent();
-				if (!currentFactory || isZentuiEditorFactory(currentFactory)) {
-					ctx.ui.setEditorComponent(
-						getZentuiEditorBaseFactory(currentFactory) ??
-							(editorInstallMode === "wrapper" && wrappedEditorFactory
-								? wrappedEditorFactory
-								: undefined),
-					);
+				const before = observeEditorFactory(ctx);
+				if (before.known) {
+					const currentFactory = before.factory;
+					if (currentFactory && isZentuiEditorFactory(currentFactory)) {
+						replaceEditor(
+							ctx,
+							getZentuiEditorBaseFactory(currentFactory) ??
+								(editorInstallMode === "wrapper" && wrappedEditorFactory
+									? wrappedEditorFactory
+									: undefined),
+						);
+					}
+					reconcileObservedEditorOwnership(ctx);
 				}
 			}
-			wrappedEditorFactory = undefined;
-			installedEditorFactory = undefined;
-			editorInstallMode = "none";
+			uninstallPrototypePatches();
 			footerInstalled = false;
-			editorInstalled = false;
 			activeTheme = undefined;
 		} finally {
 			requestFooterRender = undefined;
@@ -520,9 +625,7 @@ export default function (pi: ExtensionAPI) {
 			const result = applyConfiguredUi(ctx);
 			return {
 				applied: !(patch.editor !== undefined && result.editorBlocked),
-				reason: result.editorBlocked
-					? "another extension is currently managing the editor; reload Pi to apply this change"
-					: undefined,
+				reason: result.editorBlocked ? result.editorReason : undefined,
 			};
 		},
 		setFooterSegments(patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) {

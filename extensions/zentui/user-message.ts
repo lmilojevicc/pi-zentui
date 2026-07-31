@@ -225,24 +225,30 @@ export function installUserMessageStyle(
 			return Reflect.apply(predecessor, receiver, args);
 		},
 	);
-	const cleanupRender = installPrototypePatch(
-		prototype,
-		"render",
-		"user-message-render",
-		({ predecessor, receiver, args }) => {
-			const width = args[0];
-			if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
-			const lines = renderZentuiUserMessage(
-				receiver as PatchableUserMessagePrototype,
-				width,
-				getTheme(),
-				getConfig(),
-			);
-			if (!lines) return Reflect.apply(predecessor, receiver, args);
-			if (lines.length === 0) return lines;
-			return withPromptZoneMarkers(lines);
-		},
-	);
+	let cleanupRender: Cleanup;
+	try {
+		cleanupRender = installPrototypePatch(
+			prototype,
+			"render",
+			"user-message-render",
+			({ predecessor, receiver, args }) => {
+				const width = args[0];
+				if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
+				const lines = renderZentuiUserMessage(
+					receiver as PatchableUserMessagePrototype,
+					width,
+					getTheme(),
+					getConfig(),
+				);
+				if (!lines) return Reflect.apply(predecessor, receiver, args);
+				if (lines.length === 0) return lines;
+				return withPromptZoneMarkers(lines);
+			},
+		);
+	} catch (error) {
+		cleanupInvalidate();
+		throw error;
+	}
 	let cleaned = false;
 	return () => {
 		if (cleaned) return;

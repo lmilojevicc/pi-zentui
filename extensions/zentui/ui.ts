@@ -17,7 +17,7 @@ import {
 	safeThemeFg,
 } from "./style";
 
-const SPLIT_POLISHED_FRAME: unique symbol = Symbol.for("pi-zentui.polished-frame");
+const LEGACY_SPLIT_POLISHED_FRAME = Symbol.for("pi-zentui.polished-frame");
 
 type ViewportCounts = {
 	above?: string;
@@ -30,7 +30,12 @@ type PolishedFrameSplit = {
 	viewport: ViewportCounts;
 };
 
-const POLISHED_FRAME_SPLITS = new WeakMap<string[], PolishedFrameSplit>();
+type PolishedFrameProvenance = {
+	rows: readonly string[];
+	split: PolishedFrameSplit;
+};
+
+const POLISHED_FRAME_SPLITS = new WeakMap<string[], PolishedFrameProvenance>();
 
 type AutocompleteEditorInternals = {
 	autocompleteList?: Pick<Component, "render">;
@@ -58,7 +63,6 @@ type WrappedEditor = EditorComponent &
 		setAutocompleteProvider?: (provider: AutocompleteProvider) => void;
 		setPaddingX?: (padding: number) => void;
 		setAutocompleteMaxVisible?: (maxVisible: number) => void;
-		[SPLIT_POLISHED_FRAME]?: (lines: string[]) => PolishedFrameSplit | undefined;
 	};
 
 type EditorMeta = {
@@ -78,8 +82,57 @@ type PolishedFrameOptions = {
 	modelMeta: EditorMeta;
 	thinkingLevel: string | undefined;
 	rightStatus?: string;
-	splitBaseFrame?: (lines: string[]) => PolishedFrameSplit | undefined;
+	ownedFrame?: PolishedFrameSplit;
+	trustedBaseFrame?: boolean;
 };
+
+type PolishedFrameResult = { lines: string[]; decorated: boolean };
+
+type AutocompleteCount = { known: true; count: number } | { known: false };
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((line) => typeof line === "string");
+}
+
+function isViewportCounts(value: unknown): value is ViewportCounts {
+	if (!value || typeof value !== "object") return false;
+	const counts = value as Record<string, unknown>;
+	return [counts.above, counts.below].every(
+		(count) => count === undefined || (typeof count === "string" && /^[1-9]\d*$/.test(count)),
+	);
+}
+
+function isPolishedFrameSplit(value: unknown, baseLineCount: number): value is PolishedFrameSplit {
+	if (!value || typeof value !== "object") return false;
+	const split = value as Record<string, unknown>;
+	return (
+		isStringArray(split.editorLines) &&
+		isStringArray(split.trailingLines) &&
+		split.trailingLines.length <= baseLineCount &&
+		isViewportCounts(split.viewport)
+	);
+}
+
+function readAutocompleteCount(
+	source: AutocompleteEditorInternals,
+	width: number,
+	baseLineCount: number,
+): AutocompleteCount {
+	try {
+		const showing = source.isShowingAutocomplete;
+		if (typeof showing !== "function") return { known: true, count: 0 };
+		if (!showing.call(source)) return { known: true, count: 0 };
+		const list = source.autocompleteList;
+		if (!list || typeof list.render !== "function") return { known: false };
+		const rendered = list.render(width);
+		if (!isStringArray(rendered) || rendered.length <= 0 || rendered.length >= baseLineCount) {
+			return { known: false };
+		}
+		return { known: true, count: rendered.length };
+	} catch {
+		return { known: false };
+	}
+}
 
 function clampRenderedLines(lines: string[], width: number): string[] {
 	const maxWidth = Math.max(0, width);
@@ -264,42 +317,49 @@ function renderPolishedFrame({
 	modelMeta,
 	thinkingLevel,
 	rightStatus,
-	splitBaseFrame,
-}: PolishedFrameOptions): string[] {
-	if (width <= 2) return clampRenderedLines(baseRendered, width);
+	ownedFrame,
+	trustedBaseFrame = false,
+}: PolishedFrameOptions): PolishedFrameResult {
+	if (width <= 2) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 
 	const reset = "\x1b[0m";
 	const colorSource = config.colorSources.editor;
 	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
 	const innerWidth = Math.max(0, width - railWidth);
 	const copyFriendlyContinuation = " ".repeat(promptWidth);
-	const isShowingAutocomplete =
-		typeof autocompleteSource.isShowingAutocomplete === "function"
-			? Boolean(autocompleteSource.isShowingAutocomplete())
-			: false;
 
-	if (baseRendered.length < 2) return clampRenderedLines(baseRendered, width);
+	if (baseRendered.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
 
-	const ownedFrame = splitBaseFrame?.(baseRendered);
-	const { autocompleteList } = autocompleteSource;
-	const autocompleteCount =
-		!ownedFrame && isShowingAutocomplete && typeof autocompleteList?.render === "function"
-			? autocompleteList.render(innerWidth).length
-			: 0;
+	const autocomplete = ownedFrame
+		? { known: true, count: ownedFrame.trailingLines.length }
+		: readAutocompleteCount(autocompleteSource, innerWidth, baseRendered.length);
+	if (!autocomplete.known) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
 	const editorFrame =
-		!ownedFrame && autocompleteCount > 0 && autocompleteCount < baseRendered.length
-			? baseRendered.slice(0, -autocompleteCount)
+		!ownedFrame && autocomplete.count > 0
+			? baseRendered.slice(0, -autocomplete.count)
 			: baseRendered;
 	const autocompleteLines = ownedFrame
 		? ownedFrame.trailingLines
-		: autocompleteCount > 0 && autocompleteCount < baseRendered.length
-			? baseRendered.slice(-autocompleteCount)
+		: autocomplete.count > 0
+			? baseRendered.slice(-autocomplete.count)
 			: [];
-	if (editorFrame.length < 2) return clampRenderedLines(baseRendered, width);
+	if (editorFrame.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
 
-	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
 	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
 	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
+	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const editorLines = ownedFrame?.editorLines ?? editorFrame.slice(1, -1);
 	const viewport = ownedFrame?.viewport ?? {
 		above: parsedTop?.count,
 		below: parsedBottom?.count,
@@ -365,11 +425,14 @@ function renderPolishedFrame({
 
 	const clamped = clampRenderedLines(renderedLines, width);
 	POLISHED_FRAME_SPLITS.set(clamped, {
-		editorLines,
-		trailingLines: autocompleteLines.length > 0 ? clamped.slice(-autocompleteLines.length) : [],
-		viewport,
+		rows: Object.freeze([...clamped]),
+		split: {
+			editorLines,
+			trailingLines: autocompleteLines.length > 0 ? clamped.slice(-autocompleteLines.length) : [],
+			viewport,
+		},
 	});
-	return clamped;
+	return { lines: clamped, decorated: true };
 }
 
 export class PolishedEditor extends CustomEditor {
@@ -404,34 +467,53 @@ export class PolishedEditor extends CustomEditor {
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
 		const rendered = super.render(innerWidth);
-		const modelMeta = this.getModelMeta();
-		const result = renderPolishedFrame({
-			width,
-			baseRendered: rendered,
-			autocompleteSource: this as unknown as AutocompleteEditorInternals,
-			uiTheme: this.uiTheme,
-			config,
-			modelMeta,
-			thinkingLevel: this.getThinkingLevel(),
-		});
-		return result;
-	}
-
-	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
-		return (
-			POLISHED_FRAME_SPLITS.get(lines) ?? splitPolishedFrame(lines, this.getConfig(), this.uiTheme)
-		);
+		try {
+			return renderPolishedFrame({
+				width,
+				baseRendered: rendered,
+				autocompleteSource: this as unknown as AutocompleteEditorInternals,
+				uiTheme: this.uiTheme,
+				config,
+				modelMeta: this.getModelMeta(),
+				thinkingLevel: this.getThinkingLevel(),
+				trustedBaseFrame: true,
+			}).lines;
+		} catch {
+			return clampRenderedLines(rendered, width);
+		}
 	}
 }
 
 export class WrappedPolishedEditor implements EditorComponent {
+	declare readonly addToHistory?: (text: string) => void;
+	declare readonly insertTextAtCursor?: (text: string) => void;
+	declare readonly setAutocompleteProvider?: (provider: AutocompleteProvider) => void;
+	declare readonly setPaddingX?: (padding: number) => void;
+	declare readonly setAutocompleteMaxVisible?: (maxVisible: number) => void;
+
 	constructor(
 		private readonly base: WrappedEditor,
 		private readonly uiTheme: Theme,
 		private readonly getConfig: () => PolishedTuiConfig,
 		private readonly getModelMeta: () => EditorMeta,
 		private readonly getThinkingLevel: () => string | undefined,
-	) {}
+	) {
+		if (typeof base.addToHistory === "function") {
+			this.addToHistory = (text) => base.addToHistory?.(text);
+		}
+		if (typeof base.insertTextAtCursor === "function") {
+			this.insertTextAtCursor = (text) => base.insertTextAtCursor?.(text);
+		}
+		if (typeof base.setAutocompleteProvider === "function") {
+			this.setAutocompleteProvider = (provider) => base.setAutocompleteProvider?.(provider);
+		}
+		if (typeof base.setPaddingX === "function") {
+			this.setPaddingX = (padding) => base.setPaddingX?.(padding);
+		}
+		if (typeof base.setAutocompleteMaxVisible === "function") {
+			this.setAutocompleteMaxVisible = (maxVisible) => base.setAutocompleteMaxVisible?.(maxVisible);
+		}
+	}
 
 	get focused(): boolean {
 		return Boolean(this.base.focused);
@@ -516,26 +598,42 @@ export class WrappedPolishedEditor implements EditorComponent {
 		const config = this.getConfig();
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
-		const rendered = this.base.render(innerWidth);
-		const vimStatus = readVimStatus(this.base, this.uiTheme);
-		const modelMeta = this.getModelMeta();
-		return renderPolishedFrame({
-			width,
-			baseRendered: rendered,
-			autocompleteSource: this.base,
-			uiTheme: this.uiTheme,
-			config,
-			modelMeta,
-			thinkingLevel: this.getThinkingLevel(),
-			rightStatus: vimStatus,
-			splitBaseFrame: this.base[SPLIT_POLISHED_FRAME]?.bind(this.base),
-		});
-	}
-
-	[SPLIT_POLISHED_FRAME](lines: string[]): PolishedFrameSplit | undefined {
-		return (
-			POLISHED_FRAME_SPLITS.get(lines) ?? splitPolishedFrame(lines, this.getConfig(), this.uiTheme)
-		);
+		let rendered: string[];
+		try {
+			rendered = this.base.render(innerWidth);
+		} catch {
+			return clampRenderedLines(this.base.render(width), width);
+		}
+		let result: PolishedFrameResult | undefined;
+		try {
+			const provenance = POLISHED_FRAME_SPLITS.get(rendered);
+			const provenanceMatches = Boolean(
+				provenance &&
+					provenance.rows.length === rendered.length &&
+					provenance.rows.every((line, index) => line === rendered[index]),
+			);
+			const ownedFrame = provenanceMatches ? provenance?.split : undefined;
+			const hasMutatedProvenance = Boolean(provenance && !provenanceMatches);
+			const hasUntrustedLegacySplitter = LEGACY_SPLIT_POLISHED_FRAME in this.base;
+			const hasUnprovenPolishedFrame =
+				!ownedFrame && Boolean(splitPolishedFrame(rendered, config, this.uiTheme));
+			if (!hasMutatedProvenance && !hasUntrustedLegacySplitter && !hasUnprovenPolishedFrame) {
+				result = renderPolishedFrame({
+					width,
+					baseRendered: rendered,
+					autocompleteSource: this.base,
+					uiTheme: this.uiTheme,
+					config,
+					modelMeta: this.getModelMeta(),
+					thinkingLevel: this.getThinkingLevel(),
+					rightStatus: readVimStatus(this.base, this.uiTheme),
+					ownedFrame,
+				});
+			}
+		} catch {
+			// Decoration is optional; re-render the base at the caller's width below.
+		}
+		return result?.decorated ? result.lines : clampRenderedLines(this.base.render(width), width);
 	}
 
 	invalidate(): void {
@@ -554,28 +652,8 @@ export class WrappedPolishedEditor implements EditorComponent {
 		this.base.setText(text);
 	}
 
-	addToHistory(text: string): void {
-		this.base.addToHistory?.(text);
-	}
-
-	insertTextAtCursor(text: string): void {
-		this.base.insertTextAtCursor?.(text);
-	}
-
 	getExpandedText(): string {
 		return this.base.getExpandedText?.() ?? this.base.getText();
-	}
-
-	setAutocompleteProvider(provider: AutocompleteProvider): void {
-		this.base.setAutocompleteProvider?.(provider);
-	}
-
-	setPaddingX(padding: number): void {
-		this.base.setPaddingX?.(padding);
-	}
-
-	setAutocompleteMaxVisible(maxVisible: number): void {
-		this.base.setAutocompleteMaxVisible?.(maxVisible);
 	}
 
 	getLines(): string[] {

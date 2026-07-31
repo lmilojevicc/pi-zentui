@@ -65,11 +65,17 @@ export function installSelectorBorderStyle(
 		getTheme,
 		getConfig,
 	);
-	const cleanupSettings = patchSelectorBorderStyle(
-		SettingsSelectorComponent.prototype as unknown as PatchableSelectorPrototype,
-		getTheme,
-		getConfig,
-	);
+	let cleanupSettings: Cleanup;
+	try {
+		cleanupSettings = patchSelectorBorderStyle(
+			SettingsSelectorComponent.prototype as unknown as PatchableSelectorPrototype,
+			getTheme,
+			getConfig,
+		);
+	} catch (error) {
+		cleanupModel();
+		throw error;
+	}
 	return () => {
 		cleanupModel();
 		cleanupSettings();

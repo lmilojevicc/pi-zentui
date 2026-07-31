@@ -79,6 +79,7 @@ export function installPrototypePatch(
 	if (!(record && record.method === method && target[method] === record.wrapper)) {
 		const predecessor = target[method];
 		if (typeof predecessor !== "function") {
+			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 			throw new TypeError(`Cannot patch ${method}: predecessor is not a function`);
 		}
 		const nextRecord: PatchRecord = {
@@ -98,7 +99,13 @@ export function installPrototypePatch(
 		nextRecord.wrapper = wrapper;
 		record = nextRecord;
 		registry.set(adapter, record);
-		target[method] = wrapper;
+		try {
+			target[method] = wrapper;
+		} catch (error) {
+			registry.delete(adapter);
+			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
+			throw error;
+		}
 	}
 
 	const token = Symbol(adapter);
