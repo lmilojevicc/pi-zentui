@@ -1,5 +1,4 @@
 import { homedir, hostname, userInfo } from "node:os";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type {
@@ -81,14 +80,29 @@ export type UsageTotals = {
 
 export type ContextColorTier = "normal" | "warning" | "error";
 
+type SessionUsage = {
+	input?: unknown;
+	output?: unknown;
+	cacheRead?: unknown;
+	cacheWrite?: unknown;
+	cost?: unknown;
+};
+
 type SessionEntry = {
 	type?: string;
 	id?: string | number;
 	timestamp?: string | number;
+	usage?: SessionUsage;
 	message?: {
 		role?: string;
-		usage?: AssistantMessage["usage"];
+		usage?: SessionUsage;
 	};
+};
+
+type SelectedUsage = {
+	usage: SessionUsage | undefined;
+	location: "message" | "entry";
+	isAssistant: boolean;
 };
 
 type UsageCacheEntry = {
@@ -96,8 +110,10 @@ type UsageCacheEntry = {
 	totals: UsageTotals;
 };
 
+const MAX_USAGE_TOTAL = Number.MAX_VALUE;
+
 let usageTotalsCache: UsageCacheEntry | undefined;
-let usageTotalsComputeCount = 0;
+let usageTotalsAggregationPassCount = 0;
 
 export function formatCount(value: number): string {
 	if (value < 1000) return value.toString();
@@ -130,26 +146,78 @@ function calculateCacheHitRate(
 	cacheWrite: number,
 ): number | undefined {
 	const promptTokens = input + cacheRead + cacheWrite;
-	return promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
+	if (promptTokens === 0) return undefined;
+	if (Number.isFinite(promptTokens)) return (cacheRead / promptTokens) * 100;
+
+	const scale = Math.max(input, cacheRead, cacheWrite);
+	const scaledPromptTokens = input / scale + cacheRead / scale + cacheWrite / scale;
+	return (cacheRead / scale / scaledPromptTokens) * 100;
 }
 
-function entryIdentity(entry: SessionEntry | undefined): string {
-	if (!entry) return "";
-	const usage = entry.message?.usage;
-	const usageKey = usage
-		? `${usage.input ?? 0}:${usage.output ?? 0}:${usage.cacheRead ?? 0}:${usage.cacheWrite ?? 0}:${usage.cost?.total ?? 0}`
-		: "";
-	return `${entry.id ?? ""}|${entry.timestamp ?? ""}|${entry.type ?? ""}|${entry.message?.role ?? ""}|${usageKey}`;
+function normalizeUsageNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function usageCostTotal(usage: SessionUsage | undefined): number {
+	if (typeof usage?.cost !== "object" || usage.cost === null) return 0;
+	return normalizeUsageNumber((usage.cost as { total?: unknown }).total);
+}
+
+function addUsageTotal(total: number, value: number): number {
+	const sum = total + value;
+	return Number.isFinite(sum) ? sum : MAX_USAGE_TOTAL;
+}
+
+function usageForEntry(entry: SessionEntry): SelectedUsage | undefined {
+	if (entry.type === "message") {
+		const role = entry.message?.role;
+		if (role !== "assistant" && role !== "toolResult") return undefined;
+		return {
+			usage: entry.message?.usage,
+			location: "message",
+			isAssistant: role === "assistant",
+		};
+	}
+	if (entry.type === "compaction" || entry.type === "branch_summary") {
+		return { usage: entry.usage, location: "entry", isAssistant: false };
+	}
+	return undefined;
+}
+
+function normalizedUsage(usage: SessionUsage | undefined) {
+	return {
+		input: normalizeUsageNumber(usage?.input),
+		output: normalizeUsageNumber(usage?.output),
+		cacheRead: normalizeUsageNumber(usage?.cacheRead),
+		cacheWrite: normalizeUsageNumber(usage?.cacheWrite),
+		cost: usageCostTotal(usage),
+	};
+}
+
+function entryIdentity(entry: SessionEntry): string {
+	const selected = usageForEntry(entry);
+	if (!selected) return "unsupported";
+	const usage = normalizedUsage(selected.usage);
+	return JSON.stringify([
+		entry.id ?? null,
+		entry.timestamp ?? null,
+		entry.type ?? null,
+		entry.message?.role ?? null,
+		selected.location,
+		usage.input,
+		usage.output,
+		usage.cacheRead,
+		usage.cacheWrite,
+		usage.cost,
+	]);
 }
 
 function buildUsageFingerprint(entries: readonly SessionEntry[]): string {
-	const first = entries[0];
-	const last = entries[entries.length - 1];
-	return `${entries.length}\0${entryIdentity(first)}\0${entryIdentity(last)}`;
+	return entries.map(entryIdentity).join("\0");
 }
 
 function computeUsageTotals(entries: readonly SessionEntry[]): UsageTotals {
-	usageTotalsComputeCount += 1;
+	usageTotalsAggregationPassCount += 1;
 	let input = 0;
 	let output = 0;
 	let cacheRead = 0;
@@ -158,18 +226,18 @@ function computeUsageTotals(entries: readonly SessionEntry[]): UsageTotals {
 	let cost = 0;
 
 	for (const entry of entries) {
-		if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
-		const usage = entry.message.usage;
-		const entryInput = usage?.input ?? 0;
-		const entryCacheRead = usage?.cacheRead ?? 0;
-		const entryCacheWrite = usage?.cacheWrite ?? 0;
+		const selected = usageForEntry(entry);
+		if (!selected) continue;
+		const usage = normalizedUsage(selected.usage);
 
-		input += entryInput;
-		output += usage?.output ?? 0;
-		cacheRead += entryCacheRead;
-		cacheWrite += entryCacheWrite;
-		cost += usage?.cost?.total ?? 0;
-		latestCacheHitRate = calculateCacheHitRate(entryInput, entryCacheRead, entryCacheWrite);
+		input = addUsageTotal(input, usage.input);
+		output = addUsageTotal(output, usage.output);
+		cacheRead = addUsageTotal(cacheRead, usage.cacheRead);
+		cacheWrite = addUsageTotal(cacheWrite, usage.cacheWrite);
+		cost = addUsageTotal(cost, usage.cost);
+		if (selected.isAssistant) {
+			latestCacheHitRate = calculateCacheHitRate(usage.input, usage.cacheRead, usage.cacheWrite);
+		}
 	}
 
 	return Object.freeze({ input, output, cacheRead, cacheWrite, latestCacheHitRate, cost });
@@ -179,23 +247,26 @@ export function invalidateUsageTotalsCache(): void {
 	usageTotalsCache = undefined;
 }
 
-/** Test helper: number of full usage scans performed since process start / last reset. */
-export function __usageTotalsComputeCount(): number {
-	return usageTotalsComputeCount;
+/** Test helper: counts aggregation passes only; every cache lookup still fingerprints all entries. */
+export function __usageTotalsAggregationPassCount(): number {
+	return usageTotalsAggregationPassCount;
 }
 
-/** Test helper: reset memoization counters/cache. */
+/** Test helper: reset the aggregation-pass counter and cached totals. */
 export function __resetUsageTotalsCacheForTests(): void {
 	usageTotalsCache = undefined;
-	usageTotalsComputeCount = 0;
+	usageTotalsAggregationPassCount = 0;
 }
 
 export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	const sessionManager = ctx.sessionManager as {
-		getEntries?: () => SessionEntry[];
-		getBranch: () => SessionEntry[];
+		getEntries?: () => readonly SessionEntry[];
+		getBranch: () => readonly SessionEntry[];
 	};
-	const entries = sessionManager.getEntries?.() ?? sessionManager.getBranch();
+	const entries =
+		typeof sessionManager.getEntries === "function"
+			? sessionManager.getEntries()
+			: sessionManager.getBranch();
 	const key = buildUsageFingerprint(entries);
 	if (usageTotalsCache?.key === key) return usageTotalsCache.totals;
 

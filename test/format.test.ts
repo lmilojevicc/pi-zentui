@@ -2,7 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetUsageTotalsCacheForTests,
-	__usageTotalsComputeCount,
+	__usageTotalsAggregationPassCount,
 	buildContextDisplayLabel,
 	buildContextGauge,
 	buildCostLabel,
@@ -28,6 +28,24 @@ import {
 
 const cacheHitIcon = "󰆼";
 
+type TestUsage = {
+	input?: unknown;
+	output?: unknown;
+	cacheRead?: unknown;
+	cacheWrite?: unknown;
+	cost?: { total?: unknown } | null;
+};
+
+function makeUsage(
+	input: unknown,
+	output: unknown,
+	cost: unknown,
+	cacheRead: unknown = 0,
+	cacheWrite: unknown = 0,
+): TestUsage {
+	return { input, output, cacheRead, cacheWrite, cost: { total: cost } };
+}
+
 function makeAssistantEntry(
 	input: number,
 	output: number,
@@ -35,19 +53,18 @@ function makeAssistantEntry(
 	cacheRead = 0,
 	cacheWrite = 0,
 ) {
-	return {
-		type: "message",
-		message: {
-			role: "assistant",
-			usage: {
-				input,
-				output,
-				cacheRead,
-				cacheWrite,
-				cost: { total: cost },
-			},
-		},
-	};
+	return makeMessageUsageEntry("assistant", makeUsage(input, output, cost, cacheRead, cacheWrite));
+}
+
+function makeMessageUsageEntry(role: string, usage: TestUsage | undefined) {
+	return { type: "message", message: { role, usage } };
+}
+
+function makeSummaryUsageEntry(
+	type: "compaction" | "branch_summary",
+	usage: TestUsage | undefined,
+) {
+	return { type, usage };
 }
 
 function makeSessionContext(entries: unknown[], branch = entries) {
@@ -139,6 +156,153 @@ describe("usage formatting", () => {
 		expect(totals.cacheWrite).toBe(500);
 		expect(totals.latestCacheHitRate).toBe(30);
 		expect(buildTokenLabel(totals, cacheHitIcon)).toBe("↑300 ↓30 󰆼 30.0%");
+	});
+
+	it("aggregates assistant, tool-result LLM, compaction, and branch-summary usage", () => {
+		const entries = [
+			makeMessageUsageEntry("assistant", makeUsage(10, 2, 0.1, 30, 8)),
+			makeMessageUsageEntry("toolResult", makeUsage(20, 4, 0.2, 40, 9)),
+			makeSummaryUsageEntry("compaction", makeUsage(30, 6, 0.3, 50, 10)),
+			makeSummaryUsageEntry("branch_summary", makeUsage(40, 8, 0.4, 60, 11)),
+		];
+
+		const totals = getUsageTotals(makeSessionContext(entries) as never);
+
+		expect(totals).toEqual({
+			input: 100,
+			output: 20,
+			cacheRead: 180,
+			cacheWrite: 38,
+			latestCacheHitRate: 62.5,
+			cost: 1,
+		});
+		expect(buildTokenLabel(totals, cacheHitIcon)).toBe("↑100 ↓20 󰆼 62.5%");
+		expect(buildCostLabel(totals)).toBe("$1.000");
+	});
+
+	it("selects only one usage location and ignores unsupported entry shapes", () => {
+		const hybridMessage = {
+			...makeMessageUsageEntry("assistant", makeUsage(1, 2, 0.1)),
+			usage: makeUsage(100, 200, 10),
+		};
+		const hybridCompaction = {
+			...makeSummaryUsageEntry("compaction", makeUsage(3, 4, 0.2)),
+			message: { role: "assistant", usage: makeUsage(300, 400, 20) },
+		};
+		const entries = [
+			hybridMessage,
+			hybridCompaction,
+			makeMessageUsageEntry("user", makeUsage(1_000, 1_000, 30)),
+			{ type: "custom", usage: makeUsage(2_000, 2_000, 40) },
+		];
+
+		expect(getUsageTotals(makeSessionContext(entries) as never)).toEqual({
+			input: 4,
+			output: 6,
+			cacheRead: 0,
+			cacheWrite: 0,
+			latestCacheHitRate: 0,
+			cost: 0.30000000000000004,
+		});
+	});
+
+	it("normalizes missing, zero, and malformed optional numbers independently", () => {
+		const entries = [
+			makeMessageUsageEntry("assistant", {
+				input: "10",
+				output: -1,
+				cacheRead: Number.NaN,
+				cacheWrite: Number.POSITIVE_INFINITY,
+				cost: { total: Number.NEGATIVE_INFINITY },
+			}),
+			makeMessageUsageEntry("toolResult", {
+				input: 5,
+				output: 0,
+				cacheRead: 7,
+				cacheWrite: -2,
+				cost: null,
+			}),
+			makeSummaryUsageEntry("compaction", {}),
+			makeSummaryUsageEntry("branch_summary", undefined),
+		];
+
+		const totals = getUsageTotals(makeSessionContext(entries) as never);
+
+		expect(totals).toEqual({
+			input: 5,
+			output: 0,
+			cacheRead: 7,
+			cacheWrite: 0,
+			latestCacheHitRate: undefined,
+			cost: 0,
+		});
+		for (const value of [
+			totals.input,
+			totals.output,
+			totals.cacheRead,
+			totals.cacheWrite,
+			totals.cost,
+		]) {
+			expect(Number.isFinite(value)).toBe(true);
+			expect(value).toBeGreaterThanOrEqual(0);
+		}
+	});
+
+	it("adds distinct duplicate-looking persisted entries without deduplication", () => {
+		const entries = [
+			makeAssistantEntry(10, 2, 0.1),
+			makeAssistantEntry(10, 2, 0.1),
+			makeMessageUsageEntry("toolResult", makeUsage(10, 2, 0.1)),
+		];
+
+		expect(getUsageTotals(makeSessionContext(entries) as never)).toMatchObject({
+			input: 30,
+			output: 6,
+			cost: 0.30000000000000004,
+		});
+	});
+
+	it("saturates huge aggregates and calculates huge prompt rates without overflow", () => {
+		const entries = [
+			makeAssistantEntry(
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+			),
+			makeAssistantEntry(
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+				Number.MAX_VALUE,
+			),
+		];
+
+		const totals = getUsageTotals(makeSessionContext(entries) as never);
+
+		expect(totals).toMatchObject({
+			input: Number.MAX_VALUE,
+			output: Number.MAX_VALUE,
+			cacheRead: Number.MAX_VALUE,
+			cacheWrite: Number.MAX_VALUE,
+			cost: Number.MAX_VALUE,
+		});
+		expect(totals.latestCacheHitRate).toBeCloseTo(100 / 3);
+		expect(Number.isFinite(totals.latestCacheHitRate ?? Number.NaN)).toBe(true);
+		expect(buildTokenLabel(totals, cacheHitIcon)).toBe(
+			`↑${formatCount(Number.MAX_VALUE)} ↓${formatCount(Number.MAX_VALUE)} ${cacheHitIcon} 33.3%`,
+		);
+		expect(buildCostLabel(totals)).toBe(`$${Number.MAX_VALUE.toFixed(3)}`);
+		expect(buildTokenLabel(totals, cacheHitIcon)).not.toMatch(/Infinity|NaN/);
+		expect(buildCostLabel(totals)).not.toMatch(/Infinity|NaN/);
+	});
+
+	it("falls back to the active branch when getEntries is unavailable", () => {
+		const ctx = { sessionManager: { getBranch: () => [makeAssistantEntry(12, 3, 0.4)] } };
+
+		expect(getUsageTotals(ctx as never)).toMatchObject({ input: 12, output: 3, cost: 0.4 });
 	});
 });
 
@@ -325,8 +489,8 @@ describe("context helpers", () => {
 	});
 });
 
-describe("getUsageTotals memoization", () => {
-	it("reuses totals for unchanged entries and recomputes after invalidate", () => {
+describe("getUsageTotals caching", () => {
+	it("reuses totals without another aggregation pass and recomputes after invalidate", () => {
 		__resetUsageTotalsCacheForTests();
 
 		const entries = [makeAssistantEntry(10, 1, 0.1)];
@@ -335,18 +499,59 @@ describe("getUsageTotals memoization", () => {
 		const first = getUsageTotals(ctx);
 		const second = getUsageTotals(ctx);
 		expect(second).toBe(first);
-		expect(__usageTotalsComputeCount()).toBe(1);
+		expect(__usageTotalsAggregationPassCount()).toBe(1);
 
 		entries.push(makeAssistantEntry(20, 2, 0.2));
 		const third = getUsageTotals(ctx);
 		expect(third.input).toBe(30);
-		expect(__usageTotalsComputeCount()).toBe(2);
+		expect(__usageTotalsAggregationPassCount()).toBe(2);
 
 		invalidateUsageTotalsCache();
 		const fourth = getUsageTotals(ctx);
 		expect(fourth).toEqual(third);
 		expect(fourth).not.toBe(third);
-		expect(__usageTotalsComputeCount()).toBe(3);
+		expect(__usageTotalsAggregationPassCount()).toBe(3);
+	});
+
+	it("recomputes when relevant middle usage changes with unchanged endpoints", () => {
+		__resetUsageTotalsCacheForTests();
+		const entries = [
+			makeAssistantEntry(1, 1, 0.1),
+			makeMessageUsageEntry("toolResult", makeUsage(2, 2, 0.2)),
+			makeSummaryUsageEntry("compaction", makeUsage(3, 3, 0.3)),
+		];
+		const ctx = makeSessionContext(entries) as never;
+		expect(getUsageTotals(ctx).input).toBe(6);
+
+		entries[1] = makeMessageUsageEntry("toolResult", makeUsage(20, 2, 0.2));
+
+		expect(getUsageTotals(ctx).input).toBe(24);
+		expect(__usageTotalsAggregationPassCount()).toBe(2);
+	});
+
+	it.each([
+		["assistant", () => makeMessageUsageEntry("assistant", makeUsage(1, 1, 0.1))],
+		["tool result", () => makeMessageUsageEntry("toolResult", makeUsage(1, 1, 0.1))],
+		["compaction", () => makeSummaryUsageEntry("compaction", makeUsage(1, 1, 0.1))],
+		["branch summary", () => makeSummaryUsageEntry("branch_summary", makeUsage(1, 1, 0.1))],
+	])("invalidates for appended and changed %s usage", (_label, makeEntry) => {
+		__resetUsageTotalsCacheForTests();
+		const entries: unknown[] = [makeAssistantEntry(10, 1, 1)];
+		const ctx = makeSessionContext(entries) as never;
+		const initial = getUsageTotals(ctx);
+
+		entries.push(makeEntry());
+		const appended = getUsageTotals(ctx);
+		expect(appended).not.toBe(initial);
+		expect(appended.input).toBe(11);
+
+		const entry = entries[1] as { message?: { usage?: TestUsage }; usage?: TestUsage };
+		const usage = entry.message?.usage ?? entry.usage;
+		if (usage) usage.input = 5;
+		const changed = getUsageTotals(ctx);
+		expect(changed).not.toBe(appended);
+		expect(changed.input).toBe(15);
+		expect(__usageTotalsAggregationPassCount()).toBe(3);
 	});
 });
 
