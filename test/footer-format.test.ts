@@ -19,6 +19,14 @@ describe("parseFooterFormat", () => {
 		expect(parseFooterFormat("$cwd")).toEqual([{ kind: "var", name: "cwd" }]);
 	});
 
+	it("parses model-info variables independently", () => {
+		expect(parseFooterFormat("$model $provider")).toEqual([
+			{ kind: "var", name: "model" },
+			{ kind: "text", value: " " },
+			{ kind: "var", name: "provider" },
+		]);
+	});
+
 	it("parses $package and $package_version as package-version vars", () => {
 		expect(parseFooterFormat("$package")).toEqual([{ kind: "var", name: "package" }]);
 		expect(parseFooterFormat("$package_version")).toEqual([
@@ -341,10 +349,12 @@ describe("compact footer format", () => {
 	it("collects canonical data references and excludes layout variables", () => {
 		expect(
 			collectFooterFormatReferences(
-				parseFooterFormat("$directory $branch $wrap $wrap_sep $extensions $fill $duration"),
+				parseFooterFormat(
+					"$directory $branch $model $provider $wrap $wrap_sep $extensions $fill $duration",
+				),
 				FOOTER_FORMAT_ALIASES,
 			),
-		).toEqual(new Set(["cwd", "git_branch", "session_duration"]));
+		).toEqual(new Set(["cwd", "git_branch", "model", "provider", "session_duration"]));
 	});
 });
 

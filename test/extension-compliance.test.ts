@@ -1526,6 +1526,110 @@ describe("Pi docs compliance", () => {
 		expect(compact).not.toContain("(auto)");
 	});
 
+	it("renders opt-in model info, independent variables, and omits it from compact fallback", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.modelLabel = "GPT-5.6 Terra";
+		state.providerLabel = "OpenAI";
+		state.contextLabel = "0.5%/200k";
+		state.tokenLabel = "↑1 ↓2";
+		state.costLabel = "$0.001";
+		const createFooter = () =>
+			footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map<string, string>(),
+			});
+
+		installFooter(ctx as never, state, () => ({ ...defaultConfig, responsiveFooter: false }), {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		expect(createFooter()?.render(200).join("\n")).not.toContain("GPT-5.6 Terra");
+
+		const enabled = {
+			...defaultConfig,
+			footerSegments: { ...defaultConfig.footerSegments, modelInfo: true },
+		};
+		installFooter(ctx as never, state, () => enabled, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const aligned = createFooter()?.render(200) ?? [];
+		expect(aligned).toHaveLength(1);
+		expect(aligned.join("\n")).toContain("GPT-5.6 Terra OpenAI");
+		expect(aligned.every((line) => visibleWidth(line) <= 200)).toBe(true);
+
+		installFooter(ctx as never, state, () => enabled, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const reflowed = createFooter()?.render(55) ?? [];
+		expect(reflowed).toHaveLength(2);
+		expect(reflowed.join("\n")).toContain("GPT-5.6 Terra OpenAI");
+		expect(reflowed.every((line) => visibleWidth(line) <= 55)).toBe(true);
+
+		installFooter(ctx as never, state, () => enabled, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		state.modelLabel = "openai/gpt-5";
+		expect(createFooter()?.render(200).join("\n")).toContain("openai/gpt-5 | 0.5%/200k");
+		expect(createFooter()?.render(200).join("\n")).not.toContain("openai/gpt-5 OpenAI");
+		state.providerLabel = "";
+		expect(createFooter()?.render(200).join("\n")).toContain("openai/gpt-5 | 0.5%/200k");
+
+		state.modelLabel = "custom-model";
+		state.providerLabel = "Provider X";
+		installFooter(
+			ctx as never,
+			state,
+			() => ({
+				...defaultConfig,
+				responsiveFooter: false,
+				footerFormat: "$model|$provider",
+			}),
+			{ setRequestRender() {}, scheduleProjectRefresh() {} },
+		);
+		expect(createFooter()?.render(200).join("\n")).toContain("custom-model|Provider X");
+		for (const [format, expected, omitted] of [
+			["$model", "custom-model", "Provider X"],
+			["$provider", "Provider X", "custom-model"],
+			["$provider$fill$model", "Provider X", ""],
+		] as const) {
+			installFooter(
+				ctx as never,
+				state,
+				() => ({ ...defaultConfig, responsiveFooter: false, footerFormat: format }),
+				{ setRequestRender() {}, scheduleProjectRefresh() {} },
+			);
+			const custom = createFooter()?.render(200).join("\n") ?? "";
+			expect(custom).toContain(expected);
+			if (omitted) expect(custom).not.toContain(omitted);
+			if (format.includes("$fill")) {
+				expect(custom.indexOf("Provider X")).toBeLessThan(custom.indexOf("custom-model"));
+			}
+		}
+
+		installFooter(ctx as never, state, () => enabled, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const compact = createFooter()?.render(40) ?? [];
+		expect(compact.join("\n")).not.toContain("custom-model");
+		expect(compact.join("\n")).not.toContain("Provider X");
+		expect(compact.every((line) => visibleWidth(line) <= 40)).toBe(true);
+	});
+
 	it("keeps built-in telemetry controlled by parent segment enablement", () => {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({

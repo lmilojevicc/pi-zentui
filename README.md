@@ -21,7 +21,7 @@ Zentui brings two popular aesthetics to Pi:
 - `on  branch` — git branch with icon
 - `[!?↑]` — git status indicators (modified, untracked, ahead/behind, stashed, etc.)
 - `via  v5.5.0` — runtime detection with version and Starship-style Nerd Font runtime/language modules
-- Optional segments (off by default): session name, `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
+- Optional segments (off by default): selected model/provider, `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
 - Right side shows context usage, token counts, and cost
 - Built-in footer segments can be shown or hidden individually from `/zentui`
 - Fully custom Starship-style layout via a `footerFormat` template string — see [Footer Format Template](#footer-format-template)
@@ -135,7 +135,7 @@ The interactive `/zentui` menu is split into exactly six sections, in this order
 1. **Appearance** — Starship/footer colors (`colorSources.starship`); editor + previous-message colors (`colorSources.editor` and `colorSources.userMessages`); separator (`separator`); icon mode (`icons.mode`).
 2. **Editor** — editor enabled (`features.editor`); editor border color mode (`editorBorderColorMode`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
 3. **Footer** — status line enabled (`features.statusLine`); responsive footer (`responsiveFooter`); compact footer rows (`compactFooterMaxLines`); context style (`contextStyle`); path display (`pathDisplay.mode`); path depth (`pathDisplay.depth`).
-4. **Segments** — visibility toggles for every non-Git built-in segment under `footerSegments`: `cwd`, `sessionName`, `runtime`, `context`, `tokens`, `cost`, `sessionDuration`, `username`, `time`, `os`, and `packageVersion`.
+4. **Segments** — visibility toggles for every non-Git built-in segment under `footerSegments`: `cwd`, `sessionName`, `runtime`, `modelInfo`, `context`, `tokens`, `cost`, `sessionDuration`, `username`, `time`, `os`, and `packageVersion`.
 5. **Git** — Git branch visibility (`footerSegments.gitBranch`); branch length (`gitBranch.maxLength`); Git status visibility (`footerSegments.gitStatus`); Git counts visibility (`footerSegments.gitCounts`); Git commit visibility (`footerSegments.gitCommit`); commit-only-detached (`gitCommit.onlyDetached`); exact-match tag (`gitCommit.showTag`); Git metrics visibility (`footerSegments.gitMetrics`); hide zero metrics (`gitMetrics.onlyNonzero`); ignore submodules (`gitMetrics.ignoreSubmodules`).
 6. **Extensions** — default placement (`extensionStatuses.defaultPlacement`) first, followed by placement (`extensionStatuses.placements[key]`) and color (`extensionStatuses.colorModes[key]`) controls for currently active status keys.
 
@@ -261,6 +261,7 @@ Default config values — copy this and change any value you want:
 		"gitStatus": true,
 		"gitCounts": false,
 		"runtime": true,
+		"modelInfo": false,
 		"context": true,
 		"tokens": true,
 		"cost": true,
@@ -297,7 +298,7 @@ Default config values — copy this and change any value you want:
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Finite context percentages use one decimal place. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
-- `editorModelLabel`: controls the model shown in the editor frame. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
+- `editorModelLabel`: controls the model shown in the editor frame, built-in model-info footer segment, and footer `$model` variable. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
 - `editorBorderColorMode`: `static` (default) uses `colors.editorBorder`; `adaptive` follows Pi's current shell-mode and thinking-level editor border color. Cycle it from the `/zentui` **Editor** tab.
 - `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
 - `separator`: controls the default footer layout and extension-status connectors: `pipe` (default, ` | `), `dot` (` · `), `chevron` (` › `), or `none` (one space). Cycle it from the `/zentui` **Appearance** tab. This selects the separator glyph; `colors.separator` controls its color. Custom `footerFormat` literals and `$sep` keep their existing behavior.
@@ -307,7 +308,7 @@ Default config values — copy this and change any value you want:
 - `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `icons.mode` is `auto` | `nerd` | `ascii` (default `auto`, same glyphs as nerd). ASCII mode swaps in plain fallbacks for statusline icons and runtime symbols — useful without a Nerd Font. Custom per-icon strings always win over mode defaults. Custom `icons.os` always wins; when left at the mode default, Zentui maps the OS icon by platform. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
 - `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
 - `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. `viewportIndicators` preserves Pi's native `↑ N more` / `↓ N more` wrapped-row counts in Zentui's editor borders (default `true`). All four can be changed from `/zentui` or direct slash-command arguments.
-- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `sessionName`, `gitBranch`, `gitStatus`, `gitCounts`, `gitCommit`, `gitMetrics`, `runtime`, `packageVersion`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). Toggle non-Git segments from **Segments** and Git segments from **Git** in `/zentui`.
+- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `sessionName`, `gitBranch`, `gitStatus`, `gitCounts`, `gitCommit`, `gitMetrics`, `runtime`, `modelInfo`, `packageVersion`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). `modelInfo` is off by default and shows the selected model plus the provider unless the model label already contains it. Toggle non-Git segments from **Segments** and Git segments from **Git** in `/zentui`.
 - `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Footer** tab configures responsive behavior, compact rows, context style, and path display mode/depth; **Appearance** configures separator and icon mode; **Git** configures branch length; set or clear custom formats with `/zentui format`.
 - `responsiveFooter`: enabled by default. Zentui keeps the current aligned one-row footer while every settings-resolved left/middle/right zone fits without layout truncation. Otherwise it tries two complete left-aligned rows, preferring `left` / `middle right` and then `left middle` / `right`. Only when neither split fits does it use `compactFooterFormat`. Set `false` to restore the legacy one-row fitting behavior. Selection uses measured terminal-cell width, not fixed device breakpoints.
 - `compactFooterFormat`: JSON-only template used by the compact stage. The default keeps cwd, session name, git branch/status, context, and abbreviated token/cache metrics. A top-level `$wrap` is an automatic wrap opportunity: one space on the same row or no space at a row break. `$wrap_sep` is the same kind of boundary but renders the styled ` | ` divider only when its adjacent chunks share a row. Nested uses of either boundary remain empty variables. `$fill` is ignored. A standalone `$extensions` chunk inserts active non-`off` extension statuses in left/middle/right placement order; embedded uses render empty. Custom `footerFormat` values use this built-in compact fallback unless this key is also customized.
@@ -383,6 +384,8 @@ Center the branch between directory and cost:
 | `$git_added`        |              | added line count (`+N`)                                             |
 | `$git_deleted`      |              | deleted line count (`−N`)                                           |
 | `$runtime`          |              | runtime icon + version                                              |
+| `$model`            |              | selected model label (`editorModelLabel`)                           |
+| `$provider`         |              | formatted provider label                                            |
 | `$package`          |              | project package version, `is <glyph> <version>` (manifest-derived)  |
 | `$package_version`  |              | raw project package version (no icon)                               |
 | `$session_duration` | `$duration`  | session running time                                                |
@@ -413,7 +416,7 @@ Center the branch between directory and cost:
 - Conditional groups: wrap optional pieces in parentheses, e.g. `$cwd( on $git_branch)($git_status)$fill($context)`. If every `$var` inside a group is empty, the whole group (including its literals) is dropped.
 - `$session_name` is available whenever `footerFormat` is set, independently of `footerSegments.sessionName`; use a conditional group such as `($sep$session_name)` so unnamed sessions leave no separator.
 - The built-in wide footer appends cache totals to the token segment, `(sub)` to cost, and `(auto)` to context when available. Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible and include telemetry only through the atomic variables above.
-- `DEFAULT_COMPACT_FOOTER_FORMAT` is unchanged and omits the atomic telemetry. Add the variables explicitly to `compactFooterFormat` to opt in at narrow widths.
+- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add their variables explicitly to `compactFooterFormat` to opt in at narrow widths.
 - Auto-compaction settings refresh on the next normal footer synchronization event. Unsupported Pi capabilities or settings-read errors safely omit optional markers.
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
