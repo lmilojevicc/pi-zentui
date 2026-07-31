@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetUsageTotalsCacheForTests,
 	__usageTotalsAggregationPassCount,
+	buildCacheReadLabel,
+	buildCacheWriteLabel,
 	buildContextDisplayLabel,
 	buildContextGauge,
 	buildCostLabel,
@@ -102,6 +104,13 @@ describe("usage formatting", () => {
 		});
 		expect(buildTokenLabel(totals, cacheHitIcon)).toBe("↑2.0M ↓100k");
 		expect(buildCostLabel(totals)).toBe("$26.000");
+	});
+
+	it("formats cache atoms independently and omits zero totals", () => {
+		expect(buildCacheReadLabel(1_200)).toBe("R1.2k");
+		expect(buildCacheWriteLabel(300)).toBe("W300");
+		expect(buildCacheReadLabel(0)).toBe("");
+		expect(buildCacheWriteLabel(0)).toBe("");
 	});
 
 	it("keeps token and cost labels compact", () => {
@@ -473,7 +482,7 @@ describe("context helpers", () => {
 		expect(buildContextGauge(100, 10)).toHaveLength(10);
 		expect(buildContextGauge(50, 10, true)).toBe("#####-----");
 		expect(buildContextDisplayLabel({ percent: 42, contextWindow: 128_000, style: "text" })).toBe(
-			"42%/128k",
+			"42.0%/128k",
 		);
 		expect(
 			buildContextDisplayLabel({ percent: 42, contextWindow: 128_000, style: "gauge" }),
@@ -484,7 +493,11 @@ describe("context helpers", () => {
 				contextWindow: 128_000,
 				style: "text+gauge",
 			}),
-		).toMatch(/^\[.{10}\] 42%\/128k$/);
+		).toMatch(/^\[.{10}\] 42\.0%\/128k$/);
+		expect(buildContextDisplayLabel({ percent: null, contextWindow: 128_000 })).toBe("?/128k");
+		expect(buildContextDisplayLabel({ percent: Number.NaN, contextWindow: 128_000 })).toBe(
+			"?/128k",
+		);
 		expect(buildContextDisplayLabel({ percent: null, contextWindow: undefined })).toBe("--");
 	});
 });

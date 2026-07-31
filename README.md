@@ -296,7 +296,7 @@ Default config values — copy this and change any value you want:
 
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
-- `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
+- `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Finite context percentages use one decimal place. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
 - `editorModelLabel`: controls the model shown in the editor frame. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
 - `editorBorderColorMode`: `static` (default) uses `colors.editorBorder`; `adaptive` follows Pi's current shell-mode and thinking-level editor border color. Cycle it from the `/zentui` **Editor** tab.
 - `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
@@ -389,10 +389,14 @@ Center the branch between directory and cost:
 | `$username`         |              | `user@host`                                                         |
 | `$os`               |              | operating-system icon                                               |
 | `$time`             |              | current time `HH:MM`                                                |
-| `$context`          |              | context usage (text and/or gauge via config)                        |
-| `$tokens`           |              | input/output token counts                                           |
+| `$context`          |              | context usage (text and/or gauge; finite percentages use one decimal) |
+| `$tokens`           |              | input/output counts and existing cache-hit percentage               |
+| `$cache_read`       |              | cache-read total (`R1.2k`); empty at zero or when unavailable       |
+| `$cache_write`      |              | cache-write total (`W300`); empty at zero or when unavailable       |
 | `$cost`             |              | session cost                                                        |
-| `$sep`              | `$separator` | themed `\|` using `colors.separator`            |
+| `$subscription`     |              | `(sub)` in subscription mode; otherwise empty                       |
+| `$auto_compaction`  |              | `(auto)` when automatic compaction is enabled; otherwise empty      |
+| `$sep`              | `$separator` | themed `\|` using `colors.separator`                               |
 | `$fill`             | —            | special: splits zones                                               |
 
 ### `$fill` behavior
@@ -408,6 +412,9 @@ Center the branch between directory and cost:
 - Each variable renders its core value only (no `on`/`via` prefixes); add those words as literal text.
 - Conditional groups: wrap optional pieces in parentheses, e.g. `$cwd( on $git_branch)($git_status)$fill($context)`. If every `$var` inside a group is empty, the whole group (including its literals) is dropped.
 - `$session_name` is available whenever `footerFormat` is set, independently of `footerSegments.sessionName`; use a conditional group such as `($sep$session_name)` so unnamed sessions leave no separator.
+- The built-in wide footer appends cache totals to the token segment, `(sub)` to cost, and `(auto)` to context when available. Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible and include telemetry only through the atomic variables above.
+- `DEFAULT_COMPACT_FOOTER_FORMAT` is unchanged and omits the atomic telemetry. Add the variables explicitly to `compactFooterFormat` to opt in at narrow widths.
+- Auto-compaction settings refresh on the next normal footer synchronization event. Unsupported Pi capabilities or settings-read errors safely omit optional markers.
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
 

@@ -260,6 +260,18 @@ export function installFooter(
 						: tier === "warning"
 							? config.colors.contextWarning
 							: config.colors.contextNormal;
+				const cacheReadLabel = state.cacheReadLabel
+					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheReadLabel)
+					: "";
+				const cacheWriteLabel = state.cacheWriteLabel
+					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheWriteLabel)
+					: "";
+				const subscriptionLabel = state.subscription
+					? renderStyleForSource(theme, colorSource, config.colors.cost, "(sub)")
+					: "";
+				const autoCompactionLabel = state.autoCompaction
+					? renderStyleForSource(theme, colorSource, contextColor, "(auto)")
+					: "";
 				const gitColor = (text: string) =>
 					renderStyleForSource(theme, colorSource, config.colors.gitBranch, text);
 				const gitStatusColor = (text: string) =>
@@ -364,8 +376,16 @@ export function installFooter(
 								config.colors.tokens,
 								state.tokenLabel,
 							);
+						case "cache_read":
+							return cacheReadLabel;
+						case "cache_write":
+							return cacheWriteLabel;
 						case "cost":
 							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+						case "subscription":
+							return subscriptionLabel;
+						case "auto_compaction":
+							return autoCompactionLabel;
 						case "package":
 							return formatPackageVersionSegment(
 								theme,
@@ -552,16 +572,29 @@ export function installFooter(
 							formatTimeLabel(config.icons.time),
 						)
 					: "";
+				const builtInContextLabel = [
+					renderStyleForSource(theme, colorSource, contextColor, contextLabel),
+					autoCompactionLabel,
+				]
+					.filter(Boolean)
+					.join(" ");
+				const builtInTokenLabel = [
+					renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel),
+					cacheReadLabel,
+					cacheWriteLabel,
+				]
+					.filter(Boolean)
+					.join(" ");
+				const builtInCostLabel = [
+					renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel),
+					subscriptionLabel,
+				]
+					.filter(Boolean)
+					.join(" ");
 				const right = [
-					config.footerSegments.context
-						? renderStyleForSource(theme, colorSource, contextColor, contextLabel)
-						: "",
-					config.footerSegments.tokens
-						? renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel)
-						: "",
-					config.footerSegments.cost
-						? renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel)
-						: "",
+					config.footerSegments.context ? builtInContextLabel : "",
+					config.footerSegments.tokens ? builtInTokenLabel : "",
+					config.footerSegments.cost ? builtInCostLabel : "",
 					timeSegment,
 				]
 					.filter(Boolean)

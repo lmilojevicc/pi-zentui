@@ -1445,7 +1445,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 
@@ -1463,6 +1463,152 @@ describe("Pi docs compliance", () => {
 		expect(footer?.render(120).join("\n")).toContain("[muted]");
 	});
 
+	it("composes telemetry only into built-in wide segments and explicit atomic variables", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: "/tmp/project",
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.tokenLabel = "↑100 ↓20 󰆼 80.0%";
+		state.cacheReadLabel = "R1.2k";
+		state.cacheWriteLabel = "W300";
+		state.costLabel = "$1.000";
+		state.subscription = true;
+		state.autoCompaction = true;
+		const createFooter = () =>
+			footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map<string, string>(),
+			});
+
+		installFooter(ctx as never, state, () => ({ ...defaultConfig, responsiveFooter: false }), {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const builtIn = createFooter()?.render(200).join("\n") ?? "";
+		expect(builtIn).toContain("0.5%/200k (auto)");
+		expect(builtIn).toContain("↑100 ↓20 󰆼 80.0% R1.2k W300");
+		expect(builtIn).toContain("$1.000 (sub)");
+
+		const customConfig = {
+			...defaultConfig,
+			responsiveFooter: false,
+			footerFormat:
+				"$tokens $cache_read $cache_write $cost $subscription $context $auto_compaction",
+		};
+		installFooter(ctx as never, state, () => customConfig, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const custom = createFooter()?.render(200).join("\n") ?? "";
+		expect(custom).toContain("↑100 ↓20 󰆼 80.0% R1.2k W300 $1.000 (sub) 0.5%/200k (auto)");
+		expect(custom.match(/R1\.2k/g)).toHaveLength(1);
+
+		const compactConfig = {
+			...defaultConfig,
+			footerFormat: "X".repeat(200),
+		};
+		installFooter(ctx as never, state, () => compactConfig, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const compact = createFooter()?.render(40).join("\n") ?? "";
+		expect(compact).not.toContain("R1.2k");
+		expect(compact).not.toContain("W300");
+		expect(compact).not.toContain("(sub)");
+		expect(compact).not.toContain("(auto)");
+	});
+
+	it("keeps built-in telemetry controlled by parent segment enablement", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.cacheReadLabel = "R10";
+		state.cacheWriteLabel = "W20";
+		state.subscription = true;
+		state.autoCompaction = true;
+		const config = {
+			...defaultConfig,
+			responsiveFooter: false,
+			footerSegments: {
+				...defaultConfig.footerSegments,
+				context: false,
+				tokens: false,
+				cost: false,
+			},
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		const rendered = footer?.render(160).join("\n") ?? "";
+		expect(rendered).not.toMatch(/R10|W20|\(sub\)|\(auto\)/);
+	});
+
+	it("bounds ANSI-styled compact output with explicitly opted-in telemetry atoms", () => {
+		let footerFactory: FooterFactory | undefined;
+		const theme = makeTheme();
+		const ctx = makeContext({
+			ui: {
+				theme,
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState(emptyGitStatus());
+		state.cacheReadLabel = "R1.2k";
+		state.cacheWriteLabel = "W300";
+		state.subscription = true;
+		state.autoCompaction = true;
+		const config = {
+			...defaultConfig,
+			footerFormat: "X".repeat(200),
+			compactFooterFormat:
+				"$cache_read$wrap_sep$cache_write$wrap_sep$subscription$wrap_sep$auto_compaction",
+			compactFooterMaxLines: 2 as const,
+			colorSources: { ...defaultConfig.colorSources, starship: "terminal" as const },
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, theme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		const lines = footer?.render(18) ?? [];
+		const output = lines.join("\n");
+
+		expect(output).toContain("R1.2k");
+		expect(output).toContain("W300");
+		expect(output).toContain("(sub)");
+		expect(output).toContain("(auto)");
+		expect(output).toContain("\u001b[");
+		expect(lines).toHaveLength(2);
+		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
+	});
+
 	it("renders third-party statuses on the right by default in sorted order", () => {
 		let footerFactory: FooterFactory | undefined;
 		const ctx = makeContext({
@@ -1476,7 +1622,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 
@@ -1496,7 +1642,7 @@ describe("Pi docs compliance", () => {
 		const rendered = footer?.render(160).join("\n") ?? "";
 
 		expect(rendered.indexOf("A")).toBeLessThan(rendered.indexOf("Z"));
-		expect(rendered.indexOf("Z")).toBeLessThan(rendered.indexOf("1%/200k"));
+		expect(rendered.indexOf("Z")).toBeLessThan(rendered.indexOf("0.5%/200k"));
 		expect(rendered).toContain("↑1 ↓2");
 		expect(rendered).toContain("$0.001");
 	});
@@ -1540,7 +1686,7 @@ describe("Pi docs compliance", () => {
 			});
 			const rendered = footer?.render(160).join("\n") ?? "";
 
-			expect(rendered).toContain(["A", "B", "1%/200k", "tokens", "cost"].join(expectedSeparator));
+			expect(rendered).toContain(["A", "B", "0.5%/200k", "tokens", "cost"].join(expectedSeparator));
 		},
 	);
 
@@ -1573,7 +1719,7 @@ describe("Pi docs compliance", () => {
 			getExtensionStatuses: () => new Map<string, string>(),
 		});
 
-		expect(footer?.render(120).join("\n") ?? "").toContain("1%/200k | tokens");
+		expect(footer?.render(120).join("\n") ?? "").toContain("0.5%/200k | tokens");
 	});
 
 	it("honors third-party status placements and hides off statuses", () => {
@@ -1589,7 +1735,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 		const config = {
@@ -1644,7 +1790,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 
@@ -1678,7 +1824,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 
@@ -1709,7 +1855,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 		const state = createInitialState(emptyGitStatus());
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 		const config = configWithExtensionStatuses({ placements: { long: "middle" } });
@@ -1727,7 +1873,7 @@ describe("Pi docs compliance", () => {
 		const lines = footer?.render(44) ?? [];
 		const rendered = lines.join("\n");
 
-		expect(rendered).toContain("1%/200k");
+		expect(rendered).toContain("0.5%/200k");
 		expect(rendered).toContain("↑1 ↓2");
 		expect(rendered).toContain("$0.001");
 		expect(lines.every((line) => visibleWidth(line) <= 44)).toBe(true);
@@ -1778,7 +1924,7 @@ describe("Pi docs compliance", () => {
 		expect(at47.join("\n")).toContain("project");
 		expect(at47.join("\n")).toContain("responsive");
 		expect(at47.join("\n")).toContain("main");
-		expect(at47.join("\n")).toContain("48%/200k | ↑466k ↓54k 󰆼 99.3%");
+		expect(at47.join("\n")).toContain("48.0%/200k | ↑466k ↓54k 󰆼 99.3%");
 		for (const [width, lines] of [
 			[145, at145],
 			[139, at139],
@@ -1845,7 +1991,7 @@ describe("Pi docs compliance", () => {
 		});
 
 		const rendered = footer?.render(15).join("\n") ?? "";
-		expect(rendered).toContain("48%/200k…");
+		expect(rendered).toContain("48.0%/200k…");
 		expect(rendered).not.toContain("↑466k");
 		expect(rendered).not.toContain("|");
 	});
@@ -1941,7 +2087,7 @@ describe("Pi docs compliance", () => {
 		});
 		const state = createInitialState(emptyGitStatus());
 		state.branch = "main";
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 		const config: PolishedTuiConfig = {
@@ -2003,7 +2149,7 @@ describe("Pi docs compliance", () => {
 				version: "v22",
 			};
 			state.packageVersion = enabled ? { ecosystem: "nodejs", version: "1.2.3" } : undefined;
-			state.contextLabel = "1%/200k";
+			state.contextLabel = "0.5%/200k";
 			state.tokenLabel = "↑1 ↓2";
 			state.costLabel = "$0.001";
 			const config: PolishedTuiConfig = {
@@ -2048,7 +2194,7 @@ describe("Pi docs compliance", () => {
 		});
 		const state = createInitialState(emptyGitStatus());
 		state.packageVersion = { ecosystem: "nodejs", version: "1.2.3" };
-		state.contextLabel = "1%/200k";
+		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
 		state.costLabel = "$0.001";
 		const config: PolishedTuiConfig = {
@@ -2085,7 +2231,7 @@ describe("Pi docs compliance", () => {
 			const state = createInitialState(emptyGitStatus());
 			state.branch = detached ? undefined : "main";
 			state.commit = { oid: OID, detached, tag: null };
-			state.contextLabel = "1%/200k";
+			state.contextLabel = "0.5%/200k";
 			state.tokenLabel = "↑1 ↓2";
 			state.costLabel = "$0";
 			const config: PolishedTuiConfig = {
@@ -2129,7 +2275,7 @@ describe("Pi docs compliance", () => {
 		const renderFor = (added: number, deleted: number) => {
 			const state = createInitialState(emptyGitStatus());
 			state.metrics = { added, deleted };
-			state.contextLabel = "1%/200k";
+			state.contextLabel = "0.5%/200k";
 			state.tokenLabel = "↑1 ↓2";
 			state.costLabel = "$0";
 			const config: PolishedTuiConfig = {

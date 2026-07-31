@@ -19,6 +19,7 @@ import {
 	DEFAULT_COMPACT_FOOTER_FORMAT,
 	DEFAULT_EDITOR_METADATA_FORMAT,
 	defaultConfig,
+	FOOTER_FORMAT_VARIABLES,
 	mergeConfig,
 	saveColorSourcesPatch,
 	saveContextThresholdsPatch,
@@ -135,6 +136,13 @@ describe("mergeConfig", () => {
 			mouseScroll: true,
 			copyNotice: true,
 		});
+	});
+
+	it("registers the canonical telemetry variables without aliases", () => {
+		expect(FOOTER_FORMAT_VARIABLES).toEqual(
+			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
+		);
+		expect(FOOTER_FORMAT_VARIABLES).not.toContain("experimental");
 	});
 
 	it("defaults footerFormat to empty string", () => {

@@ -71,6 +71,7 @@ import { installSelectorBorderStyle } from "./selector-border";
 import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, syncState } from "./state";
+import { resolveFooterTelemetry } from "./telemetry";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle } from "./user-message";
 
@@ -179,7 +180,13 @@ export default function (pi: ExtensionAPI) {
 	const getThinkingLevel = () =>
 		sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : ("off" as const);
 	const syncFooterState = (ctx: ExtensionContext) =>
-		syncState(state, ctx, currentConfig.icons.cacheHit, currentConfig.editorModelLabel);
+		syncState(
+			state,
+			ctx,
+			currentConfig.icons.cacheHit,
+			currentConfig.editorModelLabel,
+			resolveFooterTelemetry(ctx),
+		);
 
 	type ProjectRefreshTarget = { cwd: string; generation: number };
 	const refreshProjectState = async ({ cwd, generation }: ProjectRefreshTarget) => {
@@ -721,7 +728,8 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("agent_end", (event, ctx) => {
 		liveContext.clear();
-		syncInteractiveAndProjectState(event, ctx);
+		// Reconcile once more after Pi has persisted the assistant message.
+		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("model_select", (event, ctx) => {
 		liveContext.clear();
