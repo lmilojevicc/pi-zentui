@@ -33,6 +33,7 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
+export type EditorBorderColorMode = "static" | "adaptive";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
 export const DEFAULT_COMPACT_FOOTER_FORMAT =
@@ -139,6 +140,7 @@ export type PolishedTuiConfig = {
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
 	editorModelLabel: ModelLabelSource;
+	editorBorderColorMode: EditorBorderColorMode;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
 	gitBranch: GitBranchConfig;
@@ -240,6 +242,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	separator: "pipe",
 	contextStyle: "text",
 	editorModelLabel: "id",
+	editorBorderColorMode: "static",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
 	gitBranch: { maxLength: "full" },
@@ -348,6 +351,11 @@ function parseContextStyle(value: unknown): ContextStyle {
 function parseEditorModelLabel(value: unknown): ModelLabelSource {
 	if (value === "id" || value === "name") return value;
 	return defaultConfig.editorModelLabel;
+}
+
+function parseEditorBorderColorMode(value: unknown): EditorBorderColorMode {
+	if (value === "static" || value === "adaptive") return value;
+	return defaultConfig.editorBorderColorMode;
 }
 
 export function isSeparatorStyle(value: unknown): value is SeparatorStyle {
@@ -815,6 +823,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
 		editorModelLabel: parseEditorModelLabel(config.editorModelLabel),
+		editorBorderColorMode: parseEditorBorderColorMode(config.editorBorderColorMode),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
 		gitBranch,
@@ -1004,6 +1013,15 @@ export function saveEditorModelLabel(
 ): PolishedTuiConfig {
 	return mutateConfig(path, (record) => {
 		record.editorModelLabel = parseEditorModelLabel(value);
+	});
+}
+
+export function saveEditorBorderColorMode(
+	value: EditorBorderColorMode,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.editorBorderColorMode = parseEditorBorderColorMode(value);
 	});
 }
 

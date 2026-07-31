@@ -155,6 +155,161 @@ describe("bounded /zentui settings", () => {
 		expect(requestRender).toHaveBeenCalledTimes(6);
 	});
 
+	it("cycles editor border color mode live and reopens with the persisted value", async () => {
+		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
+		const config = cloneConfig();
+		const values: string[] = [];
+		const rows: string[] = [];
+		const notifications: string[] = [];
+		const requestRender = vi.fn();
+		const tuiRequestRender = vi.fn();
+		let liveTuiRenderCalls = 0;
+		let closeCalls = 0;
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: new SessionLifecycle(),
+				getConfig: () => config,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setSeparator() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				setEditorBorderColorMode(value) {
+					values.push(value);
+					config.editorBorderColorMode = value;
+				},
+				getActiveExtensionStatuses: () => new Map(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender,
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		let invocation = 0;
+		const ctx = {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: theme(),
+				notify(message: string) {
+					notifications.push(message);
+				},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					invocation += 1;
+					const component = factory({ requestRender: tuiRequestRender }, theme(), {}, () => {
+						closeCalls += 1;
+					}) as Component;
+					goToSection(component, "Editor");
+					rows.push(renderedValue(component, "Editor border color"));
+					if (invocation === 1) {
+						tuiRequestRender.mockClear();
+						component.handleInput(" ");
+						liveTuiRenderCalls = tuiRequestRender.mock.calls.length;
+						rows.push(renderedValue(component, "Editor border color"));
+					}
+				},
+			},
+		};
+
+		await command?.handler("", ctx);
+		await command?.handler("", ctx);
+
+		expect(values).toEqual(["adaptive"]);
+		expect(config.editorBorderColorMode).toBe("adaptive");
+		expect(rows[0]).toContain("static");
+		expect(rows[1]).toContain("adaptive");
+		expect(rows[2]).toContain("adaptive");
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		expect(liveTuiRenderCalls).toBe(1);
+		expect(notifications).toEqual(["Editor border color: adaptive"]);
+		expect(closeCalls).toBe(0);
+	});
+
+	it("keeps editor border color unchanged when persistence fails", async () => {
+		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
+		const config = cloneConfig();
+		const rows: string[] = [];
+		const notifications: Array<{ message: string; level: string }> = [];
+
+		registerZentuiSettingsCommand(
+			{
+				registerCommand(_name: string, options: unknown) {
+					command = options as typeof command;
+				},
+			} as never,
+			{
+				sessionLifecycle: new SessionLifecycle(),
+				getConfig: () => config,
+				setColorSources() {},
+				setUiFeatures: () => ({ applied: true }),
+				setFooterSegments() {},
+				setFooterFormat() {},
+				setIconMode() {},
+				setContextStyle() {},
+				setSeparator() {},
+				setPathDisplay() {},
+				setGitBranch() {},
+				setEditorBorderColorMode() {
+					throw new Error("config is read-only");
+				},
+				getActiveExtensionStatuses: () => new Map(),
+				setExtensionStatusPlacement() {},
+				setExtensionStatusColorMode() {},
+				setFixedEditor() {},
+				requestRender() {},
+				settingsListTheme: {
+					label: (text) => text,
+					value: (text) => text,
+					description: (text) => text,
+					cursor: "> ",
+					hint: (text) => text,
+				},
+			},
+		);
+
+		await command?.handler("", {
+			hasUI: true,
+			mode: "tui",
+			ui: {
+				theme: theme(),
+				notify(message: string, level: string) {
+					notifications.push({ message, level });
+				},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
+					goToSection(component, "Editor");
+					rows.push(renderedValue(component, "Editor border color"));
+					component.handleInput(" ");
+					rows.push(renderedValue(component, "Editor border color"));
+				},
+			},
+		});
+
+		expect(config.editorBorderColorMode).toBe("static");
+		expect(rows.every((row) => row.includes("static") && !row.includes("adaptive"))).toBe(true);
+		expect(notifications).toEqual([
+			{ message: "Could not update Zentui settings: config is read-only", level: "error" },
+		]);
+	});
+
 	it("keeps every active section visible and every line width-safe at 40 columns", async () => {
 		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
 		const config = cloneConfig();

@@ -15,6 +15,7 @@ import {
 	type ColorSourcesConfig,
 	type CompactFooterMaxLines,
 	type ContextStyle,
+	type EditorBorderColorMode,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FixedEditorConfig,
@@ -56,6 +57,7 @@ const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 const modelLabelValues: ModelLabelSource[] = ["id", "name"];
+const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
 const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"] as const;
 type FeatureState = "enabled" | "disabled";
 
@@ -83,6 +85,7 @@ type BoundedSettingId =
 	| "branchLength"
 	| "iconMode"
 	| "editorModelLabel"
+	| "editorBorderColorMode"
 	| "gitCommitOnlyDetached"
 	| "gitCommitShowTag"
 	| "gitMetricsOnlyNonzero"
@@ -109,6 +112,7 @@ type SettingsCommandDeps = {
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
 	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
+	setEditorBorderColorMode?: (value: EditorBorderColorMode) => void;
 	setGitCommit?: (
 		patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 		ctx: ExtensionContext,
@@ -314,6 +318,7 @@ function isBoundedSettingId(value: string): value is BoundedSettingId {
 		value === "branchLength" ||
 		value === "iconMode" ||
 		value === "editorModelLabel" ||
+		value === "editorBorderColorMode" ||
 		value === "gitCommitOnlyDetached" ||
 		value === "gitCommitShowTag" ||
 		value === "gitMetricsOnlyNonzero" ||
@@ -508,13 +513,24 @@ function buildItems(
 			currentValue: featureValue(config.features[key]),
 			values: featureStateValues,
 		}));
-		items.splice(1, 0, {
-			id: "editorModelLabel",
-			label: "Editor model label",
-			description: "Show the model id or display name in the editor frame.",
-			currentValue: config.editorModelLabel,
-			values: modelLabelValues,
-		});
+		items.splice(
+			1,
+			0,
+			{
+				id: "editorBorderColorMode",
+				label: "Editor border color",
+				description: "Keep Zentui's configured border color or follow Pi's shell/thinking color.",
+				currentValue: config.editorBorderColorMode,
+				values: editorBorderColorModeValues,
+			},
+			{
+				id: "editorModelLabel",
+				label: "Editor model label",
+				description: "Show the model id or display name in the editor frame.",
+				currentValue: config.editorModelLabel,
+				values: modelLabelValues,
+			},
+		);
 		items.push({
 			id: "fixedEditor",
 			label: "Fixed editor (experimental)",
@@ -888,6 +904,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();
 										ctx.ui.notify(`Editor model label: ${newValue}`, "info");
+										tui.requestRender();
+										return;
+									}
+
+									if (
+										id === "editorBorderColorMode" &&
+										(newValue === "static" || newValue === "adaptive")
+									) {
+										if (!deps.setEditorBorderColorMode) return;
+										deps.setEditorBorderColorMode(newValue);
+										settingsList.updateValue(id, newValue);
+										deps.requestRender();
+										ctx.ui.notify(`Editor border color: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}

@@ -133,7 +133,7 @@ User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or
 The interactive `/zentui` menu is split into exactly six sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. Every listed control patches the shown JSON equivalent:
 
 1. **Appearance** — Starship/footer colors (`colorSources.starship`); editor + previous-message colors (`colorSources.editor` and `colorSources.userMessages`); separator (`separator`); icon mode (`icons.mode`).
-2. **Editor** — editor enabled (`features.editor`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
+2. **Editor** — editor enabled (`features.editor`); editor border color mode (`editorBorderColorMode`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
 3. **Footer** — status line enabled (`features.statusLine`); responsive footer (`responsiveFooter`); compact footer rows (`compactFooterMaxLines`); context style (`contextStyle`); path display (`pathDisplay.mode`); path depth (`pathDisplay.depth`).
 4. **Segments** — visibility toggles for every non-Git built-in segment under `footerSegments`: `cwd`, `sessionName`, `runtime`, `context`, `tokens`, `cost`, `sessionDuration`, `username`, `time`, `os`, and `packageVersion`.
 5. **Git** — Git branch visibility (`footerSegments.gitBranch`); branch length (`gitBranch.maxLength`); Git status visibility (`footerSegments.gitStatus`); Git counts visibility (`footerSegments.gitCounts`); Git commit visibility (`footerSegments.gitCommit`); commit-only-detached (`gitCommit.onlyDetached`); exact-match tag (`gitCommit.showTag`); Git metrics visibility (`footerSegments.gitMetrics`); hide zero metrics (`gitMetrics.onlyNonzero`); ignore submodules (`gitMetrics.ignoreSubmodules`).
@@ -176,6 +176,7 @@ Default config values — copy this and change any value you want:
 	"separator": "pipe",
 	"contextStyle": "text",
 	"editorModelLabel": "id",
+	"editorBorderColorMode": "static",
 	"contextThresholds": {
 		"warning": 70,
 		"error": 90
@@ -297,6 +298,7 @@ Default config values — copy this and change any value you want:
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
 - `editorModelLabel`: controls the model shown in the editor frame. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
+- `editorBorderColorMode`: `static` (default) uses `colors.editorBorder`; `adaptive` follows Pi's current shell-mode and thinking-level editor border color. Cycle it from the `/zentui` **Editor** tab.
 - `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
 - `separator`: controls the default footer layout and extension-status connectors: `pipe` (default, ` | `), `dot` (` · `), `chevron` (` › `), or `none` (one space). Cycle it from the `/zentui` **Appearance** tab. This selects the separator glyph; `colors.separator` controls its color. Custom `footerFormat` literals and `$sep` keep their existing behavior.
 - `contextThresholds`: `{ warning, error }` percentages (default `70` / `90`) that select contextNormal / contextWarning / contextError colors.
@@ -316,7 +318,7 @@ Default config values — copy this and change any value you want:
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles the active editor rail and previous user-message rail when `features.copyFriendly` is disabled.
 - `editorPrompt` styles the copy-friendly editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
-- `editorBorder` styles the active editor and previous user-message top/bottom border color only; the border glyph stays `─`.
+- `editorBorder` styles previous user-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: when using copy-friendly mode, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
