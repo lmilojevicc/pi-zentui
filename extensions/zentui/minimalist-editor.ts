@@ -24,6 +24,7 @@ export type MinimalistEditorMetadata = {
 	thinkingLevel?: string;
 	contextPercent?: number;
 	contextWindow?: number;
+	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
 };
@@ -88,6 +89,7 @@ function renderTopLeft(
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
 	config: PolishedTuiConfig,
+	includeSessionName = true,
 ): string {
 	const source = config.colorSources.editor;
 	const trimmed = inputText.trimStart();
@@ -100,7 +102,7 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "bashMode", "$"),
 		);
 	}
-	if (config.minimalist.showTimer && metadata.agentDurationMs !== undefined) {
+	if (config.editorStyles.minimalist.showTimer && metadata.agentDurationMs !== undefined) {
 		const duration = formatElapsedDuration(metadata.agentDurationMs);
 		parts.push(
 			metadata.agentActive
@@ -114,6 +116,12 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "muted", duration),
 		);
 	}
+	const sessionName = includeSessionName
+		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
+		: "";
+	if (config.editorStyles.minimalist.showSessionName && sessionName) {
+		parts.push(renderStyleForSource(uiTheme, source, config.colors.sessionName, sessionName));
+	}
 	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
 }
 
@@ -125,7 +133,7 @@ function renderTopRight(
 ): string {
 	const source = config.colorSources.editor;
 	const parts: string[] = [];
-	const cost = config.minimalist.showCost
+	const cost = config.editorStyles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
@@ -165,7 +173,7 @@ function renderTopRight(
 					? config.colors.contextWarning
 					: config.colors.contextNormal;
 		const total =
-			config.minimalist.contextFormat === "percent-total" &&
+			config.editorStyles.minimalist.contextFormat === "percent-total" &&
 			metadata.contextWindow !== undefined &&
 			Number.isFinite(metadata.contextWindow) &&
 			metadata.contextWindow > 0
@@ -173,7 +181,7 @@ function renderTopRight(
 				: "";
 		const text = `${percent}%${total}`;
 		let context = renderStyleForSource(uiTheme, source, style, text);
-		if (config.minimalist.contextGauge) {
+		if (config.editorStyles.minimalist.contextGauge) {
 			for (const gaugeWidth of [5, 3]) {
 				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
@@ -194,7 +202,7 @@ function renderBottomLeft(
 	uiTheme: Theme,
 	config: PolishedTuiConfig,
 ): string {
-	if (!config.minimalist.showGit) return "";
+	if (!config.editorStyles.minimalist.showGit) return "";
 	const source = config.colorSources.editor;
 	const branch = sanitizeEditorMetadataText(metadata.branch ?? "");
 	const parts = branch
@@ -214,8 +222,9 @@ function renderBottomLeft(
 
 function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: PolishedTuiConfig): string {
 	const full = () => formatCwdLabel(metadata.cwd, "", { mode: "full", depth: 0 });
-	if (config.minimalist.pathDisplay === "full") return full();
-	if (config.minimalist.pathDisplay === "compact") return basename(metadata.cwd) || metadata.cwd;
+	if (config.editorStyles.minimalist.pathDisplay === "full") return full();
+	if (config.editorStyles.minimalist.pathDisplay === "compact")
+		return basename(metadata.cwd) || metadata.cwd;
 	if (!metadata.projectRoot) return full();
 
 	const pathFromRoot = relative(metadata.projectRoot, metadata.cwd);
@@ -240,7 +249,7 @@ function renderBottomRight(
 function renderLabeledBorder(options: {
 	width: number;
 	left: string;
-	leftFallback?: string;
+	leftFallbacks?: string[];
 	right: string;
 	leftCorner: string;
 	rightCorner: string;
@@ -273,10 +282,12 @@ function renderLabeledBorder(options: {
 		right = rightBudget > 0 ? truncateToWidth(right, rightBudget, "…") : "";
 		return leftBudget < leftNatural;
 	};
-	if (fitLabels() && options.leftFallback !== undefined) {
-		left = options.leftFallback;
+	let leftTruncated = fitLabels();
+	for (const fallback of options.leftFallbacks ?? []) {
+		if (!leftTruncated) break;
+		left = fallback;
 		right = options.right;
-		fitLabels();
+		leftTruncated = fitLabels();
 	}
 	const partWidth = (label: string) => (label ? visibleWidth(label) + 3 : 1);
 	let leftWidth = partWidth(left);
@@ -338,13 +349,18 @@ export function renderMinimalistFrame({
 		return safeThemeFg(uiTheme, "muted", `${direction === "above" ? "↑" : "↓"} ${count} more`);
 	};
 	const topMetadata = renderTopLeft(inputText, metadata, uiTheme, config);
+	const topOperational = renderTopLeft(inputText, metadata, uiTheme, config, false);
 	const topViewport = viewportLabel("above", viewport?.above);
 	const topLeft = joinStyled([topViewport, topMetadata], separator);
 	const topRightBudget = Math.max(0, width - 8 - visibleWidth(topLeft));
+	const topFallbacks = [
+		joinStyled([topViewport, topOperational], separator),
+		topOperational,
+	].filter((value, index, values) => value !== topLeft && values.indexOf(value) === index);
 	const top = renderLabeledBorder({
 		width,
 		left: topLeft,
-		leftFallback: topViewport ? topMetadata : undefined,
+		leftFallbacks: topFallbacks,
 		right: renderTopRight(metadata, uiTheme, config, topRightBudget),
 		leftCorner: "╭",
 		rightCorner: "╮",
@@ -355,7 +371,7 @@ export function renderMinimalistFrame({
 	const bottom = renderLabeledBorder({
 		width,
 		left: joinStyled([bottomViewport, bottomMetadata], separator),
-		leftFallback: bottomViewport ? bottomMetadata : undefined,
+		leftFallbacks: bottomViewport ? [bottomMetadata] : undefined,
 		right: renderBottomRight(metadata, uiTheme, config),
 		leftCorner: "╰",
 		rightCorner: "╯",

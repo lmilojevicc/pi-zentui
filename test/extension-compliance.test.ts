@@ -1462,12 +1462,13 @@ describe("Pi docs compliance", () => {
 	it("suppresses the production footer only while the installed minimalist editor decorates", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ editorMode: "minimalist", projectRefreshIntervalMs: 0 }),
+			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
 		);
 		const handlers = loadExtension();
 		let editorFactory: unknown;
 		let footerFactory: FooterFactory | undefined;
 		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		let sessionName = "release prep";
 		const ui = {
 			theme: makeTheme(),
 			setFooter(factory: FooterFactory | undefined) {
@@ -1478,7 +1479,13 @@ describe("Pi docs compliance", () => {
 			},
 			getEditorComponent: () => editorFactory,
 		};
-		const ctx = makeContext({ ui });
+		const ctx = makeContext({
+			ui,
+			sessionManager: {
+				getBranch: () => [],
+				getSessionName: () => sessionName,
+			},
+		});
 
 		await emit(handlers, "session_start", ctx);
 		await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1495,8 +1502,19 @@ describe("Pi docs compliance", () => {
 		});
 		expect(footer?.render(80).length).toBeGreaterThan(0);
 
-		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		const namedFrame = editor.render(80)[0];
+		expect(namedFrame).toMatch(/^╭.*╮$/);
+		expect(namedFrame).toContain("release prep");
 		expect(footer?.render(80)).toEqual([]);
+		const rendersBeforeRename = tui.requestRender.mock.calls.length;
+		sessionName = "ship it";
+		await handlers.get("session_info_changed")?.[0]?.(
+			{ type: "session_info_changed", name: sessionName },
+			ctx,
+		);
+		expect(tui.requestRender).toHaveBeenCalledTimes(rendersBeforeRename + 1);
+		expect(editor.render(80)[0]).toContain("ship it");
+		expect(editor.render(80)[0]).not.toContain("release prep");
 		expect(editor.render(4)[0]).not.toContain("╭");
 		expect(footer?.render(80).length).toBeGreaterThan(0);
 		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
@@ -1530,10 +1548,62 @@ describe("Pi docs compliance", () => {
 		await emit(handlers, "session_shutdown", ctx);
 	});
 
+	it("updates session names through a wrapped minimalist editor", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
+		);
+		const handlers = loadExtension();
+		const existingEditorFactory = () => ({
+			render: (width: number) => ["─".repeat(width), "base editor", "─".repeat(width)],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		let editorFactory: unknown = existingEditorFactory;
+		let sessionName = "release prep";
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+			sessionManager: {
+				getBranch: () => [],
+				getSessionName: () => sessionName,
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).not.toBe(existingEditorFactory);
+		const editor = (
+			editorFactory as (...args: unknown[]) => ReturnType<typeof existingEditorFactory>
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		expect(editor.render(80)[0]).toContain("release prep");
+
+		const rendersBeforeRename = tui.requestRender.mock.calls.length;
+		sessionName = "ship it";
+		await handlers.get("session_info_changed")?.[0]?.(
+			{ type: "session_info_changed", name: sessionName },
+			ctx,
+		);
+		expect(tui.requestRender).toHaveBeenCalledTimes(rendersBeforeRename + 1);
+		expect(editor.render(80)[0]).toContain("ship it");
+		expect(editor.render(80)[0]).not.toContain("release prep");
+
+		await emit(handlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(existingEditorFactory);
+	});
+
 	it("keeps the production footer for unsupported wrapped minimalist output", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ editorMode: "minimalist", projectRefreshIntervalMs: 0 }),
+			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
 		);
 		const handlers = loadExtension();
 		const existingFactory = () => ({
@@ -1589,7 +1659,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorMode: "minimalist",
+				editorStyle: "minimalist",
 				projectRefreshIntervalMs: 0,
 				features: { statusLine: false },
 			}),
@@ -1628,7 +1698,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorMode: "minimalist",
+				editorStyle: "minimalist",
 				projectRefreshIntervalMs: 0,
 				features: { statusLine: false },
 			}),
@@ -1696,7 +1766,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorMode: "minimalist",
+				editorStyle: "minimalist",
 				projectRefreshIntervalMs: 5_000,
 				features: { statusLine: false },
 			}),

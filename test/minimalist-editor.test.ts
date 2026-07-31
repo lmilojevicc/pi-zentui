@@ -22,7 +22,7 @@ function theme(): Theme {
 }
 
 function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
-	return { ...defaultConfig, editorMode: "minimalist", ...overrides };
+	return { ...defaultConfig, editorStyle: "minimalist", ...overrides };
 }
 
 function render(width = 80, inputText = "draft", viewport?: { above?: string; below?: string }) {
@@ -42,6 +42,7 @@ function render(width = 80, inputText = "draft", viewport?: { above?: string; be
 			modelLabel: "model-x",
 			thinkingLevel: "high",
 			contextPercent: 42.4,
+			sessionName: "release prep",
 			agentDurationMs: 12_500,
 			agentActive: true,
 		},
@@ -53,7 +54,7 @@ function render(width = 80, inputText = "draft", viewport?: { above?: string; be
 describe("minimalist editor frame", () => {
 	it("renders metadata and framed autocomplete", () => {
 		const lines = render();
-		expect(lines[0]).toContain("12s");
+		expect(lines[0]).toContain("12s · release prep");
 		expect(lines[0]).toContain("$0.123 – model-x – high – 42%");
 		expect(lines[0]).toMatch(/^╭.*╮$/);
 		expect(lines[1]).toMatch(/^│ draft\s+│$/);
@@ -66,7 +67,7 @@ describe("minimalist editor frame", () => {
 
 	it("puts complete viewport counts first on their matching borders", () => {
 		const lines = render(80, "draft", { above: "7", below: "11" });
-		expect(lines[0]).toMatch(/^╭─ ↑ 7 more · 12s/);
+		expect(lines[0]).toMatch(/^╭─ ↑ 7 more · 12s · release prep/);
 		expect(lines.at(-1)).toMatch(/^╰─ ↓ 11 more · feature\/minimalist \* ↑2 ↓1/);
 	});
 
@@ -101,6 +102,54 @@ describe("minimalist editor frame", () => {
 		expect(render(80, "  !!pwd")[0]).toContain("$ · 12s");
 		expect(render(80, "draft")[0]).not.toContain("$ · 12s");
 		expect(render(80, "  !pwd")[1]).toContain("draft");
+	});
+
+	it("shows the explicit session name after the timer and omits it when disabled", () => {
+		const enabled = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", agentDurationMs: 12_000, sessionName: "release\nprep" },
+			uiTheme: theme(),
+			config: config(),
+		})[0];
+		expect(enabled).toContain("12s · release prep");
+
+		const disabled = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", agentDurationMs: 12_000, sessionName: "release prep" },
+			uiTheme: theme(),
+			config: config({
+				editorStyles: {
+					minimalist: {
+						...defaultConfig.editorStyles.minimalist,
+						showSessionName: false,
+					},
+				},
+			}),
+		})[0];
+		expect(disabled).not.toContain("release prep");
+	});
+
+	it("drops a long session name before viewport and operational indicators", () => {
+		const top = renderMinimalistFrame({
+			width: 34,
+			editorLines: ["draft"],
+			viewport: { above: "7" },
+			inputText: "!pwd",
+			metadata: {
+				cwd: "/tmp",
+				agentDurationMs: 12_000,
+				sessionName: "a very long session name that cannot fit",
+			},
+			uiTheme: theme(),
+			config: config(),
+		})[0];
+		expect(top).toContain("↑ 7 more · $ · 12s");
+		expect(top).not.toContain("session");
+		expect(visibleWidth(top)).toBeLessThanOrEqual(34);
 	});
 
 	it("formats active and completed elapsed durations", () => {
@@ -161,7 +210,9 @@ describe("minimalist editor frame", () => {
 				metadata: { cwd: `${homedir()}/workspace/repo/src/lib`, projectRoot },
 				uiTheme: theme(),
 				config: config({
-					minimalist: { ...defaultConfig.minimalist, pathDisplay },
+					editorStyles: {
+						minimalist: { ...defaultConfig.editorStyles.minimalist, pathDisplay },
+					},
 				}),
 			}).at(-1) ?? "";
 
@@ -185,11 +236,13 @@ describe("minimalist editor frame", () => {
 			},
 			uiTheme: theme(),
 			config: config({
-				minimalist: {
-					...defaultConfig.minimalist,
-					showTimer: false,
-					showCost: false,
-					showGit: false,
+				editorStyles: {
+					minimalist: {
+						...defaultConfig.editorStyles.minimalist,
+						showTimer: false,
+						showCost: false,
+						showGit: false,
+					},
 				},
 			}),
 		});
@@ -214,7 +267,13 @@ describe("minimalist editor frame", () => {
 				metadata: { cwd: "/tmp", contextPercent: 11, contextWindow },
 				uiTheme: theme(),
 				config: config({
-					minimalist: { ...defaultConfig.minimalist, contextFormat, contextGauge },
+					editorStyles: {
+						minimalist: {
+							...defaultConfig.editorStyles.minimalist,
+							contextFormat,
+							contextGauge,
+						},
+					},
 				}),
 			})[0] ?? "";
 

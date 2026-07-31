@@ -51,10 +51,10 @@ function renderedValue(component: Component, label: string): string {
 }
 
 describe("bounded /zentui settings", () => {
-	it("orders the six sections and applies all six new controls from effective config", async () => {
+	it("shows active editor-style controls in the Editor section", async () => {
 		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
 		const config = cloneConfig();
-		const editorModes: string[] = [];
+		const editorStyles: string[] = [];
 		const editorLabels: string[] = [];
 		const minimalistPatches: Array<Record<string, unknown>> = [];
 		const commitPatches: Array<Record<string, boolean>> = [];
@@ -62,6 +62,8 @@ describe("bounded /zentui settings", () => {
 		const defaultPlacements: ExtensionStatusPlacement[] = [];
 		const requestRender = vi.fn();
 		let firstRender = "";
+		let polishedEditorRender = "";
+		let polishedAgainRender = "";
 
 		registerZentuiSettingsCommand(
 			{
@@ -81,13 +83,13 @@ describe("bounded /zentui settings", () => {
 				setSeparator() {},
 				setPathDisplay() {},
 				setGitBranch() {},
-				setEditorMode(value) {
-					editorModes.push(value);
-					config.editorMode = value;
+				setEditorStyle(value) {
+					editorStyles.push(value);
+					config.editorStyle = value;
 				},
 				setMinimalist(patch) {
 					minimalistPatches.push(patch);
-					Object.assign(config.minimalist, patch);
+					Object.assign(config.editorStyles.minimalist, patch);
 				},
 				setEditorModelLabel(value) {
 					editorLabels.push(value);
@@ -132,21 +134,26 @@ describe("bounded /zentui settings", () => {
 					firstRender = component.render(160).join("\n");
 
 					goToSection(component, "Editor");
-					selectLabel(component, "Editor mode");
+					polishedEditorRender = component.render(160).join("\n");
+					selectLabel(component, "Editor style");
 					component.handleInput(" ");
 					for (const label of [
-						"Minimalist path",
-						"Minimalist context text",
-						"Minimalist context gauge",
-						"Minimalist timer",
-						"Minimalist cost",
-						"Minimalist Git",
+						"Path",
+						"Context text",
+						"Context gauge",
+						"Session name",
+						"Timer",
+						"Cost",
+						"Git",
 					]) {
 						selectLabel(component, label);
 						component.handleInput(" ");
 					}
 					selectLabel(component, "Editor model label");
 					component.handleInput(" ");
+					selectLabel(component, "Editor style");
+					component.handleInput(" ");
+					polishedAgainRender = component.render(160).join("\n");
 
 					for (let index = 0; index < 3; index += 1) component.handleInput("\t");
 					selectLabel(component, "Commit only on detached HEAD");
@@ -171,12 +178,18 @@ describe("bounded /zentui settings", () => {
 			expect(index).toBeGreaterThan(lastIndex);
 			lastIndex = index;
 		}
-		expect(editorModes).toEqual(["minimalist"]);
+		expect(polishedEditorRender).toContain("Editor style");
+		expect(polishedEditorRender).not.toContain("Context gauge");
+		expect(polishedEditorRender).not.toContain("Session name");
+		expect(polishedAgainRender).not.toContain("Context gauge");
+		expect(polishedAgainRender).not.toContain("Session name");
+		expect(editorStyles).toEqual(["minimalist", "polished"]);
 		expect(editorLabels).toEqual(["name"]);
 		expect(minimalistPatches).toEqual([
 			{ pathDisplay: "project" },
 			{ contextFormat: "percent-total" },
 			{ contextGauge: true },
+			{ showSessionName: false },
 			{ showTimer: false },
 			{ showCost: false },
 			{ showGit: false },
@@ -184,7 +197,7 @@ describe("bounded /zentui settings", () => {
 		expect(commitPatches).toEqual([{ onlyDetached: false }, { showTag: false }]);
 		expect(metricsPatches).toEqual([{ onlyNonzero: false }, { ignoreSubmodules: true }]);
 		expect(defaultPlacements).toEqual(["off"]);
-		expect(requestRender).toHaveBeenCalledTimes(13);
+		expect(requestRender).toHaveBeenCalledTimes(15);
 	});
 
 	it("cycles editor border color mode live and reopens with the persisted value", async () => {

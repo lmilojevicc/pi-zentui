@@ -16,7 +16,7 @@ import {
 	type CompactFooterMaxLines,
 	type ContextStyle,
 	type EditorBorderColorMode,
-	type EditorMode,
+	type EditorStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FixedEditorConfig,
@@ -61,7 +61,7 @@ const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 const modelLabelValues: ModelLabelSource[] = ["id", "name"];
-const editorModeValues: EditorMode[] = ["polished", "minimalist"];
+const editorStyleValues: EditorStyle[] = ["polished", "minimalist"];
 const minimalistPathDisplayValues: MinimalistPathDisplayMode[] = ["compact", "project", "full"];
 const minimalistContextFormatValues: MinimalistContextFormat[] = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
@@ -91,10 +91,11 @@ type BoundedSettingId =
 	| "pathDepth"
 	| "branchLength"
 	| "iconMode"
-	| "editorMode"
+	| "editorStyle"
 	| "minimalistPathDisplay"
 	| "minimalistContextFormat"
 	| "minimalistContextGauge"
+	| "minimalistShowSessionName"
 	| "minimalistShowTimer"
 	| "minimalistShowCost"
 	| "minimalistShowGit"
@@ -125,7 +126,7 @@ type SettingsCommandDeps = {
 	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
-	setEditorMode?: (value: EditorMode, ctx: ExtensionContext) => void;
+	setEditorStyle?: (value: EditorStyle, ctx: ExtensionContext) => void;
 	setMinimalist?: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
 	setEditorBorderColorMode?: (value: EditorBorderColorMode) => void;
@@ -336,10 +337,11 @@ function isBoundedSettingId(value: string): value is BoundedSettingId {
 		value === "pathDepth" ||
 		value === "branchLength" ||
 		value === "iconMode" ||
-		value === "editorMode" ||
+		value === "editorStyle" ||
 		value === "minimalistPathDisplay" ||
 		value === "minimalistContextFormat" ||
 		value === "minimalistContextGauge" ||
+		value === "minimalistShowSessionName" ||
 		value === "minimalistShowTimer" ||
 		value === "minimalistShowCost" ||
 		value === "minimalistShowGit" ||
@@ -531,24 +533,77 @@ function buildItems(
 	}
 
 	if (section === "editor") {
-		const editorFeatures: FeatureSettingId[] = ["editor", "copyFriendly", "viewportIndicators"];
-		const items: SettingItem[] = editorFeatures.map((key) => ({
+		const editorFeatureItem = (key: FeatureSettingId): SettingItem => ({
 			id: key,
 			label: featureSettingLabels[key],
 			description: featureSettingDescriptions[key],
 			currentValue: featureValue(config.features[key]),
 			values: featureStateValues,
-		}));
-		items.splice(
-			1,
-			0,
+		});
+		const items: SettingItem[] = [
+			editorFeatureItem("editor"),
 			{
-				id: "editorMode",
-				label: "Editor mode",
+				id: "editorStyle",
+				label: "Editor style",
 				description: "Use Zentui's polished rails or a compact metadata frame.",
-				currentValue: config.editorMode,
-				values: editorModeValues,
+				currentValue: config.editorStyle,
+				values: editorStyleValues,
 			},
+		];
+		if (config.editorStyle === "minimalist") {
+			items.push(
+				{
+					id: "minimalistPathDisplay",
+					label: "Path",
+					description: "Show the cwd basename, repository-relative path, or full path.",
+					currentValue: config.editorStyles.minimalist.pathDisplay,
+					values: minimalistPathDisplayValues,
+				},
+				{
+					id: "minimalistContextFormat",
+					label: "Context text",
+					description: "Show context percent alone or with the total context window.",
+					currentValue: config.editorStyles.minimalist.contextFormat,
+					values: minimalistContextFormatValues,
+				},
+				{
+					id: "minimalistContextGauge",
+					label: "Context gauge",
+					description: "Add a compact gauge before the context text when space allows.",
+					currentValue: featureValue(config.editorStyles.minimalist.contextGauge),
+					values: featureStateValues,
+				},
+				{
+					id: "minimalistShowSessionName",
+					label: "Session name",
+					description: "Show the explicit Pi session name after the turn timer.",
+					currentValue: featureValue(config.editorStyles.minimalist.showSessionName),
+					values: featureStateValues,
+				},
+				{
+					id: "minimalistShowTimer",
+					label: "Timer",
+					description: "Show the current or completed turn duration.",
+					currentValue: featureValue(config.editorStyles.minimalist.showTimer),
+					values: featureStateValues,
+				},
+				{
+					id: "minimalistShowCost",
+					label: "Cost",
+					description: "Show session cost in the top border.",
+					currentValue: featureValue(config.editorStyles.minimalist.showCost),
+					values: featureStateValues,
+				},
+				{
+					id: "minimalistShowGit",
+					label: "Git",
+					description: "Show branch and working-tree state in the bottom border.",
+					currentValue: featureValue(config.editorStyles.minimalist.showGit),
+					values: featureStateValues,
+				},
+			);
+		}
+		items.push(
 			{
 				id: "editorBorderColorMode",
 				label: "Editor border color",
@@ -563,50 +618,8 @@ function buildItems(
 				currentValue: config.editorModelLabel,
 				values: modelLabelValues,
 			},
-		);
-		items.push(
-			{
-				id: "minimalistPathDisplay",
-				label: "Minimalist path",
-				description: "Show the cwd basename, repository-relative path, or full path.",
-				currentValue: config.minimalist.pathDisplay,
-				values: minimalistPathDisplayValues,
-			},
-			{
-				id: "minimalistContextFormat",
-				label: "Minimalist context text",
-				description: "Show context percent alone or with the total context window.",
-				currentValue: config.minimalist.contextFormat,
-				values: minimalistContextFormatValues,
-			},
-			{
-				id: "minimalistContextGauge",
-				label: "Minimalist context gauge",
-				description: "Add a compact gauge before the context text when space allows.",
-				currentValue: featureValue(config.minimalist.contextGauge),
-				values: featureStateValues,
-			},
-			{
-				id: "minimalistShowTimer",
-				label: "Minimalist timer",
-				description: "Show the current or completed turn duration.",
-				currentValue: featureValue(config.minimalist.showTimer),
-				values: featureStateValues,
-			},
-			{
-				id: "minimalistShowCost",
-				label: "Minimalist cost",
-				description: "Show session cost in the top border.",
-				currentValue: featureValue(config.minimalist.showCost),
-				values: featureStateValues,
-			},
-			{
-				id: "minimalistShowGit",
-				label: "Minimalist Git",
-				description: "Show branch and working-tree state in the bottom border.",
-				currentValue: featureValue(config.minimalist.showGit),
-				values: featureStateValues,
-			},
+			editorFeatureItem("copyFriendly"),
+			editorFeatureItem("viewportIndicators"),
 		);
 		items.push({
 			id: "fixedEditor",
@@ -977,14 +990,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 
 								if (isBoundedSettingId(id)) {
 									if (
-										id === "editorMode" &&
+										id === "editorStyle" &&
 										(newValue === "polished" || newValue === "minimalist")
 									) {
-										if (!deps.setEditorMode) return;
-										deps.setEditorMode(newValue, ctx);
-										settingsList.updateValue(id, newValue);
+										if (!deps.setEditorStyle) return;
+										deps.setEditorStyle(newValue, ctx);
+										settingsList = makeSettingsList();
+										settingsList.handleInput("\x1b[B");
 										deps.requestRender();
-										ctx.ui.notify(`Editor mode: ${newValue}`, "info");
+										ctx.ui.notify(`Editor style: ${newValue}`, "info");
 										tui.requestRender();
 										return;
 									}
@@ -1017,6 +1031,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 
 									if (
 										(id === "minimalistContextGauge" ||
+											id === "minimalistShowSessionName" ||
 											id === "minimalistShowTimer" ||
 											id === "minimalistShowCost" ||
 											id === "minimalistShowGit") &&
@@ -1026,11 +1041,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										const key =
 											id === "minimalistContextGauge"
 												? "contextGauge"
-												: id === "minimalistShowTimer"
-													? "showTimer"
-													: id === "minimalistShowCost"
-														? "showCost"
-														: "showGit";
+												: id === "minimalistShowSessionName"
+													? "showSessionName"
+													: id === "minimalistShowTimer"
+														? "showTimer"
+														: id === "minimalistShowCost"
+															? "showCost"
+															: "showGit";
 										deps.setMinimalist({ [key]: newValue === "enabled" }, ctx);
 										settingsList.updateValue(id, newValue);
 										deps.requestRender();

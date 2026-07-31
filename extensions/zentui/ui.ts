@@ -578,7 +578,7 @@ export class PolishedEditor extends CustomEditor {
 
 	render(width: number): string[] {
 		const config = this.getConfig();
-		if (config.editorMode === "minimalist") {
+		if (config.editorStyle === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
 				return clampRenderedLines(super.render(width), width);
@@ -745,7 +745,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 
 	render(width: number): string[] {
 		const config = this.getConfig();
-		if (config.editorMode === "minimalist") {
+		if (config.editorStyle === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
 				return clampRenderedLines(this.base.render(width), width);

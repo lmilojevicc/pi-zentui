@@ -11,7 +11,7 @@ import {
 	type ColorSourcesConfig,
 	type ContextStyle,
 	type EditorBorderColorMode,
-	type EditorMode,
+	type EditorStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
@@ -31,8 +31,8 @@ import {
 	saveColorSourcesPatch,
 	saveContextStylePatch,
 	saveEditorBorderColorMode,
-	saveEditorMode,
 	saveEditorModelLabel,
+	saveEditorStyle,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
@@ -288,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 	const needsProjectRefresh = () =>
 		footerInstalled ||
 		(currentConfig.features.editor &&
-			currentConfig.editorMode === "minimalist" &&
+			currentConfig.editorStyle === "minimalist" &&
 			ownsInstalledEditorFactory());
 
 	const stopProjectRefresh = () => {
@@ -378,7 +378,7 @@ export default function (pi: ExtensionAPI) {
 			agentStartedAt !== undefined &&
 			minimalistDecorationActive &&
 			ownsInstalledEditorFactory() &&
-			currentConfig.minimalist.showTimer;
+			currentConfig.editorStyles.minimalist.showTimer;
 		if (!needed) {
 			stopAgentTimer();
 			return;
@@ -548,6 +548,7 @@ export default function (pi: ExtensionAPI) {
 					thinkingLevel: getThinkingLevel(),
 					contextPercent: getContextPercent(ctx),
 					contextWindow: getContextWindow(ctx),
+					sessionName: ctx.sessionManager.getSessionName() ?? "",
 					agentDurationMs: getAgentDurationMs(),
 					agentActive: agentStartedAt !== undefined,
 				}),
@@ -589,6 +590,7 @@ export default function (pi: ExtensionAPI) {
 					thinkingLevel: getThinkingLevel(),
 					contextPercent: getContextPercent(ctx),
 					contextWindow: getContextWindow(ctx),
+					sessionName: ctx.sessionManager.getSessionName() ?? "",
 					agentDurationMs: getAgentDurationMs(),
 					agentActive: agentStartedAt !== undefined,
 				}),
@@ -864,8 +866,8 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveEditorModelLabel(value);
 			syncFooterState(ctx);
 		},
-		setEditorMode(value: EditorMode, ctx: ExtensionContext) {
-			currentConfig = saveEditorMode(value);
+		setEditorStyle(value: EditorStyle, ctx: ExtensionContext) {
+			currentConfig = saveEditorStyle(value);
 			if (value !== "minimalist") setMinimalistDecorationActive(false);
 			reconcileProjectRefresh(ctx);
 			reconcileAgentTimer();

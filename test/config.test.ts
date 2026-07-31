@@ -24,8 +24,8 @@ import {
 	saveColorSourcesPatch,
 	saveContextThresholdsPatch,
 	saveEditorBorderColorMode,
-	saveEditorMode,
 	saveEditorModelLabel,
+	saveEditorStyle,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
@@ -457,54 +457,80 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ editorModelLabel: "title" }).editorModelLabel).toBe("id");
 	});
 
-	it("defaults and normalizes editor mode", () => {
-		expect(defaultConfig.editorMode).toBe("polished");
-		expect(mergeConfig({}).editorMode).toBe("polished");
-		expect(mergeConfig({ editorMode: "polished" }).editorMode).toBe("polished");
-		expect(mergeConfig({ editorMode: "minimalist" }).editorMode).toBe("minimalist");
+	it("defaults and normalizes editor style", () => {
+		expect(defaultConfig.editorStyle).toBe("polished");
+		expect(mergeConfig({}).editorStyle).toBe("polished");
+		expect(mergeConfig({ editorStyle: "polished" }).editorStyle).toBe("polished");
+		expect(mergeConfig({ editorStyle: "minimalist" }).editorStyle).toBe("minimalist");
 		for (const value of ["amp", "", 1, null, true]) {
-			expect(mergeConfig({ editorMode: value }).editorMode).toBe("polished");
+			expect(mergeConfig({ editorStyle: value }).editorStyle).toBe("polished");
 		}
 	});
 
+	it("ignores unreleased legacy editor style keys", () => {
+		const legacyOnly = mergeConfig({
+			editorMode: "minimalist",
+			minimalist: { showGit: false, showTimer: false },
+		});
+		expect(legacyOnly.editorStyle).toBe("polished");
+		expect(legacyOnly.editorStyles.minimalist).toEqual(defaultConfig.editorStyles.minimalist);
+
+		const canonical = mergeConfig({
+			editorMode: "polished",
+			minimalist: { showGit: true },
+			editorStyle: "minimalist",
+			editorStyles: { minimalist: { showGit: false } },
+		});
+		expect(canonical.editorStyle).toBe("minimalist");
+		expect(canonical.editorStyles.minimalist.showGit).toBe(false);
+	});
+
 	it("normalizes focused minimalist settings", () => {
-		expect(defaultConfig.minimalist).toEqual({
+		expect(defaultConfig.editorStyles.minimalist).toEqual({
 			pathDisplay: "compact",
 			contextFormat: "percent",
 			contextGauge: false,
+			showSessionName: true,
 			showTimer: true,
 			showCost: true,
 			showGit: true,
 		});
 		expect(
 			mergeConfig({
-				minimalist: {
-					pathDisplay: "project",
-					contextFormat: "percent-total",
-					contextGauge: true,
-					showTimer: false,
-					showCost: false,
-					showGit: false,
+				editorStyles: {
+					minimalist: {
+						pathDisplay: "project",
+						contextFormat: "percent-total",
+						contextGauge: true,
+						showSessionName: false,
+						showTimer: false,
+						showCost: false,
+						showGit: false,
+					},
 				},
-			}).minimalist,
+			}).editorStyles.minimalist,
 		).toEqual({
 			pathDisplay: "project",
 			contextFormat: "percent-total",
 			contextGauge: true,
+			showSessionName: false,
 			showTimer: false,
 			showCost: false,
 			showGit: false,
 		});
 		expect(
 			mergeConfig({
-				minimalist: {
-					pathDisplay: "basename",
-					contextFormat: "tokens",
-					contextGauge: "yes",
-					showTimer: null,
+				editorStyles: {
+					minimalist: {
+						pathDisplay: "basename",
+						contextFormat: "tokens",
+						contextGauge: "yes",
+						showSessionName: "yes",
+						showTimer: null,
+					},
 				},
-			}).minimalist,
-		).toEqual(defaultConfig.minimalist);
+			}).editorStyles.minimalist,
+		).toEqual(defaultConfig.editorStyles.minimalist);
 	});
 
 	it("saves minimalist patches while preserving unknown nested config", () => {
@@ -513,43 +539,63 @@ describe("mergeConfig", () => {
 		try {
 			writeFileSync(
 				path,
-				JSON.stringify({ unknownTop: true, minimalist: { unknownNested: "keep", showGit: true } }),
+				JSON.stringify({
+					unknownTop: true,
+					editorStyles: {
+						unknownStyle: { keep: true },
+						minimalist: { unknownNested: "keep", showGit: true },
+					},
+				}),
 			);
 			const config = saveMinimalistPatch(
-				{ pathDisplay: "full", contextFormat: "percent-total", showGit: false },
+				{
+					pathDisplay: "full",
+					contextFormat: "percent-total",
+					showSessionName: false,
+					showGit: false,
+				},
 				path,
 			);
-			expect(config.minimalist.pathDisplay).toBe("full");
-			expect(config.minimalist.contextFormat).toBe("percent-total");
-			expect(config.minimalist.showGit).toBe(false);
+			expect(config.editorStyles.minimalist.pathDisplay).toBe("full");
+			expect(config.editorStyles.minimalist.contextFormat).toBe("percent-total");
+			expect(config.editorStyles.minimalist.showSessionName).toBe(false);
+			expect(config.editorStyles.minimalist.showGit).toBe(false);
 			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
 				unknownTop: true,
-				minimalist: { unknownNested: "keep", pathDisplay: "full", showGit: false },
+				editorStyles: {
+					unknownStyle: { keep: true },
+					minimalist: {
+						unknownNested: "keep",
+						pathDisplay: "full",
+						showSessionName: false,
+						showGit: false,
+					},
+				},
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 
-	it("saves editor mode without erasing sibling config", () => {
+	it("saves editor style without erasing sibling config", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
 		const path = join(dir, "zentui.json");
 		try {
 			writeFileSync(path, JSON.stringify({ unknown: { keep: true }, editorModelLabel: "name" }));
-			const minimalist = saveEditorMode("minimalist", path);
+			const minimalist = saveEditorStyle("minimalist", path);
 			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
 				unknown: { keep: true },
 				editorModelLabel: "name",
-				editorMode: "minimalist",
+				editorStyle: "minimalist",
 			});
-			expect(minimalist.editorMode).toBe("minimalist");
+			expect(minimalist.editorStyle).toBe("minimalist");
 
-			const polished = saveEditorMode("polished", path);
-			expect(polished.editorMode).toBe("polished");
+			const polished = saveEditorStyle("polished", path);
+			expect(polished.editorStyle).toBe("polished");
 			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
 				unknown: { keep: true },
 				editorModelLabel: "name",
-				editorMode: "polished",
+				editorStyle: "polished",
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
