@@ -84,6 +84,7 @@ type PolishedFrameOptions = {
 	rightStatus?: string;
 	ownedFrame?: PolishedFrameSplit;
 	trustedBaseFrame?: boolean;
+	borderColor?: (text: string) => string;
 };
 
 type PolishedFrameResult = { lines: string[]; decorated: boolean };
@@ -319,6 +320,7 @@ function renderPolishedFrame({
 	rightStatus,
 	ownedFrame,
 	trustedBaseFrame = false,
+	borderColor,
 }: PolishedFrameOptions): PolishedFrameResult {
 	if (width <= 2) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 
@@ -380,22 +382,33 @@ function renderPolishedFrame({
 	const copyFriendlyMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
 
-	const top = renderStyleForSourceOrFallback(
-		uiTheme,
-		colorSource,
-		config.colors.editorBorder,
-		EDITOR_BORDER_FALLBACK,
+	const renderStaticBorder = (text: string) =>
+		renderStyleForSourceOrFallback(
+			uiTheme,
+			colorSource,
+			config.colors.editorBorder,
+			EDITOR_BORDER_FALLBACK,
+			text,
+		);
+	const renderBorder = (text: string) => {
+		if (config.editorBorderColorMode !== "adaptive" || typeof borderColor !== "function") {
+			return renderStaticBorder(text);
+		}
+		try {
+			const rendered = borderColor(text);
+			return typeof rendered === "string" ? rendered : renderStaticBorder(text);
+		} catch {
+			return renderStaticBorder(text);
+		}
+	};
+	const top = renderBorder(
 		renderEditorBorder(
 			width,
 			"above",
 			config.features.viewportIndicators ? viewport.above : undefined,
 		),
 	);
-	const bottom = renderStyleForSourceOrFallback(
-		uiTheme,
-		colorSource,
-		config.colors.editorBorder,
-		EDITOR_BORDER_FALLBACK,
+	const bottom = renderBorder(
 		renderEditorBorder(
 			width,
 			"below",
@@ -477,6 +490,7 @@ export class PolishedEditor extends CustomEditor {
 				modelMeta: this.getModelMeta(),
 				thinkingLevel: this.getThinkingLevel(),
 				trustedBaseFrame: true,
+				borderColor: this.borderColor,
 			}).lines;
 		} catch {
 			return clampRenderedLines(rendered, width);
@@ -628,6 +642,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 					thinkingLevel: this.getThinkingLevel(),
 					rightStatus: readVimStatus(this.base, this.uiTheme),
 					ownedFrame,
+					borderColor: this.borderColor,
 				});
 			}
 		} catch {

@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
-import { WrappedPolishedEditor } from "../extensions/zentui/ui";
+import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
 
 function theme(): Theme {
 	return {
@@ -17,8 +17,15 @@ function theme(): Theme {
 	} as Theme;
 }
 
-function config(features: Partial<PolishedTuiConfig["features"]> = {}): PolishedTuiConfig {
-	return { ...defaultConfig, features: { ...defaultConfig.features, ...features } };
+function config(
+	features: Partial<PolishedTuiConfig["features"]> = {},
+	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
+): PolishedTuiConfig {
+	return {
+		...defaultConfig,
+		editorBorderColorMode,
+		features: { ...defaultConfig.features, ...features },
+	};
 }
 
 function nativeBorder(
@@ -64,15 +71,132 @@ function baseEditor(options: {
 function wrapped(
 	base: ReturnType<typeof baseEditor> | WrappedPolishedEditor,
 	features: Partial<PolishedTuiConfig["features"]> = {},
+	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): WrappedPolishedEditor {
 	return new WrappedPolishedEditor(
 		base as never,
 		theme(),
-		() => config(features),
+		() => config(features, editorBorderColorMode),
 		() => ({ modelLabel: "model", providerLabel: "provider" }),
 		() => "off",
 	);
 }
+
+const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+type SemanticBorderState = (typeof thinkingLevels)[number] | "shell";
+
+const semanticBorderCodes: Record<SemanticBorderState, number> = {
+	off: 30,
+	minimal: 31,
+	low: 32,
+	medium: 33,
+	high: 34,
+	xhigh: 35,
+	shell: 36,
+};
+
+function semanticTheme(): Theme {
+	const base = theme();
+	return {
+		...base,
+		getThinkingBorderColor(level) {
+			const code = semanticBorderCodes[level as (typeof thinkingLevels)[number]] ?? 37;
+			return (text: string) => `\x1b[${code}m${text}\x1b[0m`;
+		},
+		getBashModeBorderColor() {
+			return (text: string) => `\x1b[${semanticBorderCodes.shell}m${text}\x1b[0m`;
+		},
+	} as Theme;
+}
+
+describe("adaptive editor border colors", () => {
+	it("keeps static wrapped-editor rendering independent of Pi's callback", () => {
+		const editor = wrapped(baseEditor({ above: 2, below: 3 }));
+		editor.borderColor = (text) => `\x1b[35m${text}\x1b[0m`;
+
+		const lines = editor.render(80);
+		expect(lines[0]).not.toContain("\x1b[35m");
+		expect(lines.at(-1)).not.toContain("\x1b[35m");
+		expect(lines[0]).toContain("↑ 2 more");
+		expect(lines.at(-1)).toContain("↓ 3 more");
+	});
+
+	it.each(["standalone", "wrapped"] as const)(
+		"follows Pi thinking and shell callback transitions in the %s editor path",
+		(editorKind) => {
+			const piTheme = semanticTheme();
+			let thinkingLevel: (typeof thinkingLevels)[number] = "off";
+			const editor =
+				editorKind === "standalone"
+					? new PolishedEditor(
+							{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+							{ borderColor: (text: string) => text, selectList: {} } as never,
+							{} as never,
+							piTheme,
+							() => config({}, "adaptive"),
+							() => ({ modelLabel: "model", providerLabel: "provider" }),
+							() => thinkingLevel,
+						)
+					: new WrappedPolishedEditor(
+							baseEditor({ above: 2, below: 3 }) as never,
+							piTheme,
+							() => config({}, "adaptive"),
+							() => ({ modelLabel: "model", providerLabel: "provider" }),
+							() => thinkingLevel,
+						);
+			if (editorKind === "standalone") editor.setText("draft");
+
+			const transitions: SemanticBorderState[] = [...thinkingLevels, "shell", "xhigh", "off"];
+			for (const state of transitions) {
+				if (state === "shell") {
+					editor.borderColor = piTheme.getBashModeBorderColor();
+				} else {
+					thinkingLevel = state;
+					editor.borderColor = piTheme.getThinkingBorderColor(state);
+				}
+
+				const lines = editor.render(80);
+				const expectedCode = semanticBorderCodes[state];
+				for (const border of [lines[0] ?? "", lines.at(-1) ?? ""]) {
+					expect(border).toMatch(new RegExp(`^\\x1b\\[${expectedCode}m`));
+					for (const code of Object.values(semanticBorderCodes)) {
+						if (code !== expectedCode) expect(border).not.toContain(`\x1b[${code}m`);
+					}
+				}
+				expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+			}
+		},
+	);
+
+	it("does not double-apply adaptive colors through nested branded frames", () => {
+		const inner = wrapped(baseEditor({ above: 3, below: 8 }), {}, "adaptive");
+		inner.borderColor = (text) => `\x1b[32m${text}\x1b[0m`;
+		const outer = wrapped(inner, {}, "adaptive");
+
+		const rendered = outer.render(80).join("\n");
+		expect(rendered.match(/\x1b\[32m/g)).toHaveLength(2);
+		expect(rendered.match(/↑ 3 more/g)).toHaveLength(1);
+		expect(rendered.match(/↓ 8 more/g)).toHaveLength(1);
+		expect(rendered.match(/model/g)).toHaveLength(1);
+	});
+
+	it("preserves copy-friendly viewport layout, clamping, and static fallback", () => {
+		const editor = wrapped(
+			baseEditor({ above: 123456, below: 654321, ansi: true }),
+			{ copyFriendly: true },
+			"adaptive",
+		);
+		editor.borderColor = () => {
+			throw new Error("theme callback failed");
+		};
+
+		const lines = editor.render(12);
+		expect(lines[0]).toContain("↑");
+		expect(lines.at(-1)).toContain("↓");
+		expect(lines.join("\n")).not.toContain("│");
+		expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+	});
+});
 
 describe("editor viewport indicators", () => {
 	it.each([

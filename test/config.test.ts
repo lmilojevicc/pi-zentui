@@ -22,6 +22,7 @@ import {
 	mergeConfig,
 	saveColorSourcesPatch,
 	saveContextThresholdsPatch,
+	saveEditorBorderColorMode,
 	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -443,6 +444,42 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ editorModelLabel: "name" }).editorModelLabel).toBe("name");
 		expect(mergeConfig({ editorModelLabel: "id" }).editorModelLabel).toBe("id");
 		expect(mergeConfig({ editorModelLabel: "title" }).editorModelLabel).toBe("id");
+	});
+
+	it("defaults and normalizes editor border color mode", () => {
+		expect(defaultConfig.editorBorderColorMode).toBe("static");
+		expect(mergeConfig({}).editorBorderColorMode).toBe("static");
+		expect(mergeConfig({ editorBorderColorMode: "static" }).editorBorderColorMode).toBe("static");
+		expect(mergeConfig({ editorBorderColorMode: "adaptive" }).editorBorderColorMode).toBe(
+			"adaptive",
+		);
+		for (const value of ["dynamic", "", 1, null, true]) {
+			expect(mergeConfig({ editorBorderColorMode: value }).editorBorderColorMode).toBe("static");
+		}
+	});
+
+	it("saves editor border color mode without erasing sibling config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				`${JSON.stringify({ unknown: { keep: true }, editorModelLabel: "name" }, null, 2)}\n`,
+			);
+
+			const config = saveEditorBorderColorMode("adaptive", path);
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw).toEqual({
+				unknown: { keep: true },
+				editorModelLabel: "name",
+				editorBorderColorMode: "adaptive",
+			});
+			expect(config.editorBorderColorMode).toBe("adaptive");
+			expect(config.editorModelLabel).toBe("name");
+			expect(configTempFiles(dir)).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("defaults pathDisplay and accepts mode/depth overrides", () => {

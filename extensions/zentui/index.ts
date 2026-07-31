@@ -8,6 +8,7 @@ import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
 	type ColorSourcesConfig,
 	type ContextStyle,
+	type EditorBorderColorMode,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
@@ -25,6 +26,7 @@ import {
 	type SeparatorStyle,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
+	saveEditorBorderColorMode,
 	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -658,6 +660,9 @@ export default function (pi: ExtensionAPI) {
 		setEditorModelLabel(value: ModelLabelSource, ctx: ExtensionContext) {
 			currentConfig = saveEditorModelLabel(value);
 			syncFooterState(ctx);
+		},
+		setEditorBorderColorMode(value: EditorBorderColorMode) {
+			currentConfig = saveEditorBorderColorMode(value);
 		},
 		setGitCommit(
 			patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,

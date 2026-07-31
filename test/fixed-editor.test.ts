@@ -1,5 +1,7 @@
-import { CURSOR_MARKER } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
+import { defaultConfig } from "../extensions/zentui/config";
 import { capEditorLines, renderCluster } from "../extensions/zentui/fixed-editor/cluster";
 import { TerminalSplitCompositor } from "../extensions/zentui/fixed-editor/compositor";
 import {
@@ -22,6 +24,7 @@ import {
 	RESET_SCROLL_REGION,
 	SHOW_CURSOR,
 } from "../extensions/zentui/fixed-editor/terminal-modes";
+import { WrappedPolishedEditor } from "../extensions/zentui/ui";
 
 function makeValidPiFixture() {
 	let rawRows = 24;
@@ -342,6 +345,74 @@ describe("Pi fixed-editor compatibility", () => {
 		fixture.requestRender.mockClear();
 		fixture.getInputListener()?.("\u001b[<64;1;1M");
 		expect(fixture.requestRender).toHaveBeenCalled();
+		compositor.dispose();
+	});
+
+	it("repaints adaptive polished borders through the fixed-editor cluster without stale color", () => {
+		const fixture = makeValidPiFixture();
+		const uiTheme = {
+			fg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+			italic: (text: string) => text,
+			underline: (text: string) => text,
+			strikethrough: (text: string) => text,
+			inverse: (text: string) => text,
+		} as Theme;
+		const renderWidths: number[] = [];
+		const base = {
+			borderColor: undefined as ((text: string) => string) | undefined,
+			render(width: number) {
+				renderWidths.push(width);
+				return ["─".repeat(width), "fixed editor draft", "─".repeat(width)];
+			},
+			invalidate: vi.fn(),
+			handleInput() {},
+			getText: () => "fixed editor draft",
+			setText() {},
+			isShowingAutocomplete: () => false,
+		};
+		const editor = new WrappedPolishedEditor(
+			base,
+			uiTheme,
+			() => ({ ...defaultConfig, editorBorderColorMode: "adaptive" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "high",
+		);
+		const thinkingBorder = (text: string) => `\x1b[34m${text}\x1b[0m`;
+		const shellBorder = (text: string) => `\x1b[36m${text}\x1b[0m`;
+		editor.borderColor = thinkingBorder;
+		Reflect.set(fixture.cluster[2], "render", (width: number) => editor.render(width));
+
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		fixture.terminalWrite.mockClear();
+
+		fixture.tui.doRender();
+		const thinkingPaint = String(fixture.terminalWrite.mock.calls.at(-1)?.[0] ?? "");
+		expect(thinkingPaint.match(/\x1b\[34m/g)).toHaveLength(2);
+		expect(thinkingPaint).not.toContain("\x1b[36m");
+		expect(fixture.tui.render(80)).toHaveLength(14);
+
+		editor.borderColor = shellBorder;
+		editor.invalidate();
+		fixture.tui.doRender();
+		const shellPaint = String(fixture.terminalWrite.mock.calls.at(-1)?.[0] ?? "");
+		expect(shellPaint.match(/\x1b\[36m/g)).toHaveLength(2);
+		expect(shellPaint).not.toContain("\x1b[34m");
+		expect(base.invalidate).toHaveBeenCalledTimes(1);
+		expect(renderWidths).toEqual([78, 78]);
+		for (const frame of [thinkingPaint, shellPaint]) {
+			const paintedRows = frame.split("\x1b[2K").slice(1);
+			expect(paintedRows).toHaveLength(10);
+			expect(paintedRows.every((row) => visibleWidth(row) <= 80)).toBe(true);
+		}
+
 		compositor.dispose();
 	});
 
