@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { PolishedTuiConfig } from "./config";
 import { renderEditorMetadataFormat } from "./editor-metadata-format";
+import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -88,6 +89,19 @@ type PolishedFrameOptions = {
 };
 
 type PolishedFrameResult = { lines: string[]; decorated: boolean };
+
+type MinimalistFrameAdapterOptions = {
+	width: number;
+	baseRendered: string[];
+	autocompleteSource: AutocompleteEditorInternals;
+	uiTheme: Theme;
+	config: PolishedTuiConfig;
+	inputText: string;
+	metadata: MinimalistEditorMetadata;
+	ownedFrame?: PolishedFrameSplit;
+	trustedBaseFrame?: boolean;
+	borderColor?: (text: string) => string;
+};
 
 type AutocompleteCount = { known: true; count: number } | { known: false };
 
@@ -283,6 +297,26 @@ function splitPolishedFrame(
 	return undefined;
 }
 
+function inspectPolishedFrameProvenance(
+	base: WrappedEditor,
+	rendered: string[],
+	config: PolishedTuiConfig,
+	uiTheme: Theme,
+): { safe: boolean; ownedFrame?: PolishedFrameSplit } {
+	const provenance = POLISHED_FRAME_SPLITS.get(rendered);
+	const provenanceMatches = Boolean(
+		provenance &&
+			provenance.rows.length === rendered.length &&
+			provenance.rows.every((line, index) => line === rendered[index]),
+	);
+	const ownedFrame = provenanceMatches ? provenance?.split : undefined;
+	const unsafe =
+		Boolean(provenance && !provenanceMatches) ||
+		LEGACY_SPLIT_POLISHED_FRAME in base ||
+		(!ownedFrame && Boolean(splitPolishedFrame(rendered, config, uiTheme)));
+	return { safe: !unsafe, ownedFrame };
+}
+
 function vimModeColor(mode: string): string {
 	switch (mode.toLowerCase()) {
 		case "insert":
@@ -307,6 +341,62 @@ function readVimStatus(editor: WrappedEditor, uiTheme: Theme): string | undefine
 	if (!normalized) return undefined;
 	const label = `${normalized.toUpperCase()} `;
 	return safeThemeFg(uiTheme, vimModeColor(normalized), label);
+}
+
+function renderMinimalistFrameFromBase({
+	width,
+	baseRendered,
+	autocompleteSource,
+	uiTheme,
+	config,
+	inputText,
+	metadata,
+	ownedFrame,
+	trustedBaseFrame = false,
+	borderColor,
+}: MinimalistFrameAdapterOptions): PolishedFrameResult {
+	if (width <= 4 || baseRendered.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	if (ownedFrame && !isPolishedFrameSplit(ownedFrame, baseRendered.length)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const autocomplete = ownedFrame
+		? { known: true as const, count: ownedFrame.trailingLines.length }
+		: readAutocompleteCount(autocompleteSource, Math.max(0, width - 4), baseRendered.length);
+	if (!autocomplete.known) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const editorFrame =
+		!ownedFrame && autocomplete.count > 0
+			? baseRendered.slice(0, -autocomplete.count)
+			: baseRendered;
+	const autocompleteLines = ownedFrame
+		? ownedFrame.trailingLines
+		: autocomplete.count > 0
+			? baseRendered.slice(-autocomplete.count)
+			: [];
+	if (editorFrame.length < 2) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	const parsedTop = parseEditorBorder(editorFrame[0] ?? "", "above");
+	const parsedBottom = parseEditorBorder(editorFrame.at(-1) ?? "", "below");
+	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
+		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
+	}
+	return {
+		lines: renderMinimalistFrame({
+			width,
+			editorLines: ownedFrame?.editorLines ?? editorFrame.slice(1, -1),
+			autocompleteLines,
+			inputText,
+			metadata,
+			uiTheme,
+			config,
+			borderColor,
+		}),
+		decorated: true,
+	};
 }
 
 function renderPolishedFrame({
@@ -451,6 +541,8 @@ function renderPolishedFrame({
 export class PolishedEditor extends CustomEditor {
 	private readonly getModelMeta: () => EditorMeta;
 	private readonly getThinkingLevel: () => string | undefined;
+	private readonly getMinimalistMetadata: () => MinimalistEditorMetadata;
+	private readonly onMinimalistDecorationChange: (active: boolean) => void;
 	private readonly getConfig: () => PolishedTuiConfig;
 	private readonly uiTheme: Theme;
 
@@ -462,6 +554,8 @@ export class PolishedEditor extends CustomEditor {
 		getConfig: () => PolishedTuiConfig,
 		getModelMeta: () => EditorMeta,
 		getThinkingLevel: () => string | undefined,
+		getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
+		onMinimalistDecorationChange: (active: boolean) => void = () => {},
 	) {
 		super(tui, theme, keybindings, { paddingX: 0 });
 		this.borderColor = (text: string) => safeThemeFg(uiTheme, "border", text);
@@ -469,14 +563,46 @@ export class PolishedEditor extends CustomEditor {
 		this.getConfig = getConfig;
 		this.getModelMeta = getModelMeta;
 		this.getThinkingLevel = getThinkingLevel;
+		this.getMinimalistMetadata = getMinimalistMetadata;
+		this.onMinimalistDecorationChange = onMinimalistDecorationChange;
+	}
+
+	private reportMinimalistDecoration(active: boolean): void {
+		this.onMinimalistDecorationChange(active);
 	}
 
 	render(width: number): string[] {
+		const config = this.getConfig();
+		if (config.editorMode === "minimalist") {
+			if (width <= 4) {
+				this.reportMinimalistDecoration(false);
+				return clampRenderedLines(super.render(width), width);
+			}
+			try {
+				const rendered = super.render(Math.max(0, width - 4));
+				const result = renderMinimalistFrameFromBase({
+					width,
+					baseRendered: rendered,
+					autocompleteSource: this as unknown as AutocompleteEditorInternals,
+					uiTheme: this.uiTheme,
+					config,
+					inputText: this.getText(),
+					metadata: this.getMinimalistMetadata(),
+					trustedBaseFrame: true,
+					borderColor: this.borderColor,
+				});
+				this.reportMinimalistDecoration(result.decorated);
+				return result.lines;
+			} catch {
+				this.reportMinimalistDecoration(false);
+				return clampRenderedLines(super.render(width), width);
+			}
+		}
+		this.reportMinimalistDecoration(false);
 		if (width <= 2) {
 			return clampRenderedLines(super.render(width), width);
 		}
 
-		const config = this.getConfig();
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
 		const rendered = super.render(innerWidth);
@@ -511,6 +637,8 @@ export class WrappedPolishedEditor implements EditorComponent {
 		private readonly getConfig: () => PolishedTuiConfig,
 		private readonly getModelMeta: () => EditorMeta,
 		private readonly getThinkingLevel: () => string | undefined,
+		private readonly getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
+		private readonly onMinimalistDecorationChange: (active: boolean) => void = () => {},
 	) {
 		if (typeof base.addToHistory === "function") {
 			this.addToHistory = (text) => base.addToHistory?.(text);
@@ -606,10 +734,57 @@ export class WrappedPolishedEditor implements EditorComponent {
 		this.base.disableSubmit = value;
 	}
 
+	private reportMinimalistDecoration(active: boolean): void {
+		this.onMinimalistDecorationChange(active);
+	}
+
 	render(width: number): string[] {
+		const config = this.getConfig();
+		if (config.editorMode === "minimalist") {
+			if (width <= 4) {
+				this.reportMinimalistDecoration(false);
+				return clampRenderedLines(this.base.render(width), width);
+			}
+			let rendered: string[];
+			try {
+				rendered = this.base.render(Math.max(0, width - 4));
+			} catch {
+				this.reportMinimalistDecoration(false);
+				return clampRenderedLines(this.base.render(width), width);
+			}
+			try {
+				const provenance = inspectPolishedFrameProvenance(
+					this.base,
+					rendered,
+					config,
+					this.uiTheme,
+				);
+				if (provenance.safe) {
+					const result = renderMinimalistFrameFromBase({
+						width,
+						baseRendered: rendered,
+						autocompleteSource: this.base,
+						uiTheme: this.uiTheme,
+						config,
+						inputText: this.base.getText(),
+						metadata: this.getMinimalistMetadata(),
+						ownedFrame: provenance.ownedFrame,
+						borderColor: this.borderColor,
+					});
+					if (result.decorated) {
+						this.reportMinimalistDecoration(true);
+						return result.lines;
+					}
+				}
+			} catch {
+				// Decoration is optional; re-render the base at the caller's width below.
+			}
+			this.reportMinimalistDecoration(false);
+			return clampRenderedLines(this.base.render(width), width);
+		}
+		this.reportMinimalistDecoration(false);
 		if (width <= 2) return clampRenderedLines(this.base.render(width), width);
 
-		const config = this.getConfig();
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
 		let rendered: string[];
@@ -620,18 +795,8 @@ export class WrappedPolishedEditor implements EditorComponent {
 		}
 		let result: PolishedFrameResult | undefined;
 		try {
-			const provenance = POLISHED_FRAME_SPLITS.get(rendered);
-			const provenanceMatches = Boolean(
-				provenance &&
-					provenance.rows.length === rendered.length &&
-					provenance.rows.every((line, index) => line === rendered[index]),
-			);
-			const ownedFrame = provenanceMatches ? provenance?.split : undefined;
-			const hasMutatedProvenance = Boolean(provenance && !provenanceMatches);
-			const hasUntrustedLegacySplitter = LEGACY_SPLIT_POLISHED_FRAME in this.base;
-			const hasUnprovenPolishedFrame =
-				!ownedFrame && Boolean(splitPolishedFrame(rendered, config, this.uiTheme));
-			if (!hasMutatedProvenance && !hasUntrustedLegacySplitter && !hasUnprovenPolishedFrame) {
+			const provenance = inspectPolishedFrameProvenance(this.base, rendered, config, this.uiTheme);
+			if (provenance.safe) {
 				result = renderPolishedFrame({
 					width,
 					baseRendered: rendered,
@@ -641,7 +806,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 					modelMeta: this.getModelMeta(),
 					thinkingLevel: this.getThinkingLevel(),
 					rightStatus: readVimStatus(this.base, this.uiTheme),
-					ownedFrame,
+					ownedFrame: provenance.ownedFrame,
 					borderColor: this.borderColor,
 				});
 			}

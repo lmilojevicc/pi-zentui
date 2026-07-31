@@ -518,3 +518,193 @@ describe("editor viewport indicators", () => {
 		expect(lines[0]).toBe(truncatedNativeTop);
 	});
 });
+
+describe("minimalist editor integration", () => {
+	it("switches renderer modes without replacing the wrapped editor", () => {
+		let current = config();
+		const base = baseEditor({});
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => current,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp/project", modelLabel: "model", costLabel: "$0.100" }),
+		);
+
+		expect(editor.render(80)[0]).toMatch(/^─+$/);
+		current = { ...current, editorMode: "minimalist" };
+		const minimalist = editor.render(80);
+		expect(minimalist[0]).toMatch(/^╭.*╮$/);
+		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
+		expect(minimalist.join("\n")).toContain("$0.100 – model");
+	});
+
+	it("keeps known autocomplete rows inside the minimalist frame", () => {
+		const base = baseEditor({ autocomplete: ["one", "two"] });
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+		);
+		const lines = editor.render(40);
+		expect(lines.some((line) => /^├─+┤$/.test(line))).toBe(true);
+		expect(lines.findIndex((line) => line.includes("one"))).toBeGreaterThan(
+			lines.findIndex((line) => line.startsWith("├")),
+		);
+		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("fails open at caller width for unknown third-party output", () => {
+		const widths: number[] = [];
+		const decoration = vi.fn();
+		const base = {
+			render(width: number) {
+				widths.push(width);
+				return [`header-${width}`, "body", `help-${width}`];
+			},
+			invalidate() {},
+			handleInput() {},
+			getText: () => "body",
+			setText() {},
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+			decoration,
+		);
+		expect(editor.render(40)).toEqual(["header-40", "body", "help-40"]);
+		expect(widths).toEqual([36, 40]);
+		expect(decoration).toHaveBeenLastCalledWith(false);
+	});
+
+	it("unwraps module-owned polished chrome and autocomplete before minimalist decoration", () => {
+		const inner = wrapped(baseEditor({ autocomplete: ["one", "two"] }));
+		const outer = new WrappedPolishedEditor(
+			inner as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "outer", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp", modelLabel: "minimal-model" }),
+		);
+
+		const lines = outer.render(80);
+		const rendered = lines.join("\n");
+		expect(lines[0]).toMatch(/^╭.*╮$/);
+		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+		expect(rendered).toContain("minimal-model");
+		expect(rendered).not.toContain("provider");
+		expect(rendered.match(/minimal-model/g)).toHaveLength(1);
+		expect(lines.some((line) => /^├─+┤$/.test(line))).toBe(true);
+		expect(lines.filter((line) => line.includes("one") || line.includes("two"))).toHaveLength(2);
+	});
+
+	it("rejects mutated module-owned polished provenance in minimalist mode", () => {
+		const owned = wrapped(baseEditor({ above: 2, below: 3 })).render(36);
+		owned[1] = "mutated-row";
+		const base = {
+			render: () => owned,
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed text",
+			setText() {},
+		};
+		const decoration = vi.fn();
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+			decoration,
+		);
+
+		expect(editor.render(40)).toEqual(owned);
+		expect(decoration).toHaveBeenLastCalledWith(false);
+	});
+
+	it("falls back at four columns and decorates after resizing to five", () => {
+		const widths: number[] = [];
+		const decoration = vi.fn();
+		const base = baseEditor({});
+		const renderBase = base.render.bind(base);
+		base.render = (width: number) => {
+			widths.push(width);
+			return renderBase(width);
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+			decoration,
+		);
+
+		const narrow = editor.render(4);
+		expect(narrow[0]).not.toContain("╭");
+		expect(narrow.every((line) => visibleWidth(line) <= 4)).toBe(true);
+		const decorated = editor.render(5);
+		expect(decorated[0]).toMatch(/^╭.*╮$/);
+		expect(decorated.every((line) => visibleWidth(line) <= 5)).toBe(true);
+		expect(widths).toEqual([4, 1]);
+		expect(decoration.mock.calls.map(([active]) => active)).toEqual([false, true]);
+	});
+
+	it("preserves empty, multiline, blank, and inverse-video editor rows", () => {
+		const inverseCursor = "\x1b[7m \x1b[0m";
+		const base = {
+			render: (width: number) => [
+				nativeBorder(width, "above"),
+				"",
+				inverseCursor,
+				"second line",
+				nativeBorder(width, "below"),
+			],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "\nsecond line",
+			setText() {},
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+		);
+		const lines = editor.render(40);
+		expect(lines[1]).toMatch(/^│\s+│$/);
+		expect(lines.join("\n")).toContain(inverseCursor);
+		expect(lines.join("\n")).toContain("second line");
+		expect(lines.at(-2)).toMatch(/^│\s+│$/);
+
+		const empty = new WrappedPolishedEditor(
+			{
+				render: (width: number) => [nativeBorder(width, "above"), nativeBorder(width, "below")],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			} as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+		).render(40);
+		expect(empty).toHaveLength(4);
+		expect(empty.slice(1, -1).every((line) => /^│\s+│$/.test(line))).toBe(true);
+	});
+});

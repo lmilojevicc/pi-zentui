@@ -33,6 +33,17 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
+export type EditorMode = "polished" | "minimalist";
+export type MinimalistPathDisplayMode = "compact" | "project" | "full";
+export type MinimalistContextFormat = "percent" | "percent-total";
+export type MinimalistConfig = {
+	pathDisplay: MinimalistPathDisplayMode;
+	contextFormat: MinimalistContextFormat;
+	contextGauge: boolean;
+	showTimer: boolean;
+	showCost: boolean;
+	showGit: boolean;
+};
 export type EditorBorderColorMode = "static" | "adaptive";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
@@ -141,6 +152,8 @@ export type PolishedTuiConfig = {
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
 	editorModelLabel: ModelLabelSource;
+	editorMode: EditorMode;
+	minimalist: MinimalistConfig;
 	editorBorderColorMode: EditorBorderColorMode;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
@@ -249,6 +262,15 @@ export const defaultConfig: PolishedTuiConfig = {
 	separator: "pipe",
 	contextStyle: "text",
 	editorModelLabel: "id",
+	editorMode: "polished",
+	minimalist: {
+		pathDisplay: "compact",
+		contextFormat: "percent",
+		contextGauge: false,
+		showTimer: true,
+		showCost: true,
+		showGit: true,
+	},
 	editorBorderColorMode: "static",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
@@ -359,6 +381,36 @@ function parseContextStyle(value: unknown): ContextStyle {
 function parseEditorModelLabel(value: unknown): ModelLabelSource {
 	if (value === "id" || value === "name") return value;
 	return defaultConfig.editorModelLabel;
+}
+
+function parseEditorMode(value: unknown): EditorMode {
+	if (value === "polished" || value === "minimalist") return value;
+	return defaultConfig.editorMode;
+}
+
+function normalizeMinimalistConfig(value: unknown): MinimalistConfig {
+	const record = isRecord(value) ? value : {};
+	const pathDisplay = record.pathDisplay;
+	return {
+		pathDisplay:
+			pathDisplay === "compact" || pathDisplay === "project" || pathDisplay === "full"
+				? pathDisplay
+				: defaultConfig.minimalist.pathDisplay,
+		contextFormat:
+			record.contextFormat === "percent" || record.contextFormat === "percent-total"
+				? record.contextFormat
+				: defaultConfig.minimalist.contextFormat,
+		contextGauge:
+			typeof record.contextGauge === "boolean"
+				? record.contextGauge
+				: defaultConfig.minimalist.contextGauge,
+		showTimer:
+			typeof record.showTimer === "boolean" ? record.showTimer : defaultConfig.minimalist.showTimer,
+		showCost:
+			typeof record.showCost === "boolean" ? record.showCost : defaultConfig.minimalist.showCost,
+		showGit:
+			typeof record.showGit === "boolean" ? record.showGit : defaultConfig.minimalist.showGit,
+	};
 }
 
 function parseEditorBorderColorMode(value: unknown): EditorBorderColorMode {
@@ -833,6 +885,8 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		separator: parseSeparatorStyle(config.separator),
 		contextStyle: parseContextStyle(config.contextStyle),
 		editorModelLabel: parseEditorModelLabel(config.editorModelLabel),
+		editorMode: parseEditorMode(config.editorMode),
+		minimalist: normalizeMinimalistConfig(config.minimalist),
 		editorBorderColorMode: parseEditorBorderColorMode(config.editorBorderColorMode),
 		contextThresholds: parseContextThresholds(config.contextThresholds),
 		pathDisplay: parsePathDisplay(config.pathDisplay),
@@ -1023,6 +1077,25 @@ export function saveEditorModelLabel(
 ): PolishedTuiConfig {
 	return mutateConfig(path, (record) => {
 		record.editorModelLabel = parseEditorModelLabel(value);
+	});
+}
+
+export function saveEditorMode(value: EditorMode, path = configPath): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.editorMode = parseEditorMode(value);
+	});
+}
+
+export function saveMinimalistPatch(
+	patch: Partial<MinimalistConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const existing = isRecord(record.minimalist)
+			? { ...(record.minimalist as Record<string, unknown>) }
+			: {};
+		const normalized = normalizeMinimalistConfig({ ...existing, ...patch });
+		record.minimalist = { ...existing, ...normalized };
 	});
 }
 

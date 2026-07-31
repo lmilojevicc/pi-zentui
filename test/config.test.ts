@@ -24,6 +24,7 @@ import {
 	saveColorSourcesPatch,
 	saveContextThresholdsPatch,
 	saveEditorBorderColorMode,
+	saveEditorMode,
 	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -34,6 +35,7 @@ import {
 	saveGitBranchPatch,
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
+	saveMinimalistPatch,
 	savePathDisplayPatch,
 	saveResponsiveFooterPatch,
 	saveSeparatorPatch,
@@ -453,6 +455,105 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ editorModelLabel: "name" }).editorModelLabel).toBe("name");
 		expect(mergeConfig({ editorModelLabel: "id" }).editorModelLabel).toBe("id");
 		expect(mergeConfig({ editorModelLabel: "title" }).editorModelLabel).toBe("id");
+	});
+
+	it("defaults and normalizes editor mode", () => {
+		expect(defaultConfig.editorMode).toBe("polished");
+		expect(mergeConfig({}).editorMode).toBe("polished");
+		expect(mergeConfig({ editorMode: "polished" }).editorMode).toBe("polished");
+		expect(mergeConfig({ editorMode: "minimalist" }).editorMode).toBe("minimalist");
+		for (const value of ["amp", "", 1, null, true]) {
+			expect(mergeConfig({ editorMode: value }).editorMode).toBe("polished");
+		}
+	});
+
+	it("normalizes focused minimalist settings", () => {
+		expect(defaultConfig.minimalist).toEqual({
+			pathDisplay: "compact",
+			contextFormat: "percent",
+			contextGauge: false,
+			showTimer: true,
+			showCost: true,
+			showGit: true,
+		});
+		expect(
+			mergeConfig({
+				minimalist: {
+					pathDisplay: "project",
+					contextFormat: "percent-total",
+					contextGauge: true,
+					showTimer: false,
+					showCost: false,
+					showGit: false,
+				},
+			}).minimalist,
+		).toEqual({
+			pathDisplay: "project",
+			contextFormat: "percent-total",
+			contextGauge: true,
+			showTimer: false,
+			showCost: false,
+			showGit: false,
+		});
+		expect(
+			mergeConfig({
+				minimalist: {
+					pathDisplay: "basename",
+					contextFormat: "tokens",
+					contextGauge: "yes",
+					showTimer: null,
+				},
+			}).minimalist,
+		).toEqual(defaultConfig.minimalist);
+	});
+
+	it("saves minimalist patches while preserving unknown nested config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(
+				path,
+				JSON.stringify({ unknownTop: true, minimalist: { unknownNested: "keep", showGit: true } }),
+			);
+			const config = saveMinimalistPatch(
+				{ pathDisplay: "full", contextFormat: "percent-total", showGit: false },
+				path,
+			);
+			expect(config.minimalist.pathDisplay).toBe("full");
+			expect(config.minimalist.contextFormat).toBe("percent-total");
+			expect(config.minimalist.showGit).toBe(false);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				unknownTop: true,
+				minimalist: { unknownNested: "keep", pathDisplay: "full", showGit: false },
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("saves editor mode without erasing sibling config", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+		const path = join(dir, "zentui.json");
+		try {
+			writeFileSync(path, JSON.stringify({ unknown: { keep: true }, editorModelLabel: "name" }));
+			const minimalist = saveEditorMode("minimalist", path);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+				unknown: { keep: true },
+				editorModelLabel: "name",
+				editorMode: "minimalist",
+			});
+			expect(minimalist.editorMode).toBe("minimalist");
+
+			const polished = saveEditorMode("polished", path);
+			expect(polished.editorMode).toBe("polished");
+			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+				unknown: { keep: true },
+				editorModelLabel: "name",
+				editorMode: "polished",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("defaults and normalizes editor border color mode", () => {

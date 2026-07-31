@@ -1,0 +1,354 @@
+import { basename, isAbsolute, relative, sep } from "node:path";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { PolishedTuiConfig } from "./config";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import { buildContextGauge, contextColorTier, formatCount, formatCwdLabel } from "./format";
+import {
+	EDITOR_ACCENT_FALLBACK,
+	EDITOR_BORDER_FALLBACK,
+	renderStyleForSource,
+	renderStyleForSourceOrFallback,
+	safeThemeFg,
+} from "./style";
+
+export type MinimalistEditorMetadata = {
+	cwd: string;
+	projectRoot?: string;
+	branch?: string;
+	dirty?: boolean;
+	ahead?: number;
+	behind?: number;
+	costLabel?: string;
+	modelLabel?: string;
+	thinkingLevel?: string;
+	contextPercent?: number;
+	contextWindow?: number;
+	agentDurationMs?: number;
+	agentActive?: boolean;
+};
+
+export type MinimalistFrameOptions = {
+	width: number;
+	editorLines: string[];
+	autocompleteLines?: string[];
+	inputText: string;
+	metadata: MinimalistEditorMetadata;
+	uiTheme: Theme;
+	config: PolishedTuiConfig;
+	borderColor?: (text: string) => string;
+};
+
+export function formatElapsedDuration(durationMs: number): string {
+	const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h ${minutes}m`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
+
+function fillLine(content: string, width: number): string {
+	const truncated = truncateToWidth(content, Math.max(0, width), "");
+	return `${truncated}${" ".repeat(Math.max(0, width - visibleWidth(truncated)))}`;
+}
+
+function clampLines(lines: string[], width: number): string[] {
+	return lines.map((line) => truncateToWidth(line, Math.max(0, width), ""));
+}
+
+function joinStyled(parts: string[], separator: string): string {
+	return parts.filter(Boolean).join(separator);
+}
+
+function thinkingStyle(config: PolishedTuiConfig, level: string): string | undefined {
+	switch (level.toLowerCase()) {
+		case "minimal":
+			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+		case "low":
+			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+		case "medium":
+			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+		case "high":
+			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+		case "xhigh":
+			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+		default:
+			return config.colors.editorThinking;
+	}
+}
+
+function renderTopLeft(
+	inputText: string,
+	metadata: MinimalistEditorMetadata,
+	uiTheme: Theme,
+	config: PolishedTuiConfig,
+): string {
+	const source = config.colorSources.editor;
+	const trimmed = inputText.trimStart();
+	const bashMode = trimmed.startsWith("!!") ? "no-context" : trimmed.startsWith("!") ? "shell" : "";
+	const parts: string[] = [];
+	if (bashMode) {
+		parts.push(
+			bashMode === "no-context"
+				? safeThemeFg(uiTheme, "muted", "$")
+				: safeThemeFg(uiTheme, "bashMode", "$"),
+		);
+	}
+	if (config.minimalist.showTimer && metadata.agentDurationMs !== undefined) {
+		const duration = formatElapsedDuration(metadata.agentDurationMs);
+		parts.push(
+			metadata.agentActive
+				? renderStyleForSourceOrFallback(
+						uiTheme,
+						source,
+						config.colors.sessionDuration,
+						EDITOR_ACCENT_FALLBACK,
+						duration,
+					)
+				: safeThemeFg(uiTheme, "muted", duration),
+		);
+	}
+	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
+}
+
+function renderTopRight(
+	metadata: MinimalistEditorMetadata,
+	uiTheme: Theme,
+	config: PolishedTuiConfig,
+	availableWidth: number,
+): string {
+	const source = config.colorSources.editor;
+	const parts: string[] = [];
+	const cost = config.minimalist.showCost
+		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
+		: "";
+	if (cost) {
+		parts.push(renderStyleForSource(uiTheme, source, config.colors.cost, cost));
+	}
+	const model = sanitizeEditorMetadataText(metadata.modelLabel ?? "");
+	if (model) {
+		parts.push(
+			renderStyleForSourceOrFallback(
+				uiTheme,
+				source,
+				config.colors.editorModel,
+				EDITOR_ACCENT_FALLBACK,
+				model,
+			),
+		);
+	}
+	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
+	if (thinking && thinking.toLowerCase() !== "off") {
+		parts.push(
+			renderStyleForSourceOrFallback(
+				uiTheme,
+				source,
+				thinkingStyle(config, thinking),
+				"muted",
+				thinking,
+			),
+		);
+	}
+	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
+		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
+		const tier = contextColorTier(percent, config.contextThresholds);
+		const style =
+			tier === "error"
+				? config.colors.contextError
+				: tier === "warning"
+					? config.colors.contextWarning
+					: config.colors.contextNormal;
+		const total =
+			config.minimalist.contextFormat === "percent-total" &&
+			metadata.contextWindow !== undefined &&
+			Number.isFinite(metadata.contextWindow) &&
+			metadata.contextWindow > 0
+				? `/${formatCount(metadata.contextWindow)}`
+				: "";
+		const text = `${percent}%${total}`;
+		let context = renderStyleForSource(uiTheme, source, style, text);
+		if (config.minimalist.contextGauge) {
+			for (const gaugeWidth of [5, 3]) {
+				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
+				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
+				const candidate = joinStyled([...parts, styledGauge], safeThemeFg(uiTheme, "muted", " – "));
+				if (visibleWidth(candidate) <= availableWidth) {
+					context = styledGauge;
+					break;
+				}
+			}
+		}
+		parts.push(context);
+	}
+	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " – "));
+}
+
+function renderBottomLeft(
+	metadata: MinimalistEditorMetadata,
+	uiTheme: Theme,
+	config: PolishedTuiConfig,
+): string {
+	if (!config.minimalist.showGit) return "";
+	const source = config.colorSources.editor;
+	const branch = sanitizeEditorMetadataText(metadata.branch ?? "");
+	const parts = branch
+		? [renderStyleForSource(uiTheme, source, config.colors.gitBranch, branch)]
+		: [];
+	if (metadata.dirty) {
+		parts.push(renderStyleForSource(uiTheme, source, config.colors.gitStatus, "*"));
+	}
+	if ((metadata.ahead ?? 0) > 0) {
+		parts.push(safeThemeFg(uiTheme, "success", `↑${metadata.ahead}`));
+	}
+	if ((metadata.behind ?? 0) > 0) {
+		parts.push(safeThemeFg(uiTheme, "error", `↓${metadata.behind}`));
+	}
+	return parts.join(" ");
+}
+
+function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: PolishedTuiConfig): string {
+	const full = () => formatCwdLabel(metadata.cwd, "", { mode: "full", depth: 0 });
+	if (config.minimalist.pathDisplay === "full") return full();
+	if (config.minimalist.pathDisplay === "compact") return basename(metadata.cwd) || metadata.cwd;
+	if (!metadata.projectRoot) return full();
+
+	const pathFromRoot = relative(metadata.projectRoot, metadata.cwd);
+	if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) {
+		return full();
+	}
+	const project = basename(metadata.projectRoot) || metadata.projectRoot;
+	return pathFromRoot ? `${project}/${pathFromRoot}` : project;
+}
+
+function renderBottomRight(
+	metadata: MinimalistEditorMetadata,
+	uiTheme: Theme,
+	config: PolishedTuiConfig,
+): string {
+	const cwd = sanitizeEditorMetadataText(minimalistCwdLabel(metadata, config));
+	return cwd
+		? renderStyleForSource(uiTheme, config.colorSources.editor, config.colors.cwd, cwd)
+		: "";
+}
+
+function renderLabeledBorder(options: {
+	width: number;
+	left: string;
+	right: string;
+	leftCorner: string;
+	rightCorner: string;
+	renderBorder: (text: string) => string;
+}): string {
+	const innerWidth = Math.max(0, options.width - 2);
+	let left = options.left;
+	let right = options.right;
+	const fitLabels = () => {
+		const overhead = (left ? 3 : 1) + (right ? 3 : 1);
+		const budget = Math.max(0, innerWidth - overhead);
+		const leftNatural = visibleWidth(left);
+		const rightNatural = visibleWidth(right);
+		if (leftNatural + rightNatural <= budget) return;
+
+		let leftBudget = left ? budget : 0;
+		let rightBudget = right ? budget : 0;
+		if (left && right) {
+			leftBudget = Math.ceil(budget / 2);
+			rightBudget = budget - leftBudget;
+			if (leftNatural < leftBudget) {
+				leftBudget = leftNatural;
+				rightBudget = budget - leftBudget;
+			} else if (rightNatural < rightBudget) {
+				rightBudget = rightNatural;
+				leftBudget = budget - rightBudget;
+			}
+		}
+		left = leftBudget > 0 ? truncateToWidth(left, leftBudget, "…") : "";
+		right = rightBudget > 0 ? truncateToWidth(right, rightBudget, "…") : "";
+	};
+	fitLabels();
+	const partWidth = (label: string) => (label ? visibleWidth(label) + 3 : 1);
+	let leftWidth = partWidth(left);
+	let rightWidth = partWidth(right);
+	if (leftWidth + rightWidth > innerWidth) {
+		left = "";
+		right = "";
+		leftWidth = 1;
+		rightWidth = 1;
+	}
+
+	const fillWidth = Math.max(0, innerWidth - leftWidth - rightWidth);
+	const leftPart = left
+		? `${options.renderBorder("─ ")}${left}${options.renderBorder(" ")}`
+		: options.renderBorder("─");
+	const rightPart = right
+		? `${options.renderBorder(" ")}${right}${options.renderBorder(" ─")}`
+		: options.renderBorder("─");
+	return `${options.renderBorder(options.leftCorner)}${leftPart}${options.renderBorder(
+		"─".repeat(fillWidth),
+	)}${rightPart}${options.renderBorder(options.rightCorner)}`;
+}
+
+export function renderMinimalistFrame({
+	width,
+	editorLines,
+	autocompleteLines = [],
+	inputText,
+	metadata,
+	uiTheme,
+	config,
+	borderColor,
+}: MinimalistFrameOptions): string[] {
+	if (width <= 4) return clampLines(editorLines, width);
+	const contentWidth = Math.max(0, width - 4);
+	const renderStaticBorder = (text: string) =>
+		renderStyleForSourceOrFallback(
+			uiTheme,
+			config.colorSources.editor,
+			config.colors.editorBorder,
+			EDITOR_BORDER_FALLBACK,
+			text,
+		);
+	const renderBorder = (text: string) => {
+		if (config.editorBorderColorMode !== "adaptive" || !borderColor) {
+			return renderStaticBorder(text);
+		}
+		try {
+			const rendered = borderColor(text);
+			return typeof rendered === "string" ? rendered : renderStaticBorder(text);
+		} catch {
+			return renderStaticBorder(text);
+		}
+	};
+	const topLeft = renderTopLeft(inputText, metadata, uiTheme, config);
+	const topRightBudget = Math.max(0, width - 8 - visibleWidth(topLeft));
+	const top = renderLabeledBorder({
+		width,
+		left: topLeft,
+		right: renderTopRight(metadata, uiTheme, config, topRightBudget),
+		leftCorner: "╭",
+		rightCorner: "╮",
+		renderBorder,
+	});
+	const bottom = renderLabeledBorder({
+		width,
+		left: renderBottomLeft(metadata, uiTheme, config),
+		right: renderBottomRight(metadata, uiTheme, config),
+		leftCorner: "╰",
+		rightCorner: "╯",
+		renderBorder,
+	});
+	const content = ["", ...editorLines, ""].map(
+		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
+	);
+	const autocomplete = autocompleteLines.length
+		? [
+				`${renderBorder("├")}${renderBorder("─".repeat(width - 2))}${renderBorder("┤")}`,
+				...autocompleteLines.map(
+					(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
+				),
+			]
+		: [];
+	return clampLines([top, ...content, ...autocomplete, bottom], width);
+}

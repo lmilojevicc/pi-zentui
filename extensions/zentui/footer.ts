@@ -186,6 +186,7 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		suppressVisibleOutput?: () => boolean;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -204,6 +205,7 @@ export function installFooter(
 			},
 			invalidate() {},
 			render(width: number): string[] {
+				if (hooks.suppressVisibleOutput?.()) return [];
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const wideFormatTokens = config.footerFormat ? parseFooterFormat(config.footerFormat) : [];

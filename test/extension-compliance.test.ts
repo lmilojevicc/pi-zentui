@@ -1,4 +1,5 @@
-import { readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
@@ -1430,6 +1431,345 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 1)).toBe(true);
 		footer?.dispose?.();
 		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("suppresses footer rows only while minimalist editor output is active", () => {
+		let footerFactory: FooterFactory | undefined;
+		let suppressed = true;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		installFooter(ctx as never, createInitialState(emptyGitStatus()), () => defaultConfig, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+			suppressVisibleOutput: () => suppressed,
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(footer?.render(80)).toEqual([]);
+		suppressed = false;
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+	});
+
+	it("suppresses the production footer only while the installed minimalist editor decorates", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ editorMode: "minimalist", projectRefreshIntervalMs: 0 }),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: FooterFactory | undefined;
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		const ui = {
+			theme: makeTheme(),
+			setFooter(factory: FooterFactory | undefined) {
+				footerFactory = factory;
+			},
+			setEditorComponent(factory: unknown) {
+				editorFactory = factory;
+			},
+			getEditorComponent: () => editorFactory,
+		};
+		const ctx = makeContext({ ui });
+
+		await emit(handlers, "session_start", ctx);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const editor = (
+			editorFactory as (...args: unknown[]) => {
+				render(width: number): string[];
+				setText(text: string): void;
+			}
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		editor.setText("draft");
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+
+		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		expect(footer?.render(80)).toEqual([]);
+		expect(editor.render(4)[0]).not.toContain("╭");
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		expect(footer?.render(80)).toEqual([]);
+
+		const nativeEditorPrototype = Object.getPrototypeOf(PolishedEditor.prototype) as {
+			render(width: number): string[];
+		};
+		const nativeRender = vi.spyOn(nativeEditorPrototype, "render").mockImplementation(() => {
+			throw new Error("native render failed");
+		});
+		try {
+			expect(() => editor.render(80)).toThrow("native render failed");
+			expect(footer?.render(80).length).toBeGreaterThan(0);
+		} finally {
+			nativeRender.mockRestore();
+		}
+
+		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		expect(footer?.render(80)).toEqual([]);
+		const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+		await emit(handlers, "agent_start", ctx);
+		const thirdPartyFactory = () => ({ render: () => ["third-party"] });
+		ui.setEditorComponent(thirdPartyFactory);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		await emit(handlers, "model_select", ctx);
+		expect(clearIntervalSpy).toHaveBeenCalled();
+		clearIntervalSpy.mockRestore();
+
+		footer?.dispose?.();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("keeps the production footer for unsupported wrapped minimalist output", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ editorMode: "minimalist", projectRefreshIntervalMs: 0 }),
+		);
+		const handlers = loadExtension();
+		const existingFactory = () => ({
+			render: (width: number) => [`third-party-${width}`, "draft", "help"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "draft",
+			setText() {},
+		});
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		const editor = (editorFactory as (...args: unknown[]) => ReturnType<typeof existingFactory>)(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+		);
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+
+		expect(editor.render(80)).toEqual(["third-party-80", "draft", "help"]);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+
+		footer?.dispose?.();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("forces an initial project refresh for minimalist mode without a status line or polling", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "zentui-minimalist-project-"));
+		mkdirSync(join(cwd, ".git", "objects", "info"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "objects", "pack"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "refs", "heads"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "refs", "tags"), { recursive: true });
+		writeFileSync(join(cwd, ".git", "HEAD"), "ref: refs/heads/minimalist-test\n");
+		writeFileSync(
+			join(cwd, ".git", "config"),
+			"[core]\n\trepositoryformatversion = 0\n\tbare = false\n",
+		);
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				editorMode: "minimalist",
+				projectRefreshIntervalMs: 0,
+				features: { statusLine: false },
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		const ctx = makeContext({
+			cwd,
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		try {
+			await emit(handlers, "session_start", ctx);
+			const editor = (editorFactory as (...args: unknown[]) => { render(width: number): string[] })(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				{} as never,
+			);
+
+			await vi.waitFor(() => {
+				expect(editor.render(120).join("\n")).toContain("minimalist-test");
+			});
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("ticks only a decorated minimalist turn and freezes or stops on lifecycle changes", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				editorMode: "minimalist",
+				projectRefreshIntervalMs: 0,
+				features: { statusLine: false },
+			}),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		let editorFactory: unknown;
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		const notifications: string[] = [];
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				notify(message: string) {
+					notifications.push(message);
+				},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		const editor = (
+			editorFactory as (...args: unknown[]) => {
+				render(width: number): string[];
+				setText(text: string): void;
+			}
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		editor.setText("draft");
+		editor.render(80);
+
+		let now = Date.now();
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+		try {
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(1);
+			now += 2500;
+			vi.advanceTimersByTime(2500);
+			expect(editor.render(80)[0]).toContain("2s");
+
+			await emit(handlers, "agent_end", ctx);
+			expect(vi.getTimerCount()).toBe(0);
+			const frozen = editor.render(80)[0];
+			vi.advanceTimersByTime(5000);
+			expect(editor.render(80)[0]).toBe(frozen);
+
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(1);
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			await command.handler("editor disable", ctx);
+			expect(notifications).toEqual(["Editor: disabled"]);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			dateNow.mockRestore();
+			vi.useRealTimers();
+			await emit(handlers, "session_shutdown", ctx);
+		}
+	});
+
+	it("stops minimalist timer and project work after a genuinely late editor takeover", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				editorMode: "minimalist",
+				projectRefreshIntervalMs: 5_000,
+				features: { statusLine: false },
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		const ui = {
+			theme: makeTheme(),
+			setFooter() {},
+			setEditorComponent(factory: unknown) {
+				editorFactory = factory;
+			},
+			getEditorComponent: () => editorFactory,
+		};
+		const ctx = makeContext({ ui });
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			await emit(handlers, "session_start", ctx);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			const editor = (
+				editorFactory as (...args: unknown[]) => {
+					render(width: number): string[];
+					setText(text: string): void;
+				}
+			)(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				{} as never,
+			);
+			editor.setText("draft");
+			editor.render(80);
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(2);
+			const thirdPartyFactory = () => ({
+				render: () => ["third-party"],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			});
+			ui.setEditorComponent(thirdPartyFactory);
+			vi.advanceTimersByTime(5_000);
+			expect(editorFactory).toBe(thirdPartyFactory);
+			expect(vi.getTimerCount()).toBe(0);
+
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not start turn intervals in polished or non-TUI sessions", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, features: { statusLine: false } }),
+		);
+		const polishedHandlers = loadExtension();
+		const polishedCtx = makeContext();
+		await emit(polishedHandlers, "session_start", polishedCtx);
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		await emit(polishedHandlers, "agent_start", polishedCtx);
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(polishedHandlers, "session_shutdown", polishedCtx);
+
+		const rpcHandlers = loadExtension();
+		const rpcCtx = makeContext({ hasUI: false, mode: "rpc" });
+		await emit(rpcHandlers, "session_start", rpcCtx);
+		await emit(rpcHandlers, "agent_start", rpcCtx);
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(rpcHandlers, "session_shutdown", rpcCtx);
+		setIntervalSpy.mockRestore();
 	});
 
 	it("does not crash when config colors contain Starship modifiers", () => {

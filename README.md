@@ -30,8 +30,10 @@ Zentui brings two popular aesthetics to Pi:
 
 ### Editor (Opencode-inspired)
 
+- Selectable `polished` (default) and `minimalist` editor modes
 - Bordered input box with configurable accent rail and border colors
-- Model name and provider displayed inside the editor frame
+- Minimalist mode moves cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
+- Model name and provider displayed inside the polished editor frame
 - Configurable model, provider, and thinking-level indicator colors
 - Prompt-box-style user messages matching the ZentUI input chrome
 - Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
@@ -133,7 +135,7 @@ User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or
 The interactive `/zentui` menu is split into exactly six sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. Every listed control patches the shown JSON equivalent:
 
 1. **Appearance** — Starship/footer colors (`colorSources.starship`); editor + previous-message colors (`colorSources.editor` and `colorSources.userMessages`); separator (`separator`); icon mode (`icons.mode`).
-2. **Editor** — editor enabled (`features.editor`); editor border color mode (`editorBorderColorMode`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
+2. **Editor** — editor enabled (`features.editor`); editor mode (`editorMode`); focused minimalist path/context/visibility controls (`minimalist`); editor border color mode (`editorBorderColorMode`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
 3. **Footer** — status line enabled (`features.statusLine`); responsive footer (`responsiveFooter`); compact footer rows (`compactFooterMaxLines`); context style (`contextStyle`); path display (`pathDisplay.mode`); path depth (`pathDisplay.depth`).
 4. **Segments** — visibility toggles for every non-Git built-in segment under `footerSegments`: `cwd`, `sessionName`, `runtime`, `modelInfo`, `context`, `tokens`, `cost`, `sessionDuration`, `username`, `time`, `os`, and `packageVersion`.
 5. **Git** — Git branch visibility (`footerSegments.gitBranch`); branch length (`gitBranch.maxLength`); Git status visibility (`footerSegments.gitStatus`); Git counts visibility (`footerSegments.gitCounts`); Git commit visibility (`footerSegments.gitCommit`); commit-only-detached (`gitCommit.onlyDetached`); exact-match tag (`gitCommit.showTag`); Git metrics visibility (`footerSegments.gitMetrics`); hide zero metrics (`gitMetrics.onlyNonzero`); ignore submodules (`gitMetrics.ignoreSubmodules`).
@@ -176,6 +178,15 @@ Default config values — copy this and change any value you want:
 	"separator": "pipe",
 	"contextStyle": "text",
 	"editorModelLabel": "id",
+	"editorMode": "polished",
+	"minimalist": {
+		"pathDisplay": "compact",
+		"contextFormat": "percent",
+		"contextGauge": false,
+		"showTimer": true,
+		"showCost": true,
+		"showGit": true
+	},
 	"editorBorderColorMode": "static",
 	"contextThresholds": {
 		"warning": 70,
@@ -299,6 +310,8 @@ Default config values — copy this and change any value you want:
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Finite context percentages use one decimal place. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
 - `editorModelLabel`: controls the model shown in the editor frame, built-in model-info footer segment, and footer `$model` variable. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
+- `editorMode`: `polished` (default) keeps Zentui's accent-rail editor; `minimalist` uses the compact metadata frame described below. Cycle it from the `/zentui` **Editor** tab.
+- `minimalist`: focused minimalist-frame controls. `pathDisplay` is `compact` (cwd basename, default), `project` (repository name plus relative path when known), or `full` (home-contracted cwd). `contextFormat` is `percent` (default) or `percent-total`; `contextGauge` adds a compact gauge when space permits. `showTimer`, `showCost`, and `showGit` default to `true`.
 - `editorBorderColorMode`: `static` (default) uses `colors.editorBorder`; `adaptive` follows Pi's current shell-mode and thinking-level editor border color. Cycle it from the `/zentui` **Editor** tab.
 - `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
 - `separator`: controls the default footer layout and extension-status connectors: `pipe` (default, ` | `), `dot` (` · `), `chevron` (` › `), or `none` (one space). Cycle it from the `/zentui` **Appearance** tab. This selects the separator glyph; `colors.separator` controls its color. Custom `footerFormat` literals and `$sep` keep their existing behavior.
@@ -323,6 +336,14 @@ Default config values — copy this and change any value you want:
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: when using copy-friendly mode, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+
+## Minimalist editor mode
+
+Set `editorMode` to `minimalist` or select it from the `/zentui` **Editor** tab. The rounded frame shows Bash state and the current/completed turn duration at top left; cost, model, thinking level, and context usage at top right; Git branch/status at bottom left; and the configured path at bottom right. A blank interior row above and below the input adds symmetric breathing room. Autocomplete stays inside the frame when Pi's existing editor output can be split safely. Unknown third-party editor layouts fail open without decoration.
+
+The `/zentui` **Editor** area exposes the focused `minimalist` subsection. Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or—with the gauge enabled and enough room—`[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+
+When Zentui's editor and status line are both enabled, the separate footer rows are suppressed only while minimalist decoration succeeds. The footer stays visible for narrow or unsupported editor output so metadata is not lost. The configured status-line setting is preserved, so switching back to `polished` restores the footer. Minimalist mode does not remove Pi's header and does not add sticky positioning, mouse handling, clipboard behavior, or custom scrolling. The experimental fixed-editor option remains separate.
 
 ## Editor Metadata Format
 
@@ -470,6 +491,10 @@ Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable
 - **Alternate screen**: Uses the terminal's alternate screen buffer. Native scrollback history is not accessible while the fixed editor is active.
 - **Pi version fragility**: Patches internal TUI methods (`doRender`, `render`, `terminal.write`, `terminal.rows`) that may change across Pi versions. If the TUI layout is unsupported, Zentui falls back to normal rendering with a console warning.
 - If your terminal is stuck after a crash, run `reset` or restart the terminal.
+
+## Acknowledgments
+
+The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-custom-input](https://github.com/VinhLe1410/pi-custom-input) and is integrated with Zentui's existing editor, state, configuration, and compatibility layers.
 
 ## Requirements
 

@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -9,6 +11,7 @@ import {
 	type ColorSourcesConfig,
 	type ContextStyle,
 	type EditorBorderColorMode,
+	type EditorMode,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
@@ -20,6 +23,7 @@ import {
 	type GitMetricsConfig,
 	type IconMode,
 	loadConfig,
+	type MinimalistConfig,
 	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PolishedTuiConfig,
@@ -27,6 +31,7 @@ import {
 	saveColorSourcesPatch,
 	saveContextStylePatch,
 	saveEditorBorderColorMode,
+	saveEditorMode,
 	saveEditorModelLabel,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -38,6 +43,7 @@ import {
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
 	saveIconsModePatch,
+	saveMinimalistPatch,
 	savePathDisplayPatch,
 	saveResponsiveFooterPatch,
 	saveSeparatorPatch,
@@ -141,6 +147,16 @@ export function activeFooterReferences(config: PolishedTuiConfig): Set<string> {
 	return references;
 }
 
+function findRepositoryRoot(cwd: string): string | undefined {
+	let current = resolve(cwd);
+	while (true) {
+		if (existsSync(join(current, ".git"))) return current;
+		const parent = dirname(current);
+		if (parent === current) return undefined;
+		current = parent;
+	}
+}
+
 function isTuiContext(ctx: ExtensionContext): boolean {
 	try {
 		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
@@ -157,6 +173,7 @@ export default function (pi: ExtensionAPI) {
 	let currentConfig: PolishedTuiConfig = loadConfig();
 	let activeTheme: Theme | undefined;
 	let requestFooterRender: (() => void) | undefined;
+	let requestEditorRender: (() => void) | undefined;
 	let getActiveExtensionStatuses: () => ReadonlyMap<string, string> = () => new Map();
 	let stopRefreshInterval: StopProjectRefreshInterval = () => {};
 	let cleanupPrototypePatches: () => void = () => {};
@@ -167,16 +184,54 @@ export default function (pi: ExtensionAPI) {
 	let wrappedEditorFactory: EditorFactory | undefined;
 	let prototypePatchesInstalled = false;
 	let stopSessionTimer: () => void = () => {};
+	let stopAgentTimer: () => void = () => {};
+	let agentTimerRunning = false;
+	let minimalistDecorationActive = false;
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
+	let agentStartedAt: number | undefined;
+	let agentDurationMs: number | undefined;
+	let minimalistProjectRoot: string | undefined;
+	let projectRefreshActive = false;
+	let activeTuiContext: ExtensionContext | undefined;
+
+	const ownsInstalledEditorFactory = () => {
+		if (
+			!sessionLifecycle.isCurrent() ||
+			!editorInstalled ||
+			!installedEditorFactory ||
+			!activeTuiContext
+		) {
+			return false;
+		}
+		try {
+			return activeTuiContext.ui.getEditorComponent() === installedEditorFactory;
+		} catch {
+			return false;
+		}
+	};
 
 	const refresh = () => {
-		if (sessionLifecycle.isCurrent()) requestFooterRender?.();
+		if (!sessionLifecycle.isCurrent()) return;
+		requestFooterRender?.();
+		requestEditorRender?.();
 	};
 	const liveContext = new LiveContextController(sessionLifecycle, refresh);
 	const getActiveTheme = () => activeTheme;
 	const getCurrentConfig = () => currentConfig;
+	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
+		ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow;
+	const getContextPercent = (ctx: ExtensionContext): number | undefined => {
+		const usage = ctx.getContextUsage();
+		const contextWindow = getContextWindow(ctx);
+		const live = liveContext.get();
+		return live && contextWindow && contextWindow > 0
+			? (live.tokens / contextWindow) * 100
+			: (usage?.percent ?? undefined);
+	};
+	const getAgentDurationMs = () =>
+		agentStartedAt === undefined ? agentDurationMs : Math.max(0, Date.now() - agentStartedAt);
 	const getThinkingLevel = () =>
 		sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : ("off" as const);
 	const syncFooterState = (ctx: ExtensionContext) =>
@@ -209,6 +264,7 @@ export default function (pi: ExtensionAPI) {
 			wantPackage ? readPackageVersionResult(cwd) : Promise.resolve(undefined),
 		]);
 		if (!sessionLifecycle.isCurrent(generation)) return;
+		minimalistProjectRoot = git.kind === "ok" ? findRepositoryRoot(cwd) : undefined;
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd,
 			previousCwd: lastProjectCwd,
@@ -229,17 +285,50 @@ export default function (pi: ExtensionAPI) {
 		projectRefreshScheduler.schedule({ cwd, generation }, options);
 	};
 
-	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
-		if (!sessionLifecycle.isCurrent() || !ctx.hasUI) return;
-		syncFooterState(ctx);
-		if (project && currentConfig.features.statusLine) scheduleProjectRefresh(ctx);
-		refresh();
-	};
+	const needsProjectRefresh = () =>
+		footerInstalled ||
+		(currentConfig.features.editor &&
+			currentConfig.editorMode === "minimalist" &&
+			ownsInstalledEditorFactory());
 
 	const stopProjectRefresh = () => {
 		stopRefreshInterval();
 		stopRefreshInterval = () => {};
 		projectRefreshScheduler.stop();
+		projectRefreshActive = false;
+	};
+
+	const reconcileProjectRefresh = (ctx: ExtensionContext, force = false) => {
+		if (!sessionLifecycle.isCurrent() || !needsProjectRefresh()) {
+			stopProjectRefresh();
+			return;
+		}
+		const activated = !projectRefreshActive;
+		if (activated) {
+			stopRefreshInterval = startProjectRefreshInterval(
+				currentConfig.projectRefreshIntervalMs,
+				() => {
+					if (editorInstalled && !ownsInstalledEditorFactory()) {
+						reconcileObservedEditorOwnership(ctx);
+					}
+					if (!needsProjectRefresh()) {
+						stopProjectRefresh();
+						return;
+					}
+					scheduleProjectRefresh(ctx);
+				},
+			);
+			projectRefreshActive = true;
+		}
+		if (force || activated) scheduleProjectRefresh(ctx, { force: true });
+	};
+
+	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
+		if (!sessionLifecycle.isCurrent() || !ctx.hasUI) return;
+		if (editorInstalled && !ownsInstalledEditorFactory()) reconcileObservedEditorOwnership(ctx);
+		syncFooterState(ctx);
+		if (project && needsProjectRefresh()) scheduleProjectRefresh(ctx);
+		refresh();
 	};
 
 	const reconcileSessionTimer = () => {
@@ -283,6 +372,66 @@ export default function (pi: ExtensionAPI) {
 		};
 	};
 
+	const reconcileAgentTimer = () => {
+		const needed =
+			sessionLifecycle.isCurrent() &&
+			agentStartedAt !== undefined &&
+			minimalistDecorationActive &&
+			ownsInstalledEditorFactory() &&
+			currentConfig.minimalist.showTimer;
+		if (!needed) {
+			stopAgentTimer();
+			return;
+		}
+		if (agentTimerRunning) return;
+		const timer = setInterval(() => {
+			const ctx = activeTuiContext;
+			if (ctx && editorInstalled && !ownsInstalledEditorFactory()) {
+				reconcileObservedEditorOwnership(ctx);
+			}
+			reconcileAgentTimer();
+			if (agentTimerRunning) refresh();
+		}, 1000);
+		agentTimerRunning = true;
+		stopAgentTimer = () => {
+			clearInterval(timer);
+			agentTimerRunning = false;
+			stopAgentTimer = () => {};
+		};
+	};
+
+	const setMinimalistDecorationActive = (active: boolean) => {
+		const next = sessionLifecycle.isCurrent() && active && ownsInstalledEditorFactory();
+		if (minimalistDecorationActive === next) return;
+		minimalistDecorationActive = next;
+		reconcileAgentTimer();
+		requestFooterRender?.();
+	};
+
+	const startAgentTurn = () => {
+		stopAgentTimer();
+		agentStartedAt = Date.now();
+		agentDurationMs = 0;
+		reconcileAgentTimer();
+		refresh();
+	};
+
+	const finishAgentTurn = () => {
+		if (agentStartedAt !== undefined) {
+			agentDurationMs = Math.max(0, Date.now() - agentStartedAt);
+		}
+		agentStartedAt = undefined;
+		reconcileAgentTimer();
+		refresh();
+	};
+
+	const resetAgentTimer = () => {
+		stopAgentTimer();
+		agentTimerRunning = false;
+		agentStartedAt = undefined;
+		agentDurationMs = undefined;
+	};
+
 	const sameReferences = (left: Set<string>, right: Set<string>) =>
 		left.size === right.size && [...left].every((name) => right.has(name));
 
@@ -296,7 +445,7 @@ export default function (pi: ExtensionAPI) {
 		currentConfig = nextConfig;
 		if (sameReferences(before, after)) return;
 		reconcileSessionTimer();
-		if (footerInstalled) scheduleProjectRefresh(ctx, { force: true });
+		if (needsProjectRefresh()) scheduleProjectRefresh(ctx, { force: true });
 	};
 
 	const installPrototypePatches = (): boolean => {
@@ -330,6 +479,8 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const clearEditorOwnership = () => {
+		setMinimalistDecorationActive(false);
+		requestEditorRender = undefined;
 		wrappedEditorFactory = undefined;
 		installedEditorFactory = undefined;
 		editorInstallMode = "none";
@@ -362,14 +513,16 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			uninstallPrototypePatches();
 			clearEditorOwnership();
+			reconcileProjectRefresh(ctx);
 		}
 		return observed;
 	};
 
 	const makeEditorFactory = (ctx: ExtensionContext): ZentuiEditorFactory => {
 		const sessionTheme = ctx.ui.theme;
-		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
-			new PolishedEditor(
+		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
+			requestEditorRender = () => tui.requestRender();
+			return new PolishedEditor(
 				tui,
 				theme,
 				keybindings,
@@ -383,7 +536,24 @@ export default function (pi: ExtensionAPI) {
 					sessionName: ctx.sessionManager.getSessionName() ?? "",
 				}),
 				getThinkingLevel,
-			)) as ZentuiEditorFactory;
+				() => ({
+					cwd: ctx.cwd,
+					projectRoot: minimalistProjectRoot,
+					branch: state.branch,
+					dirty: state.dirty,
+					ahead: state.ahead,
+					behind: state.behind,
+					costLabel: state.costLabel,
+					modelLabel: state.modelLabel,
+					thinkingLevel: getThinkingLevel(),
+					contextPercent: getContextPercent(ctx),
+					contextWindow: getContextWindow(ctx),
+					agentDurationMs: getAgentDurationMs(),
+					agentActive: agentStartedAt !== undefined,
+				}),
+				setMinimalistDecorationActive,
+			);
+		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
 		return factory;
 	};
@@ -393,8 +563,9 @@ export default function (pi: ExtensionAPI) {
 		baseFactory: EditorFactory,
 	): ZentuiEditorFactory => {
 		const sessionTheme = ctx.ui.theme;
-		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
-			new WrappedPolishedEditor(
+		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
+			requestEditorRender = () => tui.requestRender();
+			return new WrappedPolishedEditor(
 				baseFactory(tui, theme, keybindings),
 				sessionTheme,
 				getCurrentConfig,
@@ -406,7 +577,24 @@ export default function (pi: ExtensionAPI) {
 					sessionName: ctx.sessionManager.getSessionName() ?? "",
 				}),
 				getThinkingLevel,
-			)) as ZentuiEditorFactory;
+				() => ({
+					cwd: ctx.cwd,
+					projectRoot: minimalistProjectRoot,
+					branch: state.branch,
+					dirty: state.dirty,
+					ahead: state.ahead,
+					behind: state.behind,
+					costLabel: state.costLabel,
+					modelLabel: state.modelLabel,
+					thinkingLevel: getThinkingLevel(),
+					contextPercent: getContextPercent(ctx),
+					contextWindow: getContextWindow(ctx),
+					agentDurationMs: getAgentDurationMs(),
+					agentActive: agentStartedAt !== undefined,
+				}),
+				setMinimalistDecorationActive,
+			);
+		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
 		factory[ZENTUI_EDITOR_BASE_FACTORY] = baseFactory;
 		return factory;
@@ -492,24 +680,21 @@ export default function (pi: ExtensionAPI) {
 				getActiveExtensionStatuses = fn ?? (() => new Map());
 			},
 			getLiveContext: () => liveContext.get(),
+			suppressVisibleOutput: () => minimalistDecorationActive && ownsInstalledEditorFactory(),
 		});
 		footerInstalled = true;
-		stopProjectRefresh();
-		stopRefreshInterval = startProjectRefreshInterval(currentConfig.projectRefreshIntervalMs, () =>
-			scheduleProjectRefresh(ctx),
-		);
-		scheduleProjectRefresh(ctx, { force: true });
+		reconcileProjectRefresh(ctx, true);
 		refresh();
 		reconcileSessionTimer();
 	};
 
 	const uninstallStatusLine = (ctx: ExtensionContext) => {
 		stopSessionTimer();
-		stopProjectRefresh();
 		ctx.ui.setFooter(undefined);
 		footerInstalled = false;
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
+		reconcileProjectRefresh(ctx);
 	};
 
 	const applyConfiguredUi = (ctx: ExtensionContext): ApplyUiResult => {
@@ -534,15 +719,19 @@ export default function (pi: ExtensionAPI) {
 		} else if (footerInstalled) {
 			uninstallStatusLine(ctx);
 		}
+		reconcileProjectRefresh(ctx);
 		return result;
 	};
 
 	const installUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
+		activeTuiContext = ctx;
 		activeTheme = ctx.ui.theme;
 		uninstallPrototypePatches();
 		footerInstalled = false;
 		editorInstalled = false;
+		minimalistDecorationActive = false;
+		requestEditorRender = undefined;
 		installedEditorFactory = undefined;
 		ensureConfigExists();
 		currentConfig = loadConfig();
@@ -563,6 +752,7 @@ export default function (pi: ExtensionAPI) {
 			if (!observed.factory || !isZentuiEditorFactory(observed.factory)) {
 				uninstallPrototypePatches();
 				clearEditorOwnership();
+				reconcileProjectRefresh(ctx);
 				refresh();
 				return;
 			}
@@ -578,8 +768,10 @@ export default function (pi: ExtensionAPI) {
 			disposeFixedEditor(ctx);
 			if (isTuiContext(ctx)) removeFixedEditorProbe(ctx);
 			stopSessionTimer();
+			resetAgentTimer();
 			stopProjectRefresh();
 			requestFooterRender = undefined;
+			requestEditorRender = undefined;
 			getActiveExtensionStatuses = () => new Map();
 			if (isTuiContext(ctx)) {
 				ctx.ui.setFooter(undefined);
@@ -602,7 +794,9 @@ export default function (pi: ExtensionAPI) {
 			footerInstalled = false;
 			activeTheme = undefined;
 		} finally {
+			activeTuiContext = undefined;
 			requestFooterRender = undefined;
+			requestEditorRender = undefined;
 		}
 	};
 
@@ -618,7 +812,9 @@ export default function (pi: ExtensionAPI) {
 		liveContext.clear();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
+		resetAgentTimer();
 		lastProjectCwd = undefined;
+		minimalistProjectRoot = undefined;
 		installUi(ctx);
 		scheduleEditorReconciliation(ctx);
 	});
@@ -668,6 +864,21 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveEditorModelLabel(value);
 			syncFooterState(ctx);
 		},
+		setEditorMode(value: EditorMode, ctx: ExtensionContext) {
+			currentConfig = saveEditorMode(value);
+			if (value !== "minimalist") setMinimalistDecorationActive(false);
+			reconcileProjectRefresh(ctx);
+			reconcileAgentTimer();
+			refresh();
+		},
+		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
+			currentConfig = saveMinimalistPatch(patch);
+			reconcileAgentTimer();
+			if (needsProjectRefresh() && (patch.pathDisplay === "project" || patch.showGit === true)) {
+				scheduleProjectRefresh(ctx, { force: true });
+			}
+			refresh();
+		},
 		setEditorBorderColorMode(value: EditorBorderColorMode) {
 			currentConfig = saveEditorBorderColorMode(value);
 		},
@@ -676,13 +887,13 @@ export default function (pi: ExtensionAPI) {
 			ctx: ExtensionContext,
 		) {
 			currentConfig = saveGitCommitPatch(patch);
-			if (patch.showTag !== undefined && footerInstalled) {
+			if (patch.showTag !== undefined && needsProjectRefresh()) {
 				scheduleProjectRefresh(ctx, { force: true });
 			}
 		},
 		setGitMetrics(patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) {
 			currentConfig = saveGitMetricsPatch(patch);
-			if (patch.ignoreSubmodules !== undefined && footerInstalled) {
+			if (patch.ignoreSubmodules !== undefined && needsProjectRefresh()) {
 				scheduleProjectRefresh(ctx, { force: true });
 			}
 		},
@@ -724,10 +935,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
+		startAgentTurn();
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
 		liveContext.clear();
+		finishAgentTurn();
 		// Reconcile once more after Pi has persisted the assistant message.
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});

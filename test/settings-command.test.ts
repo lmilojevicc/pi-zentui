@@ -54,7 +54,9 @@ describe("bounded /zentui settings", () => {
 	it("orders the six sections and applies all six new controls from effective config", async () => {
 		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
 		const config = cloneConfig();
+		const editorModes: string[] = [];
 		const editorLabels: string[] = [];
+		const minimalistPatches: Array<Record<string, unknown>> = [];
 		const commitPatches: Array<Record<string, boolean>> = [];
 		const metricsPatches: Array<Record<string, boolean>> = [];
 		const defaultPlacements: ExtensionStatusPlacement[] = [];
@@ -79,6 +81,14 @@ describe("bounded /zentui settings", () => {
 				setSeparator() {},
 				setPathDisplay() {},
 				setGitBranch() {},
+				setEditorMode(value) {
+					editorModes.push(value);
+					config.editorMode = value;
+				},
+				setMinimalist(patch) {
+					minimalistPatches.push(patch);
+					Object.assign(config.minimalist, patch);
+				},
 				setEditorModelLabel(value) {
 					editorLabels.push(value);
 					config.editorModelLabel = value;
@@ -122,6 +132,19 @@ describe("bounded /zentui settings", () => {
 					firstRender = component.render(160).join("\n");
 
 					goToSection(component, "Editor");
+					selectLabel(component, "Editor mode");
+					component.handleInput(" ");
+					for (const label of [
+						"Minimalist path",
+						"Minimalist context text",
+						"Minimalist context gauge",
+						"Minimalist timer",
+						"Minimalist cost",
+						"Minimalist Git",
+					]) {
+						selectLabel(component, label);
+						component.handleInput(" ");
+					}
 					selectLabel(component, "Editor model label");
 					component.handleInput(" ");
 
@@ -148,11 +171,20 @@ describe("bounded /zentui settings", () => {
 			expect(index).toBeGreaterThan(lastIndex);
 			lastIndex = index;
 		}
+		expect(editorModes).toEqual(["minimalist"]);
 		expect(editorLabels).toEqual(["name"]);
+		expect(minimalistPatches).toEqual([
+			{ pathDisplay: "project" },
+			{ contextFormat: "percent-total" },
+			{ contextGauge: true },
+			{ showTimer: false },
+			{ showCost: false },
+			{ showGit: false },
+		]);
 		expect(commitPatches).toEqual([{ onlyDetached: false }, { showTag: false }]);
 		expect(metricsPatches).toEqual([{ onlyNonzero: false }, { ignoreSubmodules: true }]);
 		expect(defaultPlacements).toEqual(["off"]);
-		expect(requestRender).toHaveBeenCalledTimes(6);
+		expect(requestRender).toHaveBeenCalledTimes(13);
 	});
 
 	it("cycles editor border color mode live and reopens with the persisted value", async () => {
