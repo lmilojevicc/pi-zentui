@@ -1,3 +1,4 @@
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import { createInitialState, syncState } from "../extensions/zentui/state";
@@ -7,7 +8,7 @@ function makeCtx(model: unknown) {
 		model,
 		sessionManager: { getBranch: () => [] },
 		getContextUsage: () => undefined,
-	} as never;
+	} as unknown as ExtensionContext;
 }
 
 const model = { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai" };
@@ -41,5 +42,46 @@ describe("syncState model label", () => {
 		expect(state.modelLabel).toBe("no-model");
 		expect(state.modelId).toBe("");
 		expect(state.modelName).toBe("");
+	});
+
+	it("stores cache atoms and clears optional markers on later synchronization", () => {
+		const entry = {
+			type: "message",
+			message: {
+				role: "assistant",
+				usage: {
+					input: 100,
+					output: 20,
+					cacheRead: 1_200,
+					cacheWrite: 300,
+					cost: { total: 1 },
+				},
+			},
+		};
+		const ctx = {
+			...makeCtx(model),
+			sessionManager: { getBranch: () => [entry], getEntries: () => [entry] },
+		};
+		const state = createInitialState(emptyGitStatus());
+
+		syncState(state, ctx as never, "", "id", {
+			subscription: true,
+			autoCompaction: true,
+		});
+		expect(state).toMatchObject({
+			cacheReadLabel: "R1.2k",
+			cacheWriteLabel: "W300",
+			subscription: true,
+			autoCompaction: true,
+		});
+		expect(state.tokenLabel).not.toContain("R1.2k");
+
+		syncState(state, makeCtx(model), "", "id", {});
+		expect(state).toMatchObject({
+			cacheReadLabel: "",
+			cacheWriteLabel: "",
+			subscription: false,
+			autoCompaction: false,
+		});
 	});
 });

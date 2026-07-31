@@ -275,6 +275,14 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	return totals;
 }
 
+export function buildCacheReadLabel(cacheRead: number): string {
+	return cacheRead > 0 ? `R${formatCount(cacheRead)}` : "";
+}
+
+export function buildCacheWriteLabel(cacheWrite: number): string {
+	return cacheWrite > 0 ? `W${formatCount(cacheWrite)}` : "";
+}
+
 export function buildTokenLabel(totals: UsageTotals, cacheHitIcon = "󰆼"): string {
 	const parts: string[] = [];
 	if (totals.input) parts.push(`↑${formatCount(totals.input)}`);
@@ -326,9 +334,9 @@ export function formatContextPercentLabel(
 ): string {
 	if (!contextWindow || contextWindow <= 0) return "--";
 	const percentLabel =
-		percent === null || percent === undefined
+		percent === null || percent === undefined || !Number.isFinite(percent)
 			? "?"
-			: `${Math.max(0, Math.min(999, Math.round(percent)))}%`;
+			: `${Math.max(0, Math.min(999, percent)).toFixed(1)}%`;
 	return `${percentLabel}/${formatCount(contextWindow)}`;
 }
 
