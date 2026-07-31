@@ -32,6 +32,10 @@ export type MinimalistFrameOptions = {
 	width: number;
 	editorLines: string[];
 	autocompleteLines?: string[];
+	viewport?: {
+		above?: string;
+		below?: string;
+	};
 	inputText: string;
 	metadata: MinimalistEditorMetadata;
 	uiTheme: Theme;
@@ -236,6 +240,7 @@ function renderBottomRight(
 function renderLabeledBorder(options: {
 	width: number;
 	left: string;
+	leftFallback?: string;
 	right: string;
 	leftCorner: string;
 	rightCorner: string;
@@ -249,7 +254,7 @@ function renderLabeledBorder(options: {
 		const budget = Math.max(0, innerWidth - overhead);
 		const leftNatural = visibleWidth(left);
 		const rightNatural = visibleWidth(right);
-		if (leftNatural + rightNatural <= budget) return;
+		if (leftNatural + rightNatural <= budget) return false;
 
 		let leftBudget = left ? budget : 0;
 		let rightBudget = right ? budget : 0;
@@ -266,8 +271,13 @@ function renderLabeledBorder(options: {
 		}
 		left = leftBudget > 0 ? truncateToWidth(left, leftBudget, "…") : "";
 		right = rightBudget > 0 ? truncateToWidth(right, rightBudget, "…") : "";
+		return leftBudget < leftNatural;
 	};
-	fitLabels();
+	if (fitLabels() && options.leftFallback !== undefined) {
+		left = options.leftFallback;
+		right = options.right;
+		fitLabels();
+	}
 	const partWidth = (label: string) => (label ? visibleWidth(label) + 3 : 1);
 	let leftWidth = partWidth(left);
 	let rightWidth = partWidth(right);
@@ -294,6 +304,7 @@ export function renderMinimalistFrame({
 	width,
 	editorLines,
 	autocompleteLines = [],
+	viewport,
 	inputText,
 	metadata,
 	uiTheme,
@@ -321,19 +332,30 @@ export function renderMinimalistFrame({
 			return renderStaticBorder(text);
 		}
 	};
-	const topLeft = renderTopLeft(inputText, metadata, uiTheme, config);
+	const separator = safeThemeFg(uiTheme, "muted", " · ");
+	const viewportLabel = (direction: "above" | "below", count: string | undefined) => {
+		if (!count || !/^[1-9]\d*$/.test(count)) return "";
+		return safeThemeFg(uiTheme, "muted", `${direction === "above" ? "↑" : "↓"} ${count} more`);
+	};
+	const topMetadata = renderTopLeft(inputText, metadata, uiTheme, config);
+	const topViewport = viewportLabel("above", viewport?.above);
+	const topLeft = joinStyled([topViewport, topMetadata], separator);
 	const topRightBudget = Math.max(0, width - 8 - visibleWidth(topLeft));
 	const top = renderLabeledBorder({
 		width,
 		left: topLeft,
+		leftFallback: topViewport ? topMetadata : undefined,
 		right: renderTopRight(metadata, uiTheme, config, topRightBudget),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,
 	});
+	const bottomMetadata = renderBottomLeft(metadata, uiTheme, config);
+	const bottomViewport = viewportLabel("below", viewport?.below);
 	const bottom = renderLabeledBorder({
 		width,
-		left: renderBottomLeft(metadata, uiTheme, config),
+		left: joinStyled([bottomViewport, bottomMetadata], separator),
+		leftFallback: bottomViewport ? bottomMetadata : undefined,
 		right: renderBottomRight(metadata, uiTheme, config),
 		leftCorner: "╰",
 		rightCorner: "╯",

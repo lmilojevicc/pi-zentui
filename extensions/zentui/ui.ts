@@ -384,11 +384,16 @@ function renderMinimalistFrameFromBase({
 	if (!ownedFrame && !trustedBaseFrame && (!parsedTop || !parsedBottom)) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
+	const viewport = ownedFrame?.viewport ?? {
+		above: parsedTop?.count,
+		below: parsedBottom?.count,
+	};
 	return {
 		lines: renderMinimalistFrame({
 			width,
 			editorLines: ownedFrame?.editorLines ?? editorFrame.slice(1, -1),
 			autocompleteLines,
+			viewport: config.features.viewportIndicators ? viewport : undefined,
 			inputText,
 			metadata,
 			uiTheme,

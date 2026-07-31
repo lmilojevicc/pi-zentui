@@ -540,8 +540,45 @@ describe("minimalist editor integration", () => {
 		expect(minimalist.join("\n")).toContain("$0.100 – model");
 	});
 
+	it("places native viewport counts at the far left before minimalist metadata", () => {
+		const editor = new WrappedPolishedEditor(
+			baseEditor({ above: 7, below: 11 }) as never,
+			theme(),
+			() => ({ ...config(), editorMode: "minimalist" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({
+				cwd: "/tmp/project",
+				branch: "main",
+				ahead: 2,
+				behind: 1,
+				agentDurationMs: 5000,
+			}),
+		);
+
+		const lines = editor.render(80);
+		expect(lines[0]).toMatch(/^╭─ ↑ 7 more · 5s/);
+		expect(lines.at(-1)).toMatch(/^╰─ ↓ 11 more · main ↑2 ↓1/);
+	});
+
+	it("honors the shared viewport indicator toggle in minimalist mode", () => {
+		const editor = new WrappedPolishedEditor(
+			baseEditor({ above: 7, below: 11 }) as never,
+			theme(),
+			() => ({
+				...config({ viewportIndicators: false }),
+				editorMode: "minimalist",
+			}),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp/project" }),
+		);
+
+		expect(editor.render(80).join("\n")).not.toContain("more");
+	});
+
 	it("keeps known autocomplete rows inside the minimalist frame", () => {
-		const base = baseEditor({ autocomplete: ["one", "two"] });
+		const base = baseEditor({ below: 5, autocomplete: ["one", "two"] });
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
@@ -555,6 +592,8 @@ describe("minimalist editor integration", () => {
 		expect(lines.findIndex((line) => line.includes("one"))).toBeGreaterThan(
 			lines.findIndex((line) => line.startsWith("├")),
 		);
+		expect(lines.findIndex((line) => line.includes("one"))).toBeLessThan(lines.length - 1);
+		expect(lines.at(-1)).toContain("↓ 5 more");
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
 	});
 
@@ -585,8 +624,8 @@ describe("minimalist editor integration", () => {
 		expect(decoration).toHaveBeenLastCalledWith(false);
 	});
 
-	it("unwraps module-owned polished chrome and autocomplete before minimalist decoration", () => {
-		const inner = wrapped(baseEditor({ autocomplete: ["one", "two"] }));
+	it("unwraps module-owned polished chrome, viewport counts, and autocomplete", () => {
+		const inner = wrapped(baseEditor({ above: 3, below: 8, autocomplete: ["one", "two"] }));
 		const outer = new WrappedPolishedEditor(
 			inner as never,
 			theme(),
@@ -603,6 +642,8 @@ describe("minimalist editor integration", () => {
 		expect(rendered).toContain("minimal-model");
 		expect(rendered).not.toContain("provider");
 		expect(rendered.match(/minimal-model/g)).toHaveLength(1);
+		expect(rendered.match(/↑ 3 more/g)).toHaveLength(1);
+		expect(rendered.match(/↓ 8 more/g)).toHaveLength(1);
 		expect(lines.some((line) => /^├─+┤$/.test(line))).toBe(true);
 		expect(lines.filter((line) => line.includes("one") || line.includes("two"))).toHaveLength(2);
 	});
@@ -688,7 +729,6 @@ describe("minimalist editor integration", () => {
 		expect(lines[1]).toMatch(/^│\s+│$/);
 		expect(lines.join("\n")).toContain(inverseCursor);
 		expect(lines.join("\n")).toContain("second line");
-		expect(lines.at(-2)).toMatch(/^│\s+│$/);
 
 		const empty = new WrappedPolishedEditor(
 			{
@@ -704,7 +744,8 @@ describe("minimalist editor integration", () => {
 			() => "off",
 			() => ({ cwd: "/tmp" }),
 		).render(40);
-		expect(empty).toHaveLength(4);
-		expect(empty.slice(1, -1).every((line) => /^│\s+│$/.test(line))).toBe(true);
+		expect(empty).toHaveLength(2);
+		expect(empty[0]).toMatch(/^╭.*╮$/);
+		expect(empty[1]).toMatch(/^╰.*╯$/);
 	});
 });

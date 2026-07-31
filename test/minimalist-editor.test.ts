@@ -25,11 +25,12 @@ function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
 	return { ...defaultConfig, editorMode: "minimalist", ...overrides };
 }
 
-function render(width = 80, inputText = "draft") {
+function render(width = 80, inputText = "draft", viewport?: { above?: string; below?: string }) {
 	return renderMinimalistFrame({
 		width,
 		editorLines: ["draft"],
 		autocompleteLines: ["suggestion"],
+		viewport,
 		inputText,
 		metadata: {
 			cwd: `${homedir()}/project`,
@@ -61,6 +62,38 @@ describe("minimalist editor frame", () => {
 		expect(lines.at(-1)).toContain("feature/minimalist * ↑2 ↓1");
 		expect(lines.at(-1)).toContain("project");
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("puts complete viewport counts first on their matching borders", () => {
+		const lines = render(80, "draft", { above: "7", below: "11" });
+		expect(lines[0]).toMatch(/^╭─ ↑ 7 more · 12s/);
+		expect(lines.at(-1)).toMatch(/^╰─ ↓ 11 more · feature\/minimalist \* ↑2 ↓1/);
+	});
+
+	it.each([
+		[{ above: "7" }, "↑ 7 more", "↓"],
+		[{ below: "11" }, "↓ 11 more", "↑"],
+	] as const)("supports one-sided viewport counts", (viewport, present, absent) => {
+		const borders = [render(80, "draft", viewport)[0], render(80, "draft", viewport).at(-1)].join(
+			"\n",
+		);
+		expect(borders).toContain(present);
+		expect(borders).not.toContain(`${absent} `);
+	});
+
+	it("omits viewport counts atomically when they do not fit", () => {
+		const lines = renderMinimalistFrame({
+			width: 18,
+			editorLines: ["draft"],
+			viewport: { above: "123456789", below: "987654321" },
+			inputText: "draft",
+			metadata: { cwd: "" },
+			uiTheme: theme(),
+			config: config(),
+		});
+		expect(lines[0]).not.toContain("more");
+		expect(lines.at(-1)).not.toContain("more");
+		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
 	});
 
 	it("shows visual shell markers without changing editor text", () => {
