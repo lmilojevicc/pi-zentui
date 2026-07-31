@@ -50,16 +50,14 @@ function render(width = 80, inputText = "draft") {
 }
 
 describe("minimalist editor frame", () => {
-	it("renders metadata with symmetric breathing room and framed autocomplete", () => {
+	it("renders metadata and framed autocomplete", () => {
 		const lines = render();
 		expect(lines[0]).toContain("12s");
 		expect(lines[0]).toContain("$0.123 – model-x – high – 42%");
 		expect(lines[0]).toMatch(/^╭.*╮$/);
-		expect(lines[1]).toMatch(/^│\s+│$/);
-		expect(lines[2]).toMatch(/^│ draft\s+│$/);
-		expect(lines[3]).toMatch(/^│\s+│$/);
-		expect(lines[4]).toMatch(/^├─+┤$/);
-		expect(lines[5]).toContain("suggestion");
+		expect(lines[1]).toMatch(/^│ draft\s+│$/);
+		expect(lines[2]).toMatch(/^├─+┤$/);
+		expect(lines[3]).toContain("suggestion");
 		expect(lines.at(-1)).toContain("feature/minimalist * ↑2 ↓1");
 		expect(lines.at(-1)).toContain("project");
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
@@ -69,7 +67,7 @@ describe("minimalist editor frame", () => {
 		expect(render(80, "  !pwd")[0]).toContain("$ · 12s");
 		expect(render(80, "  !!pwd")[0]).toContain("$ · 12s");
 		expect(render(80, "draft")[0]).not.toContain("$ · 12s");
-		expect(render(80, "  !pwd")[2]).toContain("draft");
+		expect(render(80, "  !pwd")[1]).toContain("draft");
 	});
 
 	it("formats active and completed elapsed durations", () => {

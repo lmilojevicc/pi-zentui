@@ -339,7 +339,7 @@ export function renderMinimalistFrame({
 		rightCorner: "╯",
 		renderBorder,
 	});
-	const content = ["", ...editorLines, ""].map(
+	const content = editorLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);
 	const autocomplete = autocompleteLines.length
