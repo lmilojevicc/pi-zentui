@@ -27,6 +27,7 @@ type ViewportCounts = {
 
 type PolishedFrameSplit = {
 	editorLines: string[];
+	/** Logical, unframed autocomplete payload rows owned by this module. */
 	trailingLines: string[];
 	viewport: ViewportCounts;
 };
@@ -161,15 +162,15 @@ function fillLine(content: string, width: number): string {
 }
 
 function isLowRailPolishedStyle(style: EditorStyle): boolean {
-	return style === "polished-copy-friendly";
+	return style === "opencode-copy-friendly";
 }
 
 function selectedPolishedConfig(config: ZentuiConfig) {
 	switch (config.components.editor.style) {
-		case "polished":
-			return config.components.editor.styles.polished;
-		case "polished-copy-friendly":
-			return config.components.editor.styles["polished-copy-friendly"];
+		case "opencode":
+			return config.components.editor.styles.opencode;
+		case "opencode-copy-friendly":
+			return config.components.editor.styles["opencode-copy-friendly"];
 		case "minimalist":
 			return undefined;
 	}
@@ -303,12 +304,11 @@ function splitPolishedFrame(
 	uiTheme: Theme,
 ): PolishedFrameSplit | undefined {
 	if (!parseEditorBorder(lines[0] ?? "", "above")) return undefined;
+
 	for (let bottomIndex = lines.length - 1; bottomIndex >= 4; bottomIndex--) {
 		if (!parseEditorBorder(lines[bottomIndex] ?? "", "below")) continue;
 		const frame = unwrapPolishedFrameOnly(lines.slice(0, bottomIndex + 1), config, uiTheme);
-		if (frame) {
-			return { ...frame, trailingLines: lines.slice(bottomIndex + 1) };
-		}
+		if (frame) return { ...frame, trailingLines: lines.slice(bottomIndex + 1) };
 	}
 	return undefined;
 }
@@ -479,7 +479,7 @@ function renderPolishedFrame({
 	};
 	const meta = renderEditorMetadataFormat(
 		selectedPolishedConfig(config)?.metadataFormat ??
-			config.components.editor.styles.polished.metadataFormat,
+			config.components.editor.styles.opencode.metadataFormat,
 		{
 			model: modelMeta.modelLabel,
 			modelId: modelMeta.modelId ?? "",
@@ -556,7 +556,7 @@ function renderPolishedFrame({
 		rows: Object.freeze([...clamped]),
 		split: {
 			editorLines,
-			trailingLines: autocompleteLines.length > 0 ? clamped.slice(-autocompleteLines.length) : [],
+			trailingLines: autocompleteLines,
 			viewport,
 		},
 	});
@@ -630,9 +630,9 @@ export class PolishedEditor extends CustomEditor {
 
 		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
 		const innerWidth = Math.max(0, width - railWidth);
-		const rendered = super.render(innerWidth);
 		try {
-			return renderPolishedFrame({
+			const rendered = super.render(innerWidth);
+			const result = renderPolishedFrame({
 				width,
 				baseRendered: rendered,
 				autocompleteSource: this as unknown as AutocompleteEditorInternals,
@@ -642,10 +642,12 @@ export class PolishedEditor extends CustomEditor {
 				thinkingLevel: this.getThinkingLevel(),
 				trustedBaseFrame: true,
 				borderColor: this.borderColor,
-			}).lines;
+			});
+			if (result.decorated) return result.lines;
 		} catch {
-			return clampRenderedLines(rendered, width);
+			// Decoration is optional; re-render the base at the caller's width below.
 		}
+		return clampRenderedLines(super.render(width), width);
 	}
 }
 

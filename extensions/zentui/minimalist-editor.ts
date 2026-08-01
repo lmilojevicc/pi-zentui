@@ -63,6 +63,28 @@ function clampLines(lines: string[], width: number): string[] {
 	return lines.map((line) => truncateToWidth(line, Math.max(0, width), ""));
 }
 
+export function renderFramedAutocompleteRows({
+	width,
+	lines,
+	renderBorder,
+}: {
+	width: number;
+	lines: string[];
+	renderBorder: (text: string) => string;
+}): string[] {
+	if (width <= 4 || lines.length === 0) return clampLines(lines, width);
+	const contentWidth = width - 4;
+	return clampLines(
+		[
+			`${renderBorder("├")}${renderBorder("─".repeat(width - 2))}${renderBorder("┤")}`,
+			...lines.map(
+				(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
+			),
+		],
+		width,
+	);
+}
+
 function joinStyled(parts: string[], separator: string): string {
 	return parts.filter(Boolean).join(separator);
 }
@@ -386,13 +408,10 @@ export function renderMinimalistFrame({
 	const content = editorLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);
-	const autocomplete = autocompleteLines.length
-		? [
-				`${renderBorder("├")}${renderBorder("─".repeat(width - 2))}${renderBorder("┤")}`,
-				...autocompleteLines.map(
-					(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
-				),
-			]
-		: [];
+	const autocomplete = renderFramedAutocompleteRows({
+		width,
+		lines: autocompleteLines,
+		renderBorder,
+	});
 	return clampLines([top, ...content, ...autocomplete, bottom], width);
 }

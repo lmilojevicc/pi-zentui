@@ -72,7 +72,7 @@ body:
         - Previous user message styling
         - Runtime/git segment
         - Colors/theme mapping
-        - Polished (copy-friendly) editor style
+        - Opencode (copy-friendly) editor style
         - Other
     validations:
       required: true

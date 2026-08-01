@@ -247,7 +247,6 @@ describe("telemetry lifecycle integration", () => {
 		await emit(handlers, "session_start", first.ctx);
 		const firstFooter = first.createFooter();
 		expect(rendered(firstFooter)).toMatch(/\(sub\).*\(auto\)|\(auto\).*\(sub\)/);
-		firstFooter.dispose?.();
 		await emit(handlers, "session_shutdown", first.ctx);
 		expect(() => first.createFooter()).toThrow("footer was not installed");
 

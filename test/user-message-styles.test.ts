@@ -180,7 +180,8 @@ describe("pure user-message styles", () => {
 			const base = config(style);
 			const key = userMessageStyleCacheKey(base);
 			const unrelated = structuredClone(base);
-			unrelated.components.footer.enabled = !unrelated.components.footer.enabled;
+			unrelated.components.footer.style =
+				unrelated.components.footer.style === "hidden" ? "native" : "hidden";
 			unrelated.layout.fixedEditor.enabled = !unrelated.layout.fixedEditor.enabled;
 			expect(userMessageStyleCacheKey(unrelated)).toBe(key);
 

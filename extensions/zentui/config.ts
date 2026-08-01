@@ -33,10 +33,10 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
-export type EditorStyle = "polished" | "polished-copy-friendly" | "minimalist";
+export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
 export type UserMessageStyle = "framed" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
-export type FooterStyle = "starship";
+export type FooterStyle = "native" | "starship" | "hidden";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
 export type EditorBorderColorMode = "static" | "adaptive";
@@ -136,8 +136,8 @@ export type EditorComponentConfig = {
 	modelLabel: ModelLabelSource;
 	viewportIndicators: boolean;
 	styles: {
-		polished: PolishedEditorStyleConfig;
-		"polished-copy-friendly": PolishedCopyFriendlyEditorStyleConfig;
+		opencode: PolishedEditorStyleConfig;
+		"opencode-copy-friendly": PolishedCopyFriendlyEditorStyleConfig;
 		minimalist: MinimalistEditorStyleConfig;
 	};
 };
@@ -180,7 +180,6 @@ export type StarshipFooterStyleConfig = {
 };
 
 export type FooterComponentConfig = {
-	enabled: boolean;
 	style: FooterStyle;
 	colorSource: ColorSource;
 	modelLabel: ModelLabelSource;
@@ -405,14 +404,14 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 const defaultComponents: ComponentsConfig = {
 	editor: {
 		enabled: true,
-		style: "polished",
+		style: "opencode",
 		colorSource: "theme",
 		borderColorMode: "static",
 		modelLabel: "id",
 		viewportIndicators: true,
 		styles: {
-			polished: { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
-			"polished-copy-friendly": { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			opencode: { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			"opencode-copy-friendly": { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
 			minimalist: defaultMinimalistStyle,
 		},
 	},
@@ -424,7 +423,6 @@ const defaultComponents: ComponentsConfig = {
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
-		enabled: true,
 		style: "starship",
 		colorSource: "theme",
 		modelLabel: "id",
@@ -521,9 +519,11 @@ function parseEditorModelLabel(
 }
 
 function parseEditorStyle(value: unknown): EditorStyle {
-	if (value === "polished" || value === "polished-copy-friendly" || value === "minimalist") {
+	if (value === "opencode" || value === "opencode-copy-friendly" || value === "minimalist") {
 		return value;
 	}
+	if (value === "polished") return "opencode";
+	if (value === "polished-copy-friendly") return "opencode-copy-friendly";
 	return defaultConfig.editorStyle;
 }
 
@@ -916,8 +916,8 @@ function parseSelectorBorderStyle(value: unknown): SelectorBorderStyle {
 	return value === "zentui" ? value : "zentui";
 }
 
-function parseFooterStyle(value: unknown): FooterStyle {
-	return value === "starship" ? value : "starship";
+function parseFooterStyle(value: unknown): FooterStyle | undefined {
+	return value === "native" || value === "starship" || value === "hidden" ? value : undefined;
 }
 
 function parseNonEmptyString(value: unknown, fallback: string): string {
@@ -1019,16 +1019,33 @@ function resolveEditorStyle(
 	features: ConfigRecord,
 ): EditorStyle {
 	const rawStyle = editor.style;
-	if (rawStyle === "minimalist" || rawStyle === "polished-copy-friendly") return rawStyle;
+	if (
+		rawStyle === "opencode" ||
+		rawStyle === "opencode-copy-friendly" ||
+		rawStyle === "minimalist"
+	) {
+		return rawStyle;
+	}
+	if (rawStyle === "polished-copy-friendly") return "opencode-copy-friendly";
 	if (rawStyle === "polished") {
 		return hasOwn(polished, "copyFriendly") && legacyCopyFriendly(polished)
-			? "polished-copy-friendly"
-			: "polished";
+			? "opencode-copy-friendly"
+			: "opencode";
 	}
 	if (hasOwn(polished, "copyFriendly")) {
-		return legacyCopyFriendly(polished) ? "polished-copy-friendly" : "polished";
+		return legacyCopyFriendly(polished) ? "opencode-copy-friendly" : "opencode";
 	}
-	return legacyCopyFriendly(features) ? "polished-copy-friendly" : "polished";
+	return legacyCopyFriendly(features) ? "opencode-copy-friendly" : "opencode";
+}
+
+function resolveFooterStyle(footer: ConfigRecord, features: ConfigRecord): FooterStyle {
+	const explicit = parseFooterStyle(footer.style);
+	if (explicit) return explicit;
+	if (typeof footer.enabled === "boolean") return footer.enabled ? "starship" : "native";
+	if (typeof features.statusLine === "boolean") {
+		return features.statusLine ? "starship" : "native";
+	}
+	return defaultComponents.footer.style;
 }
 
 function resolveUserMessagesSelection(
@@ -1066,7 +1083,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
 	const editorStyles = recordValue(editor.styles);
+	const opencode = recordValue(editorStyles.opencode);
 	const polished = recordValue(editorStyles.polished);
+	const opencodeCopyFriendly = recordValue(editorStyles["opencode-copy-friendly"]);
 	const polishedCopyFriendly = recordValue(editorStyles["polished-copy-friendly"]);
 	const minimalist = recordValue(editorStyles.minimalist);
 	const userMessages = recordValue(components.userMessages);
@@ -1090,13 +1109,14 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		defaultStarshipStyle.contextThresholds,
 	);
 	const compactFormat = resolvedValue(starship, "compactFormat", config, "compactFooterFormat");
-	const metadataFormat = resolvedValue(polished, "metadataFormat", config, "editorMetadataFormat");
-	const lowRailMetadataFormat = resolvedValue(
-		polishedCopyFriendly,
-		"metadataFormat",
-		polished,
-		"metadataFormat",
-	);
+	const metadataFormat = hasOwn(opencode, "metadataFormat")
+		? opencode.metadataFormat
+		: resolvedValue(polished, "metadataFormat", config, "editorMetadataFormat");
+	const lowRailMetadataFormat = hasOwn(opencodeCopyFriendly, "metadataFormat")
+		? opencodeCopyFriendly.metadataFormat
+		: hasOwn(polishedCopyFriendly, "metadataFormat")
+			? polishedCopyFriendly.metadataFormat
+			: metadataFormat;
 	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
@@ -1122,12 +1142,12 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				defaultComponents.editor.viewportIndicators,
 			),
 			styles: {
-				polished: {
+				opencode: {
 					metadataFormat: parseNonEmptyString(metadataFormat, DEFAULT_EDITOR_METADATA_FORMAT),
 				},
-				"polished-copy-friendly": {
+				"opencode-copy-friendly": {
 					metadataFormat: parseNonEmptyString(
-						lowRailMetadataFormat ?? config.editorMetadataFormat,
+						lowRailMetadataFormat,
 						DEFAULT_EDITOR_METADATA_FORMAT,
 					),
 				},
@@ -1179,11 +1199,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 		},
 		footer: {
-			enabled: parseBoolean(
-				resolvedValue(footer, "enabled", features, "statusLine"),
-				defaultComponents.footer.enabled,
-			),
-			style: parseFooterStyle(resolvedValue(footer, "style")),
+			style: resolveFooterStyle(footer, features),
 			colorSource: parseColorSource(
 				resolvedValue(footer, "colorSource", colorSources, "starship"),
 				defaultComponents.footer.colorSource,
@@ -1246,7 +1262,7 @@ function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
 		extensionStatuses: starship.extensionStatuses,
 		editorStyle: config.components.editor.style,
 		editorStyles: { minimalist },
-		editorMetadataFormat: config.components.editor.styles.polished.metadataFormat,
+		editorMetadataFormat: config.components.editor.styles.opencode.metadataFormat,
 		editorBorderColorMode: config.components.editor.borderColorMode,
 		editorModelLabel: config.components.editor.modelLabel,
 		colorSources: {
@@ -1256,7 +1272,7 @@ function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
 		},
 		features: {
 			editor: config.components.editor.enabled,
-			statusLine: config.components.footer.enabled,
+			statusLine: config.components.footer.style === "starship",
 			viewportIndicators: config.components.editor.viewportIndicators,
 		},
 		fixedEditor: config.layout.fixedEditor,
@@ -1337,6 +1353,8 @@ function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
 	return {
 		editor:
 			typeof editorStyle === "string" &&
+			editorStyle !== "opencode" &&
+			editorStyle !== "opencode-copy-friendly" &&
 			editorStyle !== "polished" &&
 			editorStyle !== "polished-copy-friendly" &&
 			editorStyle !== "minimalist"
@@ -1353,7 +1371,13 @@ function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
 			typeof selectorBorderStyle === "string" && selectorBorderStyle !== "zentui"
 				? selectorBorderStyle
 				: undefined,
-		footer: typeof footerStyle === "string" && footerStyle !== "starship" ? footerStyle : undefined,
+		footer:
+			typeof footerStyle === "string" &&
+			footerStyle !== "native" &&
+			footerStyle !== "starship" &&
+			footerStyle !== "hidden"
+				? footerStyle
+				: undefined,
 	};
 }
 
@@ -1398,6 +1422,13 @@ function deleteLegacyEditorCopyFriendly(record: ConfigRecord): void {
 	if (!isRecord(styles)) return;
 	const polished = styles.polished;
 	if (isRecord(polished)) delete polished.copyFriendly;
+}
+
+function deleteLegacyFooterEnabled(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const footer = components.footer;
+	if (isRecord(footer)) delete footer.enabled;
 }
 
 function deleteLegacyMessageCopyFriendly(record: ConfigRecord): void {
@@ -1452,7 +1483,7 @@ export function savePolishedEditorStylePatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation((components) => {
-		const style = components.editor.styles.polished;
+		const style = components.editor.styles.opencode;
 		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
 	}, path);
 }
@@ -1462,7 +1493,7 @@ export function savePolishedCopyFriendlyEditorStylePatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation((components) => {
-		const style = components.editor.styles["polished-copy-friendly"];
+		const style = components.editor.styles["opencode-copy-friendly"];
 		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
 	}, path);
 }
@@ -1528,19 +1559,18 @@ export function saveSelectorBordersComponentPatch(
 }
 
 export function saveFooterComponentPatch(
-	patch: Partial<Pick<FooterComponentConfig, "enabled" | "style" | "colorSource" | "modelLabel">>,
+	patch: Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
 		(components) => {
 			const component = components.footer;
-			if (patch.enabled !== undefined) component.enabled = patch.enabled;
 			if (patch.style !== undefined) component.style = patch.style;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
 			if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
 		},
 		path,
-		undefined,
+		patch.style !== undefined ? deleteLegacyFooterEnabled : undefined,
 		patch.style !== undefined ? "footer" : undefined,
 	);
 }
@@ -1629,17 +1659,24 @@ export function saveUiFeaturesPatch(
 	path = configPath,
 ): PolishedTuiConfig {
 	const valid = validUiFeatureEntries(patch);
-	return saveComponentsMutation((components) => {
-		if (valid.editor !== undefined) {
-			components.editor.enabled = valid.editor;
-			components.userMessages.enabled = valid.editor;
-			components.selectorBorders.enabled = valid.editor;
-		}
-		if (valid.statusLine !== undefined) components.footer.enabled = valid.statusLine;
-		if (valid.viewportIndicators !== undefined) {
-			components.editor.viewportIndicators = valid.viewportIndicators;
-		}
-	}, path);
+	return saveComponentsMutation(
+		(components) => {
+			if (valid.editor !== undefined) {
+				components.editor.enabled = valid.editor;
+				components.userMessages.enabled = valid.editor;
+				components.selectorBorders.enabled = valid.editor;
+			}
+			if (valid.statusLine !== undefined) {
+				components.footer.style = valid.statusLine ? "starship" : "native";
+			}
+			if (valid.viewportIndicators !== undefined) {
+				components.editor.viewportIndicators = valid.viewportIndicators;
+			}
+		},
+		path,
+		valid.statusLine !== undefined ? deleteLegacyFooterEnabled : undefined,
+		valid.statusLine !== undefined ? "footer" : undefined,
+	);
 }
 
 export function saveFooterSegmentsPatch(

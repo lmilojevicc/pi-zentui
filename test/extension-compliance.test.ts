@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
+	initTheme,
 	ModelSelectorComponent,
 	SettingsSelectorComponent,
 	UserMessageComponent,
@@ -79,11 +80,11 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					: editor.viewportIndicators,
 				styles: {
 					...editor.styles,
-					polished: {
-						...editor.styles.polished,
+					opencode: {
+						...editor.styles.opencode,
 						metadataFormat: flatChanged("editorMetadataFormat")
 							? config.editorMetadataFormat
-							: editor.styles.polished.metadataFormat,
+							: editor.styles.opencode.metadataFormat,
 					},
 					minimalist: flatChanged("editorStyles")
 						? { ...editor.styles.minimalist, ...config.editorStyles.minimalist }
@@ -107,7 +108,11 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 			},
 			footer: {
 				...footer,
-				enabled: flatChanged("features") ? config.features.statusLine : footer.enabled,
+				style: flatChanged("features")
+					? config.features.statusLine
+						? "starship"
+						: "native"
+					: footer.style,
 				colorSource: flatChanged("colorSources")
 					? config.colorSources.starship
 					: footer.colorSource,
@@ -403,7 +408,7 @@ function configWithLowRailStyle(lowRail: boolean): PolishedTuiConfig {
 			...defaultConfig.components,
 			editor: {
 				...defaultConfig.components.editor,
-				style: lowRail ? "polished-copy-friendly" : "polished",
+				style: lowRail ? "opencode-copy-friendly" : "opencode",
 			},
 		},
 	};
@@ -1286,7 +1291,8 @@ describe("Pi docs compliance", () => {
 
 		expect(runner.editorFactory).toBeUndefined();
 		expect(runner.setEditorCalls).toBe(2);
-		expect(runner.footerClears).toBe(1);
+		// A distinct ui wrapper carries no ownership token, so shutdown must not clobber it.
+		expect(runner.footerClears).toBe(0);
 	});
 
 	it("refreshes a stale Zentui editor factory on extension reload instead of adopting old closures", async () => {
@@ -1361,7 +1367,7 @@ describe("Pi docs compliance", () => {
 					editor: { enabled: false },
 					userMessages: { enabled: false },
 					selectorBorders: { enabled: false },
-					footer: { enabled: false },
+					footer: { style: "native" },
 				},
 			}),
 		);
@@ -1627,7 +1633,7 @@ describe("Pi docs compliance", () => {
 				...defaultConfig.components,
 				editor: {
 					...defaultConfig.components.editor,
-					style: "polished-copy-friendly",
+					style: "opencode-copy-friendly",
 				},
 				userMessages: {
 					...defaultConfig.components.userMessages,
@@ -1657,7 +1663,7 @@ describe("Pi docs compliance", () => {
 				...config,
 				components: {
 					...config.components,
-					editor: { ...config.components.editor, style: "polished" },
+					editor: { ...config.components.editor, style: "opencode" },
 					userMessages: { ...config.components.userMessages, style: "labeled" },
 				},
 			};
@@ -1669,12 +1675,12 @@ describe("Pi docs compliance", () => {
 	});
 
 	it.each([
-		["polished", "framed"],
-		["polished", "compact"],
-		["polished", "labeled"],
-		["polished-copy-friendly", "framed"],
-		["polished-copy-friendly", "compact"],
-		["polished-copy-friendly", "labeled"],
+		["opencode", "framed"],
+		["opencode", "compact"],
+		["opencode", "labeled"],
+		["opencode-copy-friendly", "framed"],
+		["opencode-copy-friendly", "compact"],
+		["opencode-copy-friendly", "labeled"],
 		["minimalist", "framed"],
 		["minimalist", "compact"],
 		["minimalist", "labeled"],
@@ -1701,8 +1707,8 @@ describe("Pi docs compliance", () => {
 		const editorRendered = editor.render(80).join("\n");
 		const messageRendered = new UserMessageComponent("message").render(40).join("\n");
 
-		if (editorStyle === "polished") expect(editorRendered).toContain("│");
-		else if (editorStyle === "polished-copy-friendly") expect(editorRendered).not.toContain("│");
+		if (editorStyle === "opencode") expect(editorRendered).toContain("│");
+		else if (editorStyle === "opencode-copy-friendly") expect(editorRendered).not.toContain("│");
 		else expect(editorRendered).toContain("╭");
 		if (messageStyle === "framed") expect(stripPromptMarks(messageRendered)).toContain("────");
 		else if (messageStyle === "compact") {
@@ -1711,7 +1717,7 @@ describe("Pi docs compliance", () => {
 		} else expect(stripPromptMarks(messageRendered)).toContain("User");
 		expect(config.components.editor.style).toBe(editorStyle);
 		expect(config.components.userMessages).toMatchObject({ enabled: true, style: messageStyle });
-		expect(config.components.footer.enabled).toBe(true);
+		expect(config.components.footer.style).toBe("starship");
 		expect(UserMessageComponent.prototype.render).toBe(messageWrapper);
 	});
 
@@ -1816,7 +1822,7 @@ describe("Pi docs compliance", () => {
 		expect(framed).toContain("────");
 
 		config = structuredClone(config);
-		config.components.footer.enabled = false;
+		config.components.footer.style = "hidden";
 		expect(message.render(30).join("\n")).toBe(framed);
 		expect(fg).toHaveBeenCalledTimes(callsAfterFramed);
 
@@ -4065,7 +4071,7 @@ describe("Pi docs compliance", () => {
 
 	it("keeps blank structural metadata rows in the low-rail polished style", () => {
 		const config = configWithLowRailStyle(true);
-		config.components.editor.styles["polished-copy-friendly"].metadataFormat = "($unknown)";
+		config.components.editor.styles["opencode-copy-friendly"].metadataFormat = "($unknown)";
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
@@ -4241,7 +4247,7 @@ describe("Pi docs compliance", () => {
 
 	it("unwraps branded low-rail polished frames without duplicating metadata", () => {
 		const config = configWithLowRailStyle(true);
-		config.components.editor.styles["polished-copy-friendly"].metadataFormat = "copy-meta";
+		config.components.editor.styles["opencode-copy-friendly"].metadataFormat = "copy-meta";
 		const inner = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
@@ -4421,9 +4427,12 @@ describe("Pi docs compliance", () => {
 		const bottom = lines.findLastIndex((line) => /^─+$/.test(stripTestTags(line).trim()));
 		expect(rendered.match(/autocomplete-meta/g)).toHaveLength(1);
 		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
+		expect(lines.some((line) => stripTestTags(line).includes("├"))).toBe(false);
+		expect(bottom).toBe(lines.length - 4);
 		for (const suggestion of ["suggestion-one", "suggestion-two", "suggestion-three"]) {
 			expect(rendered.match(new RegExp(suggestion, "g"))).toHaveLength(1);
-			expect(lines.findIndex((line) => line.includes(suggestion))).toBeGreaterThan(bottom);
+			const row = lines.findIndex((line) => line.includes(suggestion));
+			expect(row).toBeGreaterThan(bottom);
 		}
 	});
 
@@ -4686,7 +4695,7 @@ describe("Pi docs compliance", () => {
 
 		await command?.handler("status line off", { hasUI: false });
 
-		expect(featureChanges).toEqual([{ enabled: false }]);
+		expect(featureChanges).toEqual([{ style: "native" }]);
 	});
 
 	it("treats removed copy commands as unknown arguments", async () => {
@@ -5223,7 +5232,7 @@ describe("Pi docs compliance", () => {
 						handleInput?: (data: string) => void;
 					};
 					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
-					for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -5297,7 +5306,7 @@ describe("Pi docs compliance", () => {
 						() => {},
 					) as { handleInput?: (data: string) => void };
 					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
-					for (let index = 0; index < 7; index += 1) component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -6085,5 +6094,155 @@ describe("Pi docs compliance", () => {
 		expect(handler?.({ type: "session_info_changed", name: "release prep" }, ctx)).toBeUndefined();
 		expect(renderRequests).toBe(before + 1);
 		await emit(handlers, "session_shutdown", ctx);
+	});
+});
+
+describe("three-state Footer lifecycle", () => {
+	function createFooterHarness() {
+		let factory: FooterFactory | undefined;
+		let component: ReturnType<FooterFactory> | undefined;
+		const factories: Array<FooterFactory | undefined> = [];
+		const branchSubscriptions = vi.fn(() => () => {});
+		const probeTransitions: unknown[] = [];
+		const tui = { requestRender: vi.fn() };
+		const footerData = {
+			onBranchChange: branchSubscriptions,
+			getExtensionStatuses: () => new Map<string, string>(),
+		};
+		const ui = {
+			theme: makeTheme(),
+			notify() {},
+			setFooter(next: FooterFactory | undefined) {
+				component?.dispose?.();
+				component = undefined;
+				factory = next;
+				factories.push(next);
+				if (next) component = next(tui, makeTheme(), footerData, () => {});
+			},
+			setEditorComponent() {},
+			getEditorComponent: () => undefined,
+			setWidget(key: string, next: unknown) {
+				if (key === "zentui-fixed-editor-probe") probeTransitions.push(next);
+			},
+		};
+		return {
+			ui,
+			factories,
+			branchSubscriptions,
+			probeTransitions,
+			get factory() {
+				return factory;
+			},
+			get component() {
+				return component;
+			},
+		};
+	}
+
+	it("installs Hidden as an owned zero-row component without Starship timers or subscriptions", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, components: { footer: { style: "hidden" } } }),
+		);
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		const harness = createFooterHarness();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: harness.ui });
+		await emit(handlers, "session_start", ctx);
+		expect(harness.component?.render(80)).toEqual([]);
+		expect(harness.branchSubscriptions).not.toHaveBeenCalled();
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("does not replace an unrelated Footer on initial Native reconciliation", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ components: { footer: { style: "native" } } }),
+		);
+		const setFooter = vi.fn();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: { theme: makeTheme(), setFooter } });
+		await emit(handlers, "session_start", ctx);
+		expect(setFooter).not.toHaveBeenCalled();
+		await emit(handlers, "session_shutdown", ctx);
+		expect(setFooter).not.toHaveBeenCalled();
+	});
+
+	it("clears ownership after Pi-style external disposal and leaves the replacement on shutdown", async () => {
+		const harness = createFooterHarness();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: harness.ui });
+		await emit(handlers, "session_start", ctx);
+		const replacement: FooterFactory = () => ({
+			invalidate() {},
+			render: () => ["third-party"],
+		});
+		harness.ui.setFooter(replacement);
+		expect(harness.component?.render(80)).toEqual(["third-party"]);
+		const callsBeforeShutdown = harness.factories.length;
+		await emit(handlers, "session_shutdown", ctx);
+		expect(harness.factories).toHaveLength(callsBeforeShutdown);
+		expect(harness.factory).toBe(replacement);
+	});
+
+	it("rebinds Footer and reprobes fixed layout across every live style transition", async () => {
+		initTheme(undefined, false);
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
+		);
+		const commands = new Map<string, unknown>();
+		const harness = createFooterHarness();
+		const handlers = loadExtension({ commands });
+		(
+			harness.ui as typeof harness.ui & {
+				custom: (factory: (...args: unknown[]) => unknown) => Promise<void>;
+			}
+		).custom = async (factory) => {
+			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+				handleInput(data: string): void;
+			};
+			for (let index = 0; index < 4; index++) settings.handleInput("\t");
+			settings.handleInput(" ");
+		};
+		const ctx = makeContext({ ui: harness.ui });
+		const chooseFooterStyle = async () => {
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("", ctx);
+		};
+		await emit(handlers, "session_start", ctx);
+		expect(harness.component?.render(80).length).toBeGreaterThan(0);
+		expect(harness.probeTransitions.map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.component?.render(80)).toEqual([]);
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.factory).toBeUndefined();
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.component?.render(80).length).toBeGreaterThan(0);
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		expect(harness.probeTransitions).toHaveLength(8);
+		expect(
+			new Set(harness.probeTransitions.filter((value) => typeof value === "function")).size,
+		).toBe(4);
+		expect(harness.factories).toHaveLength(4);
+		expect(harness.branchSubscriptions).toHaveBeenCalledTimes(2);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(harness.probeTransitions.at(-1)).toBeUndefined();
 	});
 });

@@ -117,6 +117,20 @@ function wrapped(
 	);
 }
 
+function standalone(style: EditorStyle = "opencode"): PolishedEditor {
+	const editor = new PolishedEditor(
+		{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+		{ borderColor: (text: string) => text, selectList: {} } as never,
+		{} as never,
+		theme(),
+		() => config({ style }),
+		() => ({ modelLabel: "model", providerLabel: "provider" }),
+		() => "off",
+	);
+	editor.setText("typed text");
+	return editor;
+}
+
 const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type SemanticBorderState = (typeof thinkingLevels)[number] | "shell";
 
@@ -218,7 +232,7 @@ describe("adaptive editor border colors", () => {
 	it("preserves low-rail polished viewport layout, clamping, and static fallback", () => {
 		const editor = wrapped(
 			baseEditor({ above: 123456, below: 654321, ansi: true }),
-			{ style: "polished-copy-friendly" },
+			{ style: "opencode-copy-friendly" },
 			"adaptive",
 		);
 		editor.borderColor = () => {
@@ -291,14 +305,87 @@ describe("editor viewport indicators", () => {
 		expect(narrowLines.at(-1)).toContain("↓");
 	});
 
-	it("keeps autocomplete rows after the counted bottom border", () => {
-		const suggestions = ["suggestion-one", "suggestion-two"];
-		const lines = wrapped(baseEditor({ below: 5, autocomplete: suggestions })).render(80);
-		const bottom = lines.findIndex((line) => line.includes("↓ 5 more"));
-		expect(bottom).toBeGreaterThanOrEqual(0);
-		for (const suggestion of suggestions) {
-			expect(lines.findIndex((line) => line.includes(suggestion))).toBeGreaterThan(bottom);
-		}
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"keeps ANSI and Unicode autocomplete rows raw after the terminal bottom border in %s",
+		(style) => {
+			const suggestions = ["\x1b[31msuggestion-one\x1b[0m", "emoji 😀 e\u0301 界"];
+			const lines = wrapped(baseEditor({ below: 5, autocomplete: suggestions }), { style }).render(
+				80,
+			);
+			const bottom = lines.findIndex((line) => line.includes("↓ 5 more"));
+			expect(lines.some((line) => line.includes("├") || line.includes("┤"))).toBe(false);
+			expect(bottom).toBe(lines.length - suggestions.length - 1);
+			expect(lines.slice(bottom + 1)).toEqual(suggestions);
+			expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+		},
+	);
+
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"keeps exact no-autocomplete output in %s",
+		(style) => {
+			const ordinary = baseEditor({ below: 2 });
+			const guarded = baseEditor({ below: 2 });
+			guarded.autocompleteList.render = () => {
+				throw new Error("must not inspect an inactive menu");
+			};
+			expect(wrapped(guarded, { style }).render(80)).toEqual(
+				wrapped(ordinary, { style }).render(80),
+			);
+		},
+	);
+
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"keeps raw trailing autocomplete width-safe at widths 5 and 4 in %s",
+		(style) => {
+			for (const width of [5, 4]) {
+				const lines = wrapped(baseEditor({ autocomplete: ["界😀e\u0301"] }), { style }).render(
+					width,
+				);
+				expect(lines.some((line) => line.includes("├") || line.includes("┤"))).toBe(false);
+				expect(lines.at(-2)).toMatch(/^─+$/);
+				expect(visibleWidth(lines.at(-1) ?? "")).toBeLessThanOrEqual(width);
+				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			}
+		},
+	);
+
+	it("rerenders standalone Opencode at caller width when reduced-width autocomplete rendering throws", () => {
+		const editor = standalone();
+		let calls = 0;
+		Object.assign(editor as unknown as Record<string, unknown>, {
+			autocompleteState: {},
+			autocompleteList: {
+				render() {
+					calls += 1;
+					if (calls === 1) throw new Error("reduced-width autocomplete failed");
+					return ["caller-width-suggestion"];
+				},
+			},
+		});
+		const lines = editor.render(80);
+		expect(calls).toBe(2);
+		expect(lines.some((line) => line.includes("├"))).toBe(false);
+		expect(lines).toContain("caller-width-suggestion".padEnd(80));
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+	});
+
+	it("rerenders standalone Opencode at caller width when autocomplete extraction becomes unknown", () => {
+		const editor = standalone("opencode-copy-friendly");
+		let calls = 0;
+		Object.assign(editor as unknown as Record<string, unknown>, {
+			autocompleteState: {},
+			autocompleteList: {
+				render() {
+					calls += 1;
+					return calls === 2 ? [] : ["caller-width-suggestion"];
+				},
+			},
+		});
+		const lines = editor.render(80);
+		expect(calls).toBe(3);
+		expect(lines.some((line) => line.includes("├"))).toBe(false);
+		expect(lines).toContain("caller-width-suggestion".padEnd(80));
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
 	it.each([
@@ -537,7 +624,7 @@ describe("editor viewport indicators", () => {
 	});
 
 	it("keeps every rendered line within narrow ANSI-aware widths in both chrome modes", () => {
-		for (const style of ["polished", "polished-copy-friendly"] as const) {
+		for (const style of ["opencode", "opencode-copy-friendly"] as const) {
 			for (const width of [3, 8, 12, 16]) {
 				const lines = wrapped(baseEditor({ above: 12, below: 34, ansi: true }), {
 					style,
@@ -576,7 +663,7 @@ describe("minimalist editor integration", () => {
 	});
 
 	it("cycles one wrapped adapter through every style without nesting owned chrome", () => {
-		let current = config({ style: "polished" });
+		let current = config({ style: "opencode" });
 		const rawWidths: number[] = [];
 		const raw = baseEditor({});
 		const rawRender = raw.render.bind(raw);
@@ -587,7 +674,7 @@ describe("minimalist editor integration", () => {
 		const inner = new WrappedPolishedEditor(
 			raw as never,
 			theme(),
-			() => config({ style: "polished" }),
+			() => config({ style: "opencode" }),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 		);
@@ -603,11 +690,11 @@ describe("minimalist editor integration", () => {
 		);
 
 		const polished = editor.render(40);
-		current = withEditorStyle(current, "polished-copy-friendly");
+		current = withEditorStyle(current, "opencode-copy-friendly");
 		const lowRail = editor.render(40);
 		current = withEditorStyle(current, "minimalist");
 		const minimalist = editor.render(40);
-		current = withEditorStyle(current, "polished");
+		current = withEditorStyle(current, "opencode");
 		const polishedAgain = editor.render(40);
 
 		expect(rawWidths).toEqual([36, 38, 34, 36]);

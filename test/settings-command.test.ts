@@ -242,7 +242,6 @@ describe("component-oriented /zentui settings", () => {
 		expectFocusOrder(component, ["Fixed editor (experimental)"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
-			"Footer",
 			"Footer style",
 			"Footer colors",
 			"Footer model label",
@@ -283,6 +282,75 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		component.handleInput("\t");
 		expectFocusOrder(component, ["Default placement", "No active statuses"]);
+	});
+
+	it.each(["native", "hidden"] as const)(
+		"shows only Footer style for %s while retaining Starship preconfiguration sections",
+		async (style) => {
+			const config = cloneConfig();
+			config.components.footer.style = style;
+			const harness = createHarness(config);
+			await harness.command().handler("", harness.ctx);
+			const component = harness.component();
+			goToSection(component, "Footer");
+			expectFocusOrder(component, ["Footer style"]);
+			component.handleInput("\t");
+			expectFocusOrder(component, [
+				"Current directory",
+				"Session name",
+				"Runtime",
+				"Model info",
+				"Context usage",
+				"Token counts",
+				"Session cost",
+				"Session duration",
+				"Username@host",
+				"Current time",
+				"OS icon",
+				"Package version",
+			]);
+			component.handleInput("\t");
+			expect(row(component, "Git branch")).toContain("enabled");
+			component.handleInput("\t");
+			expect(row(component, "Default placement")).toContain("right");
+		},
+	);
+
+	it("keeps Footer-style focus through Native, Starship, and Hidden rebuilds", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "native";
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		for (const expected of ["Starship", "Hidden", "Native"]) {
+			component.handleInput(" ");
+			expect(focusedRow(component)).toContain("> Footer style");
+			expect(focusedRow(component)).toContain(expected);
+		}
+		expect(harness.calls.footer).toEqual([
+			{ style: "starship" },
+			{ style: "hidden" },
+			{ style: "native" },
+		]);
+	});
+
+	it("restores Footer-style focus and effective rows after persistence failure", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "native";
+		const harness = createHarness(config, {
+			setFooterComponent() {
+				throw new Error("read-only footer");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Footer style");
+		expect(focusedRow(component)).toContain("Native");
+		expectFocusOrder(component, ["Footer style"]);
+		expect(harness.notifications).toEqual(["Could not update Zentui settings: read-only footer"]);
 	});
 
 	it("shows exact minimalist and enabled-layout rows while components are disabled", async () => {
@@ -380,12 +448,12 @@ describe("component-oriented /zentui settings", () => {
 		selectLabel(component, "Editor style");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
-		expect(focusedRow(component)).toContain("Polished (copy-friendly)");
+		expect(focusedRow(component)).toContain("Opencode (copy-friendly)");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
 		expect(focusedRow(component)).toContain("Minimalist");
 		expect(harness.calls.editor).toEqual([
-			{ style: "polished-copy-friendly" },
+			{ style: "opencode-copy-friendly" },
 			{ style: "minimalist" },
 		]);
 	});

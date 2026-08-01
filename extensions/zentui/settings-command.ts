@@ -23,6 +23,7 @@ import {
 	type FixedEditorConfig,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
+	type FooterStyle,
 	type GitBranchConfig,
 	type GitBranchMaxLength,
 	type GitCommitConfig,
@@ -64,8 +65,8 @@ const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 const modelLabelValues: ModelLabelSource[] = ["id", "name"];
 const editorStyleLabels: Record<EditorStyle, string> = {
-	polished: "Polished",
-	"polished-copy-friendly": "Polished (copy-friendly)",
+	opencode: "Opencode",
+	"opencode-copy-friendly": "Opencode (copy-friendly)",
 	minimalist: "Minimalist",
 };
 const editorStyleValues = Object.values(editorStyleLabels);
@@ -75,6 +76,12 @@ const userMessageStyleLabels: Record<UserMessageStyle, string> = {
 	labeled: "Labeled",
 };
 const userMessageStyleValues = Object.values(userMessageStyleLabels);
+const footerStyleLabels: Record<FooterStyle, string> = {
+	native: "Native",
+	starship: "Starship",
+	hidden: "Hidden",
+};
+const footerStyleValues = Object.values(footerStyleLabels);
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
@@ -103,9 +110,7 @@ type EditorPatch = Partial<
 type UserMessagesPatch = Partial<
 	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
 >;
-type FooterPatch = Partial<
-	Pick<FooterComponentConfig, "enabled" | "style" | "colorSource" | "modelLabel">
->;
+type FooterPatch = Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>;
 type ApplyResult = { applied: boolean; reason?: string };
 
 type SettingsCommandDeps = {
@@ -239,6 +244,14 @@ function editorStyleId(label: string): EditorStyle | undefined {
 		([, value]) => value === label,
 	)?.[0];
 }
+function footerStyleLabel(style: FooterStyle): string {
+	return footerStyleLabels[style];
+}
+function footerStyleId(label: string): FooterStyle | undefined {
+	return (Object.entries(footerStyleLabels) as Array<[FooterStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
 function userMessageStyleLabel(style: UserMessageStyle): string {
 	return userMessageStyleLabels[style];
 }
@@ -301,7 +314,7 @@ function parseDirectOperation(
 	if (["footer", "statusline", "status", "status line"].includes(target)) {
 		return {
 			kind: "footer",
-			enabled: actionValue(action, config.components.footer.enabled),
+			enabled: actionValue(action, config.components.footer.style === "starship"),
 		};
 	}
 	return undefined;
@@ -399,7 +412,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 		{
 			id: "editorStyle",
 			label: "Editor style",
-			description: "Use polished rails or a compact minimalist frame.",
+			description: "Use Opencode rails or a compact minimalist frame.",
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
@@ -548,36 +561,34 @@ function buildLayoutItems(config: PolishedTuiConfig): SettingItem[] {
 }
 function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer;
-	return [
-		{
-			id: "footerEnabled",
-			label: "Footer",
-			description: "Enable or disable Zentui's footer.",
-			currentValue: featureValue(footer.enabled),
-			values: featureStateValues,
-		},
+	const items: SettingItem[] = [
 		{
 			id: "footerStyle",
 			label: "Footer style",
-			description: "Choose the footer style.",
-			currentValue: footer.style,
-			values: ["starship"],
-		},
-		{
-			id: "footerColorSource",
-			label: "Footer colors",
-			description: "Use Pi theme colors or terminal palette styles.",
-			currentValue: footer.colorSource,
-			values: colorSourceValues,
-		},
-		{
-			id: "footerModelLabel",
-			label: "Footer model label",
-			description: "Show the model id or display name in the footer.",
-			currentValue: footer.modelLabel,
-			values: modelLabelValues,
+			description: "Use Pi's native footer, Zentui's Starship footer, or no footer rows.",
+			currentValue: footerStyleLabel(footer.style),
+			values: footerStyleValues,
 		},
 	];
+	if (footer.style === "starship") {
+		items.push(
+			{
+				id: "footerColorSource",
+				label: "Footer colors",
+				description: "Use Pi theme colors or terminal palette styles.",
+				currentValue: footer.colorSource,
+				values: colorSourceValues,
+			},
+			{
+				id: "footerModelLabel",
+				label: "Footer model label",
+				description: "Show the model id or display name in the footer.",
+				currentValue: footer.modelLabel,
+				values: modelLabelValues,
+			},
+		);
+	}
+	return items;
 }
 function buildStarshipFooterStyleItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer.styles.starship;
@@ -797,7 +808,12 @@ function buildSectionItems(
 		case "layout":
 			return buildLayoutItems(config);
 		case "footer":
-			return [...buildFooterItems(config), ...buildStarshipFooterStyleItems(config)];
+			return [
+				...buildFooterItems(config),
+				...(config.components.footer.style === "starship"
+					? buildStarshipFooterStyleItems(config)
+					: []),
+			];
 		case "segments":
 			return buildSegmentsItems(config);
 		case "git":
@@ -919,7 +935,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							label = "User messages";
 							break;
 						case "footer":
-							setFooter({ enabled: direct.enabled }, ctx);
+							setFooter({ style: direct.enabled ? "starship" : "native" }, ctx);
 							label = "Footer";
 							break;
 						case "viewport":
@@ -1110,15 +1126,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									return;
 								}
 
-								if (id === "footerEnabled" && enabled !== undefined) {
-									setFooter({ enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Footer", newValue);
-									return;
-								}
-								if (id === "footerStyle" && newValue === "starship") {
-									setFooter({ style: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
+								const selectedFooterStyle =
+									id === "footerStyle" ? footerStyleId(newValue) : undefined;
+								if (selectedFooterStyle) {
+									setFooter({ style: selectedFooterStyle }, ctx);
+									settingsList = makeSettingsList("footerStyle");
 									notifyChange("Footer style", newValue);
 									return;
 								}

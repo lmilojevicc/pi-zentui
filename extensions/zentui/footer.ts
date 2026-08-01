@@ -186,6 +186,7 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		onDispose?: () => void;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -201,6 +202,7 @@ export function installFooter(
 				unsubscribeBranch();
 				hooks.setRequestRender(undefined);
 				hooks.setExtensionStatusesGetter?.(undefined);
+				hooks.onDispose?.();
 			},
 			invalidate() {},
 			render(width: number): string[] {
@@ -800,4 +802,14 @@ export function installFooter(
 			},
 		};
 	});
+}
+
+export function installHiddenFooter(ctx: ExtensionContext, onDispose?: () => void): void {
+	ctx.ui.setFooter(() => ({
+		dispose: onDispose,
+		invalidate() {},
+		render(): string[] {
+			return [];
+		},
+	}));
 }

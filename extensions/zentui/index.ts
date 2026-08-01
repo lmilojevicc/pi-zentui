@@ -50,7 +50,7 @@ import {
 	installFixedEditorProbe,
 	removeFixedEditorProbe,
 } from "./fixed-editor";
-import { installFooter } from "./footer";
+import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
@@ -91,6 +91,7 @@ type ApplyUiResult = {
 type EditorChangeResult = { ok: true } | { ok: false; reason: string };
 
 type EditorInstallMode = "none" | "standalone" | "wrapper";
+type InstalledFooterKind = "starship" | "hidden";
 
 function editorTransferFailureMessage(reason: EditorTransferFailureReason): string {
 	switch (reason) {
@@ -173,8 +174,8 @@ export default function (pi: ExtensionAPI) {
 	let userMessageStyleInstalled = false;
 	let cleanupSelectorBorderStyle: () => void = () => {};
 	let selectorBorderStyleInstalled = false;
-	let footerInstalled = false;
-	let footerReconciled = false;
+	let installedFooterKind: InstalledFooterKind | undefined;
+	let installedFooterToken: symbol | undefined;
 	let editorInstalled = false;
 	let editorInstallMode: EditorInstallMode = "none";
 	let installedEditorFactory: EditorFactory | undefined;
@@ -233,8 +234,14 @@ export default function (pi: ExtensionAPI) {
 		sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : ("off" as const);
 	const syncFooterState = (ctx: ExtensionContext) =>
 		syncState(state, ctx, currentConfig.icons.cacheHit, resolveFooterTelemetry(ctx));
+	const ownsInstalledFooter = () =>
+		Boolean(
+			activeTuiContext &&
+				installedFooterToken &&
+				ctxFooterOwner(activeTuiContext) === installedFooterToken,
+		);
 	const installedFooterReferences = () =>
-		footerInstalled && currentConfig.components.footer.enabled
+		installedFooterKind === "starship" && ownsInstalledFooter()
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
 
@@ -291,7 +298,8 @@ export default function (pi: ExtensionAPI) {
 		);
 	};
 
-	const needsProjectRefresh = () => footerInstalled || minimalistProjectRequired();
+	const needsProjectRefresh = () =>
+		(installedFooterKind === "starship" && ownsInstalledFooter()) || minimalistProjectRequired();
 
 	const stopProjectRefresh = () => {
 		stopRefreshInterval();
@@ -340,8 +348,8 @@ export default function (pi: ExtensionAPI) {
 		const nextRequirements = needsTime || needsDuration ? `${needsTime}:${needsDuration}` : "";
 		if (
 			!sessionLifecycle.isCurrent() ||
-			!footerInstalled ||
-			!currentConfig.components.footer.enabled ||
+			installedFooterKind !== "starship" ||
+			!ownsInstalledFooter() ||
 			!nextRequirements
 		) {
 			stopSessionTimer();
@@ -710,21 +718,48 @@ export default function (pi: ExtensionAPI) {
 		return { ok: true };
 	};
 
-	const ownsStatusLine = (ctx: ExtensionContext) =>
-		Boolean((ctx.ui as unknown as Record<PropertyKey, unknown>)[ZENTUI_FOOTER_OWNER]);
+	const ctxFooterOwner = (ctx: ExtensionContext): unknown =>
+		(ctx.ui as unknown as Record<PropertyKey, unknown>)[ZENTUI_FOOTER_OWNER];
 
-	const setStatusLineOwnership = (ctx: ExtensionContext, owned: boolean) => {
+	const setStatusLineOwnership = (ctx: ExtensionContext, token: symbol | undefined) => {
 		const ui = ctx.ui as unknown as Record<PropertyKey, unknown>;
 		try {
-			if (owned) ui[ZENTUI_FOOTER_OWNER] = true;
+			if (token) ui[ZENTUI_FOOTER_OWNER] = token;
 			else delete ui[ZENTUI_FOOTER_OWNER];
 		} catch {
-			// Local bookkeeping still preserves ordinary-session cleanup.
+			// Failure to mark ownership intentionally prevents Native from restoring it.
 		}
 	};
 
+	const ownsStatusLine = (ctx: ExtensionContext) =>
+		installedFooterToken !== undefined && ctxFooterOwner(ctx) === installedFooterToken;
+
+	const clearFooterOwnership = (ctx: ExtensionContext, token: symbol) => {
+		if (installedFooterToken !== token) return;
+		installedFooterKind = undefined;
+		installedFooterToken = undefined;
+		if (ctxFooterOwner(ctx) === token) setStatusLineOwnership(ctx, undefined);
+		requestFooterRender = undefined;
+		getActiveExtensionStatuses = () => new Map();
+		stopSessionTimer();
+		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx);
+	};
+
+	const resetFailedFooterInstallation = (ctx: ExtensionContext, token: symbol) => {
+		try {
+			ctx.ui.setFooter(undefined);
+		} catch {
+			// Best effort: Zentui initiated the failed replacement.
+		}
+		clearFooterOwnership(ctx, token);
+		requestFooterRender = undefined;
+		getActiveExtensionStatuses = () => new Map();
+		stopSessionTimer();
+	};
+
 	const installStatusLine = (ctx: ExtensionContext) => {
-		if (footerInstalled) return;
+		if (installedFooterKind === "starship" && ownsStatusLine(ctx)) return;
+		const token = Symbol("zentui-starship-footer");
 		try {
 			installFooter(ctx, state, getCurrentConfig, {
 				setRequestRender: (fn) => {
@@ -735,45 +770,59 @@ export default function (pi: ExtensionAPI) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getLiveContext: () => liveContext.get(),
+				onDispose: () => clearFooterOwnership(ctx, token),
 			});
-			footerInstalled = true;
-			setStatusLineOwnership(ctx, true);
+			installedFooterKind = "starship";
+			installedFooterToken = token;
+			setStatusLineOwnership(ctx, token);
 			refresh();
 			reconcileSessionTimer();
 		} catch {
-			try {
-				ctx.ui.setFooter(undefined);
-			} catch {
-				// Best effort: Pi remains responsible for its native footer fallback.
-			}
-			footerInstalled = false;
-			setStatusLineOwnership(ctx, false);
+			resetFailedFooterInstallation(ctx, token);
+		}
+	};
+
+	const installHiddenStatusLine = (ctx: ExtensionContext) => {
+		if (installedFooterKind === "hidden" && ownsStatusLine(ctx)) return;
+		const token = Symbol("zentui-hidden-footer");
+		try {
+			installHiddenFooter(ctx, () => clearFooterOwnership(ctx, token));
+			installedFooterKind = "hidden";
+			installedFooterToken = token;
+			setStatusLineOwnership(ctx, token);
 			requestFooterRender = undefined;
 			getActiveExtensionStatuses = () => new Map();
 			stopSessionTimer();
+		} catch {
+			resetFailedFooterInstallation(ctx, token);
 		}
 	};
 
 	const uninstallStatusLine = (ctx: ExtensionContext) => {
 		stopSessionTimer();
-		if (footerInstalled || ownsStatusLine(ctx)) {
+		const ownedToken = ownsStatusLine(ctx) ? installedFooterToken : undefined;
+		if (ownedToken) {
 			try {
 				ctx.ui.setFooter(undefined);
 			} catch {
 				// Best effort cleanup must not prevent other surfaces from reconciling.
 			}
+			clearFooterOwnership(ctx, ownedToken);
 		}
-		footerInstalled = false;
-		setStatusLineOwnership(ctx, false);
-		requestFooterRender = undefined;
-		getActiveExtensionStatuses = () => new Map();
 	};
 
 	const reconcileFooter = (ctx: ExtensionContext) => {
-		const footer = currentConfig.components.footer;
-		if (footer.enabled && footer.style === "starship") installStatusLine(ctx);
-		else if (footerInstalled || !footerReconciled) uninstallStatusLine(ctx);
-		footerReconciled = true;
+		switch (currentConfig.components.footer.style) {
+			case "starship":
+				installStatusLine(ctx);
+				break;
+			case "hidden":
+				installHiddenStatusLine(ctx);
+				break;
+			case "native":
+				uninstallStatusLine(ctx);
+				break;
+		}
 	};
 
 	const cleanupFixedLayout = (ctx: ExtensionContext) => {
@@ -847,6 +896,8 @@ export default function (pi: ExtensionAPI) {
 		if (!isTuiContext(ctx)) return;
 		activeTuiContext = ctx;
 		activeTheme = ctx.ui.theme;
+		const staleFooterOwner = ctxFooterOwner(ctx);
+		if (typeof staleFooterOwner === "symbol") installedFooterToken = staleFooterOwner;
 		ensureConfigExists();
 		currentConfig = loadConfig();
 		syncFooterState(ctx);
@@ -865,7 +916,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		footerReconciled = false;
 		applyConfiguredUi(ctx);
 		refresh();
 	};
@@ -933,8 +983,8 @@ export default function (pi: ExtensionAPI) {
 		if (!retainedEditorOwnership) clearEditorOwnership();
 		uninstallUserMessages();
 		uninstallSelectorBorders();
-		footerInstalled = false;
-		footerReconciled = false;
+		installedFooterKind = undefined;
+		installedFooterToken = undefined;
 		requestFooterRender = undefined;
 		requestEditorRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
@@ -1003,8 +1053,12 @@ export default function (pi: ExtensionAPI) {
 			refresh();
 		},
 		setFooterComponent(patch: Partial<FooterComponentConfig>, ctx: ExtensionContext) {
+			const previousStyle = currentConfig.components.footer.style;
 			currentConfig = saveFooterComponentPatch(patch);
-			if (patch.enabled !== undefined || patch.style !== undefined) reconcileFooter(ctx);
+			const styleChanged = currentConfig.components.footer.style !== previousStyle;
+			if (styleChanged && fixedLayoutEnabled) cleanupFixedLayout(ctx);
+			if (patch.style !== undefined) reconcileFooter(ctx);
+			if (styleChanged && currentConfig.layout.fixedEditor.enabled) reconcileFixedLayout(ctx);
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
 			reconcileProjectRefresh(ctx);
 			reconcileSessionTimer();
