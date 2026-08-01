@@ -1462,7 +1462,10 @@ describe("Pi docs compliance", () => {
 	it("suppresses the production footer only while the installed minimalist editor decorates", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
 		);
 		const handlers = loadExtension();
 		let editorFactory: unknown;
@@ -1551,7 +1554,10 @@ describe("Pi docs compliance", () => {
 	it("updates session names through a wrapped minimalist editor", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
 		);
 		const handlers = loadExtension();
 		const existingEditorFactory = () => ({
@@ -1603,7 +1609,10 @@ describe("Pi docs compliance", () => {
 	it("keeps the production footer for unsupported wrapped minimalist output", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ editorStyle: "minimalist", projectRefreshIntervalMs: 0 }),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
 		);
 		const handlers = loadExtension();
 		const existingFactory = () => ({
@@ -1659,7 +1668,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorStyle: "minimalist",
+				components: { editor: { style: "minimalist" } },
 				projectRefreshIntervalMs: 0,
 				features: { statusLine: false },
 			}),
@@ -1698,7 +1707,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorStyle: "minimalist",
+				components: { editor: { style: "minimalist" } },
 				projectRefreshIntervalMs: 0,
 				features: { statusLine: false },
 			}),
@@ -1766,7 +1775,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				editorStyle: "minimalist",
+				components: { editor: { style: "minimalist" } },
 				projectRefreshIntervalMs: 5_000,
 				features: { statusLine: false },
 			}),

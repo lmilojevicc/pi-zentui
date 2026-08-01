@@ -19,27 +19,38 @@ import {
 	DEFAULT_COMPACT_FOOTER_FORMAT,
 	DEFAULT_EDITOR_METADATA_FORMAT,
 	defaultConfig,
+	ensureConfigExists,
 	FOOTER_FORMAT_VARIABLES,
 	mergeConfig,
 	saveColorSourcesPatch,
+	saveContextStylePatch,
 	saveContextThresholdsPatch,
 	saveEditorBorderColorMode,
+	saveEditorComponentPatch,
 	saveEditorModelLabel,
 	saveEditorStyle,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
 	saveFixedEditorPatch,
+	saveFooterComponentPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
+	saveFramedUserMessagesStylePatch,
 	saveGitBranchPatch,
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
+	saveLayoutFixedEditorPatch,
+	saveMinimalistEditorStylePatch,
 	saveMinimalistPatch,
 	savePathDisplayPatch,
+	savePolishedEditorStylePatch,
 	saveResponsiveFooterPatch,
+	saveSelectorBordersComponentPatch,
 	saveSeparatorPatch,
+	saveStarshipFooterStylePatch,
 	saveUiFeaturesPatch,
+	saveUserMessagesComponentPatch,
 } from "../extensions/zentui/config";
 import {
 	colorize,
@@ -54,6 +65,693 @@ function configTempFiles(dir: string, filename = "zentui.json"): string[] {
 		(name) => name.startsWith(`.${filename}.`) && name.endsWith(".tmp"),
 	);
 }
+
+function withConfig(
+	initial: Record<string, unknown> | undefined,
+	assertions: (path: string, dir: string) => void,
+): void {
+	const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
+	const path = join(dir, "zentui.json");
+	try {
+		if (initial !== undefined) writeFileSync(path, `${JSON.stringify(initial, null, 2)}\n`);
+		assertions(path, dir);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: Tests intentionally inspect arbitrary JSON fixture shapes.
+function readRaw(path: string): Record<string, any> {
+	return JSON.parse(readFileSync(path, "utf8"));
+}
+
+describe("canonical config resolution", () => {
+	it("provides complete canonical defaults and the established palette defaults", () => {
+		const config = mergeConfig({});
+		expect(config.components).toEqual({
+			editor: {
+				enabled: true,
+				style: "polished",
+				colorSource: "theme",
+				borderColorMode: "static",
+				modelLabel: "id",
+				viewportIndicators: true,
+				styles: {
+					polished: {
+						copyFriendly: false,
+						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+					},
+					minimalist: {
+						pathDisplay: "compact",
+						contextFormat: "percent",
+						contextGauge: false,
+						showSessionName: true,
+						showTimer: true,
+						showCost: true,
+						showGit: true,
+						contextThresholds: { warning: 70, error: 90 },
+					},
+				},
+			},
+			userMessages: {
+				enabled: true,
+				style: "framed",
+				colorSource: "theme",
+				styles: { framed: { copyFriendly: false } },
+			},
+			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
+			footer: {
+				enabled: true,
+				style: "starship",
+				colorSource: "theme",
+				modelLabel: "id",
+				styles: {
+					starship: {
+						format: "",
+						responsive: true,
+						compactFormat: DEFAULT_COMPACT_FOOTER_FORMAT,
+						compactMaxLines: 2,
+						separator: "pipe",
+						contextStyle: "text",
+						contextThresholds: { warning: 70, error: 90 },
+						pathDisplay: { mode: "basename", depth: 0 },
+						segments: defaultConfig.footerSegments,
+						gitBranch: { maxLength: "full" },
+						gitCommit: { hashLength: 7, onlyDetached: true, showTag: true },
+						gitMetrics: { onlyNonzero: true, ignoreSubmodules: false },
+						extensionStatuses: {
+							defaultPlacement: "right",
+							placements: {},
+							colorModes: {},
+						},
+					},
+				},
+			},
+		});
+		expect(config.layout).toEqual({
+			fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true },
+		});
+		expect(config.projectRefreshIntervalMs).toBe(30_000);
+		expect(config.icons.cacheHit).toBe("󰆼");
+		expect(config.colors).toEqual(defaultConfig.colors);
+		expect(defaultConfig.components).toEqual(config.components);
+		expect(defaultConfig.layout).toEqual(config.layout);
+	});
+
+	it("migrates every released legacy field leaf-by-leaf", () => {
+		const config = mergeConfig({
+			features: {
+				editor: false,
+				statusLine: false,
+				viewportIndicators: false,
+				copyFriendly: true,
+			},
+			colorSources: { editor: "terminal", userMessages: "terminal", starship: "terminal" },
+			editorBorderColorMode: "adaptive",
+			editorModelLabel: "name",
+			editorMetadataFormat: "$model",
+			contextThresholds: { warning: 55, error: 88 },
+			footerFormat: "$cwd",
+			responsiveFooter: false,
+			compactFooterFormat: "$context",
+			compactFooterMaxLines: 3,
+			separator: "dot",
+			contextStyle: "gauge",
+			pathDisplay: { mode: "full", depth: 2 },
+			footerSegments: { cwd: false, modelInfo: true },
+			gitBranch: { maxLength: 18 },
+			gitCommit: { hashLength: 12, onlyDetached: false, showTag: false },
+			gitMetrics: { onlyNonzero: false, ignoreSubmodules: true },
+			extensionStatuses: {
+				defaultPlacement: "middle",
+				placements: { alpha: "left" },
+				colorModes: { alpha: "original" },
+			},
+			fixedEditor: { enabled: true, mouseScroll: false, copyNotice: false },
+		});
+		const { editor, userMessages, selectorBorders, footer } = config.components;
+		const starship = footer.styles.starship;
+		expect([editor.enabled, userMessages.enabled, selectorBorders.enabled]).toEqual([
+			false,
+			false,
+			false,
+		]);
+		expect(editor.viewportIndicators).toBe(false);
+		expect(editor.styles.polished.copyFriendly).toBe(true);
+		expect(userMessages.styles.framed.copyFriendly).toBe(true);
+		expect([editor.colorSource, selectorBorders.colorSource]).toEqual(["terminal", "terminal"]);
+		expect(userMessages.colorSource).toBe("terminal");
+		expect(footer.colorSource).toBe("terminal");
+		expect(editor.borderColorMode).toBe("adaptive");
+		expect([editor.modelLabel, footer.modelLabel]).toEqual(["name", "name"]);
+		expect(editor.styles.polished.metadataFormat).toBe("$model");
+		expect(editor.styles.minimalist.contextThresholds).toEqual({ warning: 55, error: 88 });
+		expect(starship).toMatchObject({
+			format: "$cwd",
+			responsive: false,
+			compactFormat: "$context",
+			compactMaxLines: 3,
+			separator: "dot",
+			contextStyle: "gauge",
+			contextThresholds: { warning: 55, error: 88 },
+			pathDisplay: { mode: "full", depth: 2 },
+			gitBranch: { maxLength: 18 },
+			gitCommit: { hashLength: 12, onlyDetached: false, showTag: false },
+			gitMetrics: { onlyNonzero: false, ignoreSubmodules: true },
+			extensionStatuses: {
+				defaultPlacement: "middle",
+				placements: { alpha: "left" },
+				colorModes: { alpha: "original" },
+			},
+		});
+		expect(starship.segments).toMatchObject({ cwd: false, modelInfo: true });
+		expect(config.layout.fixedEditor).toEqual({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: false,
+		});
+	});
+
+	it("gives canonical leaves precedence, including false and invalid-but-present values", () => {
+		const config = mergeConfig({
+			features: { editor: true, copyFriendly: true, viewportIndicators: false },
+			colorSources: { editor: "terminal" },
+			editorBorderColorMode: "adaptive",
+			editorMetadataFormat: "$legacy",
+			components: {
+				editor: {
+					enabled: false,
+					style: "unknown",
+					colorSource: "unknown",
+					styles: {
+						polished: { copyFriendly: "yes" },
+					},
+				},
+			},
+		});
+		expect(config.components.editor.enabled).toBe(false);
+		expect(config.components.editor.style).toBe("polished");
+		expect(config.components.editor.colorSource).toBe("theme");
+		expect(config.components.editor.styles.polished.copyFriendly).toBe(false);
+		// Missing canonical siblings still migrate independently.
+		expect(config.components.editor.viewportIndicators).toBe(false);
+		expect(config.components.editor.borderColorMode).toBe("adaptive");
+		expect(config.components.editor.styles.polished.metadataFormat).toBe("$legacy");
+	});
+
+	it("normalizes every canonical minimalist leaf without reviving branch-only inputs", () => {
+		for (const pathDisplay of ["compact", "project", "full"]) {
+			expect(
+				mergeConfig({
+					components: { editor: { styles: { minimalist: { pathDisplay } } } },
+				}).components.editor.styles.minimalist.pathDisplay,
+			).toBe(pathDisplay);
+		}
+		for (const pathDisplay of ["basename", "", 1, null, true]) {
+			expect(
+				mergeConfig({
+					editorStyles: { minimalist: { pathDisplay: "full" } },
+					components: { editor: { styles: { minimalist: { pathDisplay } } } },
+				}).components.editor.styles.minimalist.pathDisplay,
+			).toBe("compact");
+		}
+
+		for (const contextFormat of ["percent", "percent-total"]) {
+			expect(
+				mergeConfig({
+					components: { editor: { styles: { minimalist: { contextFormat } } } },
+				}).components.editor.styles.minimalist.contextFormat,
+			).toBe(contextFormat);
+		}
+		for (const contextFormat of ["tokens", "", 1, null, true]) {
+			expect(
+				mergeConfig({
+					editorStyles: { minimalist: { contextFormat: "percent-total" } },
+					components: { editor: { styles: { minimalist: { contextFormat } } } },
+				}).components.editor.styles.minimalist.contextFormat,
+			).toBe("percent");
+		}
+
+		const valid = mergeConfig({
+			components: {
+				editor: {
+					styles: {
+						minimalist: {
+							contextGauge: true,
+							showSessionName: false,
+							showTimer: false,
+							showCost: false,
+							showGit: false,
+						},
+					},
+				},
+			},
+		}).components.editor.styles.minimalist;
+		expect(valid).toMatchObject({
+			contextGauge: true,
+			showSessionName: false,
+			showTimer: false,
+			showCost: false,
+			showGit: false,
+		});
+
+		const invalid = mergeConfig({
+			editorStyles: {
+				minimalist: {
+					contextGauge: true,
+					showSessionName: false,
+					showTimer: false,
+					showCost: false,
+					showGit: false,
+				},
+			},
+			components: {
+				editor: {
+					styles: {
+						minimalist: {
+							contextGauge: "yes",
+							showSessionName: "yes",
+							showTimer: null,
+							showCost: 0,
+							showGit: "no",
+						},
+					},
+				},
+			},
+		}).components.editor.styles.minimalist;
+		expect(invalid).toEqual(defaultConfig.components.editor.styles.minimalist);
+	});
+
+	it("ignores branch-only editorStyle/editorStyles and safely defaults closed style IDs", () => {
+		const config = mergeConfig({
+			editorStyle: "minimalist",
+			editorStyles: { minimalist: { showGit: false } },
+			components: {
+				editor: { style: "future" },
+				userMessages: { style: "future" },
+				selectorBorders: { style: "future" },
+				footer: { style: "future" },
+			},
+		});
+		expect(config.components.editor.style).toBe("polished");
+		expect(config.components.editor.styles.minimalist.showGit).toBe(true);
+		expect(config.components.userMessages.style).toBe("framed");
+		expect(config.components.selectorBorders.style).toBe("zentui");
+		expect(config.components.footer.style).toBe("starship");
+	});
+
+	it("normalizes nested canonical leaves without falling through to contradictory legacy leaves", () => {
+		const config = mergeConfig({
+			contextThresholds: { warning: 20, error: 80 },
+			pathDisplay: { mode: "full", depth: 4 },
+			components: {
+				editor: {
+					styles: { minimalist: { contextThresholds: { warning: "bad" } } },
+				},
+				footer: {
+					styles: {
+						starship: {
+							contextThresholds: { warning: "bad" },
+							pathDisplay: { mode: "bad" },
+						},
+					},
+				},
+			},
+		});
+		expect(config.components.editor.styles.minimalist.contextThresholds).toEqual({
+			warning: 70,
+			error: 80,
+		});
+		expect(config.components.footer.styles.starship.contextThresholds).toEqual({
+			warning: 70,
+			error: 80,
+		});
+		expect(config.components.footer.styles.starship.pathDisplay).toEqual({
+			mode: "basename",
+			depth: 4,
+		});
+	});
+
+	it("projects the intentionally lossy flat compatibility view from canonical sources", () => {
+		const config = mergeConfig({
+			components: {
+				editor: {
+					enabled: false,
+					style: "minimalist",
+					colorSource: "terminal",
+					modelLabel: "name",
+					styles: { polished: { copyFriendly: true, metadataFormat: "$model" } },
+				},
+				userMessages: {
+					enabled: true,
+					colorSource: "theme",
+					styles: { framed: { copyFriendly: false } },
+				},
+				selectorBorders: { enabled: true, colorSource: "theme" },
+				footer: {
+					modelLabel: "id",
+					colorSource: "terminal",
+					styles: { starship: { contextThresholds: { warning: 40, error: 60 } } },
+				},
+			},
+		});
+		const starship = config.components.footer.styles.starship;
+		expect(config.footerFormat).toBe(starship.format);
+		expect(config.responsiveFooter).toBe(starship.responsive);
+		expect(config.compactFooterFormat).toBe(starship.compactFormat);
+		expect(config.compactFooterMaxLines).toBe(starship.compactMaxLines);
+		expect(config.separator).toBe(starship.separator);
+		expect(config.contextStyle).toBe(starship.contextStyle);
+		expect(config.contextThresholds).toBe(starship.contextThresholds);
+		expect(config.pathDisplay).toBe(starship.pathDisplay);
+		expect(config.footerSegments).toBe(starship.segments);
+		expect(config.gitBranch).toBe(starship.gitBranch);
+		expect(config.gitCommit).toBe(starship.gitCommit);
+		expect(config.gitMetrics).toBe(starship.gitMetrics);
+		expect(config.extensionStatuses).toBe(starship.extensionStatuses);
+		expect(config.features).toEqual({
+			editor: false,
+			statusLine: true,
+			copyFriendly: true,
+			viewportIndicators: true,
+		});
+		expect(config.colorSources).toEqual({
+			starship: "terminal",
+			editor: "terminal",
+			userMessages: "theme",
+		});
+		expect(config.editorModelLabel).toBe("name");
+		expect(config.contextThresholds).toEqual({ warning: 40, error: 60 });
+	});
+
+	it("does not mutate the parsed record", () => {
+		const parsed = {
+			features: { editor: false },
+			components: { editor: { styles: { polished: { copyFriendly: true } } } },
+		};
+		const before = structuredClone(parsed);
+		mergeConfig(parsed);
+		expect(parsed).toEqual(before);
+	});
+
+	it("retains root parsing behavior for intervals, icons, colors, and telemetry variables", () => {
+		const config = mergeConfig({
+			projectRefreshIntervalMs: 100,
+			icons: { mode: "ascii", cwd: "DIR" },
+			colors: { gitBranch: "syntaxKeyword", editorAccent: "accent" },
+		});
+		expect(config.projectRefreshIntervalMs).toBe(5_000);
+		expect(config.icons.cwd).toBe("DIR");
+		expect(config.colors.gitBranch).toBe("syntaxKeyword");
+		expect(config.colors.editorAccent).toBe("accent");
+		expect(FOOTER_FORMAT_VARIABLES).toEqual(
+			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
+		);
+	});
+});
+
+describe("canonical snapshot persistence", () => {
+	it("materializes every component from legacy inputs and preserves unknown data", () => {
+		withConfig(
+			{
+				unknownTop: { keep: true },
+				features: { editor: false, copyFriendly: true },
+				colorSources: { editor: "terminal" },
+				components: {
+					futureDomain: { keep: true },
+					editor: {
+						futureComponent: true,
+						styles: {
+							futureStyle: { keep: true },
+							polished: { futurePolished: true },
+						},
+					},
+					footer: {
+						styles: {
+							starship: {
+								futureStarship: true,
+								pathDisplay: { futurePath: true },
+								extensionStatuses: { futureStatuses: true },
+							},
+						},
+					},
+				},
+			},
+			(path) => {
+				const config = saveEditorComponentPatch({ enabled: true }, path);
+				const raw = readRaw(path);
+				expect(Object.keys(raw.components)).toEqual(
+					expect.arrayContaining([
+						"editor",
+						"userMessages",
+						"selectorBorders",
+						"footer",
+						"futureDomain",
+					]),
+				);
+				expect(raw.components.editor.enabled).toBe(true);
+				expect(raw.components.userMessages.enabled).toBe(false);
+				expect(raw.components.selectorBorders.enabled).toBe(false);
+				expect(raw.components.editor.styles.polished.copyFriendly).toBe(true);
+				expect(raw.components.userMessages.styles.framed.copyFriendly).toBe(true);
+				expect(raw.components.editor.colorSource).toBe("terminal");
+				expect(raw.components.selectorBorders.colorSource).toBe("terminal");
+				expect(raw.features).toEqual({ editor: false, copyFriendly: true });
+				expect(raw.unknownTop).toEqual({ keep: true });
+				expect(raw.components.futureDomain).toEqual({ keep: true });
+				expect(raw.components.editor.futureComponent).toBe(true);
+				expect(raw.components.editor.styles.futureStyle).toEqual({ keep: true });
+				expect(raw.components.editor.styles.polished.futurePolished).toBe(true);
+				expect(raw.components.footer.styles.starship.futureStarship).toBe(true);
+				expect(raw.components.footer.styles.starship.pathDisplay.futurePath).toBe(true);
+				expect(raw.components.footer.styles.starship.extensionStatuses.futureStatuses).toBe(true);
+				expect(config).toEqual(mergeConfig(raw));
+			},
+		);
+	});
+
+	it("prevents legacy edits from recoupling surfaces after the first save", () => {
+		withConfig({ features: { editor: false, copyFriendly: true } }, (path) => {
+			saveEditorComponentPatch({ enabled: true }, path);
+			const raw = readRaw(path);
+			expect(raw.components.editor.enabled).toBe(true);
+			expect(raw.components.userMessages.enabled).toBe(false);
+			expect(raw.components.selectorBorders.enabled).toBe(false);
+			expect(raw.components.editor.styles.polished.copyFriendly).toBe(true);
+			expect(raw.components.userMessages.styles.framed.copyFriendly).toBe(true);
+			raw.features.editor = true;
+			raw.features.copyFriendly = false;
+			writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+			const reloaded = mergeConfig(readRaw(path));
+			expect(reloaded.components.editor.enabled).toBe(true);
+			expect(reloaded.components.userMessages.enabled).toBe(false);
+			expect(reloaded.components.selectorBorders.enabled).toBe(false);
+			expect(reloaded.components.editor.styles.polished.copyFriendly).toBe(true);
+			expect(reloaded.components.userMessages.styles.framed.copyFriendly).toBe(true);
+		});
+	});
+
+	it("supports every typed component saver without discarding inactive styles", () => {
+		withConfig(undefined, (path) => {
+			savePolishedEditorStylePatch({ copyFriendly: true, metadataFormat: "$provider" }, path);
+			saveMinimalistEditorStylePatch({ showGit: false, contextGauge: true }, path);
+			saveUserMessagesComponentPatch({ enabled: false, colorSource: "terminal" }, path);
+			saveFramedUserMessagesStylePatch({ copyFriendly: true }, path);
+			saveSelectorBordersComponentPatch({ enabled: false, colorSource: "terminal" }, path);
+			saveFooterComponentPatch({ enabled: false, modelLabel: "name" }, path);
+			saveStarshipFooterStylePatch(
+				{ separator: "chevron", pathDisplay: { mode: "full", depth: 2 } },
+				path,
+			);
+			const config = mergeConfig(readRaw(path));
+			expect(config.components.editor.styles.polished).toMatchObject({
+				copyFriendly: true,
+				metadataFormat: "$provider",
+			});
+			expect(config.components.editor.styles.minimalist).toMatchObject({
+				showGit: false,
+				contextGauge: true,
+			});
+			expect(config.components.userMessages).toMatchObject({
+				enabled: false,
+				colorSource: "terminal",
+			});
+			expect(config.components.userMessages.styles.framed.copyFriendly).toBe(true);
+			expect(config.components.selectorBorders).toMatchObject({
+				enabled: false,
+				colorSource: "terminal",
+			});
+			expect(config.components.footer).toMatchObject({ enabled: false, modelLabel: "name" });
+			expect(config.components.footer.styles.starship).toMatchObject({
+				separator: "chevron",
+				pathDisplay: { mode: "full", depth: 2 },
+			});
+		});
+	});
+
+	it("materializes layout.fixedEditor while preserving layout and legacy data", () => {
+		withConfig(
+			{
+				fixedEditor: { enabled: true, mouseScroll: false, legacyUnknown: true },
+				layout: { futureLayout: true, fixedEditor: { futureFixed: true } },
+			},
+			(path) => {
+				const config = saveLayoutFixedEditorPatch({ copyNotice: false }, path);
+				const raw = readRaw(path);
+				expect(raw.layout).toEqual({
+					futureLayout: true,
+					fixedEditor: {
+						futureFixed: true,
+						enabled: true,
+						mouseScroll: false,
+						copyNotice: false,
+					},
+				});
+				expect(raw.fixedEditor).toEqual({
+					enabled: true,
+					mouseScroll: false,
+					legacyUnknown: true,
+				});
+				expect(config.fixedEditor).toEqual({
+					enabled: true,
+					mouseScroll: false,
+					copyNotice: false,
+				});
+			},
+		);
+	});
+});
+
+describe("compatibility saver recipes", () => {
+	it("writes canonical paths only and updates all historically coupled destinations", () => {
+		withConfig(
+			{
+				features: { editor: true, statusLine: true, copyFriendly: false },
+				colorSources: { editor: "theme", starship: "theme", userMessages: "theme" },
+				editorModelLabel: "id",
+				footerFormat: "$legacy",
+				unknown: true,
+			},
+			(path) => {
+				const legacyBefore = structuredClone(readRaw(path));
+				saveColorSourcesPatch(
+					{ editor: "terminal", starship: "terminal", userMessages: "terminal" },
+					path,
+				);
+				saveUiFeaturesPatch(
+					{ editor: false, statusLine: false, copyFriendly: true, viewportIndicators: false },
+					path,
+				);
+				saveEditorModelLabel("name", path);
+				saveEditorStyle("minimalist", path);
+				saveMinimalistPatch({ showTimer: false, showGit: false }, path);
+				saveEditorBorderColorMode("adaptive", path);
+				saveFooterFormatPatch("$cwd", path);
+				saveResponsiveFooterPatch(
+					{ responsiveFooter: false, compactFooterFormat: "$context", compactFooterMaxLines: 3 },
+					path,
+				);
+				saveSeparatorPatch("dot", path);
+				saveContextStylePatch("text+gauge", path);
+				saveContextThresholdsPatch({ warning: 45, error: 75 }, path);
+				savePathDisplayPatch({ mode: "full", depth: 3 }, path);
+				saveFooterSegmentsPatch({ modelInfo: true, tokens: false }, path);
+				saveGitBranchPatch({ maxLength: 24 }, path);
+				saveGitCommitPatch({ onlyDetached: false, showTag: false }, path);
+				saveGitMetricsPatch({ onlyNonzero: false, ignoreSubmodules: true }, path);
+				saveExtensionStatusDefaultPlacement("middle", path);
+				saveExtensionStatusPlacement("alpha", "left", path);
+				saveExtensionStatusColorMode("alpha", "original", path);
+				const raw = readRaw(path);
+				const config = mergeConfig(raw);
+				expect(raw.features).toEqual(legacyBefore.features);
+				expect(raw.colorSources).toEqual(legacyBefore.colorSources);
+				expect(raw.editorModelLabel).toBe("id");
+				expect(raw.footerFormat).toBe("$legacy");
+				expect(raw.unknown).toBe(true);
+				expect(raw).not.toHaveProperty("editorStyle");
+				expect(raw).not.toHaveProperty("editorStyles");
+				expect(config.components.editor).toMatchObject({
+					enabled: false,
+					style: "minimalist",
+					colorSource: "terminal",
+					borderColorMode: "adaptive",
+					modelLabel: "name",
+					viewportIndicators: false,
+				});
+				expect(config.components.userMessages).toMatchObject({
+					enabled: false,
+					colorSource: "terminal",
+				});
+				expect(config.components.selectorBorders).toMatchObject({
+					enabled: false,
+					colorSource: "terminal",
+				});
+				expect(config.components.editor.styles.polished.copyFriendly).toBe(true);
+				expect(config.components.userMessages.styles.framed.copyFriendly).toBe(true);
+				expect(config.components.editor.styles.minimalist).toMatchObject({
+					showTimer: false,
+					showGit: false,
+					contextThresholds: { warning: 45, error: 75 },
+				});
+				expect(config.components.footer).toMatchObject({
+					enabled: false,
+					colorSource: "terminal",
+					modelLabel: "name",
+				});
+				expect(config.components.footer.styles.starship).toMatchObject({
+					format: "$cwd",
+					responsive: false,
+					compactFormat: "$context",
+					compactMaxLines: 3,
+					separator: "dot",
+					contextStyle: "text+gauge",
+					contextThresholds: { warning: 45, error: 75 },
+					pathDisplay: { mode: "full", depth: 3 },
+					segments: { modelInfo: true, tokens: false },
+					gitBranch: { maxLength: 24 },
+					gitCommit: { onlyDetached: false, showTag: false },
+					gitMetrics: { onlyNonzero: false, ignoreSubmodules: true },
+					extensionStatuses: {
+						defaultPlacement: "middle",
+						placements: { alpha: "left" },
+						colorModes: { alpha: "original" },
+					},
+				});
+			},
+		);
+	});
+
+	it("materializes a complete snapshot when a compatibility saver creates the file", () => {
+		withConfig(undefined, (path) => {
+			saveUiFeaturesPatch({ editor: false }, path);
+			const raw = readRaw(path);
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(Object.keys(raw.components).sort()).toEqual([
+				"editor",
+				"footer",
+				"selectorBorders",
+				"userMessages",
+			]);
+			expect(raw.components.editor.enabled).toBe(false);
+			expect(raw.components.userMessages.enabled).toBe(false);
+			expect(raw.components.selectorBorders.enabled).toBe(false);
+			expect(raw).not.toHaveProperty("features");
+		});
+	});
+
+	it("routes saveFixedEditorPatch to canonical layout only", () => {
+		withConfig(undefined, (path) => {
+			const config = saveFixedEditorPatch({ enabled: true }, path);
+			const raw = readRaw(path);
+			expect(raw).toEqual({
+				layout: { fixedEditor: { enabled: true, mouseScroll: true, copyNotice: true } },
+			});
+			expect(config.fixedEditor.enabled).toBe(true);
+			expect(raw).not.toHaveProperty("fixedEditor");
+		});
+	});
+});
 
 describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds and Starship styles", () => {
@@ -203,11 +901,12 @@ describe("mergeConfig", () => {
 				path,
 			);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw).toMatchObject({
-				unknown: { keep: true },
-				footerFormat: "$cwd",
-				responsiveFooter: false,
-				compactFooterMaxLines: 3,
+			expect(raw.unknown).toEqual({ keep: true });
+			expect(raw.footerFormat).toBe("$cwd");
+			expect(raw.components.footer.styles.starship).toMatchObject({
+				format: "$cwd",
+				responsive: false,
+				compactMaxLines: 3,
 			});
 			expect(config.responsiveFooter).toBe(false);
 			expect(config.compactFooterMaxLines).toBe(3);
@@ -279,158 +978,13 @@ describe("mergeConfig", () => {
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.separator).toBe("chevron");
-			expect(raw).toEqual({
-				unknown: true,
+			expect(raw.unknown).toBe(true);
+			expect(raw.contextStyle).toBe("gauge");
+			expect(raw.separator).toBeUndefined();
+			expect(raw.components.footer.styles.starship).toMatchObject({
 				contextStyle: "gauge",
 				separator: "chevron",
 			});
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("refuses corrupt config without changing its bytes", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const path = join(dir, "zentui.json");
-		const original = "{ invalid json\n";
-		try {
-			writeFileSync(path, original);
-
-			expect(() => saveSeparatorPatch("dot", path)).toThrow(
-				/Refusing to save Zentui config.*corrupt/,
-			);
-			expect(readFileSync(path, "utf8")).toBe(original);
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("creates missing config atomically and returns the config written to disk", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const path = join(dir, "zentui.json");
-		try {
-			expect(existsSync(path)).toBe(false);
-			const config = saveFooterFormatPatch("$cwd $fill $context", path);
-			const raw = JSON.parse(readFileSync(path, "utf8"));
-
-			expect(raw).toEqual({ footerFormat: "$cwd $fill $context" });
-			expect(config).toEqual(mergeConfig(raw));
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("preserves the existing destination mode during atomic replacement", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const path = join(dir, "zentui.json");
-		try {
-			writeFileSync(path, `${JSON.stringify({ separator: "pipe" }, null, 2)}\n`);
-			chmodSync(path, 0o600);
-
-			saveSeparatorPatch("dot", path);
-
-			expect(statSync(path).mode & 0o777).toBe(0o600);
-			expect(JSON.parse(readFileSync(path, "utf8")).separator).toBe("dot");
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("updates a symlink target atomically without replacing the symlink", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const targetDir = join(dir, "target");
-		const targetPath = join(targetDir, "actual.json");
-		const linkPath = join(dir, "zentui.json");
-		try {
-			mkdirSync(targetDir);
-			writeFileSync(targetPath, `${JSON.stringify({ unknown: true }, null, 2)}\n`);
-			chmodSync(targetPath, 0o600);
-			symlinkSync(targetPath, linkPath);
-			const originalLink = readlinkSync(linkPath);
-
-			const config = saveSeparatorPatch("chevron", linkPath);
-			const raw = JSON.parse(readFileSync(targetPath, "utf8"));
-
-			expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
-			expect(readlinkSync(linkPath)).toBe(originalLink);
-			expect(raw).toEqual({ unknown: true, separator: "chevron" });
-			expect(config).toEqual(mergeConfig(raw));
-			expect(statSync(targetPath).mode & 0o777).toBe(0o600);
-			expect(configTempFiles(targetDir, "actual.json")).toEqual([]);
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("refuses a dangling symlink without changing it", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const targetDir = join(dir, "target");
-		const missingTarget = join(targetDir, "missing.json");
-		const linkPath = join(dir, "zentui.json");
-		try {
-			mkdirSync(targetDir);
-			symlinkSync(missingTarget, linkPath);
-			const originalLink = readlinkSync(linkPath);
-
-			expect(() => saveSeparatorPatch("dot", linkPath)).toThrow(/Refusing to save Zentui config/);
-			expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
-			expect(readlinkSync(linkPath)).toBe(originalLink);
-			expect(existsSync(missingTarget)).toBe(false);
-			expect(configTempFiles(targetDir, "missing.json")).toEqual([]);
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("preserves scalar and nested unknown keys through the shared mutation path", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const path = join(dir, "zentui.json");
-		try {
-			writeFileSync(
-				path,
-				`${JSON.stringify(
-					{
-						futureScalar: "keep",
-						pathDisplay: { mode: "basename", depth: 2, futureNested: { keep: true } },
-					},
-					null,
-					2,
-				)}\n`,
-			);
-
-			saveSeparatorPatch("dot", path);
-			const config = savePathDisplayPatch({ mode: "full" }, path);
-			const raw = JSON.parse(readFileSync(path, "utf8"));
-
-			expect(raw.futureScalar).toBe("keep");
-			expect(raw.separator).toBe("dot");
-			expect(raw.pathDisplay).toEqual({
-				mode: "full",
-				depth: 2,
-				futureNested: { keep: true },
-			});
-			expect(config).toEqual(mergeConfig(raw));
-			expect(configTempFiles(dir)).toEqual([]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("keeps the destination and removes the temp file when serialization fails", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-config-"));
-		const path = join(dir, "zentui.json");
-		const original = `${JSON.stringify({ unknown: true }, null, 2)}\n`;
-		try {
-			writeFileSync(path, original);
-
-			expect(() => saveContextThresholdsPatch({ warning: 1n as never }, path)).toThrow();
-			expect(readFileSync(path, "utf8")).toBe(original);
-			expect(configTempFiles(dir)).toEqual([]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -455,82 +1009,6 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ editorModelLabel: "name" }).editorModelLabel).toBe("name");
 		expect(mergeConfig({ editorModelLabel: "id" }).editorModelLabel).toBe("id");
 		expect(mergeConfig({ editorModelLabel: "title" }).editorModelLabel).toBe("id");
-	});
-
-	it("defaults and normalizes editor style", () => {
-		expect(defaultConfig.editorStyle).toBe("polished");
-		expect(mergeConfig({}).editorStyle).toBe("polished");
-		expect(mergeConfig({ editorStyle: "polished" }).editorStyle).toBe("polished");
-		expect(mergeConfig({ editorStyle: "minimalist" }).editorStyle).toBe("minimalist");
-		for (const value of ["amp", "", 1, null, true]) {
-			expect(mergeConfig({ editorStyle: value }).editorStyle).toBe("polished");
-		}
-	});
-
-	it("ignores unreleased legacy editor style keys", () => {
-		const legacyOnly = mergeConfig({
-			editorMode: "minimalist",
-			minimalist: { showGit: false, showTimer: false },
-		});
-		expect(legacyOnly.editorStyle).toBe("polished");
-		expect(legacyOnly.editorStyles.minimalist).toEqual(defaultConfig.editorStyles.minimalist);
-
-		const canonical = mergeConfig({
-			editorMode: "polished",
-			minimalist: { showGit: true },
-			editorStyle: "minimalist",
-			editorStyles: { minimalist: { showGit: false } },
-		});
-		expect(canonical.editorStyle).toBe("minimalist");
-		expect(canonical.editorStyles.minimalist.showGit).toBe(false);
-	});
-
-	it("normalizes focused minimalist settings", () => {
-		expect(defaultConfig.editorStyles.minimalist).toEqual({
-			pathDisplay: "compact",
-			contextFormat: "percent",
-			contextGauge: false,
-			showSessionName: true,
-			showTimer: true,
-			showCost: true,
-			showGit: true,
-		});
-		expect(
-			mergeConfig({
-				editorStyles: {
-					minimalist: {
-						pathDisplay: "project",
-						contextFormat: "percent-total",
-						contextGauge: true,
-						showSessionName: false,
-						showTimer: false,
-						showCost: false,
-						showGit: false,
-					},
-				},
-			}).editorStyles.minimalist,
-		).toEqual({
-			pathDisplay: "project",
-			contextFormat: "percent-total",
-			contextGauge: true,
-			showSessionName: false,
-			showTimer: false,
-			showCost: false,
-			showGit: false,
-		});
-		expect(
-			mergeConfig({
-				editorStyles: {
-					minimalist: {
-						pathDisplay: "basename",
-						contextFormat: "tokens",
-						contextGauge: "yes",
-						showSessionName: "yes",
-						showTimer: null,
-					},
-				},
-			}).editorStyles.minimalist,
-		).toEqual(defaultConfig.editorStyles.minimalist);
 	});
 
 	it("saves minimalist patches while preserving unknown nested config", () => {
@@ -560,17 +1038,19 @@ describe("mergeConfig", () => {
 			expect(config.editorStyles.minimalist.contextFormat).toBe("percent-total");
 			expect(config.editorStyles.minimalist.showSessionName).toBe(false);
 			expect(config.editorStyles.minimalist.showGit).toBe(false);
-			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+			const raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw).toMatchObject({
 				unknownTop: true,
 				editorStyles: {
 					unknownStyle: { keep: true },
-					minimalist: {
-						unknownNested: "keep",
-						pathDisplay: "full",
-						showSessionName: false,
-						showGit: false,
-					},
+					minimalist: { unknownNested: "keep", showGit: true },
 				},
+			});
+			expect(raw.components.editor.styles.minimalist).toMatchObject({
+				pathDisplay: "full",
+				contextFormat: "percent-total",
+				showSessionName: false,
+				showGit: false,
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -583,20 +1063,19 @@ describe("mergeConfig", () => {
 		try {
 			writeFileSync(path, JSON.stringify({ unknown: { keep: true }, editorModelLabel: "name" }));
 			const minimalist = saveEditorStyle("minimalist", path);
-			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-				unknown: { keep: true },
-				editorModelLabel: "name",
-				editorStyle: "minimalist",
-			});
+			let raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(raw.unknown).toEqual({ keep: true });
+			expect(raw.editorModelLabel).toBe("name");
+			expect(raw.editorStyle).toBeUndefined();
+			expect(raw.components.editor.style).toBe("minimalist");
 			expect(minimalist.editorStyle).toBe("minimalist");
 
 			const polished = saveEditorStyle("polished", path);
+			raw = JSON.parse(readFileSync(path, "utf8"));
 			expect(polished.editorStyle).toBe("polished");
-			expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-				unknown: { keep: true },
-				editorModelLabel: "name",
-				editorStyle: "polished",
-			});
+			expect(raw.unknown).toEqual({ keep: true });
+			expect(raw.editorModelLabel).toBe("name");
+			expect(raw.components.editor.style).toBe("polished");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -625,11 +1104,10 @@ describe("mergeConfig", () => {
 
 			const config = saveEditorBorderColorMode("adaptive", path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw).toEqual({
-				unknown: { keep: true },
-				editorModelLabel: "name",
-				editorBorderColorMode: "adaptive",
-			});
+			expect(raw.unknown).toEqual({ keep: true });
+			expect(raw.editorModelLabel).toBe("name");
+			expect(raw.editorBorderColorMode).toBeUndefined();
+			expect(raw.components.editor.borderColorMode).toBe("adaptive");
 			expect(config.editorBorderColorMode).toBe("adaptive");
 			expect(config.editorModelLabel).toBe("name");
 			expect(configTempFiles(dir)).toEqual([]);
@@ -692,9 +1170,13 @@ describe("mergeConfig", () => {
 			expect(config.pathDisplay).toEqual({ mode: "full", depth: 3 });
 			expect(raw.unknown).toBe(true);
 			expect(raw.pathDisplay).toEqual({
-				mode: "full",
+				mode: "basename",
 				depth: 3,
 				futureKey: "future",
+			});
+			expect(raw.components.footer.styles.starship.pathDisplay).toEqual({
+				mode: "full",
+				depth: 3,
 			});
 
 			const depthConfig = savePathDisplayPatch({ depth: 1 }, path);
@@ -736,10 +1218,9 @@ describe("mergeConfig", () => {
 			const config = saveGitBranchPatch({ maxLength: 30 }, path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 			expect(config.gitBranch).toEqual({ maxLength: 30 });
-			expect(raw).toEqual({
-				unknown: true,
-				gitBranch: { maxLength: 30, future: true },
-			});
+			expect(raw.unknown).toBe(true);
+			expect(raw.gitBranch).toEqual({ maxLength: 17, future: true });
+			expect(raw.components.footer.styles.starship.gitBranch).toEqual({ maxLength: 30 });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1045,10 +1526,9 @@ describe("mergeConfig", () => {
 			expect(raw.colors.futureKey).toBe("future");
 			expect(raw.colors.gitBranch).toBe("syntaxKeyword");
 			expect(raw.colors.cost).toBe("success");
-			expect(raw.colorSources).toEqual({
-				starship: "terminal",
-				editor: "terminal",
-			});
+			expect(raw.colorSources).toEqual({ editor: "terminal" });
+			expect(raw.components.footer.colorSource).toBe("terminal");
+			expect(raw.components.editor.colorSource).toBe("terminal");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1085,9 +1565,10 @@ describe("mergeConfig", () => {
 			expect(raw.colorSources).toEqual({
 				starship: "neon",
 				editor: "terminal",
-				userMessages: "terminal",
+				userMessages: "invalid",
 				extra: "terminal",
 			});
+			expect(raw.components.userMessages.colorSource).toBe("terminal");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1105,7 +1586,10 @@ describe("mergeConfig", () => {
 				editor: "theme",
 				userMessages: "theme",
 			});
-			expect(raw).toEqual({ colorSources: { starship: "terminal" } });
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.footer.colorSource).toBe("terminal");
+			expect(raw.components.editor.colorSource).toBe("theme");
+			expect(raw.components.userMessages.colorSource).toBe("theme");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1140,12 +1624,10 @@ describe("mergeConfig", () => {
 				viewportIndicators: false,
 			});
 			expect(raw.unknown).toBe(true);
-			expect(raw.features).toEqual({
-				editor: true,
-				futureKey: "future",
-				statusLine: false,
-				viewportIndicators: false,
-			});
+			expect(raw.features).toEqual({ editor: true, futureKey: "future" });
+			expect(raw.components.editor.enabled).toBe(true);
+			expect(raw.components.editor.viewportIndicators).toBe(false);
+			expect(raw.components.footer.enabled).toBe(false);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1164,7 +1646,10 @@ describe("mergeConfig", () => {
 				copyFriendly: false,
 				viewportIndicators: true,
 			});
-			expect(raw).toEqual({ features: { editor: false } });
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.editor.enabled).toBe(false);
+			expect(raw.components.userMessages.enabled).toBe(false);
+			expect(raw.components.selectorBorders.enabled).toBe(false);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1212,9 +1697,9 @@ describe("mergeConfig", () => {
 				cost: false,
 			});
 			expect(raw.unknown).toBe(true);
-			expect(raw.footerSegments).toEqual({
+			expect(raw.footerSegments).toEqual({ cwd: true, futureKey: "future" });
+			expect(raw.components.footer.styles.starship.segments).toMatchObject({
 				cwd: true,
-				futureKey: "future",
 				modelInfo: true,
 				tokens: false,
 				cost: false,
@@ -1225,15 +1710,12 @@ describe("mergeConfig", () => {
 			const disabledRaw = JSON.parse(readFileSync(path, "utf8"));
 			expect(disabled.footerSegments.modelInfo).toBe(false);
 			expect(mergeConfig(disabledRaw).footerSegments.modelInfo).toBe(false);
-			expect(disabledRaw).toEqual({
-				unknown: true,
-				footerSegments: {
-					cwd: true,
-					futureKey: "future",
-					modelInfo: false,
-					tokens: false,
-					cost: false,
-				},
+			expect(disabledRaw.unknown).toBe(true);
+			expect(disabledRaw.footerSegments).toEqual({ cwd: true, futureKey: "future" });
+			expect(disabledRaw.components.footer.styles.starship.segments).toMatchObject({
+				modelInfo: false,
+				tokens: false,
+				cost: false,
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -1266,7 +1748,8 @@ describe("mergeConfig", () => {
 				tokens: true,
 				cost: true,
 			});
-			expect(raw).toEqual({ footerSegments: { runtime: false } });
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.footer.styles.starship.segments.runtime).toBe(false);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1280,7 +1763,7 @@ describe("mergeConfig", () => {
 			expect(config.footerSegments.packageVersion).toBe(true);
 
 			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw.footerSegments).toEqual({ packageVersion: true });
+			expect(raw.components.footer.styles.starship.segments.packageVersion).toBe(true);
 
 			const reloaded = mergeConfig(raw);
 			expect(reloaded.footerSegments.packageVersion).toBe(true);
@@ -1298,7 +1781,10 @@ describe("mergeConfig", () => {
 			expect(config.footerSegments.gitMetrics).toBe(true);
 
 			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw.footerSegments).toEqual({ gitCommit: true, gitMetrics: true });
+			expect(raw.components.footer.styles.starship.segments).toMatchObject({
+				gitCommit: true,
+				gitMetrics: true,
+			});
 
 			const reloaded = mergeConfig(raw);
 			expect(reloaded.footerSegments.gitCommit).toBe(true);
@@ -1339,7 +1825,8 @@ describe("mergeConfig", () => {
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.footerFormat).toBe("$cwd on $git_branch $fill $cost");
-			expect(raw).toEqual({ footerFormat: "$cwd on $git_branch $fill $cost" });
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.footer.styles.starship.format).toBe("$cwd on $git_branch $fill $cost");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1364,12 +1851,9 @@ describe("mergeConfig", () => {
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.extensionStatuses.placements).toEqual({ "plugin.key": "middle" });
-			expect(raw).toEqual({
-				extensionStatuses: {
-					placements: {
-						"plugin.key": "middle",
-					},
-				},
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.footer.styles.starship.extensionStatuses.placements).toEqual({
+				"plugin.key": "middle",
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -1384,12 +1868,9 @@ describe("mergeConfig", () => {
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.extensionStatuses.colorModes).toEqual({ "plugin.key": "original" });
-			expect(raw).toEqual({
-				extensionStatuses: {
-					colorModes: {
-						"plugin.key": "original",
-					},
-				},
+			expect(Object.keys(raw)).toEqual(["components"]);
+			expect(raw.components.footer.styles.starship.extensionStatuses.colorModes).toEqual({
+				"plugin.key": "original",
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -1442,6 +1923,9 @@ describe("mergeConfig", () => {
 			expect(raw.extensionStatuses.colorModes).toEqual({
 				alpha: "zentui",
 				invalid: "muted",
+			});
+			expect(raw.components.footer.styles.starship.extensionStatuses.colorModes).toEqual({
+				alpha: "zentui",
 				beta: "original",
 			});
 		} finally {
@@ -1487,6 +1971,9 @@ describe("mergeConfig", () => {
 			expect(raw.extensionStatuses.placements).toEqual({
 				alpha: "right",
 				invalid: "center",
+			});
+			expect(raw.components.footer.styles.starship.extensionStatuses.placements).toEqual({
+				alpha: "right",
 				beta: "off",
 			});
 		} finally {
@@ -1630,7 +2117,10 @@ describe("bounded settings persistence", () => {
 			const config = saveEditorModelLabel("name", path);
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 			expect(config.editorModelLabel).toBe("name");
-			expect(raw).toEqual({ editorModelLabel: "name", unknown: { keep: true } });
+			expect(raw.editorModelLabel).toBe("id");
+			expect(raw.unknown).toEqual({ keep: true });
+			expect(raw.components.editor.modelLabel).toBe("name");
+			expect(raw.components.footer.modelLabel).toBe("name");
 		});
 	});
 
@@ -1646,9 +2136,14 @@ describe("bounded settings persistence", () => {
 				expect(config.gitCommit).toEqual({ hashLength: 12, onlyDetached: false, showTag: false });
 				expect(raw.gitCommit).toEqual({
 					hashLength: 12,
+					onlyDetached: true,
+					showTag: true,
+					future: "keep",
+				});
+				expect(raw.components.footer.styles.starship.gitCommit).toEqual({
+					hashLength: 12,
 					onlyDetached: false,
 					showTag: false,
-					future: "keep",
 				});
 				expect(raw.unknown).toBe(true);
 			},
@@ -1663,9 +2158,13 @@ describe("bounded settings persistence", () => {
 				const raw = JSON.parse(readFileSync(path, "utf8"));
 				expect(config.gitMetrics).toEqual({ onlyNonzero: false, ignoreSubmodules: true });
 				expect(raw.gitMetrics).toEqual({
+					onlyNonzero: true,
+					ignoreSubmodules: false,
+					future: 1,
+				});
+				expect(raw.components.footer.styles.starship.gitMetrics).toEqual({
 					onlyNonzero: false,
 					ignoreSubmodules: true,
-					future: 1,
 				});
 				expect(raw.unknown).toBe(true);
 			},
@@ -1694,6 +2193,9 @@ describe("bounded settings persistence", () => {
 				expect(raw.extensionStatuses.future).toBe("keep");
 				expect(raw.extensionStatuses.placements).toEqual({ alpha: "left" });
 				expect(raw.extensionStatuses.colorModes).toEqual({ alpha: "original" });
+				expect(raw.components.footer.styles.starship.extensionStatuses.defaultPlacement).toBe(
+					"middle",
+				);
 				expect(raw.unknown).toBe(true);
 			},
 		);
@@ -1709,7 +2211,8 @@ describe("saveFixedEditorPatch", () => {
 			expect(config.fixedEditor.enabled).toBe(true);
 
 			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw.fixedEditor.enabled).toBe(true);
+			expect(raw.fixedEditor).toBeUndefined();
+			expect(raw.layout.fixedEditor.enabled).toBe(true);
 		} finally {
 			rmSync(dir, { recursive: true });
 		}
@@ -1725,5 +2228,106 @@ describe("saveFixedEditorPatch", () => {
 		} finally {
 			rmSync(dir, { recursive: true });
 		}
+	});
+});
+describe("startup and file safety", () => {
+	it("does not create, rewrite, or materialize config at startup", () => {
+		withConfig(undefined, (path) => {
+			ensureConfigExists(path);
+			expect(existsSync(path)).toBe(false);
+		});
+		withConfig({ features: { editor: false }, unknown: true }, (path) => {
+			const before = readFileSync(path, "utf8");
+			ensureConfigExists(path);
+			expect(readFileSync(path, "utf8")).toBe(before);
+			expect(readRaw(path)).not.toHaveProperty("components");
+		});
+	});
+
+	it("refuses corrupt config without changing bytes or leaving a temporary file", () => {
+		withConfig(undefined, (path, dir) => {
+			const original = "{ invalid json\n";
+			writeFileSync(path, original);
+			expect(() => saveSeparatorPatch("dot", path)).toThrow(
+				/Refusing to save Zentui config.*corrupt/,
+			);
+			expect(readFileSync(path, "utf8")).toBe(original);
+			expect(configTempFiles(dir)).toEqual([]);
+		});
+	});
+
+	it("creates a missing config atomically and returns the re-merged file", () => {
+		withConfig(undefined, (path, dir) => {
+			const config = saveFooterFormatPatch("$cwd", path);
+			const raw = readRaw(path);
+			expect(raw.components.footer.styles.starship.format).toBe("$cwd");
+			expect(config).toEqual(mergeConfig(raw));
+			expect(configTempFiles(dir)).toEqual([]);
+		});
+	});
+
+	it("preserves destination mode during atomic replacement", () => {
+		withConfig({ separator: "pipe" }, (path, dir) => {
+			chmodSync(path, 0o600);
+			saveSeparatorPatch("dot", path);
+			expect(statSync(path).mode & 0o777).toBe(0o600);
+			expect(readRaw(path).components.footer.styles.starship.separator).toBe("dot");
+			expect(configTempFiles(dir)).toEqual([]);
+		});
+	});
+
+	it("updates a symlink target atomically without replacing the symlink", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-symlink-config-"));
+		const targetDir = join(dir, "target");
+		const targetPath = join(targetDir, "actual.json");
+		const linkPath = join(dir, "zentui.json");
+		try {
+			mkdirSync(targetDir);
+			writeFileSync(targetPath, `${JSON.stringify({ unknown: true }, null, 2)}\n`);
+			chmodSync(targetPath, 0o600);
+			symlinkSync(targetPath, linkPath);
+			const originalLink = readlinkSync(linkPath);
+			const config = saveSeparatorPatch("chevron", linkPath);
+			const raw = readRaw(targetPath);
+			expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+			expect(readlinkSync(linkPath)).toBe(originalLink);
+			expect(raw.unknown).toBe(true);
+			expect(raw.components.footer.styles.starship.separator).toBe("chevron");
+			expect(config).toEqual(mergeConfig(raw));
+			expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+			expect(configTempFiles(targetDir, "actual.json")).toEqual([]);
+			expect(configTempFiles(dir)).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses a dangling symlink without changing it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-dangling-config-"));
+		const targetDir = join(dir, "target");
+		const missingTarget = join(targetDir, "missing.json");
+		const linkPath = join(dir, "zentui.json");
+		try {
+			mkdirSync(targetDir);
+			symlinkSync(missingTarget, linkPath);
+			const originalLink = readlinkSync(linkPath);
+			expect(() => saveSeparatorPatch("dot", linkPath)).toThrow(/Refusing to save Zentui config/);
+			expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+			expect(readlinkSync(linkPath)).toBe(originalLink);
+			expect(existsSync(missingTarget)).toBe(false);
+			expect(configTempFiles(targetDir, "missing.json")).toEqual([]);
+			expect(configTempFiles(dir)).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps the destination and leaves no temp file when serialization input is invalid", () => {
+		withConfig({ unknown: true }, (path, dir) => {
+			const original = readFileSync(path, "utf8");
+			expect(() => saveContextThresholdsPatch({ warning: 1n as never }, path)).toThrow();
+			expect(readFileSync(path, "utf8")).toBe(original);
+			expect(configTempFiles(dir)).toEqual([]);
+		});
 	});
 });
