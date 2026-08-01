@@ -31,35 +31,116 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		ensureConfigExists: () => {},
 		loadConfig: () => mocks.config,
 		saveEditorModelLabel(value: "id" | "name") {
-			mocks.config = { ...mocks.config, editorModelLabel: value };
+			mocks.config = {
+				...mocks.config,
+				editorModelLabel: value,
+				components: {
+					...mocks.config.components,
+					editor: { ...mocks.config.components.editor, modelLabel: value },
+					footer: { ...mocks.config.components.footer, modelLabel: value },
+				},
+			};
 			return mocks.config;
 		},
 		saveFooterFormatPatch(value: string) {
-			mocks.config = { ...mocks.config, footerFormat: value };
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				footerFormat: value,
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: { starship: { ...footer.styles.starship, format: value } },
+					},
+				},
+			};
 			return mocks.config;
 		},
 		saveFooterSegmentsPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				footerSegments: { ...mocks.config.footerSegments, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								segments: { ...footer.styles.starship.segments, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
 		saveResponsiveFooterPatch(patch: Record<string, unknown>) {
-			mocks.config = { ...mocks.config, ...patch };
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				...patch,
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								...(patch.responsiveFooter === undefined
+									? {}
+									: { responsive: patch.responsiveFooter as boolean }),
+								...(patch.compactFooterMaxLines === undefined
+									? {}
+									: {
+											compactMaxLines: patch.compactFooterMaxLines as 1 | 2 | 3 | "unlimited",
+										}),
+							},
+						},
+					},
+				},
+			};
 			return mocks.config;
 		},
 		saveGitCommitPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				gitCommit: { ...mocks.config.gitCommit, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								gitCommit: { ...footer.styles.starship.gitCommit, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
 		saveGitMetricsPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				gitMetrics: { ...mocks.config.gitMetrics, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								gitMetrics: { ...footer.styles.starship.gitMetrics, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
@@ -129,6 +210,22 @@ async function settleProjectRefresh() {
 	for (let index = 0; index < 8; index++) await Promise.resolve();
 }
 
+function updateStarship(
+	patch: Partial<PolishedTuiConfig["components"]["footer"]["styles"]["starship"]>,
+) {
+	const footer = mocks.config.components.footer;
+	mocks.config = {
+		...mocks.config,
+		components: {
+			...mocks.config.components,
+			footer: {
+				...footer,
+				styles: { starship: { ...footer.styles.starship, ...patch } },
+			},
+		},
+	};
+}
+
 function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Promise<void>) {
 	let footerFactory: unknown;
 	let editorFactory: unknown;
@@ -164,9 +261,26 @@ function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Pr
 
 beforeEach(() => {
 	vi.useFakeTimers();
+	const footer = defaultConfig.components.footer;
 	mocks.config = {
 		...defaultConfig,
 		features: { ...defaultConfig.features, editor: false, statusLine: true },
+		components: {
+			...defaultConfig.components,
+			editor: { ...defaultConfig.components.editor, enabled: false },
+			footer: {
+				...footer,
+				enabled: true,
+				styles: {
+					starship: {
+						...footer.styles.starship,
+						format: "$cwd",
+						responsive: false,
+						compactFormat: "$package",
+					},
+				},
+			},
+		},
 		projectRefreshIntervalMs: 0,
 		footerFormat: "$cwd",
 		responsiveFooter: false,
@@ -238,17 +352,13 @@ describe("responsive footer dependency reconciliation", () => {
 		await emit(handlers, "session_start", ctx);
 		const before = mocks.syncState.mock.calls.length;
 		await command.handler("", ctx);
-		expect(mocks.config.editorModelLabel).toBe("name");
+		expect(mocks.config.components.editor.modelLabel).toBe("name");
+		expect(mocks.config.components.footer.modelLabel).toBe("name");
 		expect(mocks.syncState).toHaveBeenCalledTimes(before + 1);
-		expect(mocks.syncState.mock.calls.at(-1)?.[3]).toBe("name");
 	});
 
 	it("forces Git refreshes for exact-tag and submodule probe changes", async () => {
-		mocks.config = {
-			...mocks.config,
-			footerFormat: "$git_commit $git_metrics",
-			responsiveFooter: false,
-		};
+		updateStarship({ format: "$git_commit $git_metrics", responsive: false });
 		let target: "showTag" | "ignoreSubmodules" = "showTag";
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
@@ -281,7 +391,7 @@ describe("responsive footer dependency reconciliation", () => {
 	});
 
 	it("refreshes probes activated by built-in segment settings", async () => {
-		mocks.config = { ...mocks.config, footerFormat: "", compactFooterFormat: "$cwd" };
+		updateStarship({ format: "", compactFormat: "$cwd" });
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
@@ -303,7 +413,7 @@ describe("responsive footer dependency reconciliation", () => {
 	});
 
 	it("does not refresh when only the compact row limit changes", async () => {
-		mocks.config = { ...mocks.config, responsiveFooter: true };
+		updateStarship({ responsive: true });
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;

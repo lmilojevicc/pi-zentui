@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { emptyGitStatus } from "../extensions/zentui/git";
-import { createInitialState, syncState } from "../extensions/zentui/state";
+import { createInitialState, modelLabelFor, syncState } from "../extensions/zentui/state";
 
 function makeCtx(model: unknown) {
 	return {
@@ -14,34 +14,31 @@ function makeCtx(model: unknown) {
 const model = { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai" };
 
 describe("syncState model label", () => {
-	it("shows the model id when the label source is 'id' and retains raw model fields", () => {
+	it("retains raw model fields and formats independent label sources", () => {
 		const state = createInitialState(emptyGitStatus());
-		syncState(state, makeCtx(model), "", "id");
-		expect(state.modelLabel).toBe("gpt-5.6-terra");
+		syncState(state, makeCtx(model), "");
 		expect(state.modelId).toBe("gpt-5.6-terra");
 		expect(state.modelName).toBe("GPT-5.6 Terra");
-	});
-
-	it("shows the model name when the label source is 'name'", () => {
-		const state = createInitialState(emptyGitStatus());
-		syncState(state, makeCtx(model), "", "name");
-		expect(state.modelLabel).toBe("GPT-5.6 Terra");
-	});
-
-	it("falls back to the id when the name is empty without changing the raw name", () => {
-		const state = createInitialState(emptyGitStatus());
-		syncState(state, makeCtx({ ...model, name: "" }), "", "name");
 		expect(state.modelLabel).toBe("gpt-5.6-terra");
-		expect(state.modelId).toBe("gpt-5.6-terra");
+		expect(modelLabelFor(state, "id")).toBe("gpt-5.6-terra");
+		expect(modelLabelFor(state, "name")).toBe("GPT-5.6 Terra");
+	});
+
+	it("falls back to the id when the name is empty", () => {
+		const state = createInitialState(emptyGitStatus());
+		syncState(state, makeCtx({ ...model, name: "" }), "");
+		expect(modelLabelFor(state, "name")).toBe("gpt-5.6-terra");
 		expect(state.modelName).toBe("");
 	});
 
 	it("shows no-model when there is no active model and clears raw fields", () => {
 		const state = createInitialState(emptyGitStatus());
-		syncState(state, makeCtx(undefined), "", "name");
-		expect(state.modelLabel).toBe("no-model");
+		syncState(state, makeCtx(undefined), "");
+		expect(modelLabelFor(state, "name")).toBe("no-model");
+		expect(modelLabelFor(state, "id")).toBe("no-model");
 		expect(state.modelId).toBe("");
 		expect(state.modelName).toBe("");
+		expect(state.modelLabel).toBe("no-model");
 	});
 
 	it("stores cache atoms and clears optional markers on later synchronization", () => {
@@ -64,7 +61,7 @@ describe("syncState model label", () => {
 		};
 		const state = createInitialState(emptyGitStatus());
 
-		syncState(state, ctx as never, "", "id", {
+		syncState(state, ctx as never, "", {
 			subscription: true,
 			autoCompaction: true,
 		});
@@ -76,7 +73,7 @@ describe("syncState model label", () => {
 		});
 		expect(state.tokenLabel).not.toContain("R1.2k");
 
-		syncState(state, makeCtx(model), "", "id", {});
+		syncState(state, makeCtx(model), "", {});
 		expect(state).toMatchObject({
 			cacheReadLabel: "",
 			cacheWriteLabel: "",

@@ -3,8 +3,8 @@ import {
 	SettingsSelectorComponent,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { PolishedTuiConfig } from "./config";
-import { installPrototypePatch } from "./prototype-patch-registry";
+import type { ZentuiConfig } from "./config";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, renderEditorBorder } from "./style";
 
 type PatchableSelectorPrototype = {
@@ -24,11 +24,16 @@ function isHorizontalBorderLine(line: string): boolean {
 function renderBorderLine(
 	width: number,
 	theme: Theme | undefined,
-	config: PolishedTuiConfig | undefined,
+	config: ZentuiConfig | undefined,
 ): string {
 	const text = "─".repeat(Math.max(1, width));
 	if (theme && config) {
-		return renderChromeBorder(theme, config.colorSources.editor, EDITOR_BORDER_STYLE, text);
+		return renderChromeBorder(
+			theme,
+			config.components.selectorBorders.colorSource,
+			EDITOR_BORDER_STYLE,
+			text,
+		);
 	}
 	return renderEditorBorder(text);
 }
@@ -36,7 +41,7 @@ function renderBorderLine(
 export function patchSelectorBorderStyle(
 	prototype: PatchableSelectorPrototype,
 	getTheme?: () => Theme | undefined,
-	getConfig?: () => PolishedTuiConfig,
+	getConfig?: () => ZentuiConfig,
 ): Cleanup {
 	return installPrototypePatch(
 		prototype,
@@ -56,9 +61,14 @@ export function patchSelectorBorderStyle(
 	);
 }
 
+export function removeSelectorBorderStyle(): void {
+	removePrototypePatch(ModelSelectorComponent.prototype, "render", "selector-border-render");
+	removePrototypePatch(SettingsSelectorComponent.prototype, "render", "selector-border-render");
+}
+
 export function installSelectorBorderStyle(
 	getTheme?: () => Theme | undefined,
-	getConfig?: () => PolishedTuiConfig,
+	getConfig?: () => ZentuiConfig,
 ): Cleanup {
 	const cleanupModel = patchSelectorBorderStyle(
 		ModelSelectorComponent.prototype as unknown as PatchableSelectorPrototype,

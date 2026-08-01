@@ -8,7 +8,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig } from "./config";
+import type { ZentuiConfig } from "./config";
 import { renderEditorMetadataFormat } from "./editor-metadata-format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
@@ -79,7 +79,7 @@ type PolishedFrameOptions = {
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
 	uiTheme: Theme;
-	config: PolishedTuiConfig;
+	config: ZentuiConfig;
 	modelMeta: EditorMeta;
 	thinkingLevel: string | undefined;
 	rightStatus?: string;
@@ -95,7 +95,7 @@ type MinimalistFrameAdapterOptions = {
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
 	uiTheme: Theme;
-	config: PolishedTuiConfig;
+	config: ZentuiConfig;
 	inputText: string;
 	metadata: MinimalistEditorMetadata;
 	ownedFrame?: PolishedFrameSplit;
@@ -160,12 +160,12 @@ function fillLine(content: string, width: number): string {
 	return `${truncated}${pad}`;
 }
 
-function copyFriendlyPrompt(config: PolishedTuiConfig, uiTheme: Theme, reset: string): string {
+function copyFriendlyPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): string {
 	const promptIcon = config.icons.editorPrompt;
 	return promptIcon
 		? `${renderStyleForSourceOrFallback(
 				uiTheme,
-				config.colorSources.editor,
+				config.components.editor.colorSource,
 				config.colors.editorPrompt ?? config.colors.editorAccent,
 				EDITOR_ACCENT_FALLBACK,
 				promptIcon,
@@ -173,13 +173,13 @@ function copyFriendlyPrompt(config: PolishedTuiConfig, uiTheme: Theme, reset: st
 		: "";
 }
 
-function getEditorChromeWidths(config: PolishedTuiConfig, uiTheme: Theme, reset: string) {
+function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: string) {
 	const prompt = copyFriendlyPrompt(config, uiTheme, reset);
-	const rail = config.features.copyFriendly
+	const rail = config.components.editor.styles.polished.copyFriendly
 		? ""
 		: `${renderStyleForSourceOrFallback(
 				uiTheme,
-				config.colorSources.editor,
+				config.components.editor.colorSource,
 				config.colors.editorAccent,
 				EDITOR_ACCENT_FALLBACK,
 				config.icons.rail,
@@ -188,7 +188,9 @@ function getEditorChromeWidths(config: PolishedTuiConfig, uiTheme: Theme, reset:
 		prompt,
 		promptWidth: visibleWidth(prompt),
 		rail,
-		railWidth: config.features.copyFriendly ? visibleWidth(prompt) : visibleWidth(rail),
+		railWidth: config.components.editor.styles.polished.copyFriendly
+			? visibleWidth(prompt)
+			: visibleWidth(rail),
 	};
 }
 
@@ -237,7 +239,7 @@ function renderEditorBorder(
 
 function unwrapPolishedFrameOnly(
 	lines: string[],
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	uiTheme: Theme,
 ): { editorLines: string[]; viewport: ViewportCounts } | undefined {
 	if (lines.length < 5) return undefined;
@@ -249,7 +251,7 @@ function unwrapPolishedFrameOnly(
 	const interior = lines.slice(1, -1);
 	if (interior.length < 3) return undefined;
 
-	if (config.features.copyFriendly) {
+	if (config.components.editor.styles.polished.copyFriendly) {
 		if (
 			plainRenderedText(interior[0] ?? "").trim() !== "" ||
 			plainRenderedText(interior.at(-2) ?? "").trim() !== "" ||
@@ -283,7 +285,7 @@ function unwrapPolishedFrameOnly(
 
 function splitPolishedFrame(
 	lines: string[],
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	uiTheme: Theme,
 ): PolishedFrameSplit | undefined {
 	if (!parseEditorBorder(lines[0] ?? "", "above")) return undefined;
@@ -300,7 +302,7 @@ function splitPolishedFrame(
 function inspectPolishedFrameProvenance(
 	base: WrappedEditor,
 	rendered: string[],
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	uiTheme: Theme,
 ): { safe: boolean; ownedFrame?: PolishedFrameSplit } {
 	const provenance = POLISHED_FRAME_SPLITS.get(rendered);
@@ -393,7 +395,7 @@ function renderMinimalistFrameFromBase({
 			width,
 			editorLines: ownedFrame?.editorLines ?? editorFrame.slice(1, -1),
 			autocompleteLines,
-			viewport: config.features.viewportIndicators ? viewport : undefined,
+			viewport: config.components.editor.viewportIndicators ? viewport : undefined,
 			inputText,
 			metadata,
 			uiTheme,
@@ -420,7 +422,7 @@ function renderPolishedFrame({
 	if (width <= 2) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 
 	const reset = "\x1b[0m";
-	const colorSource = config.colorSources.editor;
+	const colorSource = config.components.editor.colorSource;
 	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
 	const innerWidth = Math.max(0, width - railWidth);
 	const copyFriendlyContinuation = " ".repeat(promptWidth);
@@ -462,7 +464,7 @@ function renderPolishedFrame({
 		below: parsedBottom?.count,
 	};
 	const meta = renderEditorMetadataFormat(
-		config.editorMetadataFormat,
+		config.components.editor.styles.polished.metadataFormat,
 		{
 			model: modelMeta.modelLabel,
 			modelId: modelMeta.modelId ?? "",
@@ -486,7 +488,10 @@ function renderPolishedFrame({
 			text,
 		);
 	const renderBorder = (text: string) => {
-		if (config.editorBorderColorMode !== "adaptive" || typeof borderColor !== "function") {
+		if (
+			config.components.editor.borderColorMode !== "adaptive" ||
+			typeof borderColor !== "function"
+		) {
 			return renderStaticBorder(text);
 		}
 		try {
@@ -500,18 +505,18 @@ function renderPolishedFrame({
 		renderEditorBorder(
 			width,
 			"above",
-			config.features.viewportIndicators ? viewport.above : undefined,
+			config.components.editor.viewportIndicators ? viewport.above : undefined,
 		),
 	);
 	const bottom = renderBorder(
 		renderEditorBorder(
 			width,
 			"below",
-			config.features.viewportIndicators ? viewport.below : undefined,
+			config.components.editor.viewportIndicators ? viewport.below : undefined,
 		),
 	);
 	const lines = ["", ...editorLines, "", railedMeta];
-	const renderedLines = config.features.copyFriendly
+	const renderedLines = config.components.editor.styles.polished.copyFriendly
 		? [
 				top,
 				"",
@@ -548,7 +553,7 @@ export class PolishedEditor extends CustomEditor {
 	private readonly getThinkingLevel: () => string | undefined;
 	private readonly getMinimalistMetadata: () => MinimalistEditorMetadata;
 	private readonly onMinimalistDecorationChange: (active: boolean) => void;
-	private readonly getConfig: () => PolishedTuiConfig;
+	private readonly getConfig: () => ZentuiConfig;
 	private readonly uiTheme: Theme;
 
 	constructor(
@@ -556,7 +561,7 @@ export class PolishedEditor extends CustomEditor {
 		theme: EditorTheme,
 		keybindings: KeybindingsManager,
 		uiTheme: Theme,
-		getConfig: () => PolishedTuiConfig,
+		getConfig: () => ZentuiConfig,
 		getModelMeta: () => EditorMeta,
 		getThinkingLevel: () => string | undefined,
 		getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
@@ -578,7 +583,7 @@ export class PolishedEditor extends CustomEditor {
 
 	render(width: number): string[] {
 		const config = this.getConfig();
-		if (config.editorStyle === "minimalist") {
+		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
 				return clampRenderedLines(super.render(width), width);
@@ -639,7 +644,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 	constructor(
 		private readonly base: WrappedEditor,
 		private readonly uiTheme: Theme,
-		private readonly getConfig: () => PolishedTuiConfig,
+		private readonly getConfig: () => ZentuiConfig,
 		private readonly getModelMeta: () => EditorMeta,
 		private readonly getThinkingLevel: () => string | undefined,
 		private readonly getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
@@ -745,7 +750,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 
 	render(width: number): string[] {
 		const config = this.getConfig();
-		if (config.editorStyle === "minimalist") {
+		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
 				return clampRenderedLines(this.base.render(width), width);

@@ -3,10 +3,13 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import { installFooter } from "../extensions/zentui/footer";
+import { emptyGitStatus } from "../extensions/zentui/git";
 import {
 	formatElapsedDuration,
 	renderMinimalistFrame,
 } from "../extensions/zentui/minimalist-editor";
+import { createInitialState } from "../extensions/zentui/state";
 
 function theme(): Theme {
 	return {
@@ -22,7 +25,27 @@ function theme(): Theme {
 }
 
 function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
-	return { ...defaultConfig, editorStyle: "minimalist", ...overrides };
+	const editor = defaultConfig.components.editor;
+	return {
+		...defaultConfig,
+		...overrides,
+		components: {
+			...defaultConfig.components,
+			editor: {
+				...editor,
+				style: "minimalist",
+				borderColorMode: overrides.editorBorderColorMode ?? editor.borderColorMode,
+				colorSource: overrides.colorSources?.editor ?? editor.colorSource,
+				styles: {
+					...editor.styles,
+					minimalist: {
+						...editor.styles.minimalist,
+						...overrides.editorStyles?.minimalist,
+					},
+				},
+			},
+		},
+	};
 }
 
 function render(width = 80, inputText = "draft", viewport?: { above?: string; below?: string }) {
@@ -287,6 +310,94 @@ describe("minimalist editor frame", () => {
 		expect(narrow).toContain("11%/372k");
 		expect(narrow).not.toContain("[");
 		expect(visibleWidth(narrow)).toBeLessThanOrEqual(16);
+	});
+
+	it("uses minimalist-owned context thresholds independently of footer thresholds", () => {
+		const base = config();
+		const divergent = {
+			...base,
+			colors: {
+				...base.colors,
+				contextNormal: "bright-black",
+				contextWarning: "yellow",
+				contextError: "red",
+			},
+			components: {
+				...base.components,
+				editor: {
+					...base.components.editor,
+					colorSource: "terminal" as const,
+					styles: {
+						...base.components.editor.styles,
+						minimalist: {
+							...base.components.editor.styles.minimalist,
+							contextThresholds: { warning: 40, error: 60 },
+						},
+					},
+				},
+				footer: {
+					...base.components.footer,
+					colorSource: "terminal" as const,
+					styles: {
+						starship: {
+							...base.components.footer.styles.starship,
+							format: "$context",
+							responsive: false,
+							contextThresholds: { warning: 70, error: 90 },
+						},
+					},
+				},
+			},
+		};
+		const taggedTheme = {
+			...theme(),
+			fg(color: string, text: string) {
+				return `[${color}]${text}`;
+			},
+		} as Theme;
+		const rendered = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", contextPercent: 50 },
+			uiTheme: taggedTheme,
+			config: divergent,
+		}).join("\n");
+		expect(rendered).toContain("\x1b[33m50%\x1b[0m");
+		expect(rendered).not.toContain("\x1b[90m50%\x1b[0m");
+
+		let footerFactory:
+			| ((
+					tui: { requestRender(): void },
+					theme: Theme,
+					data: {
+						onBranchChange(callback: () => void): () => void;
+						getExtensionStatuses(): Map<string, string>;
+					},
+			  ) => { render(width: number): string[] })
+			| undefined;
+		const footerContext = {
+			cwd: "/tmp",
+			model: { contextWindow: 100_000 },
+			getContextUsage: () => ({ percent: 50, tokens: 50_000, contextWindow: 100_000 }),
+			sessionManager: { getSessionName: () => undefined },
+			ui: {
+				setFooter(factory: typeof footerFactory) {
+					footerFactory = factory;
+				},
+			},
+		};
+		installFooter(footerContext as never, createInitialState(emptyGitStatus()), () => divergent, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, taggedTheme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		});
+		const footerRendered = footer?.render(80).join("\n") ?? "";
+		expect(footerRendered).toContain("\x1b[90m50.0%/100k\x1b[0m");
+		expect(footerRendered).not.toContain("\x1b[33m50.0%/100k\x1b[0m");
 	});
 
 	it("uses the adaptive border callback when configured", () => {

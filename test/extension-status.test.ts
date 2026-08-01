@@ -9,18 +9,27 @@ import {
 function configWithExtensionStatuses(
 	extensionStatuses: Partial<PolishedTuiConfig["extensionStatuses"]>,
 ): PolishedTuiConfig {
+	const merged = {
+		...defaultConfig.extensionStatuses,
+		...extensionStatuses,
+		placements: {
+			...defaultConfig.extensionStatuses.placements,
+			...(extensionStatuses.placements ?? {}),
+		},
+		colorModes: {
+			...defaultConfig.extensionStatuses.colorModes,
+			...(extensionStatuses.colorModes ?? {}),
+		},
+	};
+	const footer = defaultConfig.components.footer;
 	return {
 		...defaultConfig,
-		extensionStatuses: {
-			...defaultConfig.extensionStatuses,
-			...extensionStatuses,
-			placements: {
-				...defaultConfig.extensionStatuses.placements,
-				...(extensionStatuses.placements ?? {}),
-			},
-			colorModes: {
-				...defaultConfig.extensionStatuses.colorModes,
-				...(extensionStatuses.colorModes ?? {}),
+		extensionStatuses: merged,
+		components: {
+			...defaultConfig.components,
+			footer: {
+				...footer,
+				styles: { starship: { ...footer.styles.starship, extensionStatuses: merged } },
 			},
 		},
 	};

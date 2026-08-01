@@ -31,15 +31,26 @@ type PatchRegistry = Map<PrototypePatchAdapter, PatchRecord>;
 
 type PatchTarget = Record<PropertyKey, unknown>;
 
-function registryFor(target: PatchTarget): PatchRegistry {
+function existingRegistry(target: PatchTarget): PatchRegistry | undefined {
 	const existing = target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
-	if (existing instanceof Map) return existing as PatchRegistry;
+	return existing instanceof Map ? (existing as PatchRegistry) : undefined;
+}
+
+function registryFor(target: PatchTarget): PatchRegistry {
+	const existing = existingRegistry(target);
+	if (existing) return existing;
 	const registry: PatchRegistry = new Map();
 	Object.defineProperty(target, ZENTUI_PROTOTYPE_PATCH_REGISTRY, {
 		value: registry,
 		configurable: true,
 	});
 	return registry;
+}
+
+function deactivateRecord(record: PatchRecord): void {
+	if (!record.registration) return;
+	record.registration.behavior = undefined;
+	record.registration = undefined;
 }
 
 function createCleanup(
@@ -55,8 +66,7 @@ function createCleanup(
 		if (cleaned) return;
 		cleaned = true;
 		if (record.registration?.token !== token) return;
-		record.registration.behavior = undefined;
-		record.registration = undefined;
+		deactivateRecord(record);
 
 		const current = registry.get(adapter);
 		if (current !== record) return;
@@ -77,6 +87,7 @@ export function installPrototypePatch(
 	let record = registry.get(adapter);
 
 	if (!(record && record.method === method && target[method] === record.wrapper)) {
+		const displacedRecord = record;
 		const predecessor = target[method];
 		if (typeof predecessor !== "function") {
 			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
@@ -97,18 +108,34 @@ export function installPrototypePatch(
 				: Reflect.apply(nextRecord.predecessor, this, args);
 		};
 		nextRecord.wrapper = wrapper;
-		record = nextRecord;
-		registry.set(adapter, record);
 		try {
 			target[method] = wrapper;
 		} catch (error) {
-			registry.delete(adapter);
 			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 			throw error;
 		}
+		record = nextRecord;
+		registry.set(adapter, record);
+		if (displacedRecord && displacedRecord !== record) deactivateRecord(displacedRecord);
 	}
 
 	const token = Symbol(adapter);
 	record.registration = { token, behavior };
 	return createCleanup(target, method, adapter, registry, record, token);
+}
+
+export function removePrototypePatch(
+	targetValue: object,
+	method: "render" | "invalidate",
+	adapter: PrototypePatchAdapter,
+): void {
+	const target = targetValue as PatchTarget;
+	const registry = existingRegistry(target);
+	const record = registry?.get(adapter);
+	if (!registry || !record || record.method !== method) return;
+
+	deactivateRecord(record);
+	if (target[method] === record.wrapper) target[method] = record.predecessor;
+	registry.delete(adapter);
+	if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 }

@@ -1,9 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import type {
-	ExtensionStatusColorMode,
-	ExtensionStatusPlacement,
-	PolishedTuiConfig,
-} from "./config";
+import type { ExtensionStatusColorMode, ExtensionStatusPlacement, ZentuiConfig } from "./config";
 import { getExtensionStatusColorMode, getExtensionStatusPlacement } from "./config";
 
 export type ExtensionStatusSegment = {
@@ -59,7 +55,7 @@ export function sanitizeExtensionStatusOriginalText(value: string): string {
 
 export function collectExtensionStatusSegments(
 	statuses: ReadonlyMap<string, string>,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): ExtensionStatusSegmentsByPlacement {
 	const segments: ExtensionStatusSegmentsByPlacement = {
 		left: [],

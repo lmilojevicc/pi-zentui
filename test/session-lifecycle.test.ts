@@ -64,7 +64,10 @@ describe("fixed-editor probe lifecycle", () => {
 			ctx as never,
 			() => ({
 				...defaultConfig,
-				fixedEditor: { ...defaultConfig.fixedEditor, enabled: true },
+				layout: {
+					...defaultConfig.layout,
+					fixedEditor: { ...defaultConfig.layout.fixedEditor, enabled: true },
+				},
 			}),
 			lifecycle,
 		);
@@ -114,7 +117,10 @@ describe("fixed-editor probe lifecycle", () => {
 			ctx as never,
 			() => ({
 				...defaultConfig,
-				fixedEditor: { ...defaultConfig.fixedEditor, enabled: true },
+				layout: {
+					...defaultConfig.layout,
+					fixedEditor: { ...defaultConfig.layout.fixedEditor, enabled: true },
+				},
 			}),
 			lifecycle,
 		);

@@ -1,7 +1,7 @@
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig } from "./config";
+import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { buildContextGauge, contextColorTier, formatCount, formatCwdLabel } from "./format";
 import {
@@ -40,7 +40,7 @@ export type MinimalistFrameOptions = {
 	inputText: string;
 	metadata: MinimalistEditorMetadata;
 	uiTheme: Theme;
-	config: PolishedTuiConfig;
+	config: ZentuiConfig;
 	borderColor?: (text: string) => string;
 };
 
@@ -67,7 +67,7 @@ function joinStyled(parts: string[], separator: string): string {
 	return parts.filter(Boolean).join(separator);
 }
 
-function thinkingStyle(config: PolishedTuiConfig, level: string): string | undefined {
+function thinkingStyle(config: ZentuiConfig, level: string): string | undefined {
 	switch (level.toLowerCase()) {
 		case "minimal":
 			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
@@ -88,10 +88,10 @@ function renderTopLeft(
 	inputText: string,
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	includeSessionName = true,
 ): string {
-	const source = config.colorSources.editor;
+	const source = config.components.editor.colorSource;
 	const trimmed = inputText.trimStart();
 	const bashMode = trimmed.startsWith("!!") ? "no-context" : trimmed.startsWith("!") ? "shell" : "";
 	const parts: string[] = [];
@@ -102,7 +102,10 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "bashMode", "$"),
 		);
 	}
-	if (config.editorStyles.minimalist.showTimer && metadata.agentDurationMs !== undefined) {
+	if (
+		config.components.editor.styles.minimalist.showTimer &&
+		metadata.agentDurationMs !== undefined
+	) {
 		const duration = formatElapsedDuration(metadata.agentDurationMs);
 		parts.push(
 			metadata.agentActive
@@ -119,7 +122,7 @@ function renderTopLeft(
 	const sessionName = includeSessionName
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
-	if (config.editorStyles.minimalist.showSessionName && sessionName) {
+	if (config.components.editor.styles.minimalist.showSessionName && sessionName) {
 		parts.push(renderStyleForSource(uiTheme, source, config.colors.sessionName, sessionName));
 	}
 	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
@@ -128,12 +131,12 @@ function renderTopLeft(
 function renderTopRight(
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	availableWidth: number,
 ): string {
-	const source = config.colorSources.editor;
+	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
-	const cost = config.editorStyles.minimalist.showCost
+	const cost = config.components.editor.styles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
@@ -165,7 +168,10 @@ function renderTopRight(
 	}
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
-		const tier = contextColorTier(percent, config.contextThresholds);
+		const tier = contextColorTier(
+			percent,
+			config.components.editor.styles.minimalist.contextThresholds,
+		);
 		const style =
 			tier === "error"
 				? config.colors.contextError
@@ -173,7 +179,7 @@ function renderTopRight(
 					? config.colors.contextWarning
 					: config.colors.contextNormal;
 		const total =
-			config.editorStyles.minimalist.contextFormat === "percent-total" &&
+			config.components.editor.styles.minimalist.contextFormat === "percent-total" &&
 			metadata.contextWindow !== undefined &&
 			Number.isFinite(metadata.contextWindow) &&
 			metadata.contextWindow > 0
@@ -181,7 +187,7 @@ function renderTopRight(
 				: "";
 		const text = `${percent}%${total}`;
 		let context = renderStyleForSource(uiTheme, source, style, text);
-		if (config.editorStyles.minimalist.contextGauge) {
+		if (config.components.editor.styles.minimalist.contextGauge) {
 			for (const gaugeWidth of [5, 3]) {
 				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
@@ -200,10 +206,10 @@ function renderTopRight(
 function renderBottomLeft(
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): string {
-	if (!config.editorStyles.minimalist.showGit) return "";
-	const source = config.colorSources.editor;
+	if (!config.components.editor.styles.minimalist.showGit) return "";
+	const source = config.components.editor.colorSource;
 	const branch = sanitizeEditorMetadataText(metadata.branch ?? "");
 	const parts = branch
 		? [renderStyleForSource(uiTheme, source, config.colors.gitBranch, branch)]
@@ -220,10 +226,10 @@ function renderBottomLeft(
 	return parts.join(" ");
 }
 
-function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: PolishedTuiConfig): string {
+function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: ZentuiConfig): string {
 	const full = () => formatCwdLabel(metadata.cwd, "", { mode: "full", depth: 0 });
-	if (config.editorStyles.minimalist.pathDisplay === "full") return full();
-	if (config.editorStyles.minimalist.pathDisplay === "compact")
+	if (config.components.editor.styles.minimalist.pathDisplay === "full") return full();
+	if (config.components.editor.styles.minimalist.pathDisplay === "compact")
 		return basename(metadata.cwd) || metadata.cwd;
 	if (!metadata.projectRoot) return full();
 
@@ -238,11 +244,11 @@ function minimalistCwdLabel(metadata: MinimalistEditorMetadata, config: Polished
 function renderBottomRight(
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): string {
 	const cwd = sanitizeEditorMetadataText(minimalistCwdLabel(metadata, config));
 	return cwd
-		? renderStyleForSource(uiTheme, config.colorSources.editor, config.colors.cwd, cwd)
+		? renderStyleForSource(uiTheme, config.components.editor.colorSource, config.colors.cwd, cwd)
 		: "";
 }
 
@@ -327,13 +333,13 @@ export function renderMinimalistFrame({
 	const renderStaticBorder = (text: string) =>
 		renderStyleForSourceOrFallback(
 			uiTheme,
-			config.colorSources.editor,
+			config.components.editor.colorSource,
 			config.colors.editorBorder,
 			EDITOR_BORDER_FALLBACK,
 			text,
 		);
 	const renderBorder = (text: string) => {
-		if (config.editorBorderColorMode !== "adaptive" || !borderColor) {
+		if (config.components.editor.borderColorMode !== "adaptive" || !borderColor) {
 			return renderStaticBorder(text);
 		}
 		try {

@@ -507,9 +507,12 @@ function parseContextStyle(value: unknown): ContextStyle {
 	return defaultConfig.contextStyle;
 }
 
-function parseEditorModelLabel(value: unknown): ModelLabelSource {
+function parseEditorModelLabel(
+	value: unknown,
+	fallback: ModelLabelSource = defaultComponents.editor.modelLabel,
+): ModelLabelSource {
 	if (value === "id" || value === "name") return value;
-	return defaultConfig.editorModelLabel;
+	return fallback;
 }
 
 function parseEditorStyle(value: unknown): EditorStyle {
@@ -530,8 +533,10 @@ function parseSeparatorStyle(value: unknown): SeparatorStyle {
 	return isSeparatorStyle(value) ? value : defaultConfig.separator;
 }
 
-function parseContextThresholds(value: unknown): ContextThresholds {
-	const defaults = defaultConfig.contextThresholds;
+function parseContextThresholds(
+	value: unknown,
+	defaults: ContextThresholds = defaultStarshipStyle.contextThresholds,
+): ContextThresholds {
 	if (!isRecord(value)) return { ...defaults };
 
 	const warningRaw = value.warning;
@@ -921,13 +926,20 @@ function parseNonEmptyString(value: unknown, fallback: string): string {
 	return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
-function resolveContextThresholds(canonical: unknown, legacy: unknown): ContextThresholds {
+function resolveContextThresholds(
+	canonical: unknown,
+	legacy: unknown,
+	defaults: ContextThresholds,
+): ContextThresholds {
 	const canonicalRecord = recordValue(canonical);
 	const legacyRecord = recordValue(legacy);
-	return parseContextThresholds({
-		warning: resolvedValue(canonicalRecord, "warning", legacyRecord),
-		error: resolvedValue(canonicalRecord, "error", legacyRecord),
-	});
+	return parseContextThresholds(
+		{
+			warning: resolvedValue(canonicalRecord, "warning", legacyRecord),
+			error: resolvedValue(canonicalRecord, "error", legacyRecord),
+		},
+		defaults,
+	);
 }
 
 function resolvePathDisplay(canonical: unknown, legacy: unknown): PathDisplayConfig {
@@ -1018,10 +1030,12 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const minimalistThresholds = resolveContextThresholds(
 		minimalist.contextThresholds,
 		config.contextThresholds,
+		defaultMinimalistStyle.contextThresholds,
 	);
 	const footerThresholds = resolveContextThresholds(
 		starship.contextThresholds,
 		config.contextThresholds,
+		defaultStarshipStyle.contextThresholds,
 	);
 	const compactFormat = resolvedValue(starship, "compactFormat", config, "compactFooterFormat");
 	const metadataFormat = resolvedValue(polished, "metadataFormat", config, "editorMetadataFormat");
@@ -1042,6 +1056,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			modelLabel: parseEditorModelLabel(
 				resolvedValue(editor, "modelLabel", config, "editorModelLabel"),
+				defaultComponents.editor.modelLabel,
 			),
 			viewportIndicators: parseBoolean(
 				resolvedValue(editor, "viewportIndicators", features, "viewportIndicators"),
@@ -1120,6 +1135,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			modelLabel: parseEditorModelLabel(
 				resolvedValue(footer, "modelLabel", config, "editorModelLabel"),
+				defaultComponents.footer.modelLabel,
 			),
 			styles: {
 				starship: {
@@ -1214,17 +1230,21 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 }
 
 export function getExtensionStatusPlacement(
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusPlacement {
-	return config.extensionStatuses.placements[key] ?? config.extensionStatuses.defaultPlacement;
+	const statuses = config.components.footer.styles.starship.extensionStatuses;
+	return statuses.placements[key] ?? statuses.defaultPlacement;
 }
 
 export function getExtensionStatusColorMode(
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusColorMode {
-	return config.extensionStatuses.colorModes[key] ?? DEFAULT_EXTENSION_STATUS_COLOR_MODE;
+	return (
+		config.components.footer.styles.starship.extensionStatuses.colorModes[key] ??
+		DEFAULT_EXTENSION_STATUS_COLOR_MODE
+	);
 }
 
 export function loadConfig(): PolishedTuiConfig {

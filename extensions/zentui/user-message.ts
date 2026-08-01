@@ -5,8 +5,8 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig } from "./config";
-import { installPrototypePatch } from "./prototype-patch-registry";
+import type { ZentuiConfig } from "./config";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -68,10 +68,11 @@ function getCachedMarkdownText(instance: object): string | undefined {
 	return text;
 }
 
-function getUserMessageConfigKey(config: PolishedTuiConfig): string {
+function getUserMessageConfigKey(config: ZentuiConfig): string {
 	return [
-		config.features.copyFriendly ? "copy" : "chrome",
-		config.colorSources.userMessages,
+		config.components.userMessages.style,
+		config.components.userMessages.styles.framed.copyFriendly ? "copy" : "chrome",
+		config.components.userMessages.colorSource,
 		config.colors.editorAccent ?? "",
 		config.colors.editorBorder ?? "",
 		config.icons.rail,
@@ -112,15 +113,15 @@ function fillLine(content: string, width: number): string {
 	return `${truncated}${pad}`;
 }
 
-function renderPromptBoxRail(theme: Theme | undefined, config: PolishedTuiConfig): string {
-	if (config.features.copyFriendly) return "";
+function renderPromptBoxRail(theme: Theme | undefined, config: ZentuiConfig): string {
+	if (config.components.userMessages.styles.framed.copyFriendly) return "";
 	const railGlyph = config.icons.rail;
 
 	return `${
 		theme
 			? renderStyleForSourceOrFallback(
 					theme,
-					config.colorSources.userMessages,
+					config.components.userMessages.colorSource,
 					config.colors.editorAccent,
 					EDITOR_ACCENT_FALLBACK,
 					railGlyph,
@@ -133,12 +134,12 @@ function renderPromptBoxLine(
 	line: string,
 	width: number,
 	theme: Theme | undefined,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): string {
 	if (width <= 0) return "";
 	const rail = renderPromptBoxRail(theme, config);
 	const contentWidth = Math.max(0, width - visibleWidth(rail));
-	const content = config.features.copyFriendly
+	const content = config.components.userMessages.styles.framed.copyFriendly
 		? truncateToWidth(line, contentWidth, "")
 		: fillLine(line, contentWidth);
 	return truncateToWidth(`${rail}${content}`, width, "");
@@ -148,7 +149,7 @@ function renderZentuiUserMessage(
 	instance: PatchableUserMessagePrototype,
 	width: number,
 	theme: Theme | undefined,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): string[] | undefined {
 	if (!isRecord(instance)) return undefined;
 
@@ -178,7 +179,7 @@ function renderZentuiUserMessage(
 	const border = theme
 		? renderStyleForSourceOrFallback(
 				theme,
-				config.colorSources.userMessages,
+				config.components.userMessages.colorSource,
 				config.colors.editorBorder,
 				EDITOR_BORDER_FALLBACK,
 				"─".repeat(width),
@@ -211,9 +212,15 @@ function withPromptZoneMarkers(lines: string[]): string[] {
 	return markedLines;
 }
 
+export function removeUserMessageStyle(): void {
+	const prototype = UserMessageComponent.prototype;
+	removePrototypePatch(prototype, "render", "user-message-render");
+	removePrototypePatch(prototype, "invalidate", "user-message-invalidate");
+}
+
 export function installUserMessageStyle(
 	getTheme: () => Theme | undefined,
-	getConfig: () => PolishedTuiConfig,
+	getConfig: () => ZentuiConfig,
 ): Cleanup {
 	const prototype = UserMessageComponent.prototype;
 	const cleanupInvalidate = installPrototypePatch(

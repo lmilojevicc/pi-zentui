@@ -23,8 +23,37 @@ function config(
 ): PolishedTuiConfig {
 	return {
 		...defaultConfig,
-		editorBorderColorMode,
+		components: {
+			...defaultConfig.components,
+			editor: {
+				...defaultConfig.components.editor,
+				borderColorMode: editorBorderColorMode,
+				viewportIndicators:
+					features.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
+				styles: {
+					...defaultConfig.components.editor.styles,
+					polished: {
+						...defaultConfig.components.editor.styles.polished,
+						copyFriendly:
+							features.copyFriendly ?? defaultConfig.components.editor.styles.polished.copyFriendly,
+					},
+				},
+			},
+		},
 		features: { ...defaultConfig.features, ...features },
+	};
+}
+
+function withEditorStyle(
+	base: PolishedTuiConfig,
+	style: PolishedTuiConfig["components"]["editor"]["style"],
+): PolishedTuiConfig {
+	return {
+		...base,
+		components: {
+			...base.components,
+			editor: { ...base.components.editor, style },
+		},
 	};
 }
 
@@ -533,7 +562,7 @@ describe("minimalist editor integration", () => {
 		);
 
 		expect(editor.render(80)[0]).toMatch(/^─+$/);
-		current = { ...current, editorStyle: "minimalist" };
+		current = withEditorStyle(current, "minimalist");
 		const minimalist = editor.render(80);
 		expect(minimalist[0]).toMatch(/^╭.*╮$/);
 		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
@@ -544,7 +573,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			baseEditor({ above: 7, below: 11 }) as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({
@@ -565,10 +594,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			baseEditor({ above: 7, below: 11 }) as never,
 			theme(),
-			() => ({
-				...config({ viewportIndicators: false }),
-				editorStyle: "minimalist",
-			}),
+			() => withEditorStyle(config({ viewportIndicators: false }), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp/project" }),
@@ -582,7 +608,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),
@@ -613,7 +639,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),
@@ -629,7 +655,7 @@ describe("minimalist editor integration", () => {
 		const outer = new WrappedPolishedEditor(
 			inner as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "outer", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp", modelLabel: "minimal-model" }),
@@ -662,7 +688,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),
@@ -685,7 +711,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),
@@ -720,7 +746,7 @@ describe("minimalist editor integration", () => {
 		const editor = new WrappedPolishedEditor(
 			base as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),
@@ -739,7 +765,7 @@ describe("minimalist editor integration", () => {
 				setText() {},
 			} as never,
 			theme(),
-			() => ({ ...config(), editorStyle: "minimalist" }),
+			() => withEditorStyle(config(), "minimalist"),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 			() => ({ cwd: "/tmp" }),

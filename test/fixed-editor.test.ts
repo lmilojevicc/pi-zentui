@@ -374,7 +374,13 @@ describe("Pi fixed-editor compatibility", () => {
 		const editor = new WrappedPolishedEditor(
 			base,
 			uiTheme,
-			() => ({ ...defaultConfig, editorBorderColorMode: "adaptive" }),
+			() => ({
+				...defaultConfig,
+				components: {
+					...defaultConfig.components,
+					editor: { ...defaultConfig.components.editor, borderColorMode: "adaptive" },
+				},
+			}),
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "high",
 		);

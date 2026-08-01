@@ -31,12 +31,27 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	return {
 		...actual,
 		ensureConfigExists: () => {},
-		loadConfig: () => ({
-			...actual.defaultConfig,
-			projectRefreshIntervalMs: 0,
-			features: { ...actual.defaultConfig.features, editor: false, statusLine: true },
-			footerSegments: { ...actual.defaultConfig.footerSegments, modelInfo: true },
-		}),
+		loadConfig: () => {
+			const footer = actual.defaultConfig.components.footer;
+			return {
+				...actual.defaultConfig,
+				projectRefreshIntervalMs: 0,
+				components: {
+					...actual.defaultConfig.components,
+					editor: { ...actual.defaultConfig.components.editor, enabled: false },
+					footer: {
+						...footer,
+						enabled: true,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								segments: { ...footer.styles.starship.segments, modelInfo: true },
+							},
+						},
+					},
+				},
+			};
+		},
 	};
 });
 
