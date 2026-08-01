@@ -48,11 +48,11 @@ describe("pure user-message styles", () => {
 		]);
 	});
 
-	it("preserves exact copy-friendly framed chrome and Markdown padding", () => {
+	it("adds one leading space to copy-friendly framed message text", () => {
 		expect(render("framed-copy-friendly", "Hello", 12)).toEqual([
 			"────────────",
 			"",
-			"Hello       ",
+			" Hello      ",
 			"",
 			"────────────",
 		]);

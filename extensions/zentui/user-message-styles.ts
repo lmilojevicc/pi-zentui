@@ -191,7 +191,10 @@ function renderFramedCopyFriendly({
 	config,
 }: UserMessageStyleRenderInput): string[] {
 	if (width <= 0) return [""];
-	const body = renderMarkdown(text, width, theme).map((line) => truncateToWidth(line, width, ""));
+	const prefix = width > 1 ? " " : "";
+	const body = renderMarkdown(text, width - prefix.length, theme).map((line) =>
+		fillLine(`${prefix}${line}`, width),
+	);
 	const rule = truncateToWidth(border(theme, config, "─".repeat(width)), width, "");
 	return [rule, "", ...body, "", rule];
 }
