@@ -466,11 +466,18 @@ describe("component-oriented /zentui settings", () => {
 		expect(focusedRow(component)).toContain("Framed");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Framed (copy-friendly)");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
 		expect(focusedRow(component)).toContain("Compact");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Message style");
 		expect(focusedRow(component)).toContain("Labeled");
-		expect(harness.calls.messages).toEqual([{ style: "compact" }, { style: "labeled" }]);
+		expect(harness.calls.messages).toEqual([
+			{ style: "framed-copy-friendly" },
+			{ style: "compact" },
+			{ style: "labeled" },
+		]);
 	});
 
 	it("restores fixed-editor focus after conditional rows rebuild", async () => {

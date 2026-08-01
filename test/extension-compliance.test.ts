@@ -552,13 +552,13 @@ describe("Pi docs compliance", () => {
 			}),
 		).toEqual(new Set(["cwd"]));
 	});
-	it("installs message and selector surfaces while the editor is canonically disabled", async () => {
+	it("installs enabled copy-friendly framed messages while the editor is disabled", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
 				components: {
 					editor: { enabled: false },
-					userMessages: { enabled: true },
+					userMessages: { enabled: true, style: "framed-copy-friendly" },
 					selectorBorders: { enabled: true },
 					footer: { enabled: false },
 				},
@@ -585,6 +585,10 @@ describe("Pi docs compliance", () => {
 		expect(editorFactory).toBe(existingFactory);
 		expect(footerFactory).toBe("untouched");
 		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		const rendered = new UserMessageComponent("message").render(20).join("\n");
+		expectSinglePromptZone(rendered);
+		expect(stripPromptMarks(rendered)).toContain("────────────────────");
+		expect(stripPromptMarks(rendered)).not.toContain("│");
 		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
 		await emit(handlers, "session_shutdown", ctx);
 	});
@@ -601,6 +605,8 @@ describe("Pi docs compliance", () => {
 				},
 			}),
 		);
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
 		const handlers = loadExtension();
 		let editorFactory: unknown;
 		let footerFactory: unknown;
@@ -620,7 +626,8 @@ describe("Pi docs compliance", () => {
 		await emit(handlers, "session_start", ctx);
 		expect(editorFactory).toBeTypeOf("function");
 		expect(footerFactory).toBeTypeOf("function");
-		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(UserMessageComponent.prototype.render).toBe(predecessor);
+		expect(new UserMessageComponent("message").render(20)).toEqual(["native:20"]);
 		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
 		await emit(handlers, "session_shutdown", ctx);
 	});
@@ -1676,12 +1683,15 @@ describe("Pi docs compliance", () => {
 
 	it.each([
 		["opencode", "framed"],
+		["opencode", "framed-copy-friendly"],
 		["opencode", "compact"],
 		["opencode", "labeled"],
 		["opencode-copy-friendly", "framed"],
+		["opencode-copy-friendly", "framed-copy-friendly"],
 		["opencode-copy-friendly", "compact"],
 		["opencode-copy-friendly", "labeled"],
 		["minimalist", "framed"],
+		["minimalist", "framed-copy-friendly"],
 		["minimalist", "compact"],
 		["minimalist", "labeled"],
 	] as const)("composes %s Editor with %s messages independently", (editorStyle, messageStyle) => {
@@ -1710,11 +1720,15 @@ describe("Pi docs compliance", () => {
 		if (editorStyle === "opencode") expect(editorRendered).toContain("│");
 		else if (editorStyle === "opencode-copy-friendly") expect(editorRendered).not.toContain("│");
 		else expect(editorRendered).toContain("╭");
-		if (messageStyle === "framed") expect(stripPromptMarks(messageRendered)).toContain("────");
-		else if (messageStyle === "compact") {
-			expect(stripPromptMarks(messageRendered)).toContain("│ message");
-			expect(stripPromptMarks(messageRendered)).not.toContain("────");
-		} else expect(stripPromptMarks(messageRendered)).toContain("User");
+		const plainMessage = stripPromptMarks(messageRendered);
+		if (messageStyle === "framed") expect(plainMessage).toContain("────");
+		else if (messageStyle === "framed-copy-friendly") {
+			expect(plainMessage).toContain("────");
+			expect(plainMessage).not.toContain("│");
+		} else if (messageStyle === "compact") {
+			expect(plainMessage).toContain("│ message");
+			expect(plainMessage).not.toContain("────");
+		} else expect(plainMessage).toContain("User");
 		expect(config.components.editor.style).toBe(editorStyle);
 		expect(config.components.userMessages).toMatchObject({ enabled: true, style: messageStyle });
 		expect(config.components.footer.style).toBe("starship");
@@ -1825,6 +1839,13 @@ describe("Pi docs compliance", () => {
 		config.components.footer.style = "hidden";
 		expect(message.render(30).join("\n")).toBe(framed);
 		expect(fg).toHaveBeenCalledTimes(callsAfterFramed);
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "framed-copy-friendly";
+		const railFree = message.render(30).join("\n");
+		expect(railFree).toContain("────");
+		expect(railFree).not.toContain("│");
+		expect(railFree).not.toBe(framed);
 
 		config = structuredClone(config);
 		config.components.userMessages.style = "compact";
@@ -2093,7 +2114,7 @@ describe("Pi docs compliance", () => {
 		expect(UserMessageComponent.prototype.render).toBe(predecessor);
 	});
 
-	it.each(["framed", "compact", "labeled"] as const)(
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
 		"preserves exactly one OSC 133 prompt zone for %s messages",
 		(style) => {
 			const config = structuredClone(defaultConfig);
@@ -2239,7 +2260,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain(`${open}link${close}`);
 	});
 
-	it.each(["framed", "compact", "labeled"] as const)(
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
 		"preserves mixed 7-bit/C1 OSC 8 through sanitization and Markdown for %s",
 		(style) => {
 			const config = structuredClone(defaultConfig);
@@ -2319,14 +2340,19 @@ describe("Pi docs compliance", () => {
 		expect(rendered.join("\n")).not.toContain("\x1b]133;");
 	});
 
-	it("keeps zero-width output marker-safe", () => {
-		installUserMessageStyle(
-			() => makeTheme(),
-			() => defaultConfig,
-		);
-		const rendered = new UserMessageComponent("hello").render(0).join("\n");
-		expect(rendered).toBe("\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07");
-	});
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"keeps zero-width %s output marker-safe",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+			const rendered = new UserMessageComponent("hello").render(0).join("\n");
+			expect(rendered).toBe("\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07");
+		},
+	);
 
 	it.each(["theme", "config"] as const)(
 		"fails open byte-for-byte when the %s getter throws",
@@ -2352,15 +2378,22 @@ describe("Pi docs compliance", () => {
 		},
 	);
 
-	it("keeps user-message output within the requested render width", async () => {
-		const handlers = loadExtension();
-		await emit(handlers, "session_start", makeContext());
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"keeps %s user-message output within the requested render width",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
 
-		const lines = new UserMessageComponent("hello ".repeat(20)).render(12).map(stripPromptMarks);
+			const lines = new UserMessageComponent("hello ".repeat(20)).render(12).map(stripPromptMarks);
 
-		expect(lines.length).toBeGreaterThan(0);
-		expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
-	});
+			expect(lines.length).toBeGreaterThan(0);
+			expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+		},
+	);
 
 	it("reuses user-message wrappers while stale cleanup leaves the new registration active", () => {
 		const predecessorRender = UserMessageComponent.prototype.render;

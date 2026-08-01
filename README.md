@@ -11,7 +11,7 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 Zentui styles three major Pi surfaces independently:
 
 - **Editor** — selectable opencode, low-rail opencode, and minimalist input frames inspired by [Opencode](https://github.com/opencode-ai/opencode)
-- **User messages** — selectable framed, compact, and labeled transcript messages
+- **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
 - **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
 
 Editor, User messages, and selector borders use an `enabled` field. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** (selector borders and icons) and **Layout** (the fixed-editor experiment) remain supporting configuration domains.
@@ -55,19 +55,26 @@ opencode                 opencode-copy-friendly     minimalist
 
 ### User messages
 
-- `framed` (default) preserves the full-width bordered prompt box
+- `framed` (default) preserves the full-width bordered prompt box with an accent rail
+- `framed-copy-friendly` (**Framed (copy-friendly)** in `/zentui`) keeps the full-width horizontal borders and blank spacer rows while removing the copied accent rail and gutter
 - `compact` uses only an accent rail, with no border or padding rows
 - `labeled` uses a rounded box with the fixed label `User`
 - Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
 - No custom `plain` message style is provided
 
 ```text
-framed                    compact              labeled
-────────────────────      │ Message            ╭─ User ───────────╮
-│                         │ Continued          │ Message          │
-│ Message                                      │ Continued        │
-│                                              ╰──────────────────╯
-────────────────────
+framed                    framed-copy-friendly
+────────────────────      ────────────────────
+│
+│ Message                 Message
+│
+────────────────────      ────────────────────
+
+compact                    labeled
+│ Message                 ╭─ User ───────────╮
+│ Continued               │ Message          │
+                          │ Continued        │
+                          ╰──────────────────╯
 ```
 
 ### Git Status Icons
@@ -167,7 +174,7 @@ The interactive `/zentui` menu is split into exactly eight component-oriented se
 
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, and settings for the selected editor style.
-3. **User messages** — message enablement, `framed | compact | labeled` style selection, and colors.
+3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), and colors.
 4. **Layout** — fixed-editor enablement, mouse scrolling, and copy notices.
 5. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
 6. **Segments** — visibility toggles for non-Git Starship segments.
@@ -246,6 +253,7 @@ Default config values — copy this and change any value you want:
 			"colorSource": "theme",
 			"styles": {
 				"framed": {},
+				"framed-copy-friendly": {},
 				"compact": {},
 				"labeled": {}
 			}
@@ -383,18 +391,18 @@ Default config values — copy this and change any value you want:
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | minimalist` style selection, color source, border mode, model label, viewport indicators, and all three editor-style configurations.
-- `components.userMessages`: owns message enablement, `framed | compact | labeled` style selection, and color source.
+- `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
 - `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
 - `components.footer`: owns `native | starship | hidden` style selection, Footer color source, Footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses). Native restores Pi's built-in Footer; Hidden installs an empty component with zero rows.
 - `layout.fixedEditor`: owns fixed-layout enablement, mouse scrolling, and copy notices. Layout activation depends on Pi compatibility inspection, not on Zentui editor/Footer style.
 - Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
 - Selector borders support only `zentui`; set their owning `enabled` field to `false` for native Pi behavior.
 - Flat released keys such as `editorStyle`, `features`, `footerFormat`, and `fixedEditor` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` and `layout` paths are the primary JSON interface, and component saves materialize canonical snapshots.
-- `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are migration input only. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys remain preserved as user-owned migration data.
+- `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles Editor and User-message accent rails and the labeled message label.
 - `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
-- `editorBorder` styles previous user-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
+- `editorBorder` styles the `framed` and `framed-copy-friendly` previous-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.

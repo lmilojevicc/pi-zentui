@@ -119,7 +119,7 @@ describe("canonical config resolution", () => {
 				enabled: true,
 				style: "framed",
 				colorSource: "theme",
-				styles: { framed: {}, compact: {}, labeled: {} },
+				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
@@ -199,7 +199,7 @@ describe("canonical config resolution", () => {
 		]);
 		expect(editor.viewportIndicators).toBe(false);
 		expect(editor.style).toBe("opencode-copy-friendly");
-		expect(userMessages.enabled).toBe(false);
+		expect(userMessages).toMatchObject({ enabled: false, style: "framed-copy-friendly" });
 		expect([editor.colorSource, selectorBorders.colorSource]).toEqual(["terminal", "terminal"]);
 		expect(userMessages.colorSource).toBe("terminal");
 		expect(footer.colorSource).toBe("terminal");
@@ -360,6 +360,13 @@ describe("canonical config resolution", () => {
 		expect(config.components.footer.style).toBe("starship");
 	});
 
+	it("does not treat native as a User-message style", () => {
+		expect(
+			mergeConfig({ components: { userMessages: { style: "native" } } }).components.userMessages
+				.style,
+		).toBe("framed");
+	});
+
 	it("normalizes nested canonical leaves without falling through to contradictory legacy leaves", () => {
 		const config = mergeConfig({
 			contextThresholds: { warning: 20, error: 80 },
@@ -485,35 +492,35 @@ describe("Phase 4 style migration", () => {
 	});
 
 	it.each([
-		[true, false],
-		[false, true],
-		["invalid", true],
-	] as const)(
-		"maps a present nested message flag %s deterministically",
-		(copyFriendly, enabled) => {
-			const config = mergeConfig({
-				features: { editor: true, copyFriendly: true },
-				components: {
-					userMessages: {
-						enabled: true,
-						style: "framed",
-						styles: { framed: { copyFriendly } },
-					},
+		[true, "framed-copy-friendly"],
+		[false, "framed"],
+		["invalid", "framed"],
+	] as const)("maps a present nested message flag %s deterministically", (copyFriendly, style) => {
+		const config = mergeConfig({
+			features: { editor: true, copyFriendly: true },
+			components: {
+				userMessages: {
+					enabled: true,
+					style: "framed",
+					styles: { framed: { copyFriendly } },
 				},
-			});
-			expect(config.components.userMessages.style).toBe("framed");
-			expect(config.components.userMessages.enabled).toBe(enabled);
-		},
-	);
+			},
+		});
+		expect(config.components.userMessages).toMatchObject({ style, enabled: true });
+	});
 
-	it("maps the released feature flag to low-rail Editor and native messages", () => {
+	it("maps the released feature flag to copy-friendly Editor and messages", () => {
 		const migrated = mergeConfig({ features: { copyFriendly: true } });
 		expect(migrated.components.editor.style).toBe("opencode-copy-friendly");
-		expect(migrated.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+		expect(migrated.components.userMessages).toMatchObject({
+			style: "framed-copy-friendly",
+			enabled: true,
+		});
 
 		const regular = mergeConfig({ features: { copyFriendly: false } });
 		expect(regular.components.editor.style).toBe("opencode");
 		expect(regular.components.userMessages).toMatchObject({ style: "framed", enabled: true });
+		expect(migrated.features).not.toHaveProperty("copyFriendly");
 	});
 
 	it.each([
@@ -540,15 +547,15 @@ describe("Phase 4 style migration", () => {
 	);
 
 	it.each([
-		[undefined, true, false],
-		[undefined, false, true],
-		[undefined, "invalid", true],
-		["future", true, false],
-		["future", false, true],
-		["future", "invalid", true],
+		[undefined, true, "framed-copy-friendly"],
+		[undefined, false, "framed"],
+		[undefined, "invalid", "framed"],
+		["future", true, "framed-copy-friendly"],
+		["future", false, "framed"],
+		["future", "invalid", "framed"],
 	] as const)(
 		"resolves absent or invalid message style %s from nested flag %s",
-		(rawStyle, copyFriendly, expectedEnabled) => {
+		(rawStyle, copyFriendly, expectedStyle) => {
 			const config = mergeConfig({
 				features: { editor: true, copyFriendly: copyFriendly !== true },
 				components: {
@@ -560,8 +567,8 @@ describe("Phase 4 style migration", () => {
 				},
 			});
 			expect(config.components.userMessages).toMatchObject({
-				style: "framed",
-				enabled: expectedEnabled,
+				style: expectedStyle,
+				enabled: true,
 			});
 		},
 	);
@@ -588,13 +595,17 @@ describe("Phase 4 style migration", () => {
 				},
 			});
 			expect(config.components.editor.style).toBe("opencode-copy-friendly");
-			expect(config.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+			expect(config.components.userMessages).toMatchObject({
+				style: "framed-copy-friendly",
+				enabled: true,
+			});
 		}
 	});
 
 	it.each([
 		["minimalist", "compact"],
 		["opencode-copy-friendly", "labeled"],
+		["opencode", "framed-copy-friendly"],
 	] as const)("preserves unambiguous explicit styles %s and %s", (editorStyle, messageStyle) => {
 		const config = mergeConfig({
 			features: { copyFriendly: true },
@@ -675,10 +686,40 @@ describe("Phase 4 style migration", () => {
 				expect(raw.features.copyFriendly).toBe(true);
 				const reloaded = mergeConfig(raw);
 				expect(reloaded.components.editor.style).toBe("opencode");
-				expect(reloaded.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+				expect(reloaded.components.userMessages).toMatchObject({ style: "framed", enabled: true });
 			},
 		);
 	});
+
+	it.each(["framed", "framed-copy-friendly"] as const)(
+		"cleans only the obsolete nested flag when explicitly saving %s",
+		(style) => {
+			withConfig(
+				{
+					features: { copyFriendly: true },
+					components: {
+						userMessages: {
+							styles: {
+								framed: { copyFriendly: true, sibling: "keep" },
+								future: { keep: true },
+							},
+							futureComponent: "keep",
+						},
+					},
+				},
+				(path) => {
+					saveUserMessagesComponentPatch({ style }, path);
+					const raw = readRaw(path);
+					expect(raw.components.userMessages.style).toBe(style);
+					expect(raw.components.userMessages.styles.framed).toEqual({ sibling: "keep" });
+					expect(raw.components.userMessages.styles.future).toEqual({ keep: true });
+					expect(raw.components.userMessages.futureComponent).toBe("keep");
+					expect(raw.features.copyFriendly).toBe(true);
+					expect(mergeConfig(raw).components.userMessages.style).toBe(style);
+				},
+			);
+		},
+	);
 
 	it.each([
 		[

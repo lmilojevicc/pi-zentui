@@ -73,6 +73,7 @@ body:
         - Runtime/git segment
         - Colors/theme mapping
         - Opencode (copy-friendly) editor style
+        - Framed (copy-friendly) user-message style
         - Other
     validations:
       required: true

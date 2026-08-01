@@ -34,7 +34,7 @@ export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
 export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
-export type UserMessageStyle = "framed" | "compact" | "labeled";
+export type UserMessageStyle = "framed" | "framed-copy-friendly" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
 export type FooterStyle = "native" | "starship" | "hidden";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
@@ -143,6 +143,7 @@ export type EditorComponentConfig = {
 };
 
 export type FramedUserMessageStyleConfig = Record<string, never>;
+export type FramedCopyFriendlyUserMessageStyleConfig = Record<string, never>;
 export type CompactUserMessageStyleConfig = Record<string, never>;
 export type LabeledUserMessageStyleConfig = Record<string, never>;
 
@@ -152,6 +153,7 @@ export type UserMessagesComponentConfig = {
 	colorSource: ColorSource;
 	styles: {
 		framed: FramedUserMessageStyleConfig;
+		"framed-copy-friendly": FramedCopyFriendlyUserMessageStyleConfig;
 		compact: CompactUserMessageStyleConfig;
 		labeled: LabeledUserMessageStyleConfig;
 	};
@@ -419,7 +421,7 @@ const defaultComponents: ComponentsConfig = {
 		enabled: true,
 		style: "framed",
 		colorSource: "theme",
-		styles: { framed: {}, compact: {}, labeled: {} },
+		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
@@ -1058,24 +1060,18 @@ function resolveUserMessagesSelection(
 		defaultComponents.userMessages.enabled,
 	);
 	const rawStyle = userMessages.style;
-	if (rawStyle === "compact" || rawStyle === "labeled") {
+	if (rawStyle === "compact" || rawStyle === "labeled" || rawStyle === "framed-copy-friendly") {
 		return { style: rawStyle, enabled: normalEnabled };
 	}
-	if (rawStyle === "framed") {
+	if (rawStyle === "framed" || hasOwn(framed, "copyFriendly")) {
 		return {
-			style: "framed",
-			enabled: hasOwn(framed, "copyFriendly") && legacyCopyFriendly(framed) ? false : normalEnabled,
-		};
-	}
-	if (hasOwn(framed, "copyFriendly")) {
-		return {
-			style: "framed",
-			enabled: legacyCopyFriendly(framed) ? false : normalEnabled,
+			style: legacyCopyFriendly(framed) ? "framed-copy-friendly" : "framed",
+			enabled: normalEnabled,
 		};
 	}
 	return {
-		style: "framed",
-		enabled: legacyCopyFriendly(features) ? false : normalEnabled,
+		style: legacyCopyFriendly(features) ? "framed-copy-friendly" : "framed",
+		enabled: normalEnabled,
 	};
 }
 
@@ -1183,6 +1179,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			styles: {
 				framed: {},
+				"framed-copy-friendly": {},
 				compact: {},
 				labeled: {},
 			},
@@ -1363,6 +1360,7 @@ function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
 		userMessages:
 			typeof userMessageStyle === "string" &&
 			userMessageStyle !== "framed" &&
+			userMessageStyle !== "framed-copy-friendly" &&
 			userMessageStyle !== "compact" &&
 			userMessageStyle !== "labeled"
 				? userMessageStyle

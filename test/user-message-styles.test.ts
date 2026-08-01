@@ -11,6 +11,8 @@ import {
 	userMessageStyleCacheKey,
 } from "../extensions/zentui/user-message-styles";
 
+const userMessageStyles = ["framed", "framed-copy-friendly", "compact", "labeled"] as const;
+
 function config(style: UserMessageStyle): PolishedTuiConfig {
 	const value = structuredClone(defaultConfig);
 	value.components.userMessages.style = style;
@@ -46,6 +48,25 @@ describe("pure user-message styles", () => {
 		]);
 	});
 
+	it("preserves exact copy-friendly framed chrome and Markdown padding", () => {
+		expect(render("framed-copy-friendly", "Hello", 12)).toEqual([
+			"────────────",
+			"",
+			"Hello       ",
+			"",
+			"────────────",
+		]);
+	});
+
+	it("keeps copy-friendly ANSI and wide-Unicode body rows padded within width", () => {
+		for (let width = 2; width <= 24; width += 1) {
+			const lines = render("framed-copy-friendly", "界🙂 \x1b[31mwide\x1b[0m", width, ansiTheme());
+			const body = lines.slice(2, -2);
+			expect(body.length).toBeGreaterThan(0);
+			expect(body.every((line) => visibleWidth(line) === width)).toBe(true);
+		}
+	});
+
 	it("renders compact multiline and blank Markdown rows with an unpadded rail", () => {
 		const lines = render("compact", "First\n\nFinal", 16);
 		expect(lines).toEqual(["│ First", "│ ", "│ Final"]);
@@ -62,7 +83,7 @@ describe("pure user-message styles", () => {
 	});
 
 	it("preserves Markdown rendering across all styles", () => {
-		for (const style of ["framed", "compact", "labeled"] as const) {
+		for (const style of userMessageStyles) {
 			const output = plain(
 				render(style, "**bold**\n\n- item\n\n> quote\n\n```ts\ncode\n```", 40).join("\n"),
 			);
@@ -95,7 +116,7 @@ describe("pure user-message styles", () => {
 	});
 
 	it("returns a marker-safe row at non-positive widths and clamps ANSI/wide Unicode", () => {
-		for (const style of ["framed", "compact", "labeled"] as const) {
+		for (const style of userMessageStyles) {
 			expect(render(style, "hello", 0)).toEqual([""]);
 			for (let width = 1; width <= 24; width += 1) {
 				const lines = render(style, "界🙂 \x1b[31mwide\x1b[0m", width, ansiTheme());
@@ -111,13 +132,15 @@ describe("pure user-message styles", () => {
 				throw new Error("theme failed");
 			},
 		} as unknown as Theme;
-		expect(() => render("framed", "hello", 20, failingTheme)).toThrow("theme failed");
+		for (const style of userMessageStyles) {
+			expect(() => render(style, "hello", 20, failingTheme)).toThrow("theme failed");
+		}
 	});
 
 	it("preserves complete 7-bit and C1 OSC 8 controls byte-for-byte", () => {
 		const starts = ["\x1b]", "\x9d"];
 		const terminators = ["\x07", "\x1b\\", "\x9c"];
-		for (const style of ["framed", "compact", "labeled"] as const) {
+		for (const style of userMessageStyles) {
 			for (const start of starts) {
 				for (const terminator of terminators) {
 					const open = `${start}8;;https://example.com${terminator}`;
@@ -137,7 +160,7 @@ describe("pure user-message styles", () => {
 		const secondOpen = "\x9d8;;https://second.example\x9c";
 		const secondClose = "\x9d8;;\x9c";
 		const text = `${firstOpen}one${firstClose} ${secondOpen}two${secondClose} ${firstOpen}three${firstClose} [markdown](https://markdown.example)`;
-		for (const style of ["framed", "compact", "labeled"] as const) {
+		for (const style of userMessageStyles) {
 			const output = render(style, text, 160).join("\n");
 			expect(output.split(firstOpen)).toHaveLength(3);
 			expect(output.split(firstClose)).toHaveLength(3);
@@ -176,7 +199,7 @@ describe("pure user-message styles", () => {
 	});
 
 	it("uses only style-relevant cache-key inputs", () => {
-		for (const style of ["framed", "compact", "labeled"] as const) {
+		for (const style of userMessageStyles) {
 			const base = config(style);
 			const key = userMessageStyleCacheKey(base);
 			const unrelated = structuredClone(base);
@@ -187,7 +210,7 @@ describe("pure user-message styles", () => {
 
 			const accent = structuredClone(base);
 			accent.colors.editorAccent = "red";
-			expect(userMessageStyleCacheKey(accent)).not.toBe(key);
+			expect(userMessageStyleCacheKey(accent) === key).toBe(style === "framed-copy-friendly");
 
 			const border = structuredClone(base);
 			border.colors.editorBorder = "blue";
@@ -195,7 +218,13 @@ describe("pure user-message styles", () => {
 
 			const rail = structuredClone(base);
 			rail.icons.rail = "┃";
-			expect(userMessageStyleCacheKey(rail) === key).toBe(style === "labeled");
+			expect(userMessageStyleCacheKey(rail) === key).toBe(
+				style === "labeled" || style === "framed-copy-friendly",
+			);
 		}
+
+		expect(userMessageStyleCacheKey(config("framed-copy-friendly"))).not.toBe(
+			userMessageStyleCacheKey(config("framed")),
+		);
 	});
 });

@@ -184,6 +184,18 @@ function renderFramed({ text, width, theme, config }: UserMessageStyleRenderInpu
 	return [rule, row(""), ...body.map(row), row(""), rule];
 }
 
+function renderFramedCopyFriendly({
+	text,
+	width,
+	theme,
+	config,
+}: UserMessageStyleRenderInput): string[] {
+	if (width <= 0) return [""];
+	const body = renderMarkdown(text, width, theme).map((line) => truncateToWidth(line, width, ""));
+	const rule = truncateToWidth(border(theme, config, "─".repeat(width)), width, "");
+	return [rule, "", ...body, "", rule];
+}
+
 function renderCompact({ text, width, theme, config }: UserMessageStyleRenderInput): string[] {
 	if (width <= 0) return [""];
 	const rail = renderRail(theme, config);
@@ -238,6 +250,10 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 				config.colors.editorBorder ?? "",
 				config.icons.rail,
 			].join("\0");
+		case "framed-copy-friendly":
+			return ["framed-copy-friendly", messages.colorSource, config.colors.editorBorder ?? ""].join(
+				"\0",
+			);
 		case "compact":
 			return [
 				"compact",
@@ -263,6 +279,9 @@ export function renderUserMessageStyle(input: UserMessageStyleRenderInput): stri
 	switch (input.config.components.userMessages.style) {
 		case "framed":
 			lines = renderFramed(shieldedInput);
+			break;
+		case "framed-copy-friendly":
+			lines = renderFramedCopyFriendly(shieldedInput);
 			break;
 		case "compact":
 			lines = renderCompact(shieldedInput);

@@ -72,6 +72,7 @@ const editorStyleLabels: Record<EditorStyle, string> = {
 const editorStyleValues = Object.values(editorStyleLabels);
 const userMessageStyleLabels: Record<UserMessageStyle, string> = {
 	framed: "Framed",
+	"framed-copy-friendly": "Framed (copy-friendly)",
 	compact: "Compact",
 	labeled: "Labeled",
 };
