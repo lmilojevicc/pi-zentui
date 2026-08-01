@@ -8,47 +8,42 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
-	type ColorSourcesConfig,
 	type ContextStyle,
-	type EditorBorderColorMode,
-	type EditorStyle,
+	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
 	type FixedEditorConfig,
 	FOOTER_FORMAT_ALIASES,
+	type FooterComponentConfig,
 	type FooterSegmentsConfig,
+	type FramedUserMessageStyleConfig,
 	type GitBranchConfig,
 	type GitCommitConfig,
 	type GitMetricsConfig,
 	type IconMode,
 	loadConfig,
 	type MinimalistConfig,
-	type ModelLabelSource,
 	type PathDisplayConfig,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
+	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
-	saveColorSourcesPatch,
-	saveContextStylePatch,
-	saveEditorBorderColorMode,
-	saveEditorModelLabel,
-	saveEditorStyle,
+	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
-	saveFixedEditorPatch,
-	saveFooterFormatPatch,
-	saveFooterSegmentsPatch,
-	saveGitBranchPatch,
-	saveGitCommitPatch,
-	saveGitMetricsPatch,
+	saveFooterComponentPatch,
+	saveFramedUserMessagesStylePatch,
 	saveIconsModePatch,
-	saveMinimalistPatch,
-	savePathDisplayPatch,
-	saveResponsiveFooterPatch,
-	saveSeparatorPatch,
+	saveLayoutFixedEditorPatch,
+	saveMinimalistEditorStylePatch,
+	savePolishedEditorStylePatch,
+	saveSelectorBordersComponentPatch,
+	saveStarshipFooterStylePatch,
 	saveUiFeaturesPatch,
-	type UiFeaturesConfig,
+	saveUserMessagesComponentPatch,
+	type UserMessagesComponentConfig,
 	type ZentuiConfig,
 } from "./config";
 import {
@@ -974,57 +969,28 @@ export default function (pi: ExtensionAPI) {
 	registerZentuiSettingsCommand(pi, {
 		sessionLifecycle,
 		getConfig: getCurrentConfig,
-		setColorSources(patch: Partial<ColorSourcesConfig>) {
-			currentConfig = saveColorSourcesPatch(patch);
-		},
-		setUiFeatures(patch: Partial<UiFeaturesConfig>, ctx: ExtensionContext) {
-			currentConfig = saveUiFeaturesPatch(patch);
-			const result = applyConfiguredUi(ctx);
-			return {
-				applied: !(patch.editor !== undefined && result.editorBlocked),
-				reason: result.editorBlocked ? result.editorReason : undefined,
-			};
-		},
-		setFooterSegments(patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) {
-			applyFooterDependencyConfigChange(ctx, () => saveFooterSegmentsPatch(patch));
-		},
-		setFooterFormat(value: string, ctx: ExtensionContext) {
-			applyFooterDependencyConfigChange(ctx, () => saveFooterFormatPatch(value));
-		},
-		setResponsiveFooter(
-			patch: Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>,
-			ctx: ExtensionContext,
-		) {
-			applyFooterDependencyConfigChange(ctx, () => saveResponsiveFooterPatch(patch));
-		},
-		setIconMode(mode: IconMode) {
-			currentConfig = saveIconsModePatch(mode);
-		},
-		setContextStyle(style: ContextStyle) {
-			currentConfig = saveContextStylePatch(style);
-		},
-		setSeparator(separator: SeparatorStyle) {
-			currentConfig = saveSeparatorPatch(separator);
-		},
-		setPathDisplay(patch: Partial<PathDisplayConfig>) {
-			currentConfig = savePathDisplayPatch(patch);
-		},
-		setGitBranch(patch: Partial<GitBranchConfig>) {
-			currentConfig = saveGitBranchPatch(patch);
-		},
-		setEditorModelLabel(value: ModelLabelSource, ctx: ExtensionContext) {
-			currentConfig = saveEditorModelLabel(value);
-			syncFooterState(ctx);
-		},
-		setEditorStyle(value: EditorStyle, ctx: ExtensionContext) {
-			currentConfig = saveEditorStyle(value);
-			if (value !== "minimalist") setMinimalistDecorationActive(false);
+		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext) {
+			currentConfig = saveEditorComponentPatch(patch);
+			let result: EditorChangeResult | undefined;
+			if (patch.enabled !== undefined && isTuiContext(ctx)) result = reconcileEditor(ctx);
+			if (patch.style !== undefined && patch.style !== "minimalist") {
+				setMinimalistDecorationActive(false);
+			}
+			if (patch.modelLabel !== undefined) syncFooterState(ctx);
 			reconcileProjectRefresh(ctx);
 			reconcileAgentTimer();
 			refresh();
+			return {
+				applied: !result || result.ok,
+				reason: result && !result.ok ? result.reason : undefined,
+			};
+		},
+		setPolishedEditorStyle(patch: Partial<PolishedEditorStyleConfig>, _ctx: ExtensionContext) {
+			currentConfig = savePolishedEditorStylePatch(patch);
+			refresh();
 		},
 		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
-			currentConfig = saveMinimalistPatch(patch);
+			currentConfig = saveMinimalistEditorStylePatch(patch);
 			reconcileAgentTimer();
 			reconcileProjectRefresh(ctx);
 			if (needsProjectRefresh() && (patch.pathDisplay === "project" || patch.showGit === true)) {
@@ -1032,20 +998,85 @@ export default function (pi: ExtensionAPI) {
 			}
 			refresh();
 		},
-		setEditorBorderColorMode(value: EditorBorderColorMode) {
-			currentConfig = saveEditorBorderColorMode(value);
+		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
+			currentConfig = saveUserMessagesComponentPatch(patch);
+			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
+			refresh();
+		},
+		setFramedUserMessagesStyle(
+			patch: Partial<FramedUserMessageStyleConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = saveFramedUserMessagesStylePatch(patch);
+			refresh();
+		},
+		setSelectorBordersComponent(
+			patch: Partial<SelectorBordersComponentConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = saveSelectorBordersComponentPatch(patch);
+			if (patch.enabled !== undefined || patch.style !== undefined) reconcileSelectorBorders();
+			refresh();
+		},
+		setFooterComponent(patch: Partial<FooterComponentConfig>, ctx: ExtensionContext) {
+			currentConfig = saveFooterComponentPatch(patch);
+			if (patch.enabled !== undefined || patch.style !== undefined) reconcileFooter(ctx);
+			if (patch.modelLabel !== undefined) syncFooterState(ctx);
+			reconcileProjectRefresh(ctx);
+			reconcileSessionTimer();
+			refresh();
+		},
+		setCopyFriendlyRecipe(enabled: boolean, _ctx: ExtensionContext) {
+			currentConfig = saveUiFeaturesPatch({ copyFriendly: enabled });
+			refresh();
+		},
+		setFooterSegments(patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) {
+			applyFooterDependencyConfigChange(ctx, () =>
+				saveStarshipFooterStylePatch({ segments: patch as FooterSegmentsConfig }),
+			);
+		},
+		setFooterFormat(value: string, ctx: ExtensionContext) {
+			applyFooterDependencyConfigChange(ctx, () => saveStarshipFooterStylePatch({ format: value }));
+		},
+		setResponsiveFooter(
+			patch: Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>,
+			ctx: ExtensionContext,
+		) {
+			applyFooterDependencyConfigChange(ctx, () =>
+				saveStarshipFooterStylePatch({
+					...(patch.responsiveFooter === undefined ? {} : { responsive: patch.responsiveFooter }),
+					...(patch.compactFooterMaxLines === undefined
+						? {}
+						: { compactMaxLines: patch.compactFooterMaxLines }),
+				}),
+			);
+		},
+		setIconMode(mode: IconMode) {
+			currentConfig = saveIconsModePatch(mode);
+		},
+		setContextStyle(style: ContextStyle) {
+			currentConfig = saveStarshipFooterStylePatch({ contextStyle: style });
+		},
+		setSeparator(separator: SeparatorStyle) {
+			currentConfig = saveStarshipFooterStylePatch({ separator });
+		},
+		setPathDisplay(patch: Partial<PathDisplayConfig>) {
+			currentConfig = saveStarshipFooterStylePatch({ pathDisplay: patch as PathDisplayConfig });
+		},
+		setGitBranch(patch: Partial<GitBranchConfig>) {
+			currentConfig = saveStarshipFooterStylePatch({ gitBranch: patch as GitBranchConfig });
 		},
 		setGitCommit(
 			patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 			ctx: ExtensionContext,
 		) {
-			currentConfig = saveGitCommitPatch(patch);
+			currentConfig = saveStarshipFooterStylePatch({ gitCommit: patch as GitCommitConfig });
 			if (patch.showTag !== undefined && needsProjectRefresh()) {
 				scheduleProjectRefresh(ctx, { force: true });
 			}
 		},
 		setGitMetrics(patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) {
-			currentConfig = saveGitMetricsPatch(patch);
+			currentConfig = saveStarshipFooterStylePatch({ gitMetrics: patch as GitMetricsConfig });
 			if (patch.ignoreSubmodules !== undefined && needsProjectRefresh()) {
 				scheduleProjectRefresh(ctx, { force: true });
 			}
@@ -1063,7 +1094,7 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveExtensionStatusColorMode(key, colorMode);
 		},
 		setFixedEditor(patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) {
-			currentConfig = saveFixedEditorPatch(patch);
+			currentConfig = saveLayoutFixedEditorPatch(patch);
 			reconcileFixedLayout(ctx);
 			refresh();
 		},

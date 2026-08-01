@@ -1005,7 +1005,7 @@ describe("Pi docs compliance", () => {
 		);
 		expect(transferred).toEqual(Array.from({ length: 5 }, () => expanded));
 		expect(transferred).not.toContain(marker);
-		expect(patchPresenceDuringReplacements).toEqual([false, false, true, false, true]);
+		expect(patchPresenceDuringReplacements).toEqual([false, false, true, true, true]);
 	});
 
 	it("keeps the active factory when expanded editor text cannot be read", async () => {
@@ -1505,14 +1505,121 @@ describe("Pi docs compliance", () => {
 			editorFactory = takeoverFactory;
 			await command.handler("editor disable", ctx);
 			expect(editorFactory).toBe(takeoverFactory);
-			// The historical command remains a compatibility recipe that disables all three.
-			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			// Editor enablement is component-local; messages and selector borders stay installed.
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
 			await emit(handlers, "session_shutdown", ctx);
 			expect(editorFactory).toBe(takeoverFactory);
 			expect(setEditorCalls).toBe(2);
 		},
 	);
+
+	it("routes fixed-editor aliases through layout without retaking a third-party editor", async () => {
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notifications: string[] = [];
+		let editorFactory: unknown;
+		let setEditorCalls = 0;
+		const takeoverFactory = () => ({
+			render: () => ["takeover"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent() {
+					return editorFactory;
+				},
+				setWidget() {},
+				notify(message: string) {
+					notifications.push(message);
+				},
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		expect(setEditorCalls).toBe(1);
+		editorFactory = takeoverFactory;
+		await new Promise((resolve) => setTimeout(resolve, 1));
+
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+		for (const args of ["fixed-editor enable", "fixed_editor disable", "fixed editor toggle"])
+			await command.handler(args, ctx);
+
+		expect(editorFactory).toBe(takeoverFactory);
+		expect(setEditorCalls).toBe(1);
+		expect(notifications).toEqual([
+			"Fixed editor: enabled",
+			"Fixed editor: disabled",
+			"Fixed editor: enabled",
+		]);
+		const persisted = JSON.parse(
+			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
+		) as {
+			layout: { fixedEditor: { enabled: boolean } };
+		};
+		expect(persisted.layout.fixedEditor.enabled).toBe(true);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(takeoverFactory);
+	});
+
+	it("persists independent message and copy-friendly commands plus the atomic recipe", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { styles: { polished: { copyFriendly: false } } },
+					userMessages: {
+						enabled: true,
+						styles: { framed: { copyFriendly: true } },
+					},
+				},
+			}),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notifications: string[] = [];
+		const ctx = makeContext({ ui: { notify: (message: string) => notifications.push(message) } });
+		await emit(handlers, "session_start", ctx);
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+
+		await command.handler("messages disable", ctx);
+		await command.handler("editor-copy-friendly enable", ctx);
+		await command.handler("message-copy-friendly disable", ctx);
+		let persisted = JSON.parse(
+			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
+		) as PolishedTuiConfig;
+		expect(persisted.components.userMessages.enabled).toBe(false);
+		expect(persisted.components.editor.enabled).toBe(true);
+		expect(persisted.components.selectorBorders.enabled).toBe(true);
+		expect(persisted.components.editor.styles.polished.copyFriendly).toBe(true);
+		expect(persisted.components.userMessages.styles.framed.copyFriendly).toBe(false);
+
+		await command.handler("copy-friendly disable", ctx);
+		persisted = JSON.parse(
+			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
+		) as PolishedTuiConfig;
+		expect(persisted.components.editor.styles.polished.copyFriendly).toBe(false);
+		expect(persisted.components.userMessages.styles.framed.copyFriendly).toBe(false);
+		expect(notifications).toEqual([
+			"User messages: disabled",
+			"Editor copy-friendly: enabled",
+			"Message copy-friendly: disabled",
+			"Copy-friendly mode: disabled",
+		]);
+		await emit(handlers, "session_shutdown", ctx);
+	});
 
 	it("does not reconcile an editor after its session shuts down", async () => {
 		vi.useFakeTimers();
@@ -4244,8 +4351,8 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
+				setEditorComponent(patch) {
+					featureChanges.push(patch as never);
 					return { applied: true };
 				},
 				setFooterSegments() {},
@@ -4274,14 +4381,14 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(featureChanges).toEqual([{ editor: false }]);
+		expect(featureChanges).toEqual([{ enabled: false }]);
 		expect(renderRequests).toBe(1);
 		expect(notifications).toEqual([{ message: "Editor: disabled", level: "info" }]);
 	});
 
 	it("toggles the status line from direct Zentui slash-command arguments", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const featureChanges: Partial<PolishedTuiConfig["features"]>[] = [];
+		const featureChanges: Array<Record<string, unknown>> = [];
 
 		registerZentuiSettingsCommand(
 			{
@@ -4293,9 +4400,8 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures(patch) {
+				setFooterComponent(patch) {
 					featureChanges.push(patch);
-					return { applied: true };
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
@@ -4314,12 +4420,12 @@ describe("Pi docs compliance", () => {
 
 		await command?.handler("status line off", { hasUI: false });
 
-		expect(featureChanges).toEqual([{ statusLine: false }]);
+		expect(featureChanges).toEqual([{ enabled: false }]);
 	});
 
 	it("toggles copy-friendly mode from direct Zentui slash-command arguments", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const featureChanges: Partial<PolishedTuiConfig["features"]>[] = [];
+		const featureChanges: boolean[] = [];
 		const notifications: Array<{ message: string; level: string }> = [];
 
 		registerZentuiSettingsCommand(
@@ -4332,9 +4438,8 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
-					return { applied: true };
+				setCopyFriendlyRecipe(enabled) {
+					featureChanges.push(enabled);
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
@@ -4360,7 +4465,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(featureChanges).toEqual([{ copyFriendly: true }]);
+		expect(featureChanges).toEqual([true]);
 		expect(notifications).toEqual([{ message: "Copy-friendly mode: enabled", level: "info" }]);
 	});
 
@@ -4379,8 +4484,8 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
+				setEditorComponent(patch) {
+					featureChanges.push(patch as never);
 					return { applied: true };
 				},
 				setFooterSegments() {},
@@ -4427,7 +4532,7 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures: () => ({
+				setEditorComponent: () => ({
 					applied: false,
 					reason:
 						"another extension is currently managing the editor; reload Pi to apply this change",
@@ -4484,7 +4589,7 @@ describe("Pi docs compliance", () => {
 					sessionLifecycle,
 					getConfig: () => defaultConfig,
 					setColorSources() {},
-					setUiFeatures() {
+					setEditorComponent() {
 						doneCallsAtFeatureChange.push(doneCalls);
 						return { applied: true };
 					},
@@ -4539,7 +4644,7 @@ describe("Pi docs compliance", () => {
 
 	it("does not update a settings value when persistence fails", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const attemptedPatches: Partial<PolishedTuiConfig["features"]>[] = [];
+		const attemptedPatches: Array<Record<string, unknown>> = [];
 		const notifications: string[] = [];
 		registerZentuiSettingsCommand(
 			{
@@ -4551,7 +4656,7 @@ describe("Pi docs compliance", () => {
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
 				setColorSources() {},
-				setUiFeatures(patch) {
+				setUserMessagesComponent(patch) {
 					attemptedPatches.push(patch);
 					throw new Error("config is corrupt");
 				},
@@ -4597,7 +4702,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(attemptedPatches).toEqual([{ statusLine: false }, { statusLine: false }]);
+		expect(attemptedPatches).toEqual([{ enabled: false }, { enabled: false }]);
 		expect(notifications).toEqual([
 			"Could not update Zentui settings: config is corrupt",
 			"Could not update Zentui settings: config is corrupt",
@@ -4622,7 +4727,7 @@ describe("Pi docs compliance", () => {
 					sessionLifecycle,
 					getConfig: () => defaultConfig,
 					setColorSources() {},
-					setUiFeatures() {
+					setEditorComponent() {
 						featureChanges += 1;
 						return { applied: true };
 					},
@@ -4735,9 +4840,8 @@ describe("Pi docs compliance", () => {
 
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
-		for (const section of ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"]) {
-			expect(themeLines.join("\n")).toContain(section);
-		}
+		expect(themeLines.join("\n")).toContain("Appearance");
+		expect(themeLines.join("\n")).toContain("(1/8)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -4856,9 +4960,8 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
-					component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -4931,8 +5034,8 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					component.handleInput?.("\x1b[B");
-					component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 7; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -4949,13 +5052,15 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(4);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
 		const run = async (maxLength: PolishedTuiConfig["gitBranch"]["maxLength"], presses: number) => {
 			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 			const changes: Array<PolishedTuiConfig["gitBranch"]["maxLength"]> = [];
+			const config = structuredClone(defaultConfig);
+			config.components.footer.styles.starship.gitBranch.maxLength = maxLength;
 			registerZentuiSettingsCommand(
 				{
 					registerCommand(_name: string, options: unknown) {
@@ -4964,7 +5069,7 @@ describe("Pi docs compliance", () => {
 				} as never,
 				{
 					sessionLifecycle: inactiveSessionLifecycle,
-					getConfig: () => ({ ...defaultConfig, gitBranch: { maxLength } }),
+					getConfig: () => config,
 					setColorSources() {},
 					setUiFeatures: () => ({ applied: true }),
 					setFooterSegments() {},
@@ -5000,7 +5105,7 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+						for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -5015,7 +5120,7 @@ describe("Pi docs compliance", () => {
 
 	it("keeps the Zentui settings command open after applying a change", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
+		const changes: Array<Record<string, unknown>> = [];
 		let dependencyRenderRequests = 0;
 		let tuiRenderRequests = 0;
 		let doneCalls = 0;
@@ -5029,7 +5134,8 @@ describe("Pi docs compliance", () => {
 			{
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources(patch) {
+				setColorSources() {},
+				setSelectorBordersComponent(patch) {
 					changes.push(patch);
 				},
 				setUiFeatures: () => ({ applied: true }),
@@ -5077,20 +5183,21 @@ describe("Pi docs compliance", () => {
 						},
 					) as { handleInput?: (data: string) => void };
 					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
 		});
 
-		expect(changes).toEqual([{ editor: "terminal", userMessages: "terminal" }]);
+		expect(changes).toEqual([{ colorSource: "terminal" }]);
 		expect(dependencyRenderRequests).toBe(1);
 		expect(tuiRenderRequests).toBe(1);
 		expect(doneCalls).toBe(0);
 	});
 
-	it("shows mixed editor/message sources and cycles them together", async () => {
+	it("shows selector color sources independently", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
+		const changes: Array<Record<string, unknown>> = [];
 		let rendered = "";
 
 		registerZentuiSettingsCommand(
@@ -5102,7 +5209,8 @@ describe("Pi docs compliance", () => {
 			{
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => configWithColorSources({ editor: "theme", userMessages: "terminal" }),
-				setColorSources(patch) {
+				setColorSources() {},
+				setSelectorBordersComponent(patch) {
 					changes.push(patch);
 				},
 				setUiFeatures: () => ({ applied: true }),
@@ -5141,21 +5249,39 @@ describe("Pi docs compliance", () => {
 					};
 					rendered = component.render?.(80).join("\n") ?? "";
 					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
 		});
 
-		expect(rendered).toContain("Editor + previous messages");
-		expect(rendered).toContain("mixed");
-		expect(changes).toEqual([{ editor: "theme", userMessages: "theme" }]);
+		expect(rendered).toContain("Selector border colors");
+		expect(rendered).not.toContain("Editor + previous messages");
+		expect(changes).toEqual([{ colorSource: "terminal" }]);
 	});
 
 	function navigateToSettingsSection(
 		component: { handleInput?: (data: string) => void },
-		section: "Appearance" | "Editor" | "Footer" | "Segments" | "Git" | "Extensions",
+		section:
+			| "Appearance"
+			| "Editor"
+			| "User messages"
+			| "Layout"
+			| "Footer"
+			| "Segments"
+			| "Git"
+			| "Extensions",
 	) {
-		const sections = ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"];
+		const sections = [
+			"Appearance",
+			"Editor",
+			"User messages",
+			"Layout",
+			"Footer",
+			"Segments",
+			"Git",
+			"Extensions",
+		];
 		for (let index = 0; index < sections.indexOf(section); index += 1) {
 			component.handleInput?.("\t");
 		}
@@ -5416,7 +5542,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(6);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {

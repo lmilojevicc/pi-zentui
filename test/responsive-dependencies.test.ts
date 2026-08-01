@@ -30,6 +30,54 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		...actual,
 		ensureConfigExists: () => {},
 		loadConfig: () => mocks.config,
+		saveEditorComponentPatch(patch: Record<string, unknown>) {
+			mocks.config = {
+				...mocks.config,
+				components: {
+					...mocks.config.components,
+					editor: { ...mocks.config.components.editor, ...patch },
+				},
+				...(patch.modelLabel === undefined
+					? {}
+					: { editorModelLabel: patch.modelLabel as "id" | "name" }),
+			};
+			return mocks.config;
+		},
+		saveStarshipFooterStylePatch(patch: Record<string, unknown>) {
+			const footer = mocks.config.components.footer;
+			const starship = footer.styles.starship;
+			const nextStarship = {
+				...starship,
+				...patch,
+				...(patch.segments
+					? { segments: { ...starship.segments, ...(patch.segments as object) } }
+					: {}),
+				...(patch.gitCommit
+					? { gitCommit: { ...starship.gitCommit, ...(patch.gitCommit as object) } }
+					: {}),
+				...(patch.gitMetrics
+					? { gitMetrics: { ...starship.gitMetrics, ...(patch.gitMetrics as object) } }
+					: {}),
+			};
+			mocks.config = {
+				...mocks.config,
+				...(patch.format === undefined ? {} : { footerFormat: patch.format as string }),
+				...(patch.responsive === undefined
+					? {}
+					: { responsiveFooter: patch.responsive as boolean }),
+				...(patch.compactMaxLines === undefined
+					? {}
+					: { compactFooterMaxLines: patch.compactMaxLines as 1 | 2 | 3 | "unlimited" }),
+				...(patch.segments === undefined ? {} : { footerSegments: nextStarship.segments }),
+				...(patch.gitCommit === undefined ? {} : { gitCommit: nextStarship.gitCommit }),
+				...(patch.gitMetrics === undefined ? {} : { gitMetrics: nextStarship.gitMetrics }),
+				components: {
+					...mocks.config.components,
+					footer: { ...footer, styles: { starship: nextStarship } },
+				},
+			};
+			return mocks.config;
+		},
 		saveEditorModelLabel(value: "id" | "name") {
 			mocks.config = {
 				...mocks.config,
@@ -320,9 +368,8 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
@@ -353,7 +400,7 @@ describe("responsive footer dependency reconciliation", () => {
 		const before = mocks.syncState.mock.calls.length;
 		await command.handler("", ctx);
 		expect(mocks.config.components.editor.modelLabel).toBe("name");
-		expect(mocks.config.components.footer.modelLabel).toBe("name");
+		expect(mocks.config.components.footer.modelLabel).toBe("id");
 		expect(mocks.syncState).toHaveBeenCalledTimes(before + 1);
 	});
 
@@ -365,7 +412,7 @@ describe("responsive footer dependency reconciliation", () => {
 				render(width: number): string[];
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 4; index++) component.handleInput("\t");
+			for (let index = 0; index < 6; index++) component.handleInput("\t");
 			const label = target === "showTag" ? "Show exact-match tag" : "Ignore submodules";
 			for (let attempts = 0; attempts < 12; attempts++) {
 				if (component.render(140).some((line) => line.includes(`> ${label}`))) break;
@@ -396,9 +443,7 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
+			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
 			for (let index = 0; index < 11; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
@@ -418,10 +463,8 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\x1b[B");
-			component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 5; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();

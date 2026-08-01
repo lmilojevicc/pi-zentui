@@ -36,7 +36,7 @@ Zentui brings two popular aesthetics to Pi:
 - Model name and provider displayed inside the polished editor frame
 - Configurable model, provider, and thinking-level indicator colors
 - Independently configurable framed user messages and Zentui selector borders
-- Editor and framed-message copy-friendly modes can be configured independently in canonical JSON; `/zentui copy-friendly` remains a compatibility recipe that updates both
+- Editor and framed-message copy-friendly modes can be configured independently in `/zentui` or canonical JSON; `/zentui copy-friendly` remains an atomic compatibility recipe that updates both
 - **Fixed editor** (experimental, opt-in): pin the editor cluster at the bottom of the terminal while the transcript scrolls above, independently of Zentui editor/footer enablement
 
 ### Git Status Icons
@@ -132,18 +132,20 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu remains split into exactly six sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. These controls preserve their historical recipe behavior while saving canonical component snapshots:
+The interactive `/zentui` menu is split into exactly eight component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
 
-1. **Appearance** — footer, editor/selector, and user-message color-source recipes; footer separator; icon mode.
-2. **Editor** — editor recipe, editor style/settings, border behavior, model-label recipe, copy-friendly recipe, viewport indicators, and fixed-layout controls. Minimalist-only rows appear only while that style is selected.
-3. **Footer** — footer enablement, responsive layout, compact rows, context style, and footer path display.
-4. **Segments** — visibility toggles for non-Git Starship segments.
-5. **Git** — Starship Git segment and probe controls.
-6. **Extensions** — Starship extension-status placement and color controls for active keys.
+1. **Appearance** — selector-border enablement, style, and colors; icon mode.
+2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, and settings for the selected editor style.
+3. **User messages** — framed-message enablement, style, colors, and copy-friendly behavior.
+4. **Layout** — fixed-editor enablement, mouse scrolling, and copy notices.
+5. **Footer** — footer enablement, style, colors, model label, responsive layout, separator, context style, and path display.
+6. **Segments** — visibility toggles for non-Git Starship segments.
+7. **Git** — Starship Git segment and probe controls.
+8. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-The editor enable recipe still updates editor, framed-message, and selector enablement together; the editor color recipe still updates editor and selectors; copy-friendly and model-label recipes still update both historical destinations. Direct canonical JSON can configure each destination independently.
+Editor enablement changes only the editor; user messages and selector borders remain independently controlled. Color and model-label rows also update only their owning component. The polished-editor and framed-message copy-friendly rows are independent, while `/zentui copy-friendly` remains the sole atomic compatibility recipe and updates both values.
 
-Free-form values such as custom formats, raw colors/styles, numeric values outside the shown presets, and inactive extension keys remain JSON-only.
+Settings for a component's selected style remain available while that component is disabled, allowing preconfiguration. Settings for inactive styles are hidden. Free-form values such as custom formats, polished metadata format, raw colors/styles, numeric values outside the shown presets, and inactive extension keys remain JSON-only.
 
 Useful slash-command shortcuts:
 
@@ -153,10 +155,22 @@ Useful slash-command shortcuts:
 /zentui statusline enable
 /zentui statusline disable
 /zentui editor toggle
+/zentui messages enable
+/zentui messages disable
+/zentui messages toggle
 /zentui statusline toggle
+/zentui editor-copy-friendly enable
+/zentui editor-copy-friendly disable
+/zentui editor-copy-friendly toggle
+/zentui message-copy-friendly enable
+/zentui message-copy-friendly disable
+/zentui message-copy-friendly toggle
 /zentui copy-friendly enable
 /zentui copy-friendly disable
 /zentui copy-friendly toggle
+/zentui messages
+/zentui user-messages
+/zentui layout
 /zentui viewport-indicators enable
 /zentui viewport-indicators disable
 /zentui viewport-indicators toggle
@@ -348,8 +362,8 @@ Default config values — copy this and change any value you want:
 - `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
 - `components.footer`: owns footer enablement, the fixed `starship` style, footer color source, footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses).
 - `layout.fixedEditor`: owns fixed-layout enablement, mouse scrolling, and copy notices. Layout activation depends on Pi compatibility inspection, not on Zentui editor/footer enablement.
-- Editor and footer `modelLabel` values are independent. The existing `/zentui` model-label control remains a compatibility recipe that writes both.
-- Polished-editor and framed-message `copyFriendly` values are independent. The existing `/zentui copy-friendly` control remains a compatibility recipe that writes both.
+- Editor and footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
+- Polished-editor and framed-message `copyFriendly` values have separate menu controls and component-specific commands. `/zentui copy-friendly` remains an atomic compatibility recipe that writes both.
 - User messages currently support only `framed`, selector borders only `zentui`, and the footer only `starship`. Set the owning component's `enabled` to `false` for native/Pi fallback.
 - Flat released keys such as `editorStyle`, `features`, `footerFormat`, and `fixedEditor` remain accepted as migration input. Canonical `components` and `layout` paths are the primary JSON interface, and component saves materialize canonical snapshots.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
@@ -523,7 +537,7 @@ Or in `~/.pi/agent/zentui.json`:
 
 ### Mouse scroll (default on)
 
-Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it from the `/zentui` **Editor** section or:
+Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it from the `/zentui` **Layout** section or:
 
 ```json
 {

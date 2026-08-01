@@ -16,11 +16,14 @@ import {
 	type CompactFooterMaxLines,
 	type ContextStyle,
 	type EditorBorderColorMode,
+	type EditorComponentConfig,
 	type EditorStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FixedEditorConfig,
+	type FooterComponentConfig,
 	type FooterSegmentsConfig,
+	type FramedUserMessageStyleConfig,
 	type GitBranchConfig,
 	type GitBranchMaxLength,
 	type GitCommitConfig,
@@ -32,14 +35,14 @@ import {
 	isExtensionStatusPlacement,
 	isSeparatorStyle,
 	type MinimalistConfig,
-	type MinimalistContextFormat,
-	type MinimalistPathDisplayMode,
 	type ModelLabelSource,
 	type PathDisplayConfig,
-	type PathDisplayMode,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
+	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
 	type UiFeaturesConfig,
+	type UserMessagesComponentConfig,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
@@ -56,65 +59,65 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
-const pathDisplayModeValues: PathDisplayMode[] = ["basename", "full"];
-const pathDepthValues = ["0", "1", "2", "3", "4", "5"] as const;
-const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"] as const;
+const pathDisplayModeValues = ["basename", "full"];
+const pathDepthValues = ["0", "1", "2", "3", "4", "5"];
+const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 const modelLabelValues: ModelLabelSource[] = ["id", "name"];
 const editorStyleValues: EditorStyle[] = ["polished", "minimalist"];
-const minimalistPathDisplayValues: MinimalistPathDisplayMode[] = ["compact", "project", "full"];
-const minimalistContextFormatValues: MinimalistContextFormat[] = ["percent", "percent-total"];
+const minimalistPathDisplayValues = ["compact", "project", "full"];
+const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
-const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"] as const;
-type FeatureState = "enabled" | "disabled";
-
+const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"];
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
 const settingsSections = [
 	"appearance",
 	"editor",
+	"userMessages",
+	"layout",
 	"footer",
 	"segments",
 	"git",
 	"extensions",
 ] as const;
 
-type ColorSettingId = "starship" | "editorMessages";
-type FeatureSettingId = keyof UiFeaturesConfig;
-type FooterSegmentSettingId = keyof FooterSegmentsConfig;
+type FeatureState = "enabled" | "disabled";
 type SettingsSection = (typeof settingsSections)[number];
-type BoundedSettingId =
-	| "responsiveFooter"
-	| "compactFooterMaxLines"
-	| "contextStyle"
-	| "separator"
-	| "pathDisplay"
-	| "pathDepth"
-	| "branchLength"
-	| "iconMode"
-	| "editorStyle"
-	| "minimalistPathDisplay"
-	| "minimalistContextFormat"
-	| "minimalistContextGauge"
-	| "minimalistShowSessionName"
-	| "minimalistShowTimer"
-	| "minimalistShowCost"
-	| "minimalistShowGit"
-	| "editorModelLabel"
-	| "editorBorderColorMode"
-	| "gitCommitOnlyDetached"
-	| "gitCommitShowTag"
-	| "gitMetricsOnlyNonzero"
-	| "gitMetricsIgnoreSubmodules"
-	| "extensionStatusDefaultPlacement";
+type FooterSegmentSettingId = keyof FooterSegmentsConfig;
+type EditorPatch = Partial<
+	Pick<
+		EditorComponentConfig,
+		"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+	>
+>;
+type UserMessagesPatch = Partial<
+	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
+>;
+type FooterPatch = Partial<
+	Pick<FooterComponentConfig, "enabled" | "style" | "colorSource" | "modelLabel">
+>;
+type ApplyResult = { applied: boolean; reason?: string };
 
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
-	setColorSources: (patch: Partial<ColorSourcesConfig>) => void;
-	setUiFeatures: (
-		patch: Partial<UiFeaturesConfig>,
+	setEditorComponent?: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
+	setPolishedEditorStyle?: (
+		patch: Partial<PolishedEditorStyleConfig>,
 		ctx: ExtensionContext,
-	) => { applied: boolean; reason?: string };
+	) => void;
+	setMinimalist?: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
+	setUserMessagesComponent?: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	setFramedUserMessagesStyle?: (
+		patch: Partial<FramedUserMessageStyleConfig>,
+		ctx: ExtensionContext,
+	) => void;
+	setSelectorBordersComponent?: (
+		patch: Partial<SelectorBordersComponentConfig>,
+		ctx: ExtensionContext,
+	) => void;
+	setFooterComponent?: (patch: FooterPatch, ctx: ExtensionContext) => void;
+	setCopyFriendlyRecipe?: (enabled: boolean, ctx: ExtensionContext) => void;
 	setFooterSegments: (patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) => void;
 	setFooterFormat: (value: string, ctx: ExtensionContext) => void;
 	setResponsiveFooter?: (
@@ -126,10 +129,6 @@ type SettingsCommandDeps = {
 	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
-	setEditorStyle?: (value: EditorStyle, ctx: ExtensionContext) => void;
-	setMinimalist?: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
-	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
-	setEditorBorderColorMode?: (value: EditorBorderColorMode) => void;
 	setGitCommit?: (
 		patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 		ctx: ExtensionContext,
@@ -142,34 +141,23 @@ type SettingsCommandDeps = {
 	setFixedEditor: (patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
+	/** Deprecated dependency fallbacks retained for older internal callers. */
+	setColorSources?: (patch: Partial<ColorSourcesConfig>) => void;
+	setUiFeatures?: (patch: Partial<UiFeaturesConfig>, ctx: ExtensionContext) => ApplyResult;
+	setEditorStyle?: (value: EditorStyle, ctx: ExtensionContext) => void;
+	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
+	setEditorBorderColorMode?: (value: EditorBorderColorMode) => void;
 };
 
-const colorSettingLabels: Record<ColorSettingId, string> = {
-	starship: "Starship/footer colors",
-	editorMessages: "Editor + previous messages",
-};
-
-const colorSettingDescriptions: Record<ColorSettingId, string> = {
-	starship:
-		"Choose whether footer runtime/git/context colors use Pi theme tokens or terminal palette styles.",
-	editorMessages:
-		"Choose whether editor and previous user-message borders/rails use Pi theme colors or terminal palette styles.",
-};
-
-const featureSettingLabels: Record<FeatureSettingId, string> = {
+const sectionLabels: Record<SettingsSection, string> = {
+	appearance: "Appearance",
 	editor: "Editor",
-	statusLine: "Status line",
-	copyFriendly: "Copy-friendly mode",
-	viewportIndicators: "Editor viewport indicators",
-};
-
-const featureSettingDescriptions: Record<FeatureSettingId, string> = {
-	editor:
-		"Enable or disable Zentui's custom editor, selector borders, and previous-message chrome.",
-	statusLine: "Enable or disable Zentui's custom footer/status line.",
-	copyFriendly:
-		"Hide editor and previous-message rail glyphs for cleaner native terminal selection.",
-	viewportIndicators: "Show Pi's native wrapped-row counts in the editor's top and bottom borders.",
+	userMessages: "User messages",
+	layout: "Layout",
+	footer: "Footer",
+	segments: "Segments",
+	git: "Git",
+	extensions: "Extensions",
 };
 
 const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
@@ -194,32 +182,37 @@ const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
 
 const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> = {
 	cwd: "Show or hide the current working directory segment on the left.",
-	sessionName: "Show or hide the current Pi session name on the left, after the current directory.",
+	sessionName: "Show or hide the current Pi session name on the left.",
 	gitBranch: "Show or hide the git branch name on the left.",
 	gitStatus: "Show or hide git status icons and ahead/behind markers.",
-	gitCounts:
-		"Show numeric ahead/behind and stash counts (requires the Git status segment to be enabled).",
-	sessionDuration: "Show session running time on the left, after the runtime.",
+	gitCounts: "Show numeric ahead/behind and stash counts.",
+	sessionDuration: "Show session running time on the left.",
 	username: "Show user@hostname on the left.",
 	time: "Show the current time (HH:MM) on the right.",
 	os: "Show an operating-system icon on the left.",
-	runtime: "Show or hide the detected runtime/language segment on the left.",
-	modelInfo: "Show the selected model and non-duplicate provider on the right.",
+	runtime: "Show or hide the detected runtime/language segment.",
+	modelInfo: "Show the selected model and non-duplicate provider.",
 	context: "Show or hide context usage on the right.",
 	tokens: "Show or hide input/output token counts on the right.",
 	cost: "Show or hide session cost on the right.",
-	packageVersion:
-		"Show the project’s own manifest version (package.json, Cargo.toml, pyproject.toml, …). Distinct from the runtime segment, which shows the installed toolchain version.",
-	gitCommit:
-		"Show the current commit hash (and optional exact-match tag). On detached HEAD this provides context the branch segment can’t. Starship `git_commit`-style; default off.",
-	gitMetrics:
-		"Show aggregate added/deleted line counts (e.g. `+12 −3`) via `git diff HEAD --numstat`. Complements the git status counts. Starship `git_metrics`-style; default off.",
+	packageVersion: "Show the project manifest version.",
+	gitCommit: "Show the current commit hash and optional exact-match tag.",
+	gitMetrics: "Show aggregate added/deleted line counts.",
 };
 
 const directCommandSuggestions = [
 	"editor enable",
 	"editor disable",
 	"editor toggle",
+	"messages enable",
+	"messages disable",
+	"messages toggle",
+	"editor-copy-friendly enable",
+	"editor-copy-friendly disable",
+	"editor-copy-friendly toggle",
+	"message-copy-friendly enable",
+	"message-copy-friendly disable",
+	"message-copy-friendly toggle",
 	"statusline enable",
 	"statusline disable",
 	"statusline toggle",
@@ -232,575 +225,571 @@ const directCommandSuggestions = [
 	"fixed-editor enable",
 	"fixed-editor disable",
 	"fixed-editor toggle",
+	"messages",
+	"user-messages",
+	"layout",
 	"format clear",
 	"format $cwd on $git_branch $fill $context",
-	"format $cwd( on $git_branch)($git_status)$fill($context)( | $cost)",
 ];
-
-const sectionLabels: Record<SettingsSection, string> = {
-	appearance: "Appearance",
-	editor: "Editor",
-	footer: "Footer",
-	segments: "Segments",
-	git: "Git",
-	extensions: "Extensions",
-};
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
 const footerSegmentSettingPrefix = "footerSegment:";
 type ThirdPartyStatusSettingKind = "placement" | "colorMode";
 
-function isColorSource(value: string): value is ColorSource {
-	return value === "theme" || value === "terminal";
-}
-
-function isColorSettingId(value: string): value is ColorSettingId {
-	return value === "starship" || value === "editorMessages";
-}
-
-function isFeatureSettingId(value: string): value is FeatureSettingId {
-	return (
-		value === "editor" ||
-		value === "statusLine" ||
-		value === "copyFriendly" ||
-		value === "viewportIndicators"
-	);
-}
-
-function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingId {
-	return (
-		value === "cwd" ||
-		value === "sessionName" ||
-		value === "gitBranch" ||
-		value === "gitStatus" ||
-		value === "gitCounts" ||
-		value === "sessionDuration" ||
-		value === "runtime" ||
-		value === "modelInfo" ||
-		value === "context" ||
-		value === "tokens" ||
-		value === "cost" ||
-		value === "username" ||
-		value === "time" ||
-		value === "os" ||
-		value === "packageVersion" ||
-		value === "gitCommit" ||
-		value === "gitMetrics"
-	);
-}
-
-function isFeatureState(value: string): value is FeatureState {
-	return value === "enabled" || value === "disabled";
-}
-
-function isContextStyle(value: string): value is ContextStyle {
-	return value === "text" || value === "gauge" || value === "text+gauge";
-}
-
-function isPathDisplayMode(value: string): value is PathDisplayMode {
-	return value === "basename" || value === "full";
-}
-
-function isPathDepthValue(value: string): boolean {
-	return (pathDepthValues as readonly string[]).includes(value);
-}
-
-function parseGitBranchLengthValue(value: string): GitBranchMaxLength | undefined {
-	if (value === "full") return value;
-	const parsed = Number(value);
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function branchLengthValues(maxLength: GitBranchMaxLength): string[] {
-	const current = String(maxLength);
-	return (branchLengthPresetValues as readonly string[]).includes(current)
-		? [...branchLengthPresetValues]
-		: [current, ...branchLengthPresetValues];
-}
-
-function isCompactFooterMaxLines(value: string): value is `${CompactFooterMaxLines}` {
-	return (compactFooterMaxLineValues as readonly string[]).includes(value);
-}
-
-function parseCompactFooterMaxLines(value: string): CompactFooterMaxLines | undefined {
-	if (!isCompactFooterMaxLines(value)) return undefined;
-	return value === "unlimited" ? value : (Number(value) as 1 | 2 | 3);
-}
-
-function isBoundedSettingId(value: string): value is BoundedSettingId {
-	return (
-		value === "responsiveFooter" ||
-		value === "compactFooterMaxLines" ||
-		value === "contextStyle" ||
-		value === "separator" ||
-		value === "pathDisplay" ||
-		value === "pathDepth" ||
-		value === "branchLength" ||
-		value === "iconMode" ||
-		value === "editorStyle" ||
-		value === "minimalistPathDisplay" ||
-		value === "minimalistContextFormat" ||
-		value === "minimalistContextGauge" ||
-		value === "minimalistShowSessionName" ||
-		value === "minimalistShowTimer" ||
-		value === "minimalistShowCost" ||
-		value === "minimalistShowGit" ||
-		value === "editorModelLabel" ||
-		value === "editorBorderColorMode" ||
-		value === "gitCommitOnlyDetached" ||
-		value === "gitCommitShowTag" ||
-		value === "gitMetricsOnlyNonzero" ||
-		value === "gitMetricsIgnoreSubmodules" ||
-		value === "extensionStatusDefaultPlacement"
-	);
-}
-
-function editorMessageValue(config: PolishedTuiConfig): ColorSource | "mixed" {
-	return config.colorSources.editor === config.colorSources.userMessages
-		? config.colorSources.editor
-		: "mixed";
-}
-
-function patchForSetting(id: ColorSettingId, value: ColorSource): Partial<ColorSourcesConfig> {
-	return id === "starship" ? { starship: value } : { editor: value, userMessages: value };
-}
-
 function featureValue(enabled: boolean): FeatureState {
 	return enabled ? "enabled" : "disabled";
 }
-
-function featurePatch(id: FeatureSettingId, value: FeatureState): Partial<UiFeaturesConfig> {
-	return { [id]: value === "enabled" } as Partial<UiFeaturesConfig>;
+function isFeatureState(value: string): value is FeatureState {
+	return value === "enabled" || value === "disabled";
+}
+function isColorSource(value: string): value is ColorSource {
+	return value === "theme" || value === "terminal";
+}
+function parseAction(words: string[]): "enable" | "disable" | "toggle" | undefined {
+	if (words.includes("toggle")) return "toggle";
+	if (words.some((word) => ["enable", "enabled", "on"].includes(word))) return "enable";
+	if (words.some((word) => ["disable", "disabled", "off"].includes(word))) return "disable";
+	return undefined;
+}
+function actionValue(action: "enable" | "disable" | "toggle", current: boolean): boolean {
+	return action === "toggle" ? !current : action === "enable";
+}
+function normalizedWords(args: string): string[] {
+	return args.trim().toLowerCase().replaceAll(/[_-]+/g, " ").split(/\s+/g).filter(Boolean);
 }
 
-function footerSegmentSettingId(key: FooterSegmentSettingId): string {
-	return `${footerSegmentSettingPrefix}${key}`;
-}
+type DirectOperation =
+	| { kind: "editor" | "messages" | "footer" | "viewport"; enabled: boolean }
+	| { kind: "copyRecipe" | "editorCopy" | "messageCopy"; enabled: boolean };
 
-function footerSegmentSettingFromId(id: string): FooterSegmentSettingId | undefined {
-	if (!id.startsWith(footerSegmentSettingPrefix)) return undefined;
-	const key = id.slice(footerSegmentSettingPrefix.length);
-	return isFooterSegmentSettingId(key) ? key : undefined;
-}
-
-function footerSegmentPatch(
-	id: FooterSegmentSettingId,
-	value: FeatureState,
-): Partial<FooterSegmentsConfig> {
-	return { [id]: value === "enabled" } as Partial<FooterSegmentsConfig>;
-}
-
-function usageText(): string {
-	return 'Usage: /zentui [editor|statusline|copy-friendly|viewport-indicators] [enable|disable|toggle] or /zentui format "<template>"';
-}
-
-function featureNotification(
-	feature: FeatureSettingId,
-	value: FeatureState,
-	result: { applied: boolean; reason?: string },
-): string {
-	const base = `${featureSettingLabels[feature]}: ${value}`;
-	return result.applied ? base : `${base} (${result.reason ?? "reload Pi to apply this change"})`;
-}
-
-function parseDirectFeatureCommand(
+function parseDirectOperation(
 	args: string,
 	config: PolishedTuiConfig,
-): { feature: FeatureSettingId; enabled: boolean } | undefined {
-	const normalized = args.trim().toLowerCase().replaceAll(/[_-]+/g, " ");
-	if (!normalized) return undefined;
-
-	const words = normalized.split(/\s+/g).filter(Boolean);
-	const hasWord = (value: string) => words.includes(value);
-	const feature =
-		hasWord("viewportindicators") || (hasWord("viewport") && hasWord("indicators"))
-			? "viewportIndicators"
-			: hasWord("editor")
-				? "editor"
-				: hasWord("footer") || hasWord("statusline") || hasWord("status")
-					? "statusLine"
-					: hasWord("copyfriendly") || hasWord("copy")
-						? "copyFriendly"
-						: undefined;
-	const action = hasWord("toggle")
-		? "toggle"
-		: hasWord("enable") || hasWord("enabled") || hasWord("on")
-			? "enable"
-			: hasWord("disable") || hasWord("disabled") || hasWord("off")
-				? "disable"
-				: undefined;
-
-	if (!feature || !action) return undefined;
-
-	return {
-		feature,
-		enabled: action === "toggle" ? !config.features[feature] : action === "enable",
-	};
-}
-
-function parseFixedEditorCommand(
-	args: string,
-	config: PolishedTuiConfig,
-): { enabled: boolean } | undefined {
-	const normalized = args.trim().toLowerCase().replaceAll(/[_-]+/g, " ");
-	if (!normalized) return undefined;
-
-	const words = normalized.split(/\s+/g).filter(Boolean);
-	const hasWord = (value: string) => words.includes(value);
-	if (!hasWord("fixededitor") && !(hasWord("fixed") && hasWord("editor"))) return undefined;
-
-	const action = hasWord("toggle")
-		? "toggle"
-		: hasWord("enable") || hasWord("enabled") || hasWord("on")
-			? "enable"
-			: hasWord("disable") || hasWord("disabled") || hasWord("off")
-				? "disable"
-				: undefined;
+): DirectOperation | undefined {
+	const raw = args.trim().toLowerCase();
+	const words = normalizedWords(args);
+	const action = parseAction(words);
 	if (!action) return undefined;
+	// Component-specific copy commands must win before the generic word-based aliases.
+	if (/^(editor[-_ ]copy[-_ ]friendly)\b/.test(raw)) {
+		return {
+			kind: "editorCopy",
+			enabled: actionValue(action, config.components.editor.styles.polished.copyFriendly),
+		};
+	}
+	if (/^(message[-_ ]copy[-_ ]friendly)\b/.test(raw)) {
+		return {
+			kind: "messageCopy",
+			enabled: actionValue(action, config.components.userMessages.styles.framed.copyFriendly),
+		};
+	}
+	const has = (word: string) => words.includes(word);
+	if (has("viewportindicators") || (has("viewport") && has("indicators"))) {
+		return {
+			kind: "viewport",
+			enabled: actionValue(action, config.components.editor.viewportIndicators),
+		};
+	}
+	if (has("messages") || (has("user") && has("messages"))) {
+		return {
+			kind: "messages",
+			enabled: actionValue(action, config.components.userMessages.enabled),
+		};
+	}
+	if (has("editor")) {
+		return {
+			kind: "editor",
+			enabled: actionValue(action, config.components.editor.enabled),
+		};
+	}
+	if (has("footer") || has("statusline") || has("status")) {
+		return {
+			kind: "footer",
+			enabled: actionValue(action, config.components.footer.enabled),
+		};
+	}
+	if (has("copyfriendly") || has("copy")) {
+		return {
+			kind: "copyRecipe",
+			enabled: actionValue(action, config.features.copyFriendly),
+		};
+	}
+	return undefined;
+}
 
-	return {
-		enabled: action === "toggle" ? !config.fixedEditor.enabled : action === "enable",
-	};
+function parseFixedEditorCommand(args: string, config: PolishedTuiConfig) {
+	const words = normalizedWords(args);
+	if (!words.includes("fixededitor") && !(words.includes("fixed") && words.includes("editor"))) {
+		return undefined;
+	}
+	const action = parseAction(words);
+	return action ? { enabled: actionValue(action, config.layout.fixedEditor.enabled) } : undefined;
 }
 
 function parseFormatCommand(args: string): { value: string | undefined } | undefined {
 	const trimmed = args.trim();
 	if (!trimmed.toLowerCase().startsWith("format")) return undefined;
-
 	const rest = trimmed.slice("format".length).trim();
 	if (!rest || rest.toLowerCase() === "clear") return { value: undefined };
+	return {
+		value:
+			rest.startsWith('"') && rest.endsWith('"') && rest.length >= 2 ? rest.slice(1, -1) : rest,
+	};
+}
 
-	const unquoted =
-		rest.startsWith('"') && rest.endsWith('"') && rest.length >= 2 ? rest.slice(1, -1) : rest;
-	return { value: unquoted };
+function directSection(args: string): SettingsSection | undefined {
+	const normalized = args.trim().toLowerCase().replaceAll("_", "-");
+	if (
+		normalized === "messages" ||
+		normalized === "user-messages" ||
+		normalized === "user messages"
+	) {
+		return "userMessages";
+	}
+	if (normalized === "layout") return "layout";
+	return undefined;
 }
 
 function argumentCompletions(prefix: string): AutocompleteItem[] | null {
-	const trimmedPrefix = prefix.trimStart().toLowerCase();
-	const items = directCommandSuggestions.map((value) => ({ value, label: value }));
-	const matches = items.filter((item) => item.value.startsWith(trimmedPrefix));
-	return matches.length > 0 ? matches : null;
+	const normalized = prefix.trimStart().toLowerCase();
+	const matches = directCommandSuggestions
+		.map((value) => ({ value, label: value }))
+		.filter((item) => item.value.startsWith(normalized));
+	return matches.length ? matches : null;
 }
 
+function usageText(): string {
+	return "Usage: /zentui [editor|messages|statusline|copy-friendly|editor-copy-friendly|message-copy-friendly|viewport-indicators|fixed-editor] [enable|disable|toggle], /zentui [messages|user-messages|layout], or /zentui format <template>";
+}
+
+function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
+	const component = config.components.selectorBorders;
+	return [
+		{
+			id: "selectorBordersEnabled",
+			label: "Selector borders",
+			description: "Enable or disable Zentui borders around Pi selectors.",
+			currentValue: featureValue(component.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "selectorBordersStyle",
+			label: "Selector border style",
+			description: "Choose the selector-border style.",
+			currentValue: component.style,
+			values: ["zentui"],
+		},
+		{
+			id: "selectorBordersColorSource",
+			label: "Selector border colors",
+			description: "Use Pi theme colors or terminal palette styles.",
+			currentValue: component.colorSource,
+			values: colorSourceValues,
+		},
+		{
+			id: "iconMode",
+			label: "Icon mode",
+			description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
+			currentValue: config.icons.mode,
+			values: iconModeValues,
+		},
+	];
+}
+
+function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
+	const editor = config.components.editor;
+	return [
+		{
+			id: "editorEnabled",
+			label: "Editor",
+			description: "Enable or disable Zentui's custom editor.",
+			currentValue: featureValue(editor.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "editorStyle",
+			label: "Editor style",
+			description: "Use polished rails or a compact minimalist frame.",
+			currentValue: editor.style,
+			values: editorStyleValues,
+		},
+		{
+			id: "editorColorSource",
+			label: "Editor colors",
+			description: "Use Pi theme colors or terminal palette styles.",
+			currentValue: editor.colorSource,
+			values: colorSourceValues,
+		},
+		{
+			id: "editorModelLabel",
+			label: "Editor model label",
+			description: "Show the model id or display name in the editor frame.",
+			currentValue: editor.modelLabel,
+			values: modelLabelValues,
+		},
+		{
+			id: "editorBorderColorMode",
+			label: "Editor border color",
+			description: "Keep configured color or follow Pi's shell/thinking color.",
+			currentValue: editor.borderColorMode,
+			values: editorBorderColorModeValues,
+		},
+		{
+			id: "editorViewportIndicators",
+			label: "Editor viewport indicators",
+			description: "Show Pi's native wrapped-row counts in editor borders.",
+			currentValue: featureValue(editor.viewportIndicators),
+			values: featureStateValues,
+		},
+	];
+}
+
+function buildPolishedEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	return [
+		{
+			id: "polishedCopyFriendly",
+			label: "Copy-friendly",
+			description: "Hide editor rail glyphs for cleaner native terminal selection.",
+			currentValue: featureValue(config.components.editor.styles.polished.copyFriendly),
+			values: featureStateValues,
+		},
+	];
+}
+
+function buildMinimalistEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const minimalist = config.components.editor.styles.minimalist;
+	return [
+		{
+			id: "minimalistPathDisplay",
+			label: "Path",
+			description: "Show compact, project-relative, or full path.",
+			currentValue: minimalist.pathDisplay,
+			values: minimalistPathDisplayValues,
+		},
+		{
+			id: "minimalistContextFormat",
+			label: "Context text",
+			description: "Show percent alone or with total context.",
+			currentValue: minimalist.contextFormat,
+			values: minimalistContextFormatValues,
+		},
+		{
+			id: "minimalistContextGauge",
+			label: "Context gauge",
+			description: "Add a compact context gauge.",
+			currentValue: featureValue(minimalist.contextGauge),
+			values: featureStateValues,
+		},
+		{
+			id: "minimalistShowSessionName",
+			label: "Session name",
+			description: "Show the explicit Pi session name.",
+			currentValue: featureValue(minimalist.showSessionName),
+			values: featureStateValues,
+		},
+		{
+			id: "minimalistShowTimer",
+			label: "Timer",
+			description: "Show current or completed turn duration.",
+			currentValue: featureValue(minimalist.showTimer),
+			values: featureStateValues,
+		},
+		{
+			id: "minimalistShowCost",
+			label: "Cost",
+			description: "Show session cost in the top border.",
+			currentValue: featureValue(minimalist.showCost),
+			values: featureStateValues,
+		},
+		{
+			id: "minimalistShowGit",
+			label: "Git",
+			description: "Show branch and working-tree state.",
+			currentValue: featureValue(minimalist.showGit),
+			values: featureStateValues,
+		},
+	];
+}
+
+function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
+	const messages = config.components.userMessages;
+	return [
+		{
+			id: "userMessagesEnabled",
+			label: "User messages",
+			description: "Enable or disable previous user-message styling.",
+			currentValue: featureValue(messages.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "userMessagesStyle",
+			label: "Message style",
+			description: "Choose the previous-message style.",
+			currentValue: messages.style,
+			values: ["framed"],
+		},
+		{
+			id: "userMessagesColorSource",
+			label: "Message colors",
+			description: "Use Pi theme colors or terminal palette styles.",
+			currentValue: messages.colorSource,
+			values: colorSourceValues,
+		},
+	];
+}
+function buildFramedUserMessageStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	return [
+		{
+			id: "framedUserMessagesCopyFriendly",
+			label: "Copy-friendly",
+			description: "Hide previous-message rail glyphs.",
+			currentValue: featureValue(config.components.userMessages.styles.framed.copyFriendly),
+			values: featureStateValues,
+		},
+	];
+}
+function buildLayoutItems(config: PolishedTuiConfig): SettingItem[] {
+	const fixed = config.layout.fixedEditor;
+	const items: SettingItem[] = [
+		{
+			id: "fixedEditor",
+			label: "Fixed editor (experimental)",
+			description: "Pin editor + footer at bottom while transcript scrolls.",
+			currentValue: featureValue(fixed.enabled),
+			values: featureStateValues,
+		},
+	];
+	if (fixed.enabled) {
+		items.push(
+			{
+				id: "fixedEditorMouseScroll",
+				label: "Mouse scroll",
+				description: "Scroll transcript with mouse wheel.",
+				currentValue: featureValue(fixed.mouseScroll),
+				values: featureStateValues,
+			},
+			{
+				id: "fixedEditorCopyNotice",
+				label: "Copy notice",
+				description: "Show a clipboard notice after drag selection.",
+				currentValue: featureValue(fixed.copyNotice),
+				values: featureStateValues,
+			},
+		);
+	}
+	return items;
+}
+function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
+	const footer = config.components.footer;
+	return [
+		{
+			id: "footerEnabled",
+			label: "Footer",
+			description: "Enable or disable Zentui's footer.",
+			currentValue: featureValue(footer.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "footerStyle",
+			label: "Footer style",
+			description: "Choose the footer style.",
+			currentValue: footer.style,
+			values: ["starship"],
+		},
+		{
+			id: "footerColorSource",
+			label: "Footer colors",
+			description: "Use Pi theme colors or terminal palette styles.",
+			currentValue: footer.colorSource,
+			values: colorSourceValues,
+		},
+		{
+			id: "footerModelLabel",
+			label: "Footer model label",
+			description: "Show the model id or display name in the footer.",
+			currentValue: footer.modelLabel,
+			values: modelLabelValues,
+		},
+	];
+}
+function buildStarshipFooterStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const footer = config.components.footer.styles.starship;
+	return [
+		{
+			id: "responsiveFooter",
+			label: "Responsive footer",
+			description: "Use the compact template when space is tight.",
+			currentValue: featureValue(footer.responsive),
+			values: featureStateValues,
+		},
+		{
+			id: "compactFooterMaxLines",
+			label: "Compact footer rows",
+			description: "Maximum compact rows before cropping.",
+			currentValue: String(footer.compactMaxLines),
+			values: compactFooterMaxLineValues,
+		},
+		{
+			id: "contextStyle",
+			label: "Context style",
+			description: "Render context as text, gauge, or both.",
+			currentValue: footer.contextStyle,
+			values: contextStyleValues,
+		},
+		{
+			id: "separator",
+			label: "Separator",
+			description: "Choose the separator between default footer segments.",
+			currentValue: footer.separator,
+			values: separatorStyleValues,
+		},
+		{
+			id: "pathDisplay",
+			label: "Path display",
+			description: "Show cwd as basename or full path.",
+			currentValue: footer.pathDisplay.mode,
+			values: pathDisplayModeValues,
+		},
+		{
+			id: "pathDepth",
+			label: "Path depth",
+			description: "Trailing directories in full mode (0 = all).",
+			currentValue: String(footer.pathDisplay.depth),
+			values: pathDepthValues,
+		},
+	];
+}
+
+const nonGitSegmentKeys: FooterSegmentSettingId[] = [
+	"cwd",
+	"sessionName",
+	"runtime",
+	"modelInfo",
+	"context",
+	"tokens",
+	"cost",
+	"sessionDuration",
+	"username",
+	"time",
+	"os",
+	"packageVersion",
+];
+function footerSegmentSettingId(key: FooterSegmentSettingId): string {
+	return `${footerSegmentSettingPrefix}${key}`;
+}
+function isFooterSegmentSettingId(value: string): value is FooterSegmentSettingId {
+	return value in footerSegmentSettingLabels;
+}
+function footerSegmentSettingFromId(id: string): FooterSegmentSettingId | undefined {
+	if (!id.startsWith(footerSegmentSettingPrefix)) return undefined;
+	const key = id.slice(footerSegmentSettingPrefix.length);
+	return isFooterSegmentSettingId(key) ? key : undefined;
+}
+function buildSegmentsItems(config: PolishedTuiConfig): SettingItem[] {
+	const segments = config.components.footer.styles.starship.segments;
+	return nonGitSegmentKeys.map((key) => ({
+		id: footerSegmentSettingId(key),
+		label: footerSegmentSettingLabels[key],
+		description: footerSegmentSettingDescriptions[key],
+		currentValue: featureValue(segments[key]),
+		values: featureStateValues,
+	}));
+}
+function branchLengthValues(maxLength: GitBranchMaxLength): string[] {
+	const current = String(maxLength);
+	return branchLengthPresetValues.includes(current as never)
+		? [...branchLengthPresetValues]
+		: [current, ...branchLengthPresetValues];
+}
+function buildGitItems(config: PolishedTuiConfig): SettingItem[] {
+	const starship = config.components.footer.styles.starship;
+	const segment = (key: FooterSegmentSettingId): SettingItem => ({
+		id: footerSegmentSettingId(key),
+		label: footerSegmentSettingLabels[key],
+		description: footerSegmentSettingDescriptions[key],
+		currentValue: featureValue(starship.segments[key]),
+		values: featureStateValues,
+	});
+	return [
+		segment("gitBranch"),
+		{
+			id: "branchLength",
+			label: "Branch length",
+			description: "Full branch name or a visible-width limit.",
+			currentValue: String(starship.gitBranch.maxLength),
+			values: branchLengthValues(starship.gitBranch.maxLength),
+		},
+		segment("gitStatus"),
+		segment("gitCounts"),
+		segment("gitCommit"),
+		{
+			id: "gitCommitOnlyDetached",
+			label: "Commit only on detached HEAD",
+			description: "Only show commit when HEAD is detached.",
+			currentValue: featureValue(starship.gitCommit.onlyDetached),
+			values: featureStateValues,
+		},
+		{
+			id: "gitCommitShowTag",
+			label: "Show exact-match tag",
+			description: "Append an exact-match tag.",
+			currentValue: featureValue(starship.gitCommit.showTag),
+			values: featureStateValues,
+		},
+		segment("gitMetrics"),
+		{
+			id: "gitMetricsOnlyNonzero",
+			label: "Hide zero metrics",
+			description: "Hide zero added/deleted values.",
+			currentValue: featureValue(starship.gitMetrics.onlyNonzero),
+			values: featureStateValues,
+		},
+		{
+			id: "gitMetricsIgnoreSubmodules",
+			label: "Ignore submodules",
+			description: "Exclude submodule changes.",
+			currentValue: featureValue(starship.gitMetrics.ignoreSubmodules),
+			values: featureStateValues,
+		},
+	];
+}
 function thirdPartyStatusSettingId(key: string, kind: ThirdPartyStatusSettingKind): string {
 	return `${thirdPartyStatusSettingPrefix}${kind}:${key}`;
 }
-
 function thirdPartyStatusSettingFromId(
 	id: string,
 ): { kind: ThirdPartyStatusSettingKind; key: string } | undefined {
 	if (!id.startsWith(thirdPartyStatusSettingPrefix)) return undefined;
-	const rest = id.slice(thirdPartyStatusSettingPrefix.length);
-	const separatorIndex = rest.indexOf(":");
-	if (separatorIndex < 0) return undefined;
-
-	const kind = rest.slice(0, separatorIndex);
-	if (kind !== "placement" && kind !== "colorMode") return undefined;
-
-	return { kind, key: rest.slice(separatorIndex + 1) };
+	const [kind, ...key] = id.slice(thirdPartyStatusSettingPrefix.length).split(":");
+	return kind === "placement" || kind === "colorMode" ? { kind, key: key.join(":") } : undefined;
 }
-
-function buildItems(
-	section: SettingsSection,
+function buildExtensionsItems(
 	config: PolishedTuiConfig,
-	activeStatuses: ReadonlyMap<string, string>,
+	active: ReadonlyMap<string, string>,
 ): SettingItem[] {
-	if (section === "appearance") {
-		const items = (Object.keys(colorSettingLabels) as ColorSettingId[]).map((key) => ({
-			id: key,
-			label: colorSettingLabels[key],
-			description: colorSettingDescriptions[key],
-			currentValue: key === "starship" ? config.colorSources.starship : editorMessageValue(config),
-			values: colorSourceValues,
-		}));
-		return [
-			...items,
-			{
-				id: "separator",
-				label: "Separator",
-				description: "Choose the separator between default footer segments.",
-				currentValue: config.separator,
-				values: separatorStyleValues,
-			},
-			{
-				id: "iconMode",
-				label: "Icon mode",
-				description: "auto/nerd use Nerd Font glyphs; ascii uses plain fallbacks.",
-				currentValue: config.icons.mode,
-				values: iconModeValues,
-			},
-		];
-	}
-
-	if (section === "editor") {
-		const editorFeatureItem = (key: FeatureSettingId): SettingItem => ({
-			id: key,
-			label: featureSettingLabels[key],
-			description: featureSettingDescriptions[key],
-			currentValue: featureValue(config.features[key]),
-			values: featureStateValues,
-		});
-		const items: SettingItem[] = [
-			editorFeatureItem("editor"),
-			{
-				id: "editorStyle",
-				label: "Editor style",
-				description: "Use Zentui's polished rails or a compact metadata frame.",
-				currentValue: config.editorStyle,
-				values: editorStyleValues,
-			},
-		];
-		if (config.editorStyle === "minimalist") {
-			items.push(
-				{
-					id: "minimalistPathDisplay",
-					label: "Path",
-					description: "Show the cwd basename, repository-relative path, or full path.",
-					currentValue: config.editorStyles.minimalist.pathDisplay,
-					values: minimalistPathDisplayValues,
-				},
-				{
-					id: "minimalistContextFormat",
-					label: "Context text",
-					description: "Show context percent alone or with the total context window.",
-					currentValue: config.editorStyles.minimalist.contextFormat,
-					values: minimalistContextFormatValues,
-				},
-				{
-					id: "minimalistContextGauge",
-					label: "Context gauge",
-					description: "Add a compact gauge before the context text when space allows.",
-					currentValue: featureValue(config.editorStyles.minimalist.contextGauge),
-					values: featureStateValues,
-				},
-				{
-					id: "minimalistShowSessionName",
-					label: "Session name",
-					description: "Show the explicit Pi session name after the turn timer.",
-					currentValue: featureValue(config.editorStyles.minimalist.showSessionName),
-					values: featureStateValues,
-				},
-				{
-					id: "minimalistShowTimer",
-					label: "Timer",
-					description: "Show the current or completed turn duration.",
-					currentValue: featureValue(config.editorStyles.minimalist.showTimer),
-					values: featureStateValues,
-				},
-				{
-					id: "minimalistShowCost",
-					label: "Cost",
-					description: "Show session cost in the top border.",
-					currentValue: featureValue(config.editorStyles.minimalist.showCost),
-					values: featureStateValues,
-				},
-				{
-					id: "minimalistShowGit",
-					label: "Git",
-					description: "Show branch and working-tree state in the bottom border.",
-					currentValue: featureValue(config.editorStyles.minimalist.showGit),
-					values: featureStateValues,
-				},
-			);
-		}
-		items.push(
-			{
-				id: "editorBorderColorMode",
-				label: "Editor border color",
-				description: "Keep Zentui's configured border color or follow Pi's shell/thinking color.",
-				currentValue: config.editorBorderColorMode,
-				values: editorBorderColorModeValues,
-			},
-			{
-				id: "editorModelLabel",
-				label: "Editor model label",
-				description: "Show the model id or display name in the editor frame.",
-				currentValue: config.editorModelLabel,
-				values: modelLabelValues,
-			},
-			editorFeatureItem("copyFriendly"),
-			editorFeatureItem("viewportIndicators"),
-		);
-		items.push({
-			id: "fixedEditor",
-			label: "Fixed editor (experimental)",
-			description:
-				"Pin editor + footer at bottom while transcript scrolls. Uses alternate screen mode.",
-			currentValue: featureValue(config.fixedEditor.enabled),
-			values: featureStateValues,
-		});
-		if (config.fixedEditor.enabled) {
-			items.push({
-				id: "fixedEditorMouseScroll",
-				label: "Mouse scroll",
-				description:
-					"Scroll transcript with mouse wheel. Breaks native terminal selection and tmux scrollback.",
-				currentValue: featureValue(config.fixedEditor.mouseScroll),
-				values: featureStateValues,
-			});
-			items.push({
-				id: "fixedEditorCopyNotice",
-				label: "Copy notice",
-				description: "Show a 'Copied to clipboard' message when drag-selecting text.",
-				currentValue: featureValue(config.fixedEditor.copyNotice),
-				values: featureStateValues,
-			});
-		}
-		return items;
-	}
-
-	if (section === "footer") {
-		return [
-			{
-				id: "statusLine",
-				label: featureSettingLabels.statusLine,
-				description: featureSettingDescriptions.statusLine,
-				currentValue: featureValue(config.features.statusLine),
-				values: featureStateValues,
-			},
-			{
-				id: "responsiveFooter",
-				label: "Responsive footer",
-				description: "Reflow complete content, then use the compact template when space is tight.",
-				currentValue: featureValue(config.responsiveFooter),
-				values: featureStateValues,
-			},
-			{
-				id: "compactFooterMaxLines",
-				label: "Compact footer rows",
-				description:
-					"Maximum compact rows before remaining template content is cropped with an ellipsis.",
-				currentValue: String(config.compactFooterMaxLines),
-				values: [...compactFooterMaxLineValues],
-			},
-			{
-				id: "contextStyle",
-				label: "Context style",
-				description: "Render context as text, a gauge bar, or both.",
-				currentValue: config.contextStyle,
-				values: contextStyleValues,
-			},
-			{
-				id: "pathDisplay",
-				label: "Path display",
-				description: "Show cwd as basename or full path (home contracted to ~).",
-				currentValue: config.pathDisplay.mode,
-				values: pathDisplayModeValues,
-			},
-			{
-				id: "pathDepth",
-				label: "Path depth",
-				description:
-					"In full mode, trailing directories to show (0 = all, max 5). Ignored for basename.",
-				currentValue: String(config.pathDisplay.depth),
-				values: [...pathDepthValues],
-			},
-		];
-	}
-
-	const nonGitSegmentKeys: FooterSegmentSettingId[] = [
-		"cwd",
-		"sessionName",
-		"runtime",
-		"modelInfo",
-		"context",
-		"tokens",
-		"cost",
-		"sessionDuration",
-		"username",
-		"time",
-		"os",
-		"packageVersion",
-	];
-	if (section === "segments") {
-		return nonGitSegmentKeys.map((key) => ({
-			id: footerSegmentSettingId(key),
-			label: footerSegmentSettingLabels[key],
-			description: footerSegmentSettingDescriptions[key],
-			currentValue: featureValue(config.footerSegments[key]),
-			values: featureStateValues,
-		}));
-	}
-
-	if (section === "git") {
-		const segmentItem = (key: FooterSegmentSettingId): SettingItem => ({
-			id: footerSegmentSettingId(key),
-			label: footerSegmentSettingLabels[key],
-			description: footerSegmentSettingDescriptions[key],
-			currentValue: featureValue(config.footerSegments[key]),
-			values: featureStateValues,
-		});
-		return [
-			segmentItem("gitBranch"),
-			{
-				id: "branchLength",
-				label: "Branch length",
-				description: "Show the full branch name or truncate it to a preset visible width.",
-				currentValue: String(config.gitBranch.maxLength),
-				values: branchLengthValues(config.gitBranch.maxLength),
-			},
-			segmentItem("gitStatus"),
-			segmentItem("gitCounts"),
-			segmentItem("gitCommit"),
-			{
-				id: "gitCommitOnlyDetached",
-				label: "Commit only on detached HEAD",
-				description: "Show the commit segment only when HEAD is detached.",
-				currentValue: featureValue(config.gitCommit.onlyDetached),
-				values: featureStateValues,
-			},
-			{
-				id: "gitCommitShowTag",
-				label: "Show exact-match tag",
-				description: "Append an exact-match tag to the commit hash.",
-				currentValue: featureValue(config.gitCommit.showTag),
-				values: featureStateValues,
-			},
-			segmentItem("gitMetrics"),
-			{
-				id: "gitMetricsOnlyNonzero",
-				label: "Hide zero metrics",
-				description: "Hide zero added/deleted components and an all-zero metrics segment.",
-				currentValue: featureValue(config.gitMetrics.onlyNonzero),
-				values: featureStateValues,
-			},
-			{
-				id: "gitMetricsIgnoreSubmodules",
-				label: "Ignore submodules",
-				description: "Exclude submodule changes from Git line metrics.",
-				currentValue: featureValue(config.gitMetrics.ignoreSubmodules),
-				values: featureStateValues,
-			},
-		];
-	}
-
-	const defaultPlacementItem: SettingItem = {
+	const defaultItem: SettingItem = {
 		id: "extensionStatusDefaultPlacement",
 		label: "Default placement",
-		description: "Placement used for active statuses without a keyed override.",
-		currentValue: config.extensionStatuses.defaultPlacement,
+		description: "Placement for active statuses without an override.",
+		currentValue: config.components.footer.styles.starship.extensionStatuses.defaultPlacement,
 		values: extensionStatusPlacementValues,
 	};
-	const statuses = Array.from(activeStatuses.entries()).sort(([a], [b]) =>
-		a < b ? -1 : a > b ? 1 : 0,
-	);
-	if (statuses.length === 0) {
+	const statuses = [...active.entries()].sort(([a], [b]) => a.localeCompare(b));
+	if (!statuses.length)
 		return [
-			defaultPlacementItem,
+			defaultItem,
 			{
 				id: "noThirdPartyStatuses",
 				label: "No active statuses",
-				description: "This tab only lists statuses currently published through ctx.ui.setStatus().",
+				description: "Only statuses currently published through ctx.ui.setStatus().",
 				currentValue: "—",
 			},
 		];
-	}
-
 	return [
-		defaultPlacementItem,
+		defaultItem,
 		...statuses.flatMap(([key, value]) => {
-			const sanitizedText = sanitizeExtensionStatusText(value);
-			const description = sanitizedText ? `Current status: ${sanitizedText}` : undefined;
+			const sanitized = sanitizeExtensionStatusText(value);
+			const description = sanitized ? `Current status: ${sanitized}` : undefined;
 			return [
 				{
 					id: thirdPartyStatusSettingId(key, "placement"),
@@ -821,40 +810,68 @@ function buildItems(
 	];
 }
 
-function nextSection(section: SettingsSection): SettingsSection {
-	const currentIndex = settingsSections.indexOf(section);
-	return settingsSections[(currentIndex + 1) % settingsSections.length] ?? "appearance";
+function buildSectionItems(
+	section: SettingsSection,
+	config: PolishedTuiConfig,
+	active: ReadonlyMap<string, string>,
+): SettingItem[] {
+	switch (section) {
+		case "appearance":
+			return buildAppearanceItems(config);
+		case "editor":
+			return [
+				...buildEditorItems(config),
+				...(config.components.editor.style === "polished"
+					? buildPolishedEditorStyleItems(config)
+					: buildMinimalistEditorStyleItems(config)),
+			];
+		case "userMessages":
+			return [...buildUserMessagesItems(config), ...buildFramedUserMessageStyleItems(config)];
+		case "layout":
+			return buildLayoutItems(config);
+		case "footer":
+			return [...buildFooterItems(config), ...buildStarshipFooterStyleItems(config)];
+		case "segments":
+			return buildSegmentsItems(config);
+		case "git":
+			return buildGitItems(config);
+		case "extensions":
+			return buildExtensionsItems(config, active);
+	}
 }
 
-function previousSection(section: SettingsSection): SettingsSection {
-	const currentIndex = settingsSections.indexOf(section);
+function nextSection(section: SettingsSection): SettingsSection {
 	return (
-		settingsSections[(currentIndex - 1 + settingsSections.length) % settingsSections.length] ??
+		settingsSections[(settingsSections.indexOf(section) + 1) % settingsSections.length] ??
 		"appearance"
 	);
 }
-
+function previousSection(section: SettingsSection): SettingsSection {
+	return (
+		settingsSections[
+			(settingsSections.indexOf(section) - 1 + settingsSections.length) % settingsSections.length
+		] ?? "appearance"
+	);
+}
 function formatSectionTabs(
-	activeSection: SettingsSection,
+	active: SettingsSection,
 	theme: ExtensionContext["ui"]["theme"],
 	width: number,
 ): string {
-	const rendered = settingsSections.map((section) => {
-		const label = sectionLabels[section];
-		return section === activeSection ? theme.bold(label) : safeThemeFg(theme, "muted", label);
-	});
+	const rendered = settingsSections.map((section) =>
+		section === active
+			? theme.bold(sectionLabels[section])
+			: safeThemeFg(theme, "muted", sectionLabels[section]),
+	);
 	const full = `  ${rendered.join(safeThemeFg(theme, "muted", " / "))}`;
 	if (visibleWidth(full) <= width) return full;
-
-	const activeIndex = settingsSections.indexOf(activeSection);
-	return `  ${theme.bold(sectionLabels[activeSection])} (${activeIndex + 1}/${settingsSections.length})`;
+	return `  ${theme.bold(sectionLabels[active])} (${settingsSections.indexOf(active) + 1}/${settingsSections.length})`;
 }
-
 function withSectionFooter(lines: string[], theme: ExtensionContext["ui"]["theme"]): string[] {
-	const next = [...lines];
-	for (let index = next.length - 1; index >= 0; index -= 1) {
-		if (next[index]?.includes("Enter/Space")) {
-			next[index] = safeThemeFg(
+	const copy = [...lines];
+	for (let index = copy.length - 1; index >= 0; index -= 1) {
+		if (copy[index]?.includes("Enter/Space")) {
+			copy[index] = safeThemeFg(
 				theme,
 				"muted",
 				"  Enter/Space to change · Tab/Shift+Tab to switch sections · Esc to close",
@@ -862,182 +879,225 @@ function withSectionFooter(lines: string[], theme: ExtensionContext["ui"]["theme
 			break;
 		}
 	}
-	return next;
+	return copy;
 }
 
 export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCommandDeps): void {
+	const setEditor = (patch: EditorPatch, ctx: ExtensionContext): ApplyResult =>
+		deps.setEditorComponent?.(patch, ctx) ?? { applied: true };
+	const setMessages = (patch: UserMessagesPatch, ctx: ExtensionContext) => {
+		deps.setUserMessagesComponent?.(patch, ctx);
+	};
+	const setFooter = (patch: FooterPatch, ctx: ExtensionContext) => {
+		deps.setFooterComponent?.(patch, ctx);
+	};
+
 	pi.registerCommand("zentui", {
 		description: "Configure Zentui",
 		getArgumentCompletions: argumentCompletions,
 		handler: async (_args, ctx) => {
 			const args = typeof _args === "string" ? _args : "";
-
-			const formatCommand = parseFormatCommand(args);
-			if (formatCommand) {
+			const format = parseFormatCommand(args);
+			if (format) {
 				try {
-					deps.setFooterFormat(formatCommand.value ?? "", ctx);
+					deps.setFooterFormat(format.value ?? "", ctx);
 					deps.requestRender();
-					if (ctx.hasUI) {
-						if (formatCommand.value === undefined) {
-							ctx.ui.notify("Footer format cleared (using default layout)", "info");
-						} else {
-							ctx.ui.notify(`Footer format: ${formatCommand.value}`, "info");
-						}
-					}
-				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					if (ctx.hasUI) ctx.ui.notify(`Could not update footer format: ${message}`, "error");
-				}
-				return;
-			}
-
-			const directCommand = parseDirectFeatureCommand(args, deps.getConfig());
-			if (directCommand) {
-				try {
-					const result = deps.setUiFeatures(
-						{ [directCommand.feature]: directCommand.enabled },
-						ctx,
-					);
-					deps.requestRender();
-					if (ctx.hasUI) {
+					if (ctx.hasUI)
 						ctx.ui.notify(
-							featureNotification(
-								directCommand.feature,
-								featureValue(directCommand.enabled),
-								result,
-							),
+							format.value === undefined
+								? "Footer format cleared (using default layout)"
+								: `Footer format: ${format.value}`,
 							"info",
 						);
-					}
 				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					if (ctx.hasUI) ctx.ui.notify(`Could not update Zentui settings: ${message}`, "error");
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Could not update footer format: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
 				}
 				return;
 			}
 
-			const fixedEditorCommand = parseFixedEditorCommand(args, deps.getConfig());
-			if (fixedEditorCommand) {
+			// Fixed-editor aliases contain the word "editor", so they must be parsed
+			// before the generic editor operation.
+			const fixed = parseFixedEditorCommand(args, deps.getConfig());
+			if (fixed) {
 				try {
-					deps.setFixedEditor({ enabled: fixedEditorCommand.enabled }, ctx);
+					deps.setFixedEditor({ enabled: fixed.enabled }, ctx);
 					deps.requestRender();
-					if (ctx.hasUI) {
-						ctx.ui.notify(`Fixed editor: ${featureValue(fixedEditorCommand.enabled)}`, "info");
-					}
+					if (ctx.hasUI) ctx.ui.notify(`Fixed editor: ${featureValue(fixed.enabled)}`, "info");
 				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					if (ctx.hasUI) ctx.ui.notify(`Could not update fixed editor: ${message}`, "error");
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Could not update fixed editor: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
 				}
 				return;
 			}
 
-			if (args.trim()) {
+			const direct = parseDirectOperation(args, deps.getConfig());
+			if (direct) {
+				try {
+					let result: ApplyResult = { applied: true };
+					let label = "";
+					switch (direct.kind) {
+						case "editor":
+							result = setEditor({ enabled: direct.enabled }, ctx);
+							label = "Editor";
+							break;
+						case "messages":
+							setMessages({ enabled: direct.enabled }, ctx);
+							label = "User messages";
+							break;
+						case "footer":
+							setFooter({ enabled: direct.enabled }, ctx);
+							label = "Footer";
+							break;
+						case "viewport":
+							result = setEditor({ viewportIndicators: direct.enabled }, ctx);
+							label = "Editor viewport indicators";
+							break;
+						case "copyRecipe":
+							deps.setCopyFriendlyRecipe?.(direct.enabled, ctx);
+							label = "Copy-friendly mode";
+							break;
+						case "editorCopy":
+							deps.setPolishedEditorStyle?.({ copyFriendly: direct.enabled }, ctx);
+							label = "Editor copy-friendly";
+							break;
+						case "messageCopy":
+							deps.setFramedUserMessagesStyle?.({ copyFriendly: direct.enabled }, ctx);
+							label = "Message copy-friendly";
+							break;
+					}
+					deps.requestRender();
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`${label}: ${featureValue(direct.enabled)}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+							"info",
+						);
+				} catch (error) {
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
+				}
+				return;
+			}
+
+			const initialSection = directSection(args);
+			if (args.trim() && !initialSection) {
 				if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
 				return;
 			}
-
 			const mode = (ctx as typeof ctx & { mode?: string }).mode;
 			if (!ctx.hasUI || (mode !== undefined && mode !== "tui")) return;
 
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-				const settingsListTheme = deps.settingsListTheme ?? getSettingsListTheme();
-				let activeSection: SettingsSection = "appearance";
-				const applyFeatureChange = (id: FeatureSettingId, newValue: FeatureState) => {
-					const result = deps.setUiFeatures(featurePatch(id, newValue), ctx);
+				const listTheme = deps.settingsListTheme ?? getSettingsListTheme();
+				let activeSection = initialSection ?? "appearance";
+				let settingsList: SettingsList;
+				const notifyChange = (label: string, value: string) => {
 					deps.requestRender();
-					ctx.ui.notify(featureNotification(id, newValue, result), "info");
+					ctx.ui.notify(`${label}: ${value}`, "info");
 					tui.requestRender();
 				};
-				let settingsList: SettingsList;
-				const makeSettingsList = () =>
-					new SettingsList(
-						buildItems(activeSection, deps.getConfig(), deps.getActiveExtensionStatuses()),
+				const makeSettingsList = (focusId?: string): SettingsList => {
+					const items = buildSectionItems(
+						activeSection,
+						deps.getConfig(),
+						deps.getActiveExtensionStatuses(),
+					);
+					const list = new SettingsList(
+						items,
 						8,
-						settingsListTheme,
+						listTheme,
 						(id, newValue) => {
 							try {
-								if (isColorSettingId(id) && isColorSource(newValue)) {
-									deps.setColorSources(patchForSetting(id, newValue));
+								const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
+								if (id === "editorEnabled" && enabled !== undefined) {
+									done(undefined);
+									deps.sessionLifecycle.defer(() => {
+										try {
+											const result = setEditor({ enabled }, ctx);
+											deps.requestRender();
+											ctx.ui.notify(
+												`Editor: ${newValue}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+												"info",
+											);
+										} catch (error) {
+											ctx.ui.notify(
+												`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+												"error",
+											);
+										}
+									});
+									return;
+								}
+								if (
+									id === "editorStyle" &&
+									(newValue === "polished" || newValue === "minimalist")
+								) {
+									setEditor({ style: newValue }, ctx);
+									settingsList = makeSettingsList("editorStyle");
+									notifyChange("Editor style", newValue);
+									return;
+								}
+								if (id === "editorColorSource" && isColorSource(newValue)) {
+									setEditor({ colorSource: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(`${colorSettingLabels[id]}: ${newValue}`, "info");
-									tui.requestRender();
+									notifyChange("Editor colors", newValue);
+									return;
+								}
+								if (id === "editorModelLabel" && (newValue === "id" || newValue === "name")) {
+									setEditor({ modelLabel: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Editor model label", newValue);
+									return;
+								}
+								if (
+									id === "editorBorderColorMode" &&
+									(newValue === "static" || newValue === "adaptive")
+								) {
+									setEditor({ borderColorMode: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Editor border color", newValue);
+									return;
+								}
+								if (id === "editorViewportIndicators" && enabled !== undefined) {
+									setEditor({ viewportIndicators: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Editor viewport indicators", newValue);
+									return;
+								}
+								if (id === "polishedCopyFriendly" && enabled !== undefined) {
+									deps.setPolishedEditorStyle?.({ copyFriendly: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Copy-friendly", newValue);
 									return;
 								}
 
-								if (isFeatureSettingId(id) && isFeatureState(newValue)) {
-									if (id === "editor") {
-										done(undefined);
-										// Changing the editor component while ctx.ui.custom() is active clears the
-										// custom component without resolving it, leaving Pi's input loop stuck.
-										// Close the settings UI first, then apply the editor swap on the next tick.
-										const applyEditorChange = () => {
-											try {
-												applyFeatureChange(id, newValue);
-											} catch (error) {
-												const message = error instanceof Error ? error.message : String(error);
-												ctx.ui.notify(`Could not update Zentui settings: ${message}`, "error");
-											}
-										};
-										deps.sessionLifecycle.defer(applyEditorChange);
-										return;
-									}
-
-									applyFeatureChange(id, newValue);
-									settingsList.updateValue(id, newValue);
-									return;
-								}
-
-								if (isBoundedSettingId(id)) {
-									if (
-										id === "editorStyle" &&
-										(newValue === "polished" || newValue === "minimalist")
-									) {
-										if (!deps.setEditorStyle) return;
-										deps.setEditorStyle(newValue, ctx);
-										settingsList = makeSettingsList();
-										settingsList.handleInput("\x1b[B");
-										deps.requestRender();
-										ctx.ui.notify(`Editor style: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
+								if (id.startsWith("minimalist") && deps.setMinimalist) {
 									if (
 										id === "minimalistPathDisplay" &&
-										(newValue === "compact" || newValue === "project" || newValue === "full")
-									) {
-										if (!deps.setMinimalist) return;
-										deps.setMinimalist({ pathDisplay: newValue }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Minimalist path: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (
+										["compact", "project", "full"].includes(newValue)
+									)
+										deps.setMinimalist(
+											{ pathDisplay: newValue as MinimalistConfig["pathDisplay"] },
+											ctx,
+										);
+									else if (
 										id === "minimalistContextFormat" &&
-										(newValue === "percent" || newValue === "percent-total")
-									) {
-										if (!deps.setMinimalist) return;
-										deps.setMinimalist({ contextFormat: newValue }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Minimalist context text: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (
-										(id === "minimalistContextGauge" ||
-											id === "minimalistShowSessionName" ||
-											id === "minimalistShowTimer" ||
-											id === "minimalistShowCost" ||
-											id === "minimalistShowGit") &&
-										isFeatureState(newValue)
-									) {
-										if (!deps.setMinimalist) return;
+										["percent", "percent-total"].includes(newValue)
+									)
+										deps.setMinimalist(
+											{ contextFormat: newValue as MinimalistConfig["contextFormat"] },
+											ctx,
+										);
+									else if (enabled !== undefined) {
 										const key =
 											id === "minimalistContextGauge"
 												? "contextGauge"
@@ -1047,258 +1107,240 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 														? "showTimer"
 														: id === "minimalistShowCost"
 															? "showCost"
-															: "showGit";
-										deps.setMinimalist({ [key]: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`${id}: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "editorModelLabel" && (newValue === "id" || newValue === "name")) {
-										if (!deps.setEditorModelLabel) return;
-										deps.setEditorModelLabel(newValue, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Editor model label: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (
-										id === "editorBorderColorMode" &&
-										(newValue === "static" || newValue === "adaptive")
-									) {
-										if (!deps.setEditorBorderColorMode) return;
-										deps.setEditorBorderColorMode(newValue);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Editor border color: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "responsiveFooter" && isFeatureState(newValue)) {
-										deps.setResponsiveFooter?.({ responsiveFooter: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Responsive footer: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "compactFooterMaxLines") {
-										const maxLines = parseCompactFooterMaxLines(newValue);
-										if (maxLines === undefined) return;
-										deps.setResponsiveFooter?.({ compactFooterMaxLines: maxLines }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Compact footer rows: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "contextStyle" && isContextStyle(newValue)) {
-										deps.setContextStyle(newValue);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Context style: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "separator" && isSeparatorStyle(newValue)) {
-										deps.setSeparator(newValue);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Separator: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "pathDisplay" && isPathDisplayMode(newValue)) {
-										deps.setPathDisplay({ mode: newValue });
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Path display: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "pathDepth" && isPathDepthValue(newValue)) {
-										deps.setPathDisplay({ depth: Number(newValue) });
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Path depth: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "branchLength") {
-										const maxLength = parseGitBranchLengthValue(newValue);
-										if (maxLength === undefined) return;
-										deps.setGitBranch({ maxLength });
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Branch length: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "iconMode" && isIconMode(newValue)) {
-										deps.setIconMode(newValue);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Icon mode: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "gitCommitOnlyDetached" && isFeatureState(newValue)) {
-										if (!deps.setGitCommit) return;
-										deps.setGitCommit({ onlyDetached: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Commit only on detached HEAD: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "gitCommitShowTag" && isFeatureState(newValue)) {
-										if (!deps.setGitCommit) return;
-										deps.setGitCommit({ showTag: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Show exact-match tag: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "gitMetricsOnlyNonzero" && isFeatureState(newValue)) {
-										if (!deps.setGitMetrics) return;
-										deps.setGitMetrics({ onlyNonzero: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Hide zero metrics: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (id === "gitMetricsIgnoreSubmodules" && isFeatureState(newValue)) {
-										if (!deps.setGitMetrics) return;
-										deps.setGitMetrics({ ignoreSubmodules: newValue === "enabled" }, ctx);
-										settingsList.updateValue(id, newValue);
-										deps.requestRender();
-										ctx.ui.notify(`Ignore submodules: ${newValue}`, "info");
-										tui.requestRender();
-										return;
-									}
-
-									if (
-										id === "extensionStatusDefaultPlacement" &&
-										isExtensionStatusPlacement(newValue)
-									) {
-										if (!deps.setExtensionStatusDefaultPlacement) return;
-										deps.setExtensionStatusDefaultPlacement(newValue);
-										settingsList = makeSettingsList();
-										deps.requestRender();
-										ctx.ui.notify(`Default extension status placement: ${newValue}`, "info");
-										tui.requestRender();
-									}
-									return;
-								}
-
-								const footerSegmentSetting = footerSegmentSettingFromId(id);
-								if (footerSegmentSetting && isFeatureState(newValue)) {
-									deps.setFooterSegments(footerSegmentPatch(footerSegmentSetting, newValue), ctx);
+															: id === "minimalistShowGit"
+																? "showGit"
+																: undefined;
+										if (!key) return;
+										deps.setMinimalist({ [key]: enabled }, ctx);
+									} else return;
 									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(
-										`${footerSegmentSettingLabels[footerSegmentSetting]}: ${newValue}`,
-										"info",
-									);
-									tui.requestRender();
+									notifyChange(id, newValue);
 									return;
 								}
 
-								if (id === "fixedEditor" && isFeatureState(newValue)) {
-									deps.setFixedEditor({ enabled: newValue === "enabled" }, ctx);
-									settingsList = makeSettingsList();
-									deps.requestRender();
-									ctx.ui.notify(`Fixed editor: ${newValue}`, "info");
-									tui.requestRender();
+								if (id === "userMessagesEnabled" && enabled !== undefined) {
+									setMessages({ enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("User messages", newValue);
 									return;
 								}
-								if (id === "fixedEditorMouseScroll" && isFeatureState(newValue)) {
-									deps.setFixedEditor({ mouseScroll: newValue === "enabled" }, ctx);
+								if (id === "userMessagesStyle" && newValue === "framed") {
+									setMessages({ style: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(`Mouse scroll: ${newValue}`, "info");
-									tui.requestRender();
+									notifyChange("Message style", newValue);
 									return;
 								}
-								if (id === "fixedEditorCopyNotice" && isFeatureState(newValue)) {
-									deps.setFixedEditor({ copyNotice: newValue === "enabled" }, ctx);
+								if (id === "userMessagesColorSource" && isColorSource(newValue)) {
+									setMessages({ colorSource: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(`Copy notice: ${newValue}`, "info");
-									tui.requestRender();
+									notifyChange("Message colors", newValue);
+									return;
+								}
+								if (id === "framedUserMessagesCopyFriendly" && enabled !== undefined) {
+									deps.setFramedUserMessagesStyle?.({ copyFriendly: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Copy-friendly", newValue);
 									return;
 								}
 
-								const thirdPartyStatusSetting = thirdPartyStatusSettingFromId(id);
+								if (id === "selectorBordersEnabled" && enabled !== undefined) {
+									deps.setSelectorBordersComponent?.({ enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Selector borders", newValue);
+									return;
+								}
+								if (id === "selectorBordersStyle" && newValue === "zentui") {
+									deps.setSelectorBordersComponent?.({ style: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Selector border style", newValue);
+									return;
+								}
+								if (id === "selectorBordersColorSource" && isColorSource(newValue)) {
+									deps.setSelectorBordersComponent?.({ colorSource: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Selector border colors", newValue);
+									return;
+								}
+								if (id === "iconMode" && isIconMode(newValue)) {
+									deps.setIconMode(newValue);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Icon mode", newValue);
+									return;
+								}
+
+								if (id === "footerEnabled" && enabled !== undefined) {
+									setFooter({ enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Footer", newValue);
+									return;
+								}
+								if (id === "footerStyle" && newValue === "starship") {
+									setFooter({ style: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Footer style", newValue);
+									return;
+								}
+								if (id === "footerColorSource" && isColorSource(newValue)) {
+									setFooter({ colorSource: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Footer colors", newValue);
+									return;
+								}
+								if (id === "footerModelLabel" && (newValue === "id" || newValue === "name")) {
+									setFooter({ modelLabel: newValue }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Footer model label", newValue);
+									return;
+								}
+
+								if (id === "fixedEditor" && enabled !== undefined) {
+									deps.setFixedEditor({ enabled }, ctx);
+									settingsList = makeSettingsList("fixedEditor");
+									notifyChange("Fixed editor", newValue);
+									return;
+								}
+								if (id === "fixedEditorMouseScroll" && enabled !== undefined) {
+									deps.setFixedEditor({ mouseScroll: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Mouse scroll", newValue);
+									return;
+								}
+								if (id === "fixedEditorCopyNotice" && enabled !== undefined) {
+									deps.setFixedEditor({ copyNotice: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Copy notice", newValue);
+									return;
+								}
+
+								if (id === "responsiveFooter" && enabled !== undefined) {
+									deps.setResponsiveFooter?.({ responsiveFooter: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Responsive footer", newValue);
+									return;
+								}
 								if (
-									thirdPartyStatusSetting?.kind === "placement" &&
+									id === "compactFooterMaxLines" &&
+									compactFooterMaxLineValues.includes(newValue as never)
+								) {
+									const value: CompactFooterMaxLines =
+										newValue === "unlimited" ? "unlimited" : (Number(newValue) as 1 | 2 | 3);
+									deps.setResponsiveFooter?.({ compactFooterMaxLines: value }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Compact footer rows", newValue);
+									return;
+								}
+								if (
+									id === "contextStyle" &&
+									contextStyleValues.includes(newValue as ContextStyle)
+								) {
+									deps.setContextStyle(newValue as ContextStyle);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Context style", newValue);
+									return;
+								}
+								if (id === "separator" && isSeparatorStyle(newValue)) {
+									deps.setSeparator(newValue);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Separator", newValue);
+									return;
+								}
+								if (id === "pathDisplay" && pathDisplayModeValues.includes(newValue as never)) {
+									deps.setPathDisplay({ mode: newValue as PathDisplayConfig["mode"] });
+									settingsList.updateValue(id, newValue);
+									notifyChange("Path display", newValue);
+									return;
+								}
+								if (id === "pathDepth" && pathDepthValues.includes(newValue as never)) {
+									deps.setPathDisplay({ depth: Number(newValue) });
+									settingsList.updateValue(id, newValue);
+									notifyChange("Path depth", newValue);
+									return;
+								}
+
+								const segment = footerSegmentSettingFromId(id);
+								if (segment && enabled !== undefined) {
+									deps.setFooterSegments({ [segment]: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange(footerSegmentSettingLabels[segment], newValue);
+									return;
+								}
+								if (id === "branchLength") {
+									const value = newValue === "full" ? "full" : Number(newValue);
+									if (value !== "full" && (!Number.isInteger(value) || value <= 0)) return;
+									deps.setGitBranch({ maxLength: value });
+									settingsList.updateValue(id, newValue);
+									notifyChange("Branch length", newValue);
+									return;
+								}
+								if (id === "gitCommitOnlyDetached" && enabled !== undefined) {
+									deps.setGitCommit?.({ onlyDetached: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Commit only on detached HEAD", newValue);
+									return;
+								}
+								if (id === "gitCommitShowTag" && enabled !== undefined) {
+									deps.setGitCommit?.({ showTag: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Show exact-match tag", newValue);
+									return;
+								}
+								if (id === "gitMetricsOnlyNonzero" && enabled !== undefined) {
+									deps.setGitMetrics?.({ onlyNonzero: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Hide zero metrics", newValue);
+									return;
+								}
+								if (id === "gitMetricsIgnoreSubmodules" && enabled !== undefined) {
+									deps.setGitMetrics?.({ ignoreSubmodules: enabled }, ctx);
+									settingsList.updateValue(id, newValue);
+									notifyChange("Ignore submodules", newValue);
+									return;
+								}
+
+								if (
+									id === "extensionStatusDefaultPlacement" &&
 									isExtensionStatusPlacement(newValue)
 								) {
-									deps.setExtensionStatusPlacement(thirdPartyStatusSetting.key, newValue);
-									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(
-										`Third-party status ${thirdPartyStatusSetting.key} placement: ${newValue}`,
-										"info",
-									);
-									tui.requestRender();
+									deps.setExtensionStatusDefaultPlacement?.(newValue);
+									settingsList = makeSettingsList("extensionStatusDefaultPlacement");
+									notifyChange("Default extension status placement", newValue);
 									return;
 								}
-
-								if (
-									thirdPartyStatusSetting?.kind === "colorMode" &&
-									isExtensionStatusColorMode(newValue)
-								) {
-									deps.setExtensionStatusColorMode(thirdPartyStatusSetting.key, newValue);
+								const thirdParty = thirdPartyStatusSettingFromId(id);
+								if (thirdParty?.kind === "placement" && isExtensionStatusPlacement(newValue)) {
+									deps.setExtensionStatusPlacement(thirdParty.key, newValue);
 									settingsList.updateValue(id, newValue);
-									deps.requestRender();
-									ctx.ui.notify(
-										`Third-party status ${thirdPartyStatusSetting.key} color: ${newValue}`,
-										"info",
-									);
-									tui.requestRender();
+									notifyChange(`Third-party status ${thirdParty.key} placement`, newValue);
+									return;
+								}
+								if (thirdParty?.kind === "colorMode" && isExtensionStatusColorMode(newValue)) {
+									deps.setExtensionStatusColorMode(thirdParty.key, newValue);
+									settingsList.updateValue(id, newValue);
+									notifyChange(`Third-party status ${thirdParty.key} color`, newValue);
 								}
 							} catch (error) {
-								settingsList = makeSettingsList();
+								settingsList = makeSettingsList(id);
 								tui.requestRender();
-								const message = error instanceof Error ? error.message : String(error);
-								ctx.ui.notify(`Could not update Zentui settings: ${message}`, "error");
+								ctx.ui.notify(
+									`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+									"error",
+								);
 							}
 						},
 						() => done(undefined),
 					);
-				settingsList = makeSettingsList();
-				const switchSection = (direction: "forward" | "backward") => {
-					activeSection =
-						direction === "forward" ? nextSection(activeSection) : previousSection(activeSection);
-					settingsList = makeSettingsList();
-					tui.requestRender();
+					if (focusId) {
+						const target = items.findIndex((item) => item.id === focusId);
+						for (let index = 0; index < target; index += 1) list.handleInput("\x1b[B");
+					}
+					return list;
 				};
-
+				settingsList = makeSettingsList();
 				return {
 					render(width: number) {
-						const colorSource = deps.getConfig().colorSources.editor;
 						const border = renderChromeBorder(
 							theme,
-							colorSource,
+							deps.getConfig().components.editor.colorSource,
 							EDITOR_BORDER_STYLE,
 							"─".repeat(Math.max(0, width)),
 						);
@@ -1317,11 +1359,15 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					},
 					handleInput(data: string) {
 						if (matchesKey(data, Key.tab)) {
-							switchSection("forward");
+							activeSection = nextSection(activeSection);
+							settingsList = makeSettingsList();
+							tui.requestRender();
 							return;
 						}
 						if (matchesKey(data, Key.shift("tab"))) {
-							switchSection("backward");
+							activeSection = previousSection(activeSection);
+							settingsList = makeSettingsList();
+							tui.requestRender();
 							return;
 						}
 						settingsList.handleInput(data);
