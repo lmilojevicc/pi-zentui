@@ -47,12 +47,6 @@ function sanitizeLines(lines: string[], width: number): string[] {
 	);
 }
 
-function stripLeadingBlankLines(lines: string[]): string[] {
-	let start = 0;
-	while (start < lines.length && visibleWidth(lines[start] ?? "") === 0) start++;
-	return lines.slice(start);
-}
-
 /**
  * Render the full cluster (status + widgets + editor + footer) and extract
  * the cursor position from the CURSOR_MARKER.
@@ -66,10 +60,9 @@ export function renderCluster(
 	const maxRows = Math.max(1, maxHeight - 1);
 
 	// Pi's Loader intentionally starts with a blank line so the live status is
-	// separated from the transcript. The fixed-editor cluster owns the bottom
-	// layout, so discard that status-internal blank here; the editor separator is
-	// preserved from Pi's above-editor widget or supplied explicitly below.
-	const statusLines = stripLeadingBlankLines(sanitizeLines(renderComponent(cluster.status, w), w));
+	// separated from the transcript. Preserve that leading line; the editor
+	// separator is handled independently below.
+	const statusLines = sanitizeLines(renderComponent(cluster.status, w), w);
 	const aboveLines = sanitizeLines(renderComponent(cluster.aboveWidget, w), w);
 	const editorSource = sanitizeLines(renderComponent(cluster.editor, w), w);
 	const belowLines = sanitizeLines(renderComponent(cluster.belowWidget, w), w);
@@ -82,18 +75,18 @@ export function renderCluster(
 		aboveLines.length > 0 && visibleWidth(aboveLines.at(-1) ?? "") === 0;
 	const editorGapRows = editorSource.length > 0 ? 1 : 0;
 	const editorLines = capEditorLines(editorSource, Math.max(0, maxRows - editorGapRows));
-	let remaining = maxRows - editorLines.length - editorGapRows;
+	let remaining = maxRows - editorLines.length;
 
-	const footer = footerLines.slice(-remaining);
+	const footer = remaining > 0 ? footerLines.slice(-remaining) : [];
 	remaining -= footer.length;
 
-	const below = belowLines.slice(-remaining);
+	const below = remaining > 0 ? belowLines.slice(-remaining) : [];
 	remaining -= below.length;
 
-	const above = aboveLines.slice(-remaining);
+	const above = remaining > 0 ? aboveLines.slice(-remaining) : [];
 	remaining -= above.length;
 
-	const status = statusLines.slice(-remaining);
+	const status = remaining > 0 ? statusLines.slice(-remaining) : [];
 
 	const allLines = [
 		...status,

@@ -98,6 +98,7 @@ export class TerminalSplitCompositor {
 	private writing = false;
 	private renderingCluster = false;
 	private checkingOverlay = false;
+	private restoringComponents = false;
 
 	private scrollOffset = 0;
 	private maxScrollOffset = 0;
@@ -120,6 +121,42 @@ export class TerminalSplitCompositor {
 	private readonly onDismissNotice: (() => void) | null;
 
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
+
+	/**
+	 * The fixed compositor hides Pi's bottom cluster from the normal TUI render and
+	 * paints it separately. Extension custom UIs (ctx.ui.custom without overlay
+	 * mode) live inside editorContainer, though, so they must be rendered by the
+	 * normal TUI while active. Temporarily restore the original component methods
+	 * for that render, then re-hide them before fixed-layout rendering resumes.
+	 */
+	private withNativeComponents<T>(fn: () => T): T {
+		if (this.restoringComponents) return fn();
+		this.restoringComponents = true;
+		const cluster = this.capabilities.cluster;
+		for (const component of [
+			cluster.status,
+			cluster.aboveWidget,
+			cluster.editor,
+			cluster.belowWidget,
+			cluster.footer,
+		]) {
+			restoreRenderable(component);
+		}
+		try {
+			return fn();
+		} finally {
+			for (const component of [
+				cluster.status,
+				cluster.aboveWidget,
+				cluster.editor,
+				cluster.belowWidget,
+				cluster.footer,
+			]) {
+				hideRenderable(component);
+			}
+			this.restoringComponents = false;
+		}
+	}
 
 	constructor(
 		capabilities: PiFixedEditorCapabilities,
@@ -157,7 +194,11 @@ export class TerminalSplitCompositor {
 			replaceMethod(this.capabilities.doRenderMethod, () => {
 				this.cachedClusterRender = null;
 				try {
-					this.callOriginalDoRender();
+					if (this.hasVisibleOverlay()) {
+						this.withNativeComponents(() => this.callOriginalDoRender());
+					} else {
+						this.callOriginalDoRender();
+					}
 					this.requestRepaint();
 				} catch {
 					// If doRender throws, the original write already happened.
@@ -334,7 +375,9 @@ export class TerminalSplitCompositor {
 	private renderScrollableRoot(width: number): string[] {
 		if (this.disposed) return this.callOriginalRender(width);
 
-		if (this.hasVisibleOverlay()) return this.callOriginalRender(width);
+		if (this.hasVisibleOverlay()) {
+			return this.withNativeComponents(() => this.callOriginalRender(width));
+		}
 
 		const rawRows = this.getRawRows();
 		const cluster = this.getClusterRender(Math.max(1, width), rawRows);

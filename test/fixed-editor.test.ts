@@ -338,6 +338,16 @@ describe("Pi fixed-editor compatibility", () => {
 		fixture.tui.overlayStack = [{}];
 		expect(patchedRender(80)).toEqual(fixture.rootRender(80));
 		fixture.tui.overlayStack = [];
+		// Extension custom UIs (for example /anycopy) replace the editor-container
+		// child without using Pi's overlay stack. They must suspend the fixed layout
+		// as well, otherwise their full-screen component is clipped into the editor.
+		Reflect.set(fixture.cluster[2], "children", [
+			{ render: () => ["custom UI"], handleInput() {} },
+		]);
+		expect(patchedRender(80)).toEqual(fixture.rootRender(80));
+		Reflect.set(fixture.cluster[2], "children", [
+			{ getText: () => "", setText() {}, handleInput() {} },
+		]);
 		fixture.setRows(12);
 		patchedRender(80);
 		fixture.terminal.write("update");
@@ -726,6 +736,18 @@ describe("cluster", () => {
 			};
 			const result = renderCluster(cluster, 80, 24);
 			expect(result.lines).toEqual(["", "editor"]);
+		});
+
+		it("preserves Pi's leading status spacer before live status", () => {
+			const cluster = {
+				status: makeCapability(["", "Working..."]),
+				aboveWidget: null,
+				editor: makeCapability(["editor"]),
+				belowWidget: null,
+				footer: null,
+			};
+			const result = renderCluster(cluster, 80, 24);
+			expect(result.lines).toEqual(["", "Working...", "", "editor"]);
 		});
 	});
 });

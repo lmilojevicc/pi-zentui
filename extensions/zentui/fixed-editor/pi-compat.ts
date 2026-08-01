@@ -243,6 +243,10 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 		},
 		hasVisibleOverlay: () => {
 			try {
+				const editorChildren = containerChildren(cluster.editor.target);
+				if (Array.isArray(editorChildren) && editorChildren.some((child) => !isEditorLike(child))) {
+					return true;
+				}
 				if (
 					typeof hasOverlayValue === "function" &&
 					Reflect.apply(hasOverlayValue, value, []) === true

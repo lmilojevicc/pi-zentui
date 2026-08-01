@@ -469,6 +469,7 @@ Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable
 - **Incompatible with** `pi-powerline-footer`, `@tifan/pi-fixed-editor`, and `pi-sticky-input`. These packages patch the same Pi TUI internals; only one rendering owner can be active at a time.
 - **Alternate screen**: Uses the terminal's alternate screen buffer. Native scrollback history is not accessible while the fixed editor is active.
 - **Pi version fragility**: Patches internal TUI methods (`doRender`, `render`, `terminal.write`, `terminal.rows`) that may change across Pi versions. If the TUI layout is unsupported, Zentui falls back to normal rendering with a console warning.
+- **Extension custom UIs**: Full-screen custom components such as `/anycopy` temporarily suspend the fixed layout and use Pi's normal renderer; the fixed editor resumes when the component closes.
 - If your terminal is stuck after a crash, run `reset` or restart the terminal.
 
 ## Requirements
