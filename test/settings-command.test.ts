@@ -81,9 +81,7 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		messages: [] as Partial<UserMessagesComponentConfig>[],
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
 		footer: [] as Partial<FooterComponentConfig>[],
-		polished: [] as Array<Record<string, unknown>>,
 		minimalist: [] as Array<Record<string, unknown>>,
-		framed: [] as Array<Record<string, unknown>>,
 		fixed: [] as Array<Record<string, unknown>>,
 		segments: [] as Array<Record<string, boolean>>,
 		gitCommit: [] as Array<Record<string, boolean>>,
@@ -99,10 +97,6 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 			Object.assign(config.components.editor, patch);
 			return { applied: true };
 		},
-		setPolishedEditorStyle(patch: Record<string, unknown>) {
-			calls.polished.push(patch);
-			Object.assign(config.components.editor.styles.polished, patch);
-		},
 		setMinimalist(patch: Record<string, unknown>) {
 			calls.minimalist.push(patch);
 			Object.assign(config.components.editor.styles.minimalist, patch);
@@ -111,10 +105,6 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 			calls.messages.push(patch);
 			Object.assign(config.components.userMessages, patch);
 		},
-		setFramedUserMessagesStyle(patch: Record<string, unknown>) {
-			calls.framed.push(patch);
-			Object.assign(config.components.userMessages.styles.framed, patch);
-		},
 		setSelectorBordersComponent(patch: Partial<SelectorBordersComponentConfig>) {
 			calls.selectors.push(patch);
 			Object.assign(config.components.selectorBorders, patch);
@@ -122,11 +112,6 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		setFooterComponent(patch: Partial<FooterComponentConfig>) {
 			calls.footer.push(patch);
 			Object.assign(config.components.footer, patch);
-		},
-		setCopyFriendlyRecipe(enabled: boolean) {
-			calls.recipe.push(enabled);
-			config.components.editor.styles.polished.copyFriendly = enabled;
-			config.components.userMessages.styles.framed.copyFriendly = enabled;
 		},
 		setFooterSegments(patch: Record<string, boolean>) {
 			calls.segments.push(patch);
@@ -249,16 +234,10 @@ describe("component-oriented /zentui settings", () => {
 			"Editor model label",
 			"Editor border color",
 			"Editor viewport indicators",
-			"Copy-friendly",
 		]);
 
 		component.handleInput("\t");
-		expectFocusOrder(component, [
-			"User messages",
-			"Message style",
-			"Message colors",
-			"Copy-friendly",
-		]);
+		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, ["Fixed editor (experimental)"]);
 		component.handleInput("\t");
@@ -332,12 +311,7 @@ describe("component-oriented /zentui settings", () => {
 			"Git",
 		]);
 		component.handleInput("\t");
-		expectFocusOrder(component, [
-			"User messages",
-			"Message style",
-			"Message colors",
-			"Copy-friendly",
-		]);
+		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, ["Fixed editor (experimental)", "Mouse scroll", "Copy notice"]);
 	});
@@ -406,11 +380,29 @@ describe("component-oriented /zentui settings", () => {
 		selectLabel(component, "Editor style");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
-		expect(focusedRow(component)).toContain("minimalist");
+		expect(focusedRow(component)).toContain("Polished (copy-friendly)");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
-		expect(focusedRow(component)).toContain("polished");
-		expect(harness.calls.editor).toEqual([{ style: "minimalist" }, { style: "polished" }]);
+		expect(focusedRow(component)).toContain("Minimalist");
+		expect(harness.calls.editor).toEqual([
+			{ style: "polished-copy-friendly" },
+			{ style: "minimalist" },
+		]);
+	});
+
+	it("shows friendly message style labels and restores focus after rebuild", async () => {
+		const harness = createHarness();
+		await harness.command().handler("messages", harness.ctx);
+		const component = harness.component();
+		selectLabel(component, "Message style");
+		expect(focusedRow(component)).toContain("Framed");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Compact");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Labeled");
+		expect(harness.calls.messages).toEqual([{ style: "compact" }, { style: "labeled" }]);
 	});
 
 	it("restores fixed-editor focus after conditional rows rebuild", async () => {
@@ -470,35 +462,28 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.notifications).toEqual(["Could not update Zentui settings: read-only"]);
 	});
 
-	it("parses component direct operations and keeps the atomic recipe separate", async () => {
+	it("parses component direct operations and rejects removed copy commands", async () => {
 		const harness = createHarness();
+		for (const command of ["editor disable", "messages disable"]) {
+			await harness.command().handler(command, harness.ctx);
+		}
 		for (const command of [
-			"editor disable",
-			"messages disable",
 			"editor-copy-friendly enable",
 			"message-copy-friendly disable",
 			"copy-friendly enable",
-		])
+		]) {
 			await harness.command().handler(command, harness.ctx);
-		expect(harness.calls.editor).toContainEqual({ enabled: false });
-		expect(harness.calls.messages).toContainEqual({ enabled: false });
-		expect(harness.calls.polished).toEqual([{ copyFriendly: true }]);
-		expect(harness.calls.framed).toEqual([{ copyFriendly: false }]);
-		expect(harness.calls.recipe).toEqual([true]);
-		expect(harness.config.components.editor.styles.polished.copyFriendly).toBe(true);
-		expect(harness.config.components.userMessages.styles.framed.copyFriendly).toBe(true);
+		}
+		expect(harness.calls.editor).toEqual([{ enabled: false }]);
+		expect(harness.calls.messages).toEqual([{ enabled: false }]);
+		expect(harness.notifications.filter((message) => message.startsWith("Usage:"))).toHaveLength(3);
 		const values =
 			harness
 				.command()
 				.getArgumentCompletions("")
 				?.map((item) => item.value) ?? [];
-		expect(values).toEqual(
-			expect.arrayContaining([
-				"messages toggle",
-				"editor-copy-friendly toggle",
-				"message-copy-friendly toggle",
-			]),
-		);
+		expect(values).toContain("messages toggle");
+		expect(values.some((value) => value.includes("copy-friendly"))).toBe(false);
 	});
 
 	it.each([

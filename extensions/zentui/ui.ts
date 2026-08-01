@@ -8,7 +8,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { ZentuiConfig } from "./config";
+import type { EditorStyle, ZentuiConfig } from "./config";
 import { renderEditorMetadataFormat } from "./editor-metadata-format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
@@ -160,7 +160,22 @@ function fillLine(content: string, width: number): string {
 	return `${truncated}${pad}`;
 }
 
-function copyFriendlyPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): string {
+function isLowRailPolishedStyle(style: EditorStyle): boolean {
+	return style === "polished-copy-friendly";
+}
+
+function selectedPolishedConfig(config: ZentuiConfig) {
+	switch (config.components.editor.style) {
+		case "polished":
+			return config.components.editor.styles.polished;
+		case "polished-copy-friendly":
+			return config.components.editor.styles["polished-copy-friendly"];
+		case "minimalist":
+			return undefined;
+	}
+}
+
+function lowRailPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): string {
 	const promptIcon = config.icons.editorPrompt;
 	return promptIcon
 		? `${renderStyleForSourceOrFallback(
@@ -174,8 +189,9 @@ function copyFriendlyPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string)
 }
 
 function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: string) {
-	const prompt = copyFriendlyPrompt(config, uiTheme, reset);
-	const rail = config.components.editor.styles.polished.copyFriendly
+	const lowRail = isLowRailPolishedStyle(config.components.editor.style);
+	const prompt = lowRailPrompt(config, uiTheme, reset);
+	const rail = lowRail
 		? ""
 		: `${renderStyleForSourceOrFallback(
 				uiTheme,
@@ -188,9 +204,7 @@ function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: stri
 		prompt,
 		promptWidth: visibleWidth(prompt),
 		rail,
-		railWidth: config.components.editor.styles.polished.copyFriendly
-			? visibleWidth(prompt)
-			: visibleWidth(rail),
+		railWidth: lowRail ? visibleWidth(prompt) : visibleWidth(rail),
 	};
 }
 
@@ -251,7 +265,7 @@ function unwrapPolishedFrameOnly(
 	const interior = lines.slice(1, -1);
 	if (interior.length < 3) return undefined;
 
-	if (config.components.editor.styles.polished.copyFriendly) {
+	if (isLowRailPolishedStyle(config.components.editor.style)) {
 		if (
 			plainRenderedText(interior[0] ?? "").trim() !== "" ||
 			plainRenderedText(interior.at(-2) ?? "").trim() !== "" ||
@@ -425,7 +439,7 @@ function renderPolishedFrame({
 	const colorSource = config.components.editor.colorSource;
 	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
 	const innerWidth = Math.max(0, width - railWidth);
-	const copyFriendlyContinuation = " ".repeat(promptWidth);
+	const lowRailContinuation = " ".repeat(promptWidth);
 
 	if (baseRendered.length < 2) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
@@ -464,7 +478,8 @@ function renderPolishedFrame({
 		below: parsedBottom?.count,
 	};
 	const meta = renderEditorMetadataFormat(
-		config.components.editor.styles.polished.metadataFormat,
+		selectedPolishedConfig(config)?.metadataFormat ??
+			config.components.editor.styles.polished.metadataFormat,
 		{
 			model: modelMeta.modelLabel,
 			modelId: modelMeta.modelId ?? "",
@@ -476,7 +491,7 @@ function renderPolishedFrame({
 		uiTheme,
 		config,
 	);
-	const copyFriendlyMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
+	const lowRailMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
 
 	const renderStaticBorder = (text: string) =>
@@ -516,16 +531,16 @@ function renderPolishedFrame({
 		),
 	);
 	const lines = ["", ...editorLines, "", railedMeta];
-	const renderedLines = config.components.editor.styles.polished.copyFriendly
+	const renderedLines = isLowRailPolishedStyle(config.components.editor.style)
 		? [
 				top,
 				"",
 				...editorLines.map(
 					(line, index) =>
-						`${index === 0 ? prompt : copyFriendlyContinuation}${fillLine(line, innerWidth)}`,
+						`${index === 0 ? prompt : lowRailContinuation}${fillLine(line, innerWidth)}`,
 				),
 				"",
-				` ${truncateToWidth(copyFriendlyMeta, Math.max(0, width - 1), "")}`,
+				` ${truncateToWidth(lowRailMeta, Math.max(0, width - 1), "")}`,
 				bottom,
 				...autocompleteLines,
 			]

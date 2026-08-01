@@ -17,7 +17,6 @@ import {
 	FOOTER_FORMAT_ALIASES,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
-	type FramedUserMessageStyleConfig,
 	type GitBranchConfig,
 	type GitCommitConfig,
 	type GitMetricsConfig,
@@ -25,7 +24,6 @@ import {
 	loadConfig,
 	type MinimalistConfig,
 	type PathDisplayConfig,
-	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
@@ -34,14 +32,11 @@ import {
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
 	saveFooterComponentPatch,
-	saveFramedUserMessagesStylePatch,
 	saveIconsModePatch,
 	saveLayoutFixedEditorPatch,
 	saveMinimalistEditorStylePatch,
-	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
-	saveUiFeaturesPatch,
 	saveUserMessagesComponentPatch,
 	type UserMessagesComponentConfig,
 	type ZentuiConfig,
@@ -491,7 +486,7 @@ export default function (pi: ExtensionAPI) {
 
 	const reconcileUserMessages = () => {
 		const messages = currentConfig.components.userMessages;
-		if (messages.enabled && messages.style === "framed") installUserMessages();
+		if (messages.enabled) installUserMessages();
 		else uninstallUserMessages();
 	};
 
@@ -985,10 +980,6 @@ export default function (pi: ExtensionAPI) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
-		setPolishedEditorStyle(patch: Partial<PolishedEditorStyleConfig>, _ctx: ExtensionContext) {
-			currentConfig = savePolishedEditorStylePatch(patch);
-			refresh();
-		},
 		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
 			currentConfig = saveMinimalistEditorStylePatch(patch);
 			reconcileAgentTimer();
@@ -1000,14 +991,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
-			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
-			refresh();
-		},
-		setFramedUserMessagesStyle(
-			patch: Partial<FramedUserMessageStyleConfig>,
-			_ctx: ExtensionContext,
-		) {
-			currentConfig = saveFramedUserMessagesStylePatch(patch);
+			if (patch.enabled !== undefined) reconcileUserMessages();
 			refresh();
 		},
 		setSelectorBordersComponent(
@@ -1024,10 +1008,6 @@ export default function (pi: ExtensionAPI) {
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
 			reconcileProjectRefresh(ctx);
 			reconcileSessionTimer();
-			refresh();
-		},
-		setCopyFriendlyRecipe(enabled: boolean, _ctx: ExtensionContext) {
-			currentConfig = saveUiFeaturesPatch({ copyFriendly: enabled });
 			refresh();
 		},
 		setFooterSegments(patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) {

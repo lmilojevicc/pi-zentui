@@ -78,11 +78,9 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					? config.features.viewportIndicators
 					: editor.viewportIndicators,
 				styles: {
+					...editor.styles,
 					polished: {
 						...editor.styles.polished,
-						copyFriendly: flatChanged("features")
-							? config.features.copyFriendly
-							: editor.styles.polished.copyFriendly,
 						metadataFormat: flatChanged("editorMetadataFormat")
 							? config.editorMetadataFormat
 							: editor.styles.polished.metadataFormat,
@@ -98,14 +96,7 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 				colorSource: flatChanged("colorSources")
 					? config.colorSources.userMessages
 					: messages.colorSource,
-				styles: {
-					framed: {
-						...messages.styles.framed,
-						copyFriendly: flatChanged("features")
-							? config.features.copyFriendly
-							: messages.styles.framed.copyFriendly,
-					},
-				},
+				styles: { ...messages.styles },
 			},
 			selectorBorders: {
 				...selectors,
@@ -323,7 +314,7 @@ function makeStrictTheme(): Theme {
 	} as unknown as Theme;
 }
 
-function makeUi(prefix = "") {
+function _makeUi(prefix = "") {
 	let editorComponent: unknown;
 	let editorText = "";
 	return {
@@ -405,39 +396,28 @@ function configWithExtensionStatuses(
 	};
 }
 
-function configWithFeatures(features: Partial<PolishedTuiConfig["features"]>): PolishedTuiConfig {
-	const merged = { ...defaultConfig.features, ...features };
-	const editor = defaultConfig.components.editor;
-	const messages = defaultConfig.components.userMessages;
+function configWithLowRailStyle(lowRail: boolean): PolishedTuiConfig {
 	return {
 		...defaultConfig,
-		features: merged,
 		components: {
 			...defaultConfig.components,
 			editor: {
-				...editor,
-				enabled: merged.editor,
-				viewportIndicators: merged.viewportIndicators,
-				styles: {
-					...editor.styles,
-					polished: { ...editor.styles.polished, copyFriendly: merged.copyFriendly },
-				},
+				...defaultConfig.components.editor,
+				style: lowRail ? "polished-copy-friendly" : "polished",
 			},
-			userMessages: {
-				...messages,
-				enabled: merged.editor,
-				styles: {
-					framed: { ...messages.styles.framed, copyFriendly: merged.copyFriendly },
-				},
-			},
-			selectorBorders: { ...defaultConfig.components.selectorBorders, enabled: merged.editor },
-			footer: { ...defaultConfig.components.footer, enabled: merged.statusLine },
 		},
 	};
 }
 
 function stripPromptMarks(line: string): string {
 	return line.replaceAll(/\x1b]133;[ABC]\x07/g, "").replaceAll(/\x1b\[[0-9;]*m/g, "");
+}
+
+function expectSinglePromptZone(rendered: string): void {
+	expect(rendered.match(/\x1b\]133;A\x07/g)).toHaveLength(1);
+	expect(rendered.match(/\x1b\]133;B\x07/g)).toHaveLength(1);
+	expect(rendered.match(/\x1b\]133;C\x07/g)).toHaveLength(1);
+	expect(rendered).not.toContain("\x9d133;");
 }
 
 function stripTestTags(line: string): string {
@@ -1572,19 +1552,10 @@ describe("Pi docs compliance", () => {
 		expect(editorFactory).toBe(takeoverFactory);
 	});
 
-	it("persists independent message and copy-friendly commands plus the atomic recipe", async () => {
-		writeFileSync(
-			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({
-				components: {
-					editor: { styles: { polished: { copyFriendly: false } } },
-					userMessages: {
-						enabled: true,
-						styles: { framed: { copyFriendly: true } },
-					},
-				},
-			}),
-		);
+	it("routes removed copy commands through the ordinary usage warning without mutation", async () => {
+		const path = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(path, JSON.stringify({ components: { editor: { style: "minimalist" } } }));
+		const before = readFileSync(path, "utf8");
 		const commands = new Map<string, unknown>();
 		const handlers = loadExtension({ commands });
 		const notifications: string[] = [];
@@ -1594,30 +1565,16 @@ describe("Pi docs compliance", () => {
 			handler(args: string, ctx: unknown): Promise<void>;
 		};
 
-		await command.handler("messages disable", ctx);
-		await command.handler("editor-copy-friendly enable", ctx);
-		await command.handler("message-copy-friendly disable", ctx);
-		let persisted = JSON.parse(
-			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
-		) as PolishedTuiConfig;
-		expect(persisted.components.userMessages.enabled).toBe(false);
-		expect(persisted.components.editor.enabled).toBe(true);
-		expect(persisted.components.selectorBorders.enabled).toBe(true);
-		expect(persisted.components.editor.styles.polished.copyFriendly).toBe(true);
-		expect(persisted.components.userMessages.styles.framed.copyFriendly).toBe(false);
-
-		await command.handler("copy-friendly disable", ctx);
-		persisted = JSON.parse(
-			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
-		) as PolishedTuiConfig;
-		expect(persisted.components.editor.styles.polished.copyFriendly).toBe(false);
-		expect(persisted.components.userMessages.styles.framed.copyFriendly).toBe(false);
-		expect(notifications).toEqual([
-			"User messages: disabled",
-			"Editor copy-friendly: enabled",
-			"Message copy-friendly: disabled",
-			"Copy-friendly mode: disabled",
-		]);
+		for (const args of [
+			"copy-friendly disable",
+			"editor-copy-friendly enable",
+			"message-copy-friendly disable",
+		]) {
+			await command.handler(args, ctx);
+		}
+		expect(readFileSync(path, "utf8")).toBe(before);
+		expect(notifications).toHaveLength(3);
+		expect(notifications.every((message) => message.startsWith("Usage: /zentui"))).toBe(true);
 		await emit(handlers, "session_shutdown", ctx);
 	});
 
@@ -1663,24 +1620,18 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
-	it("renders polished-editor and framed-message copy-friendly settings independently", () => {
+	it("renders editor and message style selections independently", () => {
 		let config: PolishedTuiConfig = {
 			...defaultConfig,
 			components: {
 				...defaultConfig.components,
 				editor: {
 					...defaultConfig.components.editor,
-					styles: {
-						...defaultConfig.components.editor.styles,
-						polished: {
-							...defaultConfig.components.editor.styles.polished,
-							copyFriendly: true,
-						},
-					},
+					style: "polished-copy-friendly",
 				},
 				userMessages: {
 					...defaultConfig.components.userMessages,
-					styles: { framed: { copyFriendly: false } },
+					style: "framed",
 				},
 			},
 		};
@@ -1706,27 +1657,62 @@ describe("Pi docs compliance", () => {
 				...config,
 				components: {
 					...config.components,
-					editor: {
-						...config.components.editor,
-						styles: {
-							...config.components.editor.styles,
-							polished: {
-								...config.components.editor.styles.polished,
-								copyFriendly: false,
-							},
-						},
-					},
-					userMessages: {
-						...config.components.userMessages,
-						styles: { framed: { copyFriendly: true } },
-					},
+					editor: { ...config.components.editor, style: "polished" },
+					userMessages: { ...config.components.userMessages, style: "labeled" },
 				},
 			};
 			expect(editor.render(80).join("\n")).toContain("│");
-			expect(new UserMessageComponent("message 2").render(80).join("\n")).not.toContain("│");
+			expect(new UserMessageComponent("message 2").render(80).join("\n")).toContain("User");
 		} finally {
 			cleanup();
 		}
+	});
+
+	it.each([
+		["polished", "framed"],
+		["polished", "compact"],
+		["polished", "labeled"],
+		["polished-copy-friendly", "framed"],
+		["polished-copy-friendly", "compact"],
+		["polished-copy-friendly", "labeled"],
+		["minimalist", "framed"],
+		["minimalist", "compact"],
+		["minimalist", "labeled"],
+	] as const)("composes %s Editor with %s messages independently", (editorStyle, messageStyle) => {
+		const config = structuredClone(defaultConfig);
+		config.components.editor.style = editorStyle;
+		config.components.userMessages.style = messageStyle;
+		installUserMessageStyleProduction(
+			() => makeTheme(),
+			() => config,
+		);
+		const messageWrapper = UserMessageComponent.prototype.render;
+		const editor = new PolishedEditorProduction(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTheme(),
+			() => config,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/project" }),
+		);
+		editor.setText("draft");
+		const editorRendered = editor.render(80).join("\n");
+		const messageRendered = new UserMessageComponent("message").render(40).join("\n");
+
+		if (editorStyle === "polished") expect(editorRendered).toContain("│");
+		else if (editorStyle === "polished-copy-friendly") expect(editorRendered).not.toContain("│");
+		else expect(editorRendered).toContain("╭");
+		if (messageStyle === "framed") expect(stripPromptMarks(messageRendered)).toContain("────");
+		else if (messageStyle === "compact") {
+			expect(stripPromptMarks(messageRendered)).toContain("│ message");
+			expect(stripPromptMarks(messageRendered)).not.toContain("────");
+		} else expect(stripPromptMarks(messageRendered)).toContain("User");
+		expect(config.components.editor.style).toBe(editorStyle);
+		expect(config.components.userMessages).toMatchObject({ enabled: true, style: messageStyle });
+		expect(config.components.footer.enabled).toBe(true);
+		expect(UserMessageComponent.prototype.render).toBe(messageWrapper);
 	});
 
 	it("renders user messages like the ZentUI prompt box", () => {
@@ -1751,20 +1737,21 @@ describe("Pi docs compliance", () => {
 		expect(rendered).not.toContain("xhigh");
 	});
 
-	it("hides previous user-message rails in copy-friendly mode", () => {
+	it("renders compact user messages without horizontal borders", () => {
+		const config = structuredClone(defaultConfig);
+		config.components.userMessages.style = "compact";
 		installUserMessageStyle(
 			() => makeTaggedTheme(),
-			() => configWithFeatures({ copyFriendly: true }),
+			() => config,
 		);
 
 		const lines = new UserMessageComponent("hello").render(80).map(stripPromptMarks);
 		const rendered = lines.join("\n");
 
-		expect(rendered).not.toContain("│");
-		expect(rendered).not.toContain("❯");
+		expect(rendered).toContain("│");
 		expect(rendered).toContain("hello");
-		expect(stripTestTags(lines[0])).toMatch(/^─+$/);
-		expect(stripTestTags(lines.at(-1) ?? "")).toMatch(/^─+$/);
+		expect(stripTestTags(lines[0])).not.toMatch(/^─+$/);
+		expect(stripTestTags(lines.at(-1) ?? "")).not.toMatch(/^─+$/);
 	});
 
 	it("renders the configured rail glyph on user messages", () => {
@@ -1810,6 +1797,41 @@ describe("Pi docs compliance", () => {
 		renderMessage(79);
 		expect(getChildren).toHaveBeenCalledTimes(1);
 		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
+	});
+
+	it("restyles cached history when message style or relevant chrome changes", () => {
+		let config = structuredClone(defaultConfig);
+		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);
+		const theme = { ...makeTaggedTheme(), fg } as unknown as Theme;
+		const wrapperBefore = UserMessageComponent.prototype.render;
+		installUserMessageStyle(
+			() => theme,
+			() => config,
+		);
+		const installedWrapper = UserMessageComponent.prototype.render;
+		const message = new UserMessageComponent("hello");
+
+		const framed = message.render(30).join("\n");
+		const callsAfterFramed = fg.mock.calls.length;
+		expect(framed).toContain("────");
+
+		config = structuredClone(config);
+		config.components.footer.enabled = false;
+		expect(message.render(30).join("\n")).toBe(framed);
+		expect(fg).toHaveBeenCalledTimes(callsAfterFramed);
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "compact";
+		const compact = message.render(30).join("\n");
+		expect(compact).toContain("│");
+		expect(compact).not.toContain("────");
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "labeled";
+		const labeled = message.render(30).join("\n");
+		expect(labeled).toContain("User");
+		expect(UserMessageComponent.prototype.render).toBe(installedWrapper);
+		expect(installedWrapper).not.toBe(wrapperBefore);
 	});
 
 	it("clears cached user-message rendering on invalidate", () => {
@@ -2065,15 +2087,264 @@ describe("Pi docs compliance", () => {
 		expect(UserMessageComponent.prototype.render).toBe(predecessor);
 	});
 
-	it("preserves OSC 133 prompt-zone markers around user-message output", async () => {
-		const handlers = loadExtension();
-		await emit(handlers, "session_start", makeContext({ ui: makeUi() }));
+	it.each(["framed", "compact", "labeled"] as const)(
+		"preserves exactly one OSC 133 prompt zone for %s messages",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
 
-		const lines = new UserMessageComponent("hello").render(40);
+			const rendered = new UserMessageComponent("hello").render(40).join("\n");
+			expect(rendered.match(/\x1b\]133;A\x07/g)).toHaveLength(1);
+			expect(rendered.match(/\x1b\]133;B\x07\x1b\]133;C\x07/g)).toHaveLength(1);
+		},
+	);
 
-		expect(lines[0].startsWith("\x1b]133;A\x07")).toBe(true);
-		expect(lines.at(-1)).toContain("\x1b]133;B\x07\x1b]133;C\x07");
+	it("removes BEL, ST, and C1-ST terminated OSC 133 zones without removing user text", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const hostile = "before \x1b]133;A\x07middle \x1b]133;B\x1b\\after \x9d133;C\x9c final";
+		const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("before middle after  final");
 	});
+
+	it.each([
+		["unterminated ESC OSC", "before \x1b]133;Atail", "before tail", "\x1b]133"],
+		["unterminated C1 OSC", "before \x9d133;Btail", "before tail", "\x9d133"],
+		["partial ESC boundary", "before \x1b]13", "before ", "\x1b]13"],
+		["partial C1 boundary", "before \x9d1", "before ", "\x9d1"],
+		["complete command boundary", "before \x1b]133", "before ", "\x1b]133"],
+	] as const)(
+		"neutralizes %s while preserving trailing text",
+		(_name, hostile, visibleText, hostileFragment) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+			expectSinglePromptZone(rendered);
+			expect(rendered).toContain(visibleText);
+			expect(stripPromptMarks(rendered)).not.toContain(hostileFragment);
+		},
+	);
+
+	it("neutralizes multiple complete and incomplete OSC 133 sequences", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const hostile = "one \x1b]133;A\x07two \x9d133;B\x9cthree \x1b]133;Cfour";
+		const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("one two three four");
+	});
+
+	it.each([
+		["7-bit then C1", "\x1b]9;payload ", "\x9d133;A\x9c", "\x1b]9;"],
+		["C1 then 7-bit", "\x9d9;payload ", "\x1b]133;A\x07", "\x9d9;"],
+	] as const)(
+		"bounds an unterminated unrelated OSC before a nested OSC 133 (%s)",
+		(_name, unrelated, hostile, openIntroducer) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(`before ${unrelated}${hostile}after`)
+				.render(80)
+				.join("\n");
+			const visible = stripPromptMarks(rendered);
+
+			expectSinglePromptZone(rendered);
+			expect(visible).toContain("before 9;payload after");
+			expect(visible).not.toContain(openIntroducer);
+			expect(visible).not.toContain(hostile);
+		},
+	);
+
+	it.each([
+		[
+			"C1 then 7-bit",
+			"\x9d133;Btail ",
+			"\x1b]8;;https://example.com\x1b\\",
+			"\x1b]8;;\x1b\\",
+			"\x9d133",
+		],
+		["7-bit", "\x1b]133;Btail ", "\x1b]8;;https://example.com\x1b\\", "\x1b]8;;\x1b\\", "\x1b]133"],
+	] as const)(
+		"preserves a complete OSC 8 after an incomplete OSC 133 (%s)",
+		(_name, hostile, open, close, hostileFragment) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(`before ${hostile}${open}link${close} after`)
+				.render(100)
+				.join("\n");
+			const visible = stripPromptMarks(rendered);
+
+			expectSinglePromptZone(rendered);
+			expect(rendered).toContain(`${open}link${close}`);
+			expect(visible).toContain("before tail ");
+			expect(visible).not.toContain(hostileFragment);
+		},
+	);
+
+	it("processes multiple nested OSC boundaries without overconsuming later sequences", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const open = "\x1b]8;;https://example.com\x1b\\";
+		const close = "\x1b]8;;\x1b\\";
+		const hostile = `one \x1b]9;alpha \x9d133;A${open}link${close} two \x1b]133;Btail`;
+		const rendered = new UserMessageComponent(hostile).render(120).join("\n");
+		const visible = stripPromptMarks(rendered);
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain(`${open}link${close}`);
+		expect(visible).toContain("one 9;alpha ");
+		expect(visible).toContain(" two tail");
+		expect(visible).not.toContain("\x1b]9;");
+		expect(visible).not.toContain("\x9d133");
+		expect(visible).not.toContain("\x1b]133");
+	});
+
+	it("preserves unrelated complete OSC 8 sequences byte-for-byte", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const open = "\x1b]8;;https://example.com\x1b\\";
+		const close = "\x1b]8;;\x1b\\";
+		const rendered = new UserMessageComponent(`before ${open}link${close} after`)
+			.render(80)
+			.join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain(`${open}link${close}`);
+	});
+
+	it.each(["framed", "compact", "labeled"] as const)(
+		"preserves mixed 7-bit/C1 OSC 8 through sanitization and Markdown for %s",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+			const starts = ["\x1b]", "\x9d"];
+			const terminators = ["\x07", "\x1b\\", "\x9c"];
+			const preserved: string[] = [];
+			let source = "before \x9d133;Atail ";
+			for (const [index, start] of starts.entries()) {
+				for (const [terminatorIndex, terminator] of terminators.entries()) {
+					const id = `${index}-${terminatorIndex}`;
+					const open = `${start}8;;https://example.com/${id}${terminator}`;
+					const close = `${start}8;;${terminator}`;
+					const sequence = `${open}link-${id}${close}`;
+					preserved.push(sequence);
+					source += `${sequence} `;
+				}
+			}
+			source += `${preserved[0]} [markdown](https://markdown.example) \x1b]133;Btail`;
+
+			const rendered = new UserMessageComponent(source).render(240).join("\n");
+			expectSinglePromptZone(rendered);
+			for (const sequence of preserved) expect(rendered).toContain(sequence);
+			expect(rendered.split(preserved[0])).toHaveLength(3);
+			expect(rendered).toContain("markdown");
+			const visible = stripPromptMarks(rendered);
+			expect(visible).not.toContain("\x9d133");
+			expect(visible).not.toContain("\x1b]133");
+		},
+	);
+
+	it("delegates byte-for-byte when message theme rendering throws", () => {
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const failingTheme = {
+			...makeTheme(),
+			fg() {
+				throw new Error("theme failed");
+			},
+		} as unknown as Theme;
+		installUserMessageStyle(
+			() => failingTheme,
+			() => defaultConfig,
+		);
+
+		const rendered = UserMessageComponent.prototype.render.call(
+			{ children: [{ text: "hello" }] },
+			42,
+		);
+		expect(rendered).toEqual(["native:42"]);
+		expect(rendered.join("\n")).not.toContain("\x1b]133;");
+	});
+
+	it("delegates byte-for-byte when message cache-key construction throws", () => {
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const config = structuredClone(defaultConfig);
+		Object.defineProperty(config, "components", {
+			get() {
+				throw new Error("cache key failed");
+			},
+		});
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => config,
+		);
+
+		const rendered = UserMessageComponent.prototype.render.call(
+			{ children: [{ text: "hello" }] },
+			42,
+		);
+		expect(rendered).toEqual(["native:42"]);
+		expect(rendered.join("\n")).not.toContain("\x1b]133;");
+	});
+
+	it("keeps zero-width output marker-safe", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const rendered = new UserMessageComponent("hello").render(0).join("\n");
+		expect(rendered).toBe("\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07");
+	});
+
+	it.each(["theme", "config"] as const)(
+		"fails open byte-for-byte when the %s getter throws",
+		(failure) => {
+			const predecessor = (width: number) => [`fallback:${width}`];
+			UserMessageComponent.prototype.render = predecessor;
+			installUserMessageStyle(
+				() => {
+					if (failure === "theme") throw new Error("theme failed");
+					return makeTheme();
+				},
+				() => {
+					if (failure === "config") throw new Error("config failed");
+					return defaultConfig;
+				},
+			);
+			const lines = UserMessageComponent.prototype.render.call(
+				{ children: [{ text: "hello" }] },
+				42,
+			);
+			expect(lines).toEqual(["fallback:42"]);
+			expect(lines.join("\n")).not.toContain("\x1b]133;");
+		},
+	);
 
 	it("keeps user-message output within the requested render width", async () => {
 		const handlers = loadExtension();
@@ -3654,13 +3925,13 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[text]Anthropic");
 	});
 
-	it("hides editor rails in copy-friendly mode", () => {
+	it("hides editor rails in the low-rail polished style", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => configWithFeatures({ copyFriendly: true }),
+			() => configWithLowRailStyle(true),
 			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "high",
 		);
@@ -3763,10 +4034,10 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 16)).toBe(true);
 	});
 
-	it("keeps Vim status when long custom metadata collides in rail and copy-friendly modes", () => {
-		for (const copyFriendly of [false, true]) {
+	it("keeps Vim status when long custom metadata collides in both polished modes", () => {
+		for (const lowRail of [false, true]) {
 			const config = {
-				...configWithFeatures({ copyFriendly }),
+				...configWithLowRailStyle(lowRail),
 				editorMetadataFormat: "very-long-custom-metadata-$model-$provider",
 			};
 			const editor = new WrappedPolishedEditor(
@@ -3792,16 +4063,15 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
-	it("keeps blank structural metadata rows in copy-friendly mode", () => {
+	it("keeps blank structural metadata rows in the low-rail polished style", () => {
+		const config = configWithLowRailStyle(true);
+		config.components.editor.styles["polished-copy-friendly"].metadataFormat = "($unknown)";
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => ({
-				...configWithFeatures({ copyFriendly: true }),
-				editorMetadataFormat: "($unknown)",
-			}),
+			() => config,
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 		);
@@ -3812,18 +4082,16 @@ describe("Pi docs compliance", () => {
 		expect(lines.at(-2)).toBe(" ");
 	});
 
-	it("uses custom copy-friendly editor prompt icon and color", () => {
+	it("uses the custom low-rail Editor prompt icon and color", () => {
+		const config = configWithLowRailStyle(true);
+		config.icons = { ...config.icons, editorPrompt: "›" };
+		config.colors = { ...config.colors, editorPrompt: "warning" };
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => ({
-				...defaultConfig,
-				icons: { ...defaultConfig.icons, editorPrompt: "›" },
-				colors: { ...defaultConfig.colors, editorPrompt: "warning" },
-				features: { ...defaultConfig.features, copyFriendly: true },
-			}),
+			() => config,
 			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "off",
 		);
@@ -3971,11 +4239,9 @@ describe("Pi docs compliance", () => {
 		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
 	});
 
-	it("unwraps branded copy-friendly frames without duplicating metadata", () => {
-		const config = {
-			...configWithFeatures({ copyFriendly: true }),
-			editorMetadataFormat: "copy-meta",
-		};
+	it("unwraps branded low-rail polished frames without duplicating metadata", () => {
+		const config = configWithLowRailStyle(true);
+		config.components.editor.styles["polished-copy-friendly"].metadataFormat = "copy-meta";
 		const inner = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
@@ -4423,9 +4689,8 @@ describe("Pi docs compliance", () => {
 		expect(featureChanges).toEqual([{ enabled: false }]);
 	});
 
-	it("toggles copy-friendly mode from direct Zentui slash-command arguments", async () => {
+	it("treats removed copy commands as unknown arguments", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const featureChanges: boolean[] = [];
 		const notifications: Array<{ message: string; level: string }> = [];
 
 		registerZentuiSettingsCommand(
@@ -4437,10 +4702,6 @@ describe("Pi docs compliance", () => {
 			{
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setCopyFriendlyRecipe(enabled) {
-					featureChanges.push(enabled);
-				},
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4465,8 +4726,9 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(featureChanges).toEqual([true]);
-		expect(notifications).toEqual([{ message: "Copy-friendly mode: enabled", level: "info" }]);
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0]?.message).toMatch(/^Usage: \/zentui/);
+		expect(notifications[0]?.level).toBe("warning");
 	});
 
 	it("toggles viewport indicators from direct Zentui slash-command arguments", async () => {

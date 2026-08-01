@@ -36,7 +36,6 @@ import {
 	saveFooterComponentPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
-	saveFramedUserMessagesStylePatch,
 	saveGitBranchPatch,
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
@@ -44,6 +43,7 @@ import {
 	saveMinimalistEditorStylePatch,
 	saveMinimalistPatch,
 	savePathDisplayPatch,
+	savePolishedCopyFriendlyEditorStylePatch,
 	savePolishedEditorStylePatch,
 	saveResponsiveFooterPatch,
 	saveSelectorBordersComponentPatch,
@@ -98,7 +98,9 @@ describe("canonical config resolution", () => {
 				viewportIndicators: true,
 				styles: {
 					polished: {
-						copyFriendly: false,
+						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+					},
+					"polished-copy-friendly": {
 						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
 					},
 					minimalist: {
@@ -117,7 +119,7 @@ describe("canonical config resolution", () => {
 				enabled: true,
 				style: "framed",
 				colorSource: "theme",
-				styles: { framed: { copyFriendly: false } },
+				styles: { framed: {}, compact: {}, labeled: {} },
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
@@ -197,8 +199,8 @@ describe("canonical config resolution", () => {
 			false,
 		]);
 		expect(editor.viewportIndicators).toBe(false);
-		expect(editor.styles.polished.copyFriendly).toBe(true);
-		expect(userMessages.styles.framed.copyFriendly).toBe(true);
+		expect(editor.style).toBe("polished-copy-friendly");
+		expect(userMessages.enabled).toBe(false);
 		expect([editor.colorSource, selectorBorders.colorSource]).toEqual(["terminal", "terminal"]);
 		expect(userMessages.colorSource).toBe("terminal");
 		expect(footer.colorSource).toBe("terminal");
@@ -252,7 +254,6 @@ describe("canonical config resolution", () => {
 		expect(config.components.editor.enabled).toBe(false);
 		expect(config.components.editor.style).toBe("polished");
 		expect(config.components.editor.colorSource).toBe("theme");
-		expect(config.components.editor.styles.polished.copyFriendly).toBe(false);
 		// Missing canonical siblings still migrate independently.
 		expect(config.components.editor.viewportIndicators).toBe(false);
 		expect(config.components.editor.borderColorMode).toBe("adaptive");
@@ -432,7 +433,6 @@ describe("canonical config resolution", () => {
 		expect(config.features).toEqual({
 			editor: false,
 			statusLine: true,
-			copyFriendly: true,
 			viewportIndicators: true,
 		});
 		expect(config.colorSources).toEqual({
@@ -468,6 +468,276 @@ describe("canonical config resolution", () => {
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
 		);
 	});
+});
+
+describe("Phase 4 style migration", () => {
+	it.each([
+		[true, "polished-copy-friendly"],
+		[false, "polished"],
+		["invalid", "polished"],
+	] as const)("maps a present nested Editor flag %s deterministically", (copyFriendly, style) => {
+		const config = mergeConfig({
+			features: { copyFriendly: true },
+			components: {
+				editor: { style: "polished", styles: { polished: { copyFriendly } } },
+			},
+		});
+		expect(config.components.editor.style).toBe(style);
+	});
+
+	it.each([
+		[true, false],
+		[false, true],
+		["invalid", true],
+	] as const)(
+		"maps a present nested message flag %s deterministically",
+		(copyFriendly, enabled) => {
+			const config = mergeConfig({
+				features: { editor: true, copyFriendly: true },
+				components: {
+					userMessages: {
+						enabled: true,
+						style: "framed",
+						styles: { framed: { copyFriendly } },
+					},
+				},
+			});
+			expect(config.components.userMessages.style).toBe("framed");
+			expect(config.components.userMessages.enabled).toBe(enabled);
+		},
+	);
+
+	it("maps the released feature flag to low-rail Editor and native messages", () => {
+		const migrated = mergeConfig({ features: { copyFriendly: true } });
+		expect(migrated.components.editor.style).toBe("polished-copy-friendly");
+		expect(migrated.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+
+		const regular = mergeConfig({ features: { copyFriendly: false } });
+		expect(regular.components.editor.style).toBe("polished");
+		expect(regular.components.userMessages).toMatchObject({ style: "framed", enabled: true });
+	});
+
+	it.each([
+		[undefined, true, "polished-copy-friendly"],
+		[undefined, false, "polished"],
+		[undefined, "invalid", "polished"],
+		["future", true, "polished-copy-friendly"],
+		["future", false, "polished"],
+		["future", "invalid", "polished"],
+	] as const)(
+		"resolves absent or invalid Editor style %s from nested flag %s",
+		(rawStyle, copyFriendly, expected) => {
+			const config = mergeConfig({
+				features: { copyFriendly: copyFriendly !== true },
+				components: {
+					editor: {
+						...(rawStyle === undefined ? {} : { style: rawStyle }),
+						styles: { polished: { copyFriendly } },
+					},
+				},
+			});
+			expect(config.components.editor.style).toBe(expected);
+		},
+	);
+
+	it.each([
+		[undefined, true, false],
+		[undefined, false, true],
+		[undefined, "invalid", true],
+		["future", true, false],
+		["future", false, true],
+		["future", "invalid", true],
+	] as const)(
+		"resolves absent or invalid message style %s from nested flag %s",
+		(rawStyle, copyFriendly, expectedEnabled) => {
+			const config = mergeConfig({
+				features: { editor: true, copyFriendly: copyFriendly !== true },
+				components: {
+					userMessages: {
+						enabled: true,
+						...(rawStyle === undefined ? {} : { style: rawStyle }),
+						styles: { framed: { copyFriendly } },
+					},
+				},
+			});
+			expect(config.components.userMessages).toMatchObject({
+				style: "framed",
+				enabled: expectedEnabled,
+			});
+		},
+	);
+
+	it("treats ambiguous explicit styles without nested flags as authoritative", () => {
+		const config = mergeConfig({
+			features: { editor: true, copyFriendly: true },
+			components: {
+				editor: { style: "polished" },
+				userMessages: { enabled: true, style: "framed" },
+			},
+		});
+		expect(config.components.editor.style).toBe("polished");
+		expect(config.components.userMessages).toMatchObject({ style: "framed", enabled: true });
+	});
+
+	it("uses released flags for absent or invalid styles without nested flags", () => {
+		for (const style of [undefined, "future"] as const) {
+			const config = mergeConfig({
+				features: { editor: true, copyFriendly: true },
+				components: {
+					editor: style === undefined ? {} : { style },
+					userMessages: style === undefined ? { enabled: true } : { enabled: true, style },
+				},
+			});
+			expect(config.components.editor.style).toBe("polished-copy-friendly");
+			expect(config.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+		}
+	});
+
+	it.each([
+		["minimalist", "compact"],
+		["polished-copy-friendly", "labeled"],
+	] as const)("preserves unambiguous explicit styles %s and %s", (editorStyle, messageStyle) => {
+		const config = mergeConfig({
+			features: { copyFriendly: true },
+			components: {
+				editor: {
+					style: editorStyle,
+					styles: { polished: { copyFriendly: true } },
+				},
+				userMessages: {
+					enabled: true,
+					style: messageStyle,
+					styles: { framed: { copyFriendly: true } },
+				},
+			},
+		});
+		expect(config.components.editor.style).toBe(editorStyle);
+		expect(config.components.userMessages).toMatchObject({ style: messageStyle, enabled: true });
+	});
+
+	it("seeds and parses polished metadata independently", () => {
+		const seeded = mergeConfig({ editorMetadataFormat: "$legacy" });
+		expect(seeded.components.editor.styles.polished.metadataFormat).toBe("$legacy");
+		expect(seeded.components.editor.styles["polished-copy-friendly"].metadataFormat).toBe(
+			"$legacy",
+		);
+		const independent = mergeConfig({
+			editorMetadataFormat: "$flat",
+			components: {
+				editor: {
+					styles: {
+						polished: { metadataFormat: "$regular" },
+						"polished-copy-friendly": { metadataFormat: "$low" },
+					},
+				},
+			},
+		});
+		expect(independent.components.editor.styles.polished.metadataFormat).toBe("$regular");
+		expect(independent.components.editor.styles["polished-copy-friendly"].metadataFormat).toBe(
+			"$low",
+		);
+	});
+
+	it("deletes only obsolete owning leaves on explicit style saves", () => {
+		withConfig(
+			{
+				features: { copyFriendly: true },
+				components: {
+					editor: {
+						styles: {
+							polished: { copyFriendly: true, sibling: "keep" },
+							future: { keep: true },
+						},
+					},
+					userMessages: {
+						styles: { framed: { copyFriendly: true, sibling: "keep" }, future: { keep: true } },
+					},
+				},
+			},
+			(path) => {
+				saveEditorComponentPatch({ style: "polished" }, path);
+				const afterEditor = readRaw(path);
+				expect(afterEditor.components.editor.styles.polished).toMatchObject({ sibling: "keep" });
+				expect(afterEditor.components.editor.styles.polished).not.toHaveProperty("copyFriendly");
+				expect(afterEditor.components.userMessages.styles.framed).toMatchObject({
+					copyFriendly: true,
+					sibling: "keep",
+				});
+
+				saveUserMessagesComponentPatch({ style: "framed" }, path);
+				const raw = readRaw(path);
+				expect(raw.components.editor.styles.polished).toMatchObject({ sibling: "keep" });
+				expect(raw.components.editor.styles.polished).not.toHaveProperty("copyFriendly");
+				expect(raw.components.userMessages.styles.framed).toMatchObject({ sibling: "keep" });
+				expect(raw.components.userMessages.styles.framed).not.toHaveProperty("copyFriendly");
+				expect(raw.components.editor.styles.future).toEqual({ keep: true });
+				expect(raw.components.userMessages.styles.future).toEqual({ keep: true });
+				expect(raw.features.copyFriendly).toBe(true);
+				const reloaded = mergeConfig(raw);
+				expect(reloaded.components.editor.style).toBe("polished");
+				expect(reloaded.components.userMessages).toMatchObject({ style: "framed", enabled: false });
+			},
+		);
+	});
+
+	it.each([
+		[
+			"Editor",
+			"editor",
+			(path: string) => saveEditorComponentPatch({ enabled: false }, path),
+			(path: string) => saveEditorComponentPatch({ style: "polished" }, path),
+			"polished",
+		],
+		[
+			"User messages",
+			"userMessages",
+			(path: string) => saveUserMessagesComponentPatch({ enabled: false }, path),
+			(path: string) => saveUserMessagesComponentPatch({ style: "framed" }, path),
+			"framed",
+		],
+		[
+			"Selector borders",
+			"selectorBorders",
+			(path: string) => saveSelectorBordersComponentPatch({ enabled: false }, path),
+			(path: string) => saveSelectorBordersComponentPatch({ style: "zentui" }, path),
+			"zentui",
+		],
+		[
+			"Footer",
+			"footer",
+			(path: string) => saveFooterComponentPatch({ enabled: false }, path),
+			(path: string) => saveFooterComponentPatch({ style: "starship" }, path),
+			"starship",
+		],
+	] as const)(
+		"preserves an unknown raw %s style until its owning style is explicitly selected",
+		(_label, owner, saveUnrelated, saveStyle, expectedStyle) => {
+			withConfig(
+				{
+					components: {
+						[owner]: {
+							style: `future-${owner}`,
+							futureOption: "keep",
+							styles: { future: { keep: true } },
+						},
+					},
+				},
+				(path) => {
+					saveUnrelated(path);
+					const preserved = readRaw(path);
+					expect(preserved.components[owner].style).toBe(`future-${owner}`);
+					expect(preserved.components[owner].futureOption).toBe("keep");
+					expect(preserved.components[owner].styles.future).toEqual({ keep: true });
+
+					saveStyle(path);
+					const replaced = readRaw(path);
+					expect(replaced.components[owner].style).toBe(expectedStyle);
+					expect(replaced.components[owner].futureOption).toBe("keep");
+					expect(replaced.components[owner].styles.future).toEqual({ keep: true });
+				},
+			);
+		},
+	);
 });
 
 describe("canonical snapshot persistence", () => {
@@ -512,8 +782,8 @@ describe("canonical snapshot persistence", () => {
 				expect(raw.components.editor.enabled).toBe(true);
 				expect(raw.components.userMessages.enabled).toBe(false);
 				expect(raw.components.selectorBorders.enabled).toBe(false);
-				expect(raw.components.editor.styles.polished.copyFriendly).toBe(true);
-				expect(raw.components.userMessages.styles.framed.copyFriendly).toBe(true);
+				expect(raw.components.editor.style).toBe("polished-copy-friendly");
+				expect(raw.components.userMessages.enabled).toBe(false);
 				expect(raw.components.editor.colorSource).toBe("terminal");
 				expect(raw.components.selectorBorders.colorSource).toBe("terminal");
 				expect(raw.features).toEqual({ editor: false, copyFriendly: true });
@@ -537,8 +807,8 @@ describe("canonical snapshot persistence", () => {
 			expect(raw.components.editor.enabled).toBe(true);
 			expect(raw.components.userMessages.enabled).toBe(false);
 			expect(raw.components.selectorBorders.enabled).toBe(false);
-			expect(raw.components.editor.styles.polished.copyFriendly).toBe(true);
-			expect(raw.components.userMessages.styles.framed.copyFriendly).toBe(true);
+			expect(raw.components.editor.style).toBe("polished-copy-friendly");
+			expect(raw.components.userMessages.enabled).toBe(false);
 			raw.features.editor = true;
 			raw.features.copyFriendly = false;
 			writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
@@ -546,17 +816,17 @@ describe("canonical snapshot persistence", () => {
 			expect(reloaded.components.editor.enabled).toBe(true);
 			expect(reloaded.components.userMessages.enabled).toBe(false);
 			expect(reloaded.components.selectorBorders.enabled).toBe(false);
-			expect(reloaded.components.editor.styles.polished.copyFriendly).toBe(true);
-			expect(reloaded.components.userMessages.styles.framed.copyFriendly).toBe(true);
+			expect(reloaded.components.editor.style).toBe("polished-copy-friendly");
+			expect(reloaded.components.userMessages.enabled).toBe(false);
 		});
 	});
 
 	it("supports every typed component saver without discarding inactive styles", () => {
 		withConfig(undefined, (path) => {
-			savePolishedEditorStylePatch({ copyFriendly: true, metadataFormat: "$provider" }, path);
+			savePolishedEditorStylePatch({ metadataFormat: "$provider" }, path);
+			savePolishedCopyFriendlyEditorStylePatch({ metadataFormat: "$model" }, path);
 			saveMinimalistEditorStylePatch({ showGit: false, contextGauge: true }, path);
 			saveUserMessagesComponentPatch({ enabled: false, colorSource: "terminal" }, path);
-			saveFramedUserMessagesStylePatch({ copyFriendly: true }, path);
 			saveSelectorBordersComponentPatch({ enabled: false, colorSource: "terminal" }, path);
 			saveFooterComponentPatch({ enabled: false, modelLabel: "name" }, path);
 			saveStarshipFooterStylePatch(
@@ -564,9 +834,11 @@ describe("canonical snapshot persistence", () => {
 				path,
 			);
 			const config = mergeConfig(readRaw(path));
-			expect(config.components.editor.styles.polished).toMatchObject({
-				copyFriendly: true,
+			expect(config.components.editor.styles.polished).toEqual({
 				metadataFormat: "$provider",
+			});
+			expect(config.components.editor.styles["polished-copy-friendly"]).toEqual({
+				metadataFormat: "$model",
 			});
 			expect(config.components.editor.styles.minimalist).toMatchObject({
 				showGit: false,
@@ -576,7 +848,6 @@ describe("canonical snapshot persistence", () => {
 				enabled: false,
 				colorSource: "terminal",
 			});
-			expect(config.components.userMessages.styles.framed.copyFriendly).toBe(true);
 			expect(config.components.selectorBorders).toMatchObject({
 				enabled: false,
 				colorSource: "terminal",
@@ -638,10 +909,7 @@ describe("compatibility saver recipes", () => {
 					{ editor: "terminal", starship: "terminal", userMessages: "terminal" },
 					path,
 				);
-				saveUiFeaturesPatch(
-					{ editor: false, statusLine: false, copyFriendly: true, viewportIndicators: false },
-					path,
-				);
+				saveUiFeaturesPatch({ editor: false, statusLine: false, viewportIndicators: false }, path);
 				saveEditorModelLabel("name", path);
 				saveEditorStyle("minimalist", path);
 				saveMinimalistPatch({ showTimer: false, showGit: false }, path);
@@ -687,8 +955,6 @@ describe("compatibility saver recipes", () => {
 					enabled: false,
 					colorSource: "terminal",
 				});
-				expect(config.components.editor.styles.polished.copyFriendly).toBe(true);
-				expect(config.components.userMessages.styles.framed.copyFriendly).toBe(true);
 				expect(config.components.editor.styles.minimalist).toMatchObject({
 					showTimer: false,
 					showGit: false,
@@ -779,7 +1045,6 @@ describe("mergeConfig", () => {
 		expect(config.features).toEqual({
 			editor: true,
 			statusLine: true,
-			copyFriendly: false,
 			viewportIndicators: true,
 		});
 		expect(config.footerSegments).toEqual({
@@ -1405,7 +1670,6 @@ describe("mergeConfig", () => {
 		expect(mergeConfig({ features: { editor: false } }).features).toEqual({
 			editor: false,
 			statusLine: true,
-			copyFriendly: false,
 			viewportIndicators: true,
 		});
 		expect(
@@ -1420,12 +1684,11 @@ describe("mergeConfig", () => {
 		).toEqual({
 			editor: true,
 			statusLine: false,
-			copyFriendly: true,
 			viewportIndicators: false,
 		});
 		expect(
 			mergeConfig({ features: { copyFriendly: "on", viewportIndicators: "off" } }).features,
-		).toMatchObject({ copyFriendly: false, viewportIndicators: true });
+		).toEqual({ editor: true, statusLine: true, viewportIndicators: true });
 	});
 
 	it("accepts valid footer segment preferences and ignores invalid values", () => {
@@ -1620,7 +1883,6 @@ describe("mergeConfig", () => {
 			expect(config.features).toEqual({
 				editor: true,
 				statusLine: false,
-				copyFriendly: false,
 				viewportIndicators: false,
 			});
 			expect(raw.unknown).toBe(true);
@@ -1643,7 +1905,6 @@ describe("mergeConfig", () => {
 			expect(config.features).toEqual({
 				editor: false,
 				statusLine: true,
-				copyFriendly: false,
 				viewportIndicators: true,
 			});
 			expect(Object.keys(raw)).toEqual(["components"]);

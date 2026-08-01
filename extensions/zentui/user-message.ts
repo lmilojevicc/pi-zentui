@@ -1,21 +1,85 @@
-import { type Theme, type ThemeColor, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import {
-	Markdown,
-	type MarkdownTheme,
-	truncateToWidth,
-	visibleWidth,
-} from "@earendil-works/pi-tui";
+import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import type { ZentuiConfig } from "./config";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
-import {
-	EDITOR_ACCENT_FALLBACK,
-	EDITOR_BORDER_FALLBACK,
-	renderStyleForSourceOrFallback,
-} from "./style";
+import { renderUserMessageStyle, userMessageStyleCacheKey } from "./user-message-styles";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+const ESC = "\x1b";
+const BEL = "\x07";
+const C1_OSC = "\x9d";
+const C1_ST = "\x9c";
+
+function oscStartLength(text: string, index: number): number {
+	if (text[index] === C1_OSC) return 1;
+	return text[index] === ESC && text[index + 1] === "]" ? 2 : 0;
+}
+
+type OscBoundary =
+	| { kind: "terminator"; index: number; length: number }
+	| { kind: "start"; index: number };
+
+function findOscBoundary(text: string, payloadStart: number): OscBoundary | undefined {
+	for (let index = payloadStart; index < text.length; index += 1) {
+		if (oscStartLength(text, index) > 0) return { kind: "start", index };
+		if (text[index] === BEL || text[index] === C1_ST) {
+			return { kind: "terminator", index, length: 1 };
+		}
+		if (text[index] === ESC && text[index + 1] === "\\") {
+			return { kind: "terminator", index, length: 2 };
+		}
+	}
+	return undefined;
+}
+
+function isCompleteOsc133Payload(payload: string): boolean {
+	return payload === "133" || payload.startsWith("133;");
+}
+
+function incompleteOsc133PrefixLength(payload: string): number {
+	if (payload.length > 0 && "133".startsWith(payload)) return payload.length;
+	if (!payload.startsWith("133;")) return 0;
+
+	let length = 4;
+	if (/^[A-D]$/.test(payload[length] ?? "")) length += 1;
+	if (payload[length] === ";") length += 1;
+	return length;
+}
+
+function stripOsc133Sequences(text: string): string {
+	let output = "";
+	let index = 0;
+	while (index < text.length) {
+		const startLength = oscStartLength(text, index);
+		if (startLength === 0) {
+			output += text[index];
+			index += 1;
+			continue;
+		}
+
+		const payloadStart = index + startLength;
+		const boundary = findOscBoundary(text, payloadStart);
+		const payloadEnd = boundary?.index ?? text.length;
+		const payload = text.slice(payloadStart, payloadEnd);
+		if (boundary?.kind === "terminator") {
+			const sequenceEnd = boundary.index + boundary.length;
+			if (!isCompleteOsc133Payload(payload)) output += text.slice(index, sequenceEnd);
+			index = sequenceEnd;
+			continue;
+		}
+
+		// An unterminated OSC introducer must not remain open and consume a later
+		// Zentui prompt marker. Preserve its human-readable payload, but remove a
+		// recognized (including partial) OSC 133 command prefix. A nested OSC start
+		// is processed independently on the next loop iteration.
+		const prefixLength = incompleteOsc133PrefixLength(payload);
+		output += payload.slice(prefixLength);
+		index = payloadEnd;
+		if (!boundary) break;
+	}
+	return output;
+}
 
 type PatchableUserMessagePrototype = {
 	children?: unknown[];
@@ -68,83 +132,6 @@ function getCachedMarkdownText(instance: object): string | undefined {
 	return text;
 }
 
-function getUserMessageConfigKey(config: ZentuiConfig): string {
-	return [
-		config.components.userMessages.style,
-		config.components.userMessages.styles.framed.copyFriendly ? "copy" : "chrome",
-		config.components.userMessages.colorSource,
-		config.colors.editorAccent ?? "",
-		config.colors.editorBorder ?? "",
-		config.icons.rail,
-	].join("\0");
-}
-
-function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): string {
-	if (!theme) return text;
-	try {
-		return theme.fg(color, text);
-	} catch {
-		return text;
-	}
-}
-
-function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
-	return {
-		heading: (text) => themeFg(theme, "mdHeading", text),
-		link: (text) => themeFg(theme, "mdLink", text),
-		linkUrl: (text) => themeFg(theme, "mdLinkUrl", text),
-		code: (text) => themeFg(theme, "mdCode", text),
-		codeBlock: (text) => themeFg(theme, "mdCodeBlock", text),
-		codeBlockBorder: (text) => themeFg(theme, "mdCodeBlockBorder", text),
-		quote: (text) => themeFg(theme, "mdQuote", text),
-		quoteBorder: (text) => themeFg(theme, "mdQuoteBorder", text),
-		hr: (text) => themeFg(theme, "mdHr", text),
-		listBullet: (text) => themeFg(theme, "mdListBullet", text),
-		bold: (text) => (theme ? theme.bold(text) : text),
-		italic: (text) => (theme ? theme.italic(text) : text),
-		underline: (text) => (theme ? theme.underline(text) : text),
-		strikethrough: (text) => (theme ? theme.strikethrough(text) : text),
-	};
-}
-
-function fillLine(content: string, width: number): string {
-	const truncated = truncateToWidth(content, Math.max(0, width), "");
-	const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
-	return `${truncated}${pad}`;
-}
-
-function renderPromptBoxRail(theme: Theme | undefined, config: ZentuiConfig): string {
-	if (config.components.userMessages.styles.framed.copyFriendly) return "";
-	const railGlyph = config.icons.rail;
-
-	return `${
-		theme
-			? renderStyleForSourceOrFallback(
-					theme,
-					config.components.userMessages.colorSource,
-					config.colors.editorAccent,
-					EDITOR_ACCENT_FALLBACK,
-					railGlyph,
-				)
-			: railGlyph
-	} `;
-}
-
-function renderPromptBoxLine(
-	line: string,
-	width: number,
-	theme: Theme | undefined,
-	config: ZentuiConfig,
-): string {
-	if (width <= 0) return "";
-	const rail = renderPromptBoxRail(theme, config);
-	const contentWidth = Math.max(0, width - visibleWidth(rail));
-	const content = config.components.userMessages.styles.framed.copyFriendly
-		? truncateToWidth(line, contentWidth, "")
-		: fillLine(line, contentWidth);
-	return truncateToWidth(`${rail}${content}`, width, "");
-}
-
 function renderZentuiUserMessage(
 	instance: PatchableUserMessagePrototype,
 	width: number,
@@ -155,9 +142,7 @@ function renderZentuiUserMessage(
 
 	const text = getCachedMarkdownText(instance);
 	if (text === undefined) return undefined;
-	if (width <= 0) return [""];
-
-	const configKey = getUserMessageConfigKey(config);
+	const configKey = userMessageStyleCacheKey(config);
 	const cached = userMessageRenderCache.get(instance);
 	if (
 		cached?.hasMarkdownText &&
@@ -169,30 +154,12 @@ function renderZentuiUserMessage(
 		return cached.renderedLines;
 	}
 
-	const railWidth = visibleWidth(renderPromptBoxRail(theme, config));
-	const contentWidth = Math.max(1, width - railWidth);
-	const renderer = new Markdown(text, 0, 0, makeMarkdownTheme(theme), {
-		color: (content) => themeFg(theme, "userMessageText", content),
+	const lines = renderUserMessageStyle({
+		text: stripOsc133Sequences(text),
+		width,
+		theme,
+		config,
 	});
-	const body = renderer.render(contentWidth);
-	const contentLines = body.length > 0 ? body : [""];
-	const border = theme
-		? renderStyleForSourceOrFallback(
-				theme,
-				config.components.userMessages.colorSource,
-				config.colors.editorBorder,
-				EDITOR_BORDER_FALLBACK,
-				"─".repeat(width),
-			)
-		: "─".repeat(width);
-	const lines = [
-		truncateToWidth(border, width, ""),
-		renderPromptBoxLine("", width, theme, config),
-		...contentLines.map((line) => renderPromptBoxLine(line, width, theme, config)),
-		renderPromptBoxLine("", width, theme, config),
-		truncateToWidth(border, width, ""),
-	];
-
 	userMessageRenderCache.set(instance, {
 		hasMarkdownText: true,
 		text,
@@ -205,6 +172,9 @@ function renderZentuiUserMessage(
 }
 
 function withPromptZoneMarkers(lines: string[]): string[] {
+	if (lines.length === 1) {
+		return [`${OSC133_ZONE_START}${lines[0]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`];
+	}
 	const markedLines = [...lines];
 	markedLines[0] = OSC133_ZONE_START + markedLines[0];
 	markedLines[markedLines.length - 1] =
@@ -241,15 +211,18 @@ export function installUserMessageStyle(
 			({ predecessor, receiver, args }) => {
 				const width = args[0];
 				if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
-				const lines = renderZentuiUserMessage(
-					receiver as PatchableUserMessagePrototype,
-					width,
-					getTheme(),
-					getConfig(),
-				);
-				if (!lines) return Reflect.apply(predecessor, receiver, args);
-				if (lines.length === 0) return lines;
-				return withPromptZoneMarkers(lines);
+				try {
+					const lines = renderZentuiUserMessage(
+						receiver as PatchableUserMessagePrototype,
+						width,
+						getTheme(),
+						getConfig(),
+					);
+					if (!lines) return Reflect.apply(predecessor, receiver, args);
+					return lines.length ? withPromptZoneMarkers(lines) : lines;
+				} catch {
+					return Reflect.apply(predecessor, receiver, args);
+				}
 			},
 		);
 	} catch (error) {

@@ -33,8 +33,8 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
-export type EditorStyle = "polished" | "minimalist";
-export type UserMessageStyle = "framed";
+export type EditorStyle = "polished" | "polished-copy-friendly" | "minimalist";
+export type UserMessageStyle = "framed" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
 export type FooterStyle = "starship";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
@@ -73,7 +73,6 @@ export type ColorSourcesConfig = {
 export type UiFeaturesConfig = {
 	editor: boolean;
 	statusLine: boolean;
-	copyFriendly: boolean;
 	viewportIndicators: boolean;
 };
 
@@ -104,7 +103,10 @@ export type FixedEditorConfig = {
 };
 
 export type PolishedEditorStyleConfig = {
-	copyFriendly: boolean;
+	metadataFormat: string;
+};
+
+export type PolishedCopyFriendlyEditorStyleConfig = {
 	metadataFormat: string;
 };
 
@@ -135,13 +137,14 @@ export type EditorComponentConfig = {
 	viewportIndicators: boolean;
 	styles: {
 		polished: PolishedEditorStyleConfig;
+		"polished-copy-friendly": PolishedCopyFriendlyEditorStyleConfig;
 		minimalist: MinimalistEditorStyleConfig;
 	};
 };
 
-export type FramedUserMessageStyleConfig = {
-	copyFriendly: boolean;
-};
+export type FramedUserMessageStyleConfig = Record<string, never>;
+export type CompactUserMessageStyleConfig = Record<string, never>;
+export type LabeledUserMessageStyleConfig = Record<string, never>;
 
 export type UserMessagesComponentConfig = {
 	enabled: boolean;
@@ -149,6 +152,8 @@ export type UserMessagesComponentConfig = {
 	colorSource: ColorSource;
 	styles: {
 		framed: FramedUserMessageStyleConfig;
+		compact: CompactUserMessageStyleConfig;
+		labeled: LabeledUserMessageStyleConfig;
 	};
 };
 
@@ -406,7 +411,8 @@ const defaultComponents: ComponentsConfig = {
 		modelLabel: "id",
 		viewportIndicators: true,
 		styles: {
-			polished: { copyFriendly: false, metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			polished: { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			"polished-copy-friendly": { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
 			minimalist: defaultMinimalistStyle,
 		},
 	},
@@ -414,7 +420,7 @@ const defaultComponents: ComponentsConfig = {
 		enabled: true,
 		style: "framed",
 		colorSource: "theme",
-		styles: { framed: { copyFriendly: false } },
+		styles: { framed: {}, compact: {}, labeled: {} },
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
@@ -471,7 +477,6 @@ export const defaultConfig: PolishedTuiConfig = {
 	features: {
 		editor: true,
 		statusLine: true,
-		copyFriendly: false,
 		viewportIndicators: true,
 	},
 	footerSegments: defaultFooterSegments,
@@ -516,7 +521,9 @@ function parseEditorModelLabel(
 }
 
 function parseEditorStyle(value: unknown): EditorStyle {
-	if (value === "polished" || value === "minimalist") return value;
+	if (value === "polished" || value === "polished-copy-friendly" || value === "minimalist") {
+		return value;
+	}
 	return defaultConfig.editorStyle;
 }
 
@@ -740,12 +747,7 @@ function isColorSourceKey(value: string): value is keyof ColorSourcesConfig {
 }
 
 function isUiFeatureKey(value: string): value is keyof UiFeaturesConfig {
-	return (
-		value === "editor" ||
-		value === "statusLine" ||
-		value === "copyFriendly" ||
-		value === "viewportIndicators"
-	);
+	return value === "editor" || value === "statusLine" || value === "viewportIndicators";
 }
 
 function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig {
@@ -910,10 +912,6 @@ function parseColorSource(value: unknown, fallback: ColorSource): ColorSource {
 	return value === "theme" || value === "terminal" ? value : fallback;
 }
 
-function parseUserMessageStyle(value: unknown): UserMessageStyle {
-	return value === "framed" ? value : "framed";
-}
-
 function parseSelectorBorderStyle(value: unknown): SelectorBorderStyle {
 	return value === "zentui" ? value : "zentui";
 }
@@ -1011,11 +1009,65 @@ function resolveFixedEditor(canonical: unknown, legacy: unknown): FixedEditorCon
 	});
 }
 
+function legacyCopyFriendly(record: ConfigRecord): boolean {
+	return record.copyFriendly === true;
+}
+
+function resolveEditorStyle(
+	editor: ConfigRecord,
+	polished: ConfigRecord,
+	features: ConfigRecord,
+): EditorStyle {
+	const rawStyle = editor.style;
+	if (rawStyle === "minimalist" || rawStyle === "polished-copy-friendly") return rawStyle;
+	if (rawStyle === "polished") {
+		return hasOwn(polished, "copyFriendly") && legacyCopyFriendly(polished)
+			? "polished-copy-friendly"
+			: "polished";
+	}
+	if (hasOwn(polished, "copyFriendly")) {
+		return legacyCopyFriendly(polished) ? "polished-copy-friendly" : "polished";
+	}
+	return legacyCopyFriendly(features) ? "polished-copy-friendly" : "polished";
+}
+
+function resolveUserMessagesSelection(
+	userMessages: ConfigRecord,
+	framed: ConfigRecord,
+	features: ConfigRecord,
+): Pick<UserMessagesComponentConfig, "enabled" | "style"> {
+	const normalEnabled = parseBoolean(
+		resolvedValue(userMessages, "enabled", features, "editor"),
+		defaultComponents.userMessages.enabled,
+	);
+	const rawStyle = userMessages.style;
+	if (rawStyle === "compact" || rawStyle === "labeled") {
+		return { style: rawStyle, enabled: normalEnabled };
+	}
+	if (rawStyle === "framed") {
+		return {
+			style: "framed",
+			enabled: hasOwn(framed, "copyFriendly") && legacyCopyFriendly(framed) ? false : normalEnabled,
+		};
+	}
+	if (hasOwn(framed, "copyFriendly")) {
+		return {
+			style: "framed",
+			enabled: legacyCopyFriendly(framed) ? false : normalEnabled,
+		};
+	}
+	return {
+		style: "framed",
+		enabled: legacyCopyFriendly(features) ? false : normalEnabled,
+	};
+}
+
 function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
 	const editorStyles = recordValue(editor.styles);
 	const polished = recordValue(editorStyles.polished);
+	const polishedCopyFriendly = recordValue(editorStyles["polished-copy-friendly"]);
 	const minimalist = recordValue(editorStyles.minimalist);
 	const userMessages = recordValue(components.userMessages);
 	const userMessageStyles = recordValue(userMessages.styles);
@@ -1039,6 +1091,13 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	);
 	const compactFormat = resolvedValue(starship, "compactFormat", config, "compactFooterFormat");
 	const metadataFormat = resolvedValue(polished, "metadataFormat", config, "editorMetadataFormat");
+	const lowRailMetadataFormat = resolvedValue(
+		polishedCopyFriendly,
+		"metadataFormat",
+		polished,
+		"metadataFormat",
+	);
+	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
 		editor: {
@@ -1046,7 +1105,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				resolvedValue(editor, "enabled", features, "editor"),
 				defaultComponents.editor.enabled,
 			),
-			style: parseEditorStyle(resolvedValue(editor, "style")),
+			style: resolveEditorStyle(editor, polished, features),
 			colorSource: parseColorSource(
 				resolvedValue(editor, "colorSource", colorSources, "editor"),
 				defaultComponents.editor.colorSource,
@@ -1064,11 +1123,13 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			styles: {
 				polished: {
-					copyFriendly: parseBoolean(
-						resolvedValue(polished, "copyFriendly", features, "copyFriendly"),
-						defaultComponents.editor.styles.polished.copyFriendly,
-					),
 					metadataFormat: parseNonEmptyString(metadataFormat, DEFAULT_EDITOR_METADATA_FORMAT),
+				},
+				"polished-copy-friendly": {
+					metadataFormat: parseNonEmptyString(
+						lowRailMetadataFormat ?? config.editorMetadataFormat,
+						DEFAULT_EDITOR_METADATA_FORMAT,
+					),
 				},
 				minimalist: {
 					pathDisplay:
@@ -1094,22 +1155,16 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			},
 		},
 		userMessages: {
-			enabled: parseBoolean(
-				resolvedValue(userMessages, "enabled", features, "editor"),
-				defaultComponents.userMessages.enabled,
-			),
-			style: parseUserMessageStyle(resolvedValue(userMessages, "style")),
+			enabled: userMessagesSelection.enabled,
+			style: userMessagesSelection.style,
 			colorSource: parseColorSource(
 				resolvedValue(userMessages, "colorSource", colorSources, "userMessages"),
 				defaultComponents.userMessages.colorSource,
 			),
 			styles: {
-				framed: {
-					copyFriendly: parseBoolean(
-						resolvedValue(framed, "copyFriendly", features, "copyFriendly"),
-						defaultComponents.userMessages.styles.framed.copyFriendly,
-					),
-				},
+				framed: {},
+				compact: {},
+				labeled: {},
 			},
 		},
 		selectorBorders: {
@@ -1202,7 +1257,6 @@ function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
 		features: {
 			editor: config.components.editor.enabled,
 			statusLine: config.components.footer.enabled,
-			copyFriendly: config.components.editor.styles.polished.copyFriendly,
 			viewportIndicators: config.components.editor.viewportIndicators,
 		},
 		fixedEditor: config.layout.fixedEditor,
@@ -1270,16 +1324,91 @@ function overlayKnown(raw: unknown, known: unknown): unknown {
 	return output;
 }
 
+type ComponentStyleOwner = keyof ComponentsConfig;
+
+type PreservedStyleIds = Partial<Record<ComponentStyleOwner, string>>;
+
+function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
+	const components = recordValue(record.components);
+	const editorStyle = recordValue(components.editor).style;
+	const userMessageStyle = recordValue(components.userMessages).style;
+	const selectorBorderStyle = recordValue(components.selectorBorders).style;
+	const footerStyle = recordValue(components.footer).style;
+	return {
+		editor:
+			typeof editorStyle === "string" &&
+			editorStyle !== "polished" &&
+			editorStyle !== "polished-copy-friendly" &&
+			editorStyle !== "minimalist"
+				? editorStyle
+				: undefined,
+		userMessages:
+			typeof userMessageStyle === "string" &&
+			userMessageStyle !== "framed" &&
+			userMessageStyle !== "compact" &&
+			userMessageStyle !== "labeled"
+				? userMessageStyle
+				: undefined,
+		selectorBorders:
+			typeof selectorBorderStyle === "string" && selectorBorderStyle !== "zentui"
+				? selectorBorderStyle
+				: undefined,
+		footer: typeof footerStyle === "string" && footerStyle !== "starship" ? footerStyle : undefined,
+	};
+}
+
+function restoreUnknownSelectedStyleIds(
+	record: ConfigRecord,
+	preserved: PreservedStyleIds,
+	replacedStyle?: ComponentStyleOwner,
+): void {
+	const components = recordValue(record.components);
+	for (const [owner, style] of Object.entries(preserved) as [ComponentStyleOwner, string][]) {
+		if (style === undefined || owner === replacedStyle) continue;
+		const component = recordValue(components[owner]);
+		component.style = style;
+		components[owner] = component;
+	}
+	record.components = components;
+}
+
 function saveComponentsMutation(
 	update: (components: ComponentsConfig) => void,
 	path: string,
+	cleanupRaw?: (record: ConfigRecord) => void,
+	replacedStyle?: ComponentStyleOwner,
 ): PolishedTuiConfig {
 	return mutateConfig(path, (record) => {
+		const preservedStyles = unknownSelectedStyleIds(record);
 		const components = mergeConfig(record).components;
 		update(components);
 		const normalized = resolveComponents({ components });
 		record.components = overlayKnown(record.components, normalized);
+		restoreUnknownSelectedStyleIds(record, preservedStyles, replacedStyle);
+		cleanupRaw?.(record);
 	});
+}
+
+function deleteLegacyEditorCopyFriendly(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const editor = components.editor;
+	if (!isRecord(editor)) return;
+	const styles = editor.styles;
+	if (!isRecord(styles)) return;
+	const polished = styles.polished;
+	if (isRecord(polished)) delete polished.copyFriendly;
+}
+
+function deleteLegacyMessageCopyFriendly(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const userMessages = components.userMessages;
+	if (!isRecord(userMessages)) return;
+	const styles = userMessages.styles;
+	if (!isRecord(styles)) return;
+	const framed = styles.framed;
+	if (isRecord(framed)) delete framed.copyFriendly;
 }
 
 function applyEditorComponentPatch(
@@ -1313,6 +1442,8 @@ export function saveEditorComponentPatch(
 	return saveComponentsMutation(
 		(components) => applyEditorComponentPatch(components.editor, patch),
 		path,
+		patch.style !== undefined ? deleteLegacyEditorCopyFriendly : undefined,
+		patch.style !== undefined ? "editor" : undefined,
 	);
 }
 
@@ -1322,7 +1453,16 @@ export function savePolishedEditorStylePatch(
 ): PolishedTuiConfig {
 	return saveComponentsMutation((components) => {
 		const style = components.editor.styles.polished;
-		if (patch.copyFriendly !== undefined) style.copyFriendly = patch.copyFriendly;
+		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+	}, path);
+}
+
+export function savePolishedCopyFriendlyEditorStylePatch(
+	patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const style = components.editor.styles["polished-copy-friendly"];
 		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
 	}, path);
 }
@@ -1357,48 +1497,52 @@ export function saveUserMessagesComponentPatch(
 	patch: Partial<Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const component = components.userMessages;
-		if (patch.enabled !== undefined) component.enabled = patch.enabled;
-		if (patch.style !== undefined) component.style = patch.style;
-		if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
-	}, path);
-}
-
-export function saveFramedUserMessagesStylePatch(
-	patch: Partial<FramedUserMessageStyleConfig>,
-	path = configPath,
-): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		if (patch.copyFriendly !== undefined) {
-			components.userMessages.styles.framed.copyFriendly = patch.copyFriendly;
-		}
-	}, path);
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.userMessages;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+		},
+		path,
+		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,
+		patch.style !== undefined ? "userMessages" : undefined,
+	);
 }
 
 export function saveSelectorBordersComponentPatch(
 	patch: Partial<SelectorBordersComponentConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const component = components.selectorBorders;
-		if (patch.enabled !== undefined) component.enabled = patch.enabled;
-		if (patch.style !== undefined) component.style = patch.style;
-		if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
-	}, path);
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.selectorBorders;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+		},
+		path,
+		undefined,
+		patch.style !== undefined ? "selectorBorders" : undefined,
+	);
 }
 
 export function saveFooterComponentPatch(
 	patch: Partial<Pick<FooterComponentConfig, "enabled" | "style" | "colorSource" | "modelLabel">>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation((components) => {
-		const component = components.footer;
-		if (patch.enabled !== undefined) component.enabled = patch.enabled;
-		if (patch.style !== undefined) component.style = patch.style;
-		if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
-		if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
-	}, path);
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.footer;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
+		},
+		path,
+		undefined,
+		patch.style !== undefined ? "footer" : undefined,
+	);
 }
 
 function applyStarshipStylePatch(
@@ -1494,10 +1638,6 @@ export function saveUiFeaturesPatch(
 		if (valid.statusLine !== undefined) components.footer.enabled = valid.statusLine;
 		if (valid.viewportIndicators !== undefined) {
 			components.editor.viewportIndicators = valid.viewportIndicators;
-		}
-		if (valid.copyFriendly !== undefined) {
-			components.editor.styles.polished.copyFriendly = valid.copyFriendly;
-			components.userMessages.styles.framed.copyFriendly = valid.copyFriendly;
 		}
 	}, path);
 }

@@ -23,7 +23,6 @@ import {
 	type FixedEditorConfig,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
-	type FramedUserMessageStyleConfig,
 	type GitBranchConfig,
 	type GitBranchMaxLength,
 	type GitCommitConfig,
@@ -37,11 +36,11 @@ import {
 	type MinimalistConfig,
 	type ModelLabelSource,
 	type PathDisplayConfig,
-	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
 	type UiFeaturesConfig,
+	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
@@ -64,7 +63,18 @@ const pathDepthValues = ["0", "1", "2", "3", "4", "5"];
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
 const modelLabelValues: ModelLabelSource[] = ["id", "name"];
-const editorStyleValues: EditorStyle[] = ["polished", "minimalist"];
+const editorStyleLabels: Record<EditorStyle, string> = {
+	polished: "Polished",
+	"polished-copy-friendly": "Polished (copy-friendly)",
+	minimalist: "Minimalist",
+};
+const editorStyleValues = Object.values(editorStyleLabels);
+const userMessageStyleLabels: Record<UserMessageStyle, string> = {
+	framed: "Framed",
+	compact: "Compact",
+	labeled: "Labeled",
+};
+const userMessageStyleValues = Object.values(userMessageStyleLabels);
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
@@ -102,22 +112,13 @@ type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	setEditorComponent?: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
-	setPolishedEditorStyle?: (
-		patch: Partial<PolishedEditorStyleConfig>,
-		ctx: ExtensionContext,
-	) => void;
 	setMinimalist?: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent?: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
-	setFramedUserMessagesStyle?: (
-		patch: Partial<FramedUserMessageStyleConfig>,
-		ctx: ExtensionContext,
-	) => void;
 	setSelectorBordersComponent?: (
 		patch: Partial<SelectorBordersComponentConfig>,
 		ctx: ExtensionContext,
 	) => void;
 	setFooterComponent?: (patch: FooterPatch, ctx: ExtensionContext) => void;
-	setCopyFriendlyRecipe?: (enabled: boolean, ctx: ExtensionContext) => void;
 	setFooterSegments: (patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) => void;
 	setFooterFormat: (value: string, ctx: ExtensionContext) => void;
 	setResponsiveFooter?: (
@@ -207,18 +208,9 @@ const directCommandSuggestions = [
 	"messages enable",
 	"messages disable",
 	"messages toggle",
-	"editor-copy-friendly enable",
-	"editor-copy-friendly disable",
-	"editor-copy-friendly toggle",
-	"message-copy-friendly enable",
-	"message-copy-friendly disable",
-	"message-copy-friendly toggle",
 	"statusline enable",
 	"statusline disable",
 	"statusline toggle",
-	"copy-friendly enable",
-	"copy-friendly disable",
-	"copy-friendly toggle",
 	"viewport-indicators enable",
 	"viewport-indicators disable",
 	"viewport-indicators toggle",
@@ -239,6 +231,22 @@ type ThirdPartyStatusSettingKind = "placement" | "colorMode";
 function featureValue(enabled: boolean): FeatureState {
 	return enabled ? "enabled" : "disabled";
 }
+function editorStyleLabel(style: EditorStyle): string {
+	return editorStyleLabels[style];
+}
+function editorStyleId(label: string): EditorStyle | undefined {
+	return (Object.entries(editorStyleLabels) as Array<[EditorStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
+function userMessageStyleLabel(style: UserMessageStyle): string {
+	return userMessageStyleLabels[style];
+}
+function userMessageStyleId(label: string): UserMessageStyle | undefined {
+	return (Object.entries(userMessageStyleLabels) as Array<[UserMessageStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
 function isFeatureState(value: string): value is FeatureState {
 	return value === "enabled" || value === "disabled";
 }
@@ -258,60 +266,42 @@ function normalizedWords(args: string): string[] {
 	return args.trim().toLowerCase().replaceAll(/[_-]+/g, " ").split(/\s+/g).filter(Boolean);
 }
 
-type DirectOperation =
-	| { kind: "editor" | "messages" | "footer" | "viewport"; enabled: boolean }
-	| { kind: "copyRecipe" | "editorCopy" | "messageCopy"; enabled: boolean };
+type DirectOperation = {
+	kind: "editor" | "messages" | "footer" | "viewport";
+	enabled: boolean;
+};
 
 function parseDirectOperation(
 	args: string,
 	config: PolishedTuiConfig,
 ): DirectOperation | undefined {
-	const raw = args.trim().toLowerCase();
 	const words = normalizedWords(args);
 	const action = parseAction(words);
 	if (!action) return undefined;
-	// Component-specific copy commands must win before the generic word-based aliases.
-	if (/^(editor[-_ ]copy[-_ ]friendly)\b/.test(raw)) {
-		return {
-			kind: "editorCopy",
-			enabled: actionValue(action, config.components.editor.styles.polished.copyFriendly),
-		};
-	}
-	if (/^(message[-_ ]copy[-_ ]friendly)\b/.test(raw)) {
-		return {
-			kind: "messageCopy",
-			enabled: actionValue(action, config.components.userMessages.styles.framed.copyFriendly),
-		};
-	}
-	const has = (word: string) => words.includes(word);
-	if (has("viewportindicators") || (has("viewport") && has("indicators"))) {
+	const actionWords = new Set(["enable", "enabled", "on", "disable", "disabled", "off", "toggle"]);
+	const target = words.filter((word) => !actionWords.has(word)).join(" ");
+	if (target === "viewportindicators" || target === "viewport indicators") {
 		return {
 			kind: "viewport",
 			enabled: actionValue(action, config.components.editor.viewportIndicators),
 		};
 	}
-	if (has("messages") || (has("user") && has("messages"))) {
+	if (target === "messages" || target === "user messages") {
 		return {
 			kind: "messages",
 			enabled: actionValue(action, config.components.userMessages.enabled),
 		};
 	}
-	if (has("editor")) {
+	if (target === "editor") {
 		return {
 			kind: "editor",
 			enabled: actionValue(action, config.components.editor.enabled),
 		};
 	}
-	if (has("footer") || has("statusline") || has("status")) {
+	if (["footer", "statusline", "status", "status line"].includes(target)) {
 		return {
 			kind: "footer",
 			enabled: actionValue(action, config.components.footer.enabled),
-		};
-	}
-	if (has("copyfriendly") || has("copy")) {
-		return {
-			kind: "copyRecipe",
-			enabled: actionValue(action, config.features.copyFriendly),
 		};
 	}
 	return undefined;
@@ -359,7 +349,7 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|copy-friendly|editor-copy-friendly|message-copy-friendly|viewport-indicators|fixed-editor] [enable|disable|toggle], /zentui [messages|user-messages|layout], or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators|fixed-editor] [enable|disable|toggle], /zentui [messages|user-messages|layout], or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -410,7 +400,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "editorStyle",
 			label: "Editor style",
 			description: "Use polished rails or a compact minimalist frame.",
-			currentValue: editor.style,
+			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
 		{
@@ -439,18 +429,6 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			label: "Editor viewport indicators",
 			description: "Show Pi's native wrapped-row counts in editor borders.",
 			currentValue: featureValue(editor.viewportIndicators),
-			values: featureStateValues,
-		},
-	];
-}
-
-function buildPolishedEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
-	return [
-		{
-			id: "polishedCopyFriendly",
-			label: "Copy-friendly",
-			description: "Hide editor rail glyphs for cleaner native terminal selection.",
-			currentValue: featureValue(config.components.editor.styles.polished.copyFriendly),
 			values: featureStateValues,
 		},
 	];
@@ -525,8 +503,8 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "userMessagesStyle",
 			label: "Message style",
 			description: "Choose the previous-message style.",
-			currentValue: messages.style,
-			values: ["framed"],
+			currentValue: userMessageStyleLabel(messages.style),
+			values: userMessageStyleValues,
 		},
 		{
 			id: "userMessagesColorSource",
@@ -534,17 +512,6 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Use Pi theme colors or terminal palette styles.",
 			currentValue: messages.colorSource,
 			values: colorSourceValues,
-		},
-	];
-}
-function buildFramedUserMessageStyleItems(config: PolishedTuiConfig): SettingItem[] {
-	return [
-		{
-			id: "framedUserMessagesCopyFriendly",
-			label: "Copy-friendly",
-			description: "Hide previous-message rail glyphs.",
-			currentValue: featureValue(config.components.userMessages.styles.framed.copyFriendly),
-			values: featureStateValues,
 		},
 	];
 }
@@ -821,12 +788,12 @@ function buildSectionItems(
 		case "editor":
 			return [
 				...buildEditorItems(config),
-				...(config.components.editor.style === "polished"
-					? buildPolishedEditorStyleItems(config)
-					: buildMinimalistEditorStyleItems(config)),
+				...(config.components.editor.style === "minimalist"
+					? buildMinimalistEditorStyleItems(config)
+					: []),
 			];
 		case "userMessages":
-			return [...buildUserMessagesItems(config), ...buildFramedUserMessageStyleItems(config)];
+			return buildUserMessagesItems(config);
 		case "layout":
 			return buildLayoutItems(config);
 		case "footer":
@@ -959,18 +926,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							result = setEditor({ viewportIndicators: direct.enabled }, ctx);
 							label = "Editor viewport indicators";
 							break;
-						case "copyRecipe":
-							deps.setCopyFriendlyRecipe?.(direct.enabled, ctx);
-							label = "Copy-friendly mode";
-							break;
-						case "editorCopy":
-							deps.setPolishedEditorStyle?.({ copyFriendly: direct.enabled }, ctx);
-							label = "Editor copy-friendly";
-							break;
-						case "messageCopy":
-							deps.setFramedUserMessagesStyle?.({ copyFriendly: direct.enabled }, ctx);
-							label = "Message copy-friendly";
-							break;
 					}
 					deps.requestRender();
 					if (ctx.hasUI)
@@ -1037,11 +992,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									});
 									return;
 								}
-								if (
-									id === "editorStyle" &&
-									(newValue === "polished" || newValue === "minimalist")
-								) {
-									setEditor({ style: newValue }, ctx);
+								const selectedEditorStyle =
+									id === "editorStyle" ? editorStyleId(newValue) : undefined;
+								if (selectedEditorStyle) {
+									setEditor({ style: selectedEditorStyle }, ctx);
 									settingsList = makeSettingsList("editorStyle");
 									notifyChange("Editor style", newValue);
 									return;
@@ -1073,13 +1027,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									notifyChange("Editor viewport indicators", newValue);
 									return;
 								}
-								if (id === "polishedCopyFriendly" && enabled !== undefined) {
-									deps.setPolishedEditorStyle?.({ copyFriendly: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Copy-friendly", newValue);
-									return;
-								}
-
 								if (id.startsWith("minimalist") && deps.setMinimalist) {
 									if (
 										id === "minimalistPathDisplay" &&
@@ -1124,9 +1071,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									notifyChange("User messages", newValue);
 									return;
 								}
-								if (id === "userMessagesStyle" && newValue === "framed") {
-									setMessages({ style: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
+								const selectedMessageStyle =
+									id === "userMessagesStyle" ? userMessageStyleId(newValue) : undefined;
+								if (selectedMessageStyle) {
+									setMessages({ style: selectedMessageStyle }, ctx);
+									settingsList = makeSettingsList("userMessagesStyle");
 									notifyChange("Message style", newValue);
 									return;
 								}
@@ -1136,13 +1085,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									notifyChange("Message colors", newValue);
 									return;
 								}
-								if (id === "framedUserMessagesCopyFriendly" && enabled !== undefined) {
-									deps.setFramedUserMessagesStyle?.({ copyFriendly: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Copy-friendly", newValue);
-									return;
-								}
-
 								if (id === "selectorBordersEnabled" && enabled !== undefined) {
 									deps.setSelectorBordersComponent?.({ enabled }, ctx);
 									settingsList.updateValue(id, newValue);

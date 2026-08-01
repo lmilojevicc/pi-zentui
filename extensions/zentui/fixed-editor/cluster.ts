@@ -17,8 +17,8 @@ export type FixedCluster = PiFixedCluster;
 function renderComponent(component: PiRenderableCapability | null, width: number): string[] {
 	if (!component) return [];
 	const lines = component.render.call(component.target, width);
-	// Strip only trailing blank lines — internal blank lines (e.g. editor
-	// padding in copy-friendly mode) must be preserved.
+	// Strip only trailing blank lines — internal blank lines (e.g. low-rail
+	// polished padding) must be preserved.
 	let end = lines.length;
 	while (end > 0 && visibleWidth(lines[end - 1]) === 0) end--;
 	return lines.slice(0, Math.max(end, 1));

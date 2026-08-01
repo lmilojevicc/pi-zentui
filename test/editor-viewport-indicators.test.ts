@@ -1,7 +1,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import {
+	defaultConfig,
+	type EditorStyle,
+	type PolishedTuiConfig,
+} from "../extensions/zentui/config";
 import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
 
 function theme(): Theme {
@@ -17,8 +21,10 @@ function theme(): Theme {
 	} as Theme;
 }
 
+type EditorOptions = Partial<PolishedTuiConfig["features"]> & { style?: EditorStyle };
+
 function config(
-	features: Partial<PolishedTuiConfig["features"]> = {},
+	options: EditorOptions = {},
 	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): PolishedTuiConfig {
 	return {
@@ -27,20 +33,20 @@ function config(
 			...defaultConfig.components,
 			editor: {
 				...defaultConfig.components.editor,
+				style: options.style ?? defaultConfig.components.editor.style,
 				borderColorMode: editorBorderColorMode,
 				viewportIndicators:
-					features.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
-				styles: {
-					...defaultConfig.components.editor.styles,
-					polished: {
-						...defaultConfig.components.editor.styles.polished,
-						copyFriendly:
-							features.copyFriendly ?? defaultConfig.components.editor.styles.polished.copyFriendly,
-					},
-				},
+					options.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
 			},
 		},
-		features: { ...defaultConfig.features, ...features },
+		features: {
+			...defaultConfig.features,
+			...(options.editor === undefined ? {} : { editor: options.editor }),
+			...(options.statusLine === undefined ? {} : { statusLine: options.statusLine }),
+			...(options.viewportIndicators === undefined
+				? {}
+				: { viewportIndicators: options.viewportIndicators }),
+		},
 	};
 }
 
@@ -99,7 +105,7 @@ function baseEditor(options: {
 
 function wrapped(
 	base: ReturnType<typeof baseEditor> | WrappedPolishedEditor,
-	features: Partial<PolishedTuiConfig["features"]> = {},
+	features: EditorOptions = {},
 	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): WrappedPolishedEditor {
 	return new WrappedPolishedEditor(
@@ -209,10 +215,10 @@ describe("adaptive editor border colors", () => {
 		expect(rendered.match(/model/g)).toHaveLength(1);
 	});
 
-	it("preserves copy-friendly viewport layout, clamping, and static fallback", () => {
+	it("preserves low-rail polished viewport layout, clamping, and static fallback", () => {
 		const editor = wrapped(
 			baseEditor({ above: 123456, below: 654321, ansi: true }),
-			{ copyFriendly: true },
+			{ style: "polished-copy-friendly" },
 			"adaptive",
 		);
 		editor.borderColor = () => {
@@ -531,10 +537,10 @@ describe("editor viewport indicators", () => {
 	});
 
 	it("keeps every rendered line within narrow ANSI-aware widths in both chrome modes", () => {
-		for (const copyFriendly of [false, true]) {
+		for (const style of ["polished", "polished-copy-friendly"] as const) {
 			for (const width of [3, 8, 12, 16]) {
 				const lines = wrapped(baseEditor({ above: 12, below: 34, ansi: true }), {
-					copyFriendly,
+					style,
 				}).render(width);
 				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 			}
@@ -567,6 +573,51 @@ describe("minimalist editor integration", () => {
 		expect(minimalist[0]).toMatch(/^╭.*╮$/);
 		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
 		expect(minimalist.join("\n")).toContain("$0.100 – model");
+	});
+
+	it("cycles one wrapped adapter through every style without nesting owned chrome", () => {
+		let current = config({ style: "polished" });
+		const rawWidths: number[] = [];
+		const raw = baseEditor({});
+		const rawRender = raw.render.bind(raw);
+		raw.render = (width: number) => {
+			rawWidths.push(width);
+			return rawRender(width);
+		};
+		const inner = new WrappedPolishedEditor(
+			raw as never,
+			theme(),
+			() => config({ style: "polished" }),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+		const decoration = vi.fn();
+		const editor = new WrappedPolishedEditor(
+			inner as never,
+			theme(),
+			() => current,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp/project", modelLabel: "model", costLabel: "$0.100" }),
+			decoration,
+		);
+
+		const polished = editor.render(40);
+		current = withEditorStyle(current, "polished-copy-friendly");
+		const lowRail = editor.render(40);
+		current = withEditorStyle(current, "minimalist");
+		const minimalist = editor.render(40);
+		current = withEditorStyle(current, "polished");
+		const polishedAgain = editor.render(40);
+
+		expect(rawWidths).toEqual([36, 38, 34, 36]);
+		expect(polished.join("\n").match(/provider/g)).toHaveLength(1);
+		expect(lowRail.join("\n").match(/provider/g)).toHaveLength(1);
+		expect(minimalist[0]).toMatch(/^╭.*╮$/);
+		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
+		expect(polishedAgain.join("\n").match(/provider/g)).toHaveLength(1);
+		expect(polishedAgain.join("\n")).not.toContain("╭");
+		expect(decoration.mock.calls.map(([active]) => active)).toEqual([false, false, true, false]);
 	});
 
 	it("places native viewport counts at the far left before minimalist metadata", () => {

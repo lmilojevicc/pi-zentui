@@ -679,9 +679,9 @@ describe("cluster", () => {
 			expect(result.lines.length).toBeLessThanOrEqual(9);
 		});
 
-		it("preserves internal blank lines (copy-friendly editor padding)", () => {
-			// In copy-friendly mode the editor renders truly empty strings as
-			// padding: [border, "", text, "", meta, border]. These must survive.
+		it("preserves internal blank lines (low-rail polished padding)", () => {
+			// The low-rail polished editor renders truly empty strings as padding:
+			// [border, "", text, "", meta, border]. These must survive.
 			const editorFrame = ["border", "", "input text", "", "model provider", "border"];
 			const cluster = {
 				status: null,
