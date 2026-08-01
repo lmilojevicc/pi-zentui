@@ -83,6 +83,11 @@ function sanitizeLine(line: string, width: number): string {
 	return visibleWidth(line) > width ? truncateToWidth(line, width, "", true) : line;
 }
 
+function anchorLinesToBottom(lines: string[], rows: number): string[] {
+	if (lines.length >= rows) return lines;
+	return [...Array.from({ length: rows - lines.length }, () => ""), ...lines];
+}
+
 export class TerminalSplitCompositor {
 	private readonly capabilities: PiFixedEditorCapabilities;
 	private readonly getConfig: () => CompositorConfig;
@@ -376,7 +381,15 @@ export class TerminalSplitCompositor {
 		if (this.disposed) return this.callOriginalRender(width);
 
 		if (this.hasVisibleOverlay()) {
-			return this.withNativeComponents(() => this.callOriginalRender(width));
+			return this.withNativeComponents(() => {
+				const lines = this.callOriginalRender(width);
+				// Non-overlay custom UIs replace the editor container. Keep them in
+				// the same bottom-anchored viewport as the fixed editor instead of
+				// letting the native container render them from row 1.
+				return this.capabilities.hasCustomUi()
+					? anchorLinesToBottom(lines, this.getRawRows())
+					: lines;
+			});
 		}
 
 		const rawRows = this.getRawRows();

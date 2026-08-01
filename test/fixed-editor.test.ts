@@ -344,7 +344,10 @@ describe("Pi fixed-editor compatibility", () => {
 		Reflect.set(fixture.cluster[2], "children", [
 			{ render: () => ["custom UI"], handleInput() {} },
 		]);
-		expect(patchedRender(80)).toEqual(fixture.rootRender(80));
+		expect(patchedRender(80)).toEqual([
+			...Array.from({ length: 10 }, () => ""),
+			...fixture.rootRender(80),
+		]);
 		Reflect.set(fixture.cluster[2], "children", [
 			{ getText: () => "", setText() {}, handleInput() {} },
 		]);

@@ -31,6 +31,7 @@ export type PiFixedEditorCapabilities = {
 	readRawRows: () => number;
 	getColumns: () => number;
 	hasVisibleOverlay: () => boolean;
+	hasCustomUi: () => boolean;
 	getCursorBookkeeping: () => { hardwareCursorRow: number; previousViewportTop: number };
 	addInputListener: (
 		listener: (data: string) => { consume?: boolean; data?: string } | undefined,
@@ -256,6 +257,16 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 				const stack = Reflect.get(value, "overlayStack");
 				return (
 					Array.isArray(stack) && stack.some((entry) => isRecord(entry) && entry.hidden !== true)
+				);
+			} catch {
+				return true;
+			}
+		},
+		hasCustomUi: () => {
+			try {
+				const editorChildren = containerChildren(cluster.editor.target);
+				return (
+					Array.isArray(editorChildren) && editorChildren.some((child) => !isEditorLike(child))
 				);
 			} catch {
 				return true;
