@@ -397,7 +397,7 @@ describe("Pi fixed-editor compatibility", () => {
 		const thinkingPaint = String(fixture.terminalWrite.mock.calls.at(-1)?.[0] ?? "");
 		expect(thinkingPaint.match(/\x1b\[34m/g)).toHaveLength(2);
 		expect(thinkingPaint).not.toContain("\x1b[36m");
-		expect(fixture.tui.render(80)).toHaveLength(14);
+		expect(fixture.tui.render(80)).toHaveLength(13);
 
 		editor.borderColor = shellBorder;
 		editor.invalidate();
@@ -409,7 +409,7 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(renderWidths).toEqual([78, 78]);
 		for (const frame of [thinkingPaint, shellPaint]) {
 			const paintedRows = frame.split("\x1b[2K").slice(1);
-			expect(paintedRows).toHaveLength(10);
+			expect(paintedRows).toHaveLength(11);
 			expect(paintedRows.every((row) => visibleWidth(row) <= 80)).toBe(true);
 		}
 
@@ -643,7 +643,7 @@ describe("cluster", () => {
 				footer: makeCapability(["footer"]),
 			};
 			const result = renderCluster(cluster, 80, 24);
-			expect(result.lines).toEqual(["status", "above", "editor-line", "below", "footer"]);
+			expect(result.lines).toEqual(["status", "above", "", "editor-line", "below", "footer"]);
 		});
 
 		it("extracts cursor position", () => {
@@ -655,8 +655,8 @@ describe("cluster", () => {
 				footer: null,
 			};
 			const result = renderCluster(cluster, 80, 24);
-			expect(result.cursor).toEqual({ row: 0, col: 5 });
-			expect(result.lines[0]).toBe("helloworld");
+			expect(result.cursor).toEqual({ row: 1, col: 5 });
+			expect(result.lines[1]).toBe("helloworld");
 		});
 
 		it("caps editor lines when total exceeds maxHeight", () => {
@@ -673,6 +673,21 @@ describe("cluster", () => {
 			expect(result.lines.length).toBeLessThanOrEqual(9);
 		});
 
+		it("reserves the editor separator when above widget already supplies it", () => {
+			const manyLines = Array.from({ length: 30 }, (_, i) => `ed-${i}`);
+			const cluster = {
+				status: null,
+				aboveWidget: makeCapability([""]),
+				editor: makeCapability(manyLines),
+				belowWidget: null,
+				footer: null,
+			};
+			const result = renderCluster(cluster, 80, 10);
+			expect(result.lines).toHaveLength(9);
+			expect(result.lines[0]).toBe("");
+			expect(result.lines.at(-1)).toBe("ed-29");
+		});
+
 		it("preserves internal blank lines (copy-friendly editor padding)", () => {
 			// In copy-friendly mode the editor renders truly empty strings as
 			// padding: [border, "", text, "", meta, border]. These must survive.
@@ -685,7 +700,7 @@ describe("cluster", () => {
 				footer: null,
 			};
 			const result = renderCluster(cluster, 80, 24);
-			expect(result.lines).toEqual(editorFrame);
+			expect(result.lines).toEqual(["", ...editorFrame]);
 		});
 
 		it("strips trailing blank lines from components", () => {
@@ -698,7 +713,19 @@ describe("cluster", () => {
 			};
 			const result = renderCluster(cluster, 80, 24);
 			// Trailing blanks stripped, but content preserved
-			expect(result.lines).toEqual(["status", "editor", "footer"]);
+			expect(result.lines).toEqual(["status", "", "editor", "footer"]);
+		});
+
+		it("keeps one separator above the editor when the status is empty", () => {
+			const cluster = {
+				status: makeCapability([]),
+				aboveWidget: null,
+				editor: makeCapability(["editor"]),
+				belowWidget: null,
+				footer: null,
+			};
+			const result = renderCluster(cluster, 80, 24);
+			expect(result.lines).toEqual(["", "editor"]);
 		});
 	});
 });

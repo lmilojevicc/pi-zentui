@@ -47,6 +47,12 @@ function sanitizeLines(lines: string[], width: number): string[] {
 	);
 }
 
+function stripLeadingBlankLines(lines: string[]): string[] {
+	let start = 0;
+	while (start < lines.length && visibleWidth(lines[start] ?? "") === 0) start++;
+	return lines.slice(start);
+}
+
 /**
  * Render the full cluster (status + widgets + editor + footer) and extract
  * the cursor position from the CURSOR_MARKER.
@@ -59,14 +65,24 @@ export function renderCluster(
 	const w = Math.max(1, width);
 	const maxRows = Math.max(1, maxHeight - 1);
 
-	const statusLines = sanitizeLines(renderComponent(cluster.status, w), w);
+	// Pi's Loader intentionally starts with a blank line so the live status is
+	// separated from the transcript. The fixed-editor cluster owns the bottom
+	// layout, so discard that status-internal blank here; the editor separator is
+	// preserved from Pi's above-editor widget or supplied explicitly below.
+	const statusLines = stripLeadingBlankLines(sanitizeLines(renderComponent(cluster.status, w), w));
 	const aboveLines = sanitizeLines(renderComponent(cluster.aboveWidget, w), w);
 	const editorSource = sanitizeLines(renderComponent(cluster.editor, w), w);
 	const belowLines = sanitizeLines(renderComponent(cluster.belowWidget, w), w);
 	const footerLines = sanitizeLines(renderComponent(cluster.footer, w), w);
 
-	const editorLines = capEditorLines(editorSource, maxRows);
-	let remaining = maxRows - editorLines.length;
+	// Pi normally supplies a one-line above-editor Spacer. Do not add a second
+	// separator when that widget is present; add one only for layouts where the
+	// widget is absent or ends in visible content.
+	const aboveEditorSpacerPresent =
+		aboveLines.length > 0 && visibleWidth(aboveLines.at(-1) ?? "") === 0;
+	const editorGapRows = editorSource.length > 0 ? 1 : 0;
+	const editorLines = capEditorLines(editorSource, Math.max(0, maxRows - editorGapRows));
+	let remaining = maxRows - editorLines.length - editorGapRows;
 
 	const footer = footerLines.slice(-remaining);
 	remaining -= footer.length;
@@ -79,12 +95,14 @@ export function renderCluster(
 
 	const status = statusLines.slice(-remaining);
 
-	let allLines = [...status, ...above, ...editorLines, ...below, ...footer];
-
-	// Strip leading blank lines (e.g. empty status line above the editor border).
-	let start = 0;
-	while (start < allLines.length - 1 && visibleWidth(allLines[start]) === 0) start++;
-	allLines = allLines.slice(start);
+	const allLines = [
+		...status,
+		...above,
+		...(editorLines.length > 0 && !aboveEditorSpacerPresent ? [""] : []),
+		...editorLines,
+		...below,
+		...footer,
+	];
 
 	let cursor: { row: number; col: number } | null = null;
 	const cleaned = allLines.map((line, row) => {

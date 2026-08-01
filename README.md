@@ -423,7 +423,7 @@ Center the branch between directory and cost:
 
 ## Fixed editor (experimental, opt-in)
 
-The fixed editor pins the Zentui editor and footer at the bottom of the terminal while the transcript scrolls above. This enables composing follow-up messages while referencing earlier conversation history.
+The fixed editor pins the Zentui editor and footer at the bottom of the terminal while the transcript scrolls above. This enables composing follow-up messages while referencing earlier conversation history. It preserves a single blank separator above the editor so live status text and the transcript do not visually run into the input frame.
 
 ### How to enable
 

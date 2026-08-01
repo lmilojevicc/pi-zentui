@@ -419,7 +419,10 @@ function renderPolishedFrame({
 	const renderedLines = config.features.copyFriendly
 		? [
 				top,
-				"",
+				// With an empty editor there is no editor-content row to pad, so
+				// the metadata separator below is the single blank row inside the
+				// frame. Avoid rendering two blank rows before the model label.
+				...(editorLines.length > 0 ? [""] : []),
 				...editorLines.map(
 					(line, index) =>
 						`${index === 0 ? prompt : copyFriendlyContinuation}${fillLine(line, innerWidth)}`,
