@@ -59,7 +59,7 @@ User config is created at:
 ~/.pi/agent/zentui.json
 ```
 
-Use `colors` for Starship-style color strings, hex/256-color values, or Pi theme tokens. `colorSources` controls whether Zentui maps colors through the Pi theme or renders terminal colors directly. `/zentui` changes editor and previous user-message sources together.
+Use `colors` for Starship-style color strings, hex/256-color values, or Pi theme tokens. Canonical color-source ownership is independent through `components.editor.colorSource`, `components.userMessages.colorSource`, `components.selectorBorders.colorSource`, and `components.footer.colorSource`. `/zentui` exposes separate controls for Editor, previous User messages, selector borders, and—while Starship is selected—the Footer; changing one does not change the others.
 
 ## Things to preserve
 

@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	collectExtensionStatusSegments,
 	type ExtensionStatusSegment,
@@ -226,6 +227,35 @@ export function installFooter(
 				);
 				const colorSource = config.components.footer.colorSource;
 				const iconMode = config.icons.mode;
+				const formattedCwd = sanitizeEditorMetadataText(
+					formatCwdLabel(ctx.cwd, config.icons.cwd, {
+						mode: config.components.footer.styles.starship.pathDisplay.mode,
+						depth: config.components.footer.styles.starship.pathDisplay.depth,
+					}),
+				);
+				const branch = sanitizeEditorMetadataText(state.branch ?? "") || undefined;
+				const gitStateLabel = sanitizeEditorMetadataText(state.gitStateLabel ?? "");
+				const commit = state.commit
+					? {
+							...state.commit,
+							oid: state.commit.oid ? sanitizeEditorMetadataText(state.commit.oid) || null : null,
+							tag: state.commit.tag ? sanitizeEditorMetadataText(state.commit.tag) || null : null,
+						}
+					: undefined;
+				const runtime = state.runtime
+					? {
+							...state.runtime,
+							name: sanitizeEditorMetadataText(state.runtime.name),
+							symbol: sanitizeEditorMetadataText(state.runtime.symbol),
+							version: sanitizeEditorMetadataText(state.runtime.version ?? ""),
+						}
+					: undefined;
+				const packageVersion = state.packageVersion
+					? {
+							...state.packageVersion,
+							version: sanitizeEditorMetadataText(state.packageVersion.version),
+						}
+					: undefined;
 				const separator = renderStyleForSource(
 					theme,
 					colorSource,
@@ -233,15 +263,7 @@ export function installFooter(
 					separatorText[config.components.footer.styles.starship.separator],
 				);
 				const innerWidth = Math.max(1, width - 2);
-				const cwdLabel = renderStyleForSource(
-					theme,
-					colorSource,
-					config.colors.cwd,
-					formatCwdLabel(ctx.cwd, config.icons.cwd, {
-						mode: config.components.footer.styles.starship.pathDisplay.mode,
-						depth: config.components.footer.styles.starship.pathDisplay.depth,
-					}),
-				);
+				const cwdLabel = renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
 				const needsSessionName =
 					(config.components.footer.styles.starship.format
 						? wideReferences.has("session_name")
@@ -254,7 +276,6 @@ export function installFooter(
 					? renderStyleForSource(theme, colorSource, config.colors.sessionName, sessionName)
 					: "";
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
-				const branch = state.branch;
 				const branchText = branch
 					? formatGitBranchText(
 							branch,
@@ -333,7 +354,6 @@ export function installFooter(
 				})();
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
-				const gitStateLabel = state.gitStateLabel ?? "";
 				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
 				const renderVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
@@ -353,14 +373,10 @@ export function installFooter(
 						case "git_state":
 							return gitStateBlock;
 						case "runtime": {
-							if (!state.runtime) return "";
-							const symbol = resolveRuntimeSymbol(
-								state.runtime.name,
-								state.runtime.symbol,
-								iconMode,
-							);
-							const label = state.runtime.version ? `${symbol} ${state.runtime.version}` : symbol;
-							return renderStyleForSource(theme, colorSource, state.runtime.style, label);
+							if (!runtime) return "";
+							const symbol = resolveRuntimeSymbol(runtime.name, runtime.symbol, iconMode);
+							const label = runtime.version ? `${symbol} ${runtime.version}` : symbol;
+							return renderStyleForSource(theme, colorSource, runtime.style, label);
 						}
 						case "model":
 							return sanitizeExtensionStatusText(footerModelLabel);
@@ -418,19 +434,19 @@ export function installFooter(
 						case "package":
 							return formatPackageVersionSegment(
 								theme,
-								state.packageVersion,
+								packageVersion,
 								colorSource,
 								iconMode,
 								config.icons.package,
 								config.colors.packageVersion,
 							);
 						case "package_version":
-							return state.packageVersion?.version
+							return packageVersion?.version
 								? renderStyleForSource(
 										theme,
 										colorSource,
 										config.colors.packageVersion,
-										state.packageVersion.version,
+										packageVersion.version,
 									)
 								: "";
 						case "sep":
@@ -438,19 +454,14 @@ export function installFooter(
 						case "git_commit":
 							return formatGitCommitSegment(
 								theme,
-								state.commit,
+								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
 								config.colors.gitCommit,
 							);
 						case "git_tag":
-							return config.components.footer.styles.starship.gitCommit.showTag && state.commit?.tag
-								? renderStyleForSource(
-										theme,
-										colorSource,
-										config.colors.gitCommit,
-										state.commit.tag,
-									)
+							return config.components.footer.styles.starship.gitCommit.showTag && commit?.tag
+								? renderStyleForSource(theme, colorSource, config.colors.gitCommit, commit.tag)
 								: "";
 						case "git_metrics":
 							return formatGitMetricsSegment(
@@ -487,18 +498,18 @@ export function installFooter(
 				if (config.components.footer.styles.starship.segments.gitBranch) {
 					if (branchText) {
 						branchParts.push("on", gitIcon, gitColor(branchText));
-					} else if (state.commit?.detached) {
+					} else if (commit?.detached) {
 						// `HEAD` uses git-branch style; `(hash)` uses git-commit style
 						// (bold green) per Starship `git_commit` format.
 						branchParts.push("on", gitIcon, gitColor("HEAD"));
-						if (config.components.footer.styles.starship.segments.gitCommit && state.commit.oid) {
-							const shortHash = state.commit.oid.slice(
+						if (config.components.footer.styles.starship.segments.gitCommit && commit.oid) {
+							const shortHash = commit.oid.slice(
 								0,
 								config.components.footer.styles.starship.gitCommit.hashLength,
 							);
 							const tag =
-								config.components.footer.styles.starship.gitCommit.showTag && state.commit.tag
-									? state.commit.tag
+								config.components.footer.styles.starship.gitCommit.showTag && commit.tag
+									? commit.tag
 									: "";
 							const inner = [shortHash, tag].filter(Boolean).join(" ");
 							branchParts.push(
@@ -519,18 +530,12 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const runtimeLabel = config.components.footer.styles.starship.segments.runtime
-					? formatRuntimeSegment(
-							theme,
-							state.runtime,
-							config.colors.runtimePrefix,
-							colorSource,
-							iconMode,
-						)
+					? formatRuntimeSegment(theme, runtime, config.colors.runtimePrefix, colorSource, iconMode)
 					: "";
 				const packageVersionLabel = config.components.footer.styles.starship.segments.packageVersion
 					? formatPackageVersionSegment(
 							theme,
-							state.packageVersion,
+							packageVersion,
 							colorSource,
 							iconMode,
 							config.icons.package,
@@ -540,12 +545,12 @@ export function installFooter(
 				// Skip standalone gitCommit when hash is already folded into the
 				// branch display on detached HEAD.
 				const hashFoldedIntoBranch =
-					state.commit?.detached && config.components.footer.styles.starship.segments.gitBranch;
+					commit?.detached && config.components.footer.styles.starship.segments.gitBranch;
 				const gitCommitLabel =
 					config.components.footer.styles.starship.segments.gitCommit && !hashFoldedIntoBranch
 						? formatGitCommitSegment(
 								theme,
-								state.commit,
+								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
 								config.colors.gitCommit,
@@ -731,7 +736,9 @@ export function installFooter(
 						theme,
 						colorSource,
 						config.colors.cwd,
-						formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
+						sanitizeEditorMetadataText(
+							formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
+						),
 					),
 					chunkBudget,
 					"…",

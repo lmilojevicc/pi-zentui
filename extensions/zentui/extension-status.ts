@@ -1,6 +1,10 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionStatusColorMode, ExtensionStatusPlacement, ZentuiConfig } from "./config";
-import { getExtensionStatusColorMode, getExtensionStatusPlacement } from "./config";
+import {
+	getExtensionStatusColorMode,
+	getExtensionStatusPlacement,
+	isExtensionStatusPlacement,
+} from "./config";
 
 export type ExtensionStatusSegment = {
 	key: string;
@@ -65,7 +69,8 @@ export function collectExtensionStatusSegments(
 
 	for (const [key, value] of statuses.entries()) {
 		const placement = getExtensionStatusPlacement(config, key);
-		if (placement === "off") continue;
+		if (placement === "off" || !isExtensionStatusPlacement(placement)) continue;
+		if (placement !== "left" && placement !== "middle" && placement !== "right") continue;
 
 		const colorMode = getExtensionStatusColorMode(config, key);
 		const text =

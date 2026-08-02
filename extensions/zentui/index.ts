@@ -20,6 +20,7 @@ import {
 	type GitBranchConfig,
 	type GitCommitConfig,
 	type GitMetricsConfig,
+	hasUnsupportedComponentStyle,
 	type IconMode,
 	loadConfig,
 	type MinimalistConfig,
@@ -58,6 +59,7 @@ import { LiveContextController } from "./live-context";
 import { readPackageVersionResult } from "./package-version";
 import {
 	createProjectRefreshScheduler,
+	type ProjectRefreshRun,
 	type ScheduleProjectRefreshOptions,
 	type StopProjectRefreshInterval,
 	startProjectRefreshInterval,
@@ -74,6 +76,7 @@ import { installUserMessageStyle, removeUserMessageStyle } from "./user-message"
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
 const ZENTUI_EDITOR_BASE_FACTORY = Symbol.for("pi-zentui.editor-base-factory");
+const ZENTUI_EDITOR_OWNER = Symbol.for("pi-zentui.editor-owner");
 const ZENTUI_FOOTER_OWNER = Symbol.for("pi-zentui.footer-owner");
 
 type EditorFactory = NonNullable<Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0]>;
@@ -81,6 +84,7 @@ type EditorFactory = NonNullable<Parameters<ExtensionContext["ui"]["setEditorCom
 type ZentuiEditorFactory = EditorFactory & {
 	[ZENTUI_EDITOR_FACTORY]?: true;
 	[ZENTUI_EDITOR_BASE_FACTORY]?: EditorFactory;
+	[ZENTUI_EDITOR_OWNER]?: symbol;
 };
 
 type ApplyUiResult = {
@@ -124,6 +128,7 @@ export function activeFooterReferences(config: ZentuiConfig): Set<string> {
 		? collectFooterFormatReferences(parseFooterFormat(starship.format), FOOTER_FORMAT_ALIASES)
 		: new Set<string>([
 				...(starship.segments.sessionName ? ["session_name"] : []),
+				...(starship.segments.runtime ? ["runtime"] : []),
 				...(starship.segments.gitCommit ? ["git_commit"] : []),
 				...(starship.segments.gitMetrics ? ["git_metrics"] : []),
 				...(starship.segments.packageVersion ? ["package"] : []),
@@ -163,6 +168,7 @@ function isTuiContext(ctx: ExtensionContext): boolean {
 export default function (pi: ExtensionAPI) {
 	const state: FooterState = createInitialState(emptyGitStatus());
 	const sessionLifecycle = new SessionLifecycle();
+	const editorOwnerToken = Symbol("zentui-editor-owner");
 
 	let currentConfig: PolishedTuiConfig = loadConfig();
 	let activeTheme: Theme | undefined;
@@ -194,6 +200,22 @@ export default function (pi: ExtensionAPI) {
 	let fixedLayoutEnabled = false;
 	let activeTuiContext: ExtensionContext | undefined;
 
+	const isOwnedEditorFactory = (factory: EditorFactory | undefined) =>
+		(factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_OWNER] === editorOwnerToken;
+	const effectiveEditorEnabled = () =>
+		currentConfig.components.editor.enabled &&
+		!hasUnsupportedComponentStyle(currentConfig, "editor");
+	const effectiveUserMessagesEnabled = () =>
+		currentConfig.components.userMessages.enabled &&
+		!hasUnsupportedComponentStyle(currentConfig, "userMessages");
+	const effectiveSelectorBordersEnabled = () =>
+		currentConfig.components.selectorBorders.enabled &&
+		!hasUnsupportedComponentStyle(currentConfig, "selectorBorders");
+	const effectiveFooterStyle = () =>
+		hasUnsupportedComponentStyle(currentConfig, "footer")
+			? ("native" as const)
+			: currentConfig.components.footer.style;
+
 	const ownsInstalledEditorFactory = () => {
 		if (
 			!sessionLifecycle.isCurrent() ||
@@ -204,7 +226,10 @@ export default function (pi: ExtensionAPI) {
 			return false;
 		}
 		try {
-			return activeTuiContext.ui.getEditorComponent() === installedEditorFactory;
+			return (
+				isOwnedEditorFactory(installedEditorFactory) &&
+				activeTuiContext.ui.getEditorComponent() === installedEditorFactory
+			);
 		} catch {
 			return false;
 		}
@@ -246,8 +271,11 @@ export default function (pi: ExtensionAPI) {
 			: new Set<string>();
 
 	type ProjectRefreshTarget = { cwd: string; generation: number };
-	const refreshProjectState = async ({ cwd, generation }: ProjectRefreshTarget) => {
-		if (!sessionLifecycle.isCurrent(generation)) return;
+	const refreshProjectState = async (
+		{ cwd, generation }: ProjectRefreshTarget,
+		run: ProjectRefreshRun,
+	) => {
+		if (!run.isCurrent() || !sessionLifecycle.isCurrent(generation)) return;
 		const starship = currentConfig.components.footer.styles.starship;
 		const gitCommitConfig = starship.gitCommit;
 		const gitMetricsConfig = starship.gitMetrics;
@@ -257,16 +285,21 @@ export default function (pi: ExtensionAPI) {
 		const wantMetrics =
 			references.has("git_metrics") || references.has("git_added") || references.has("git_deleted");
 		const wantPackage = references.has("package") || references.has("package_version");
+		const wantRuntime = references.has("runtime");
 		const [git, runtime, packageVersion] = await Promise.all([
 			readGitStatus(cwd, {
 				readExactTag: wantExactTag,
 				readMetrics: wantMetrics,
 				ignoreSubmodules: gitMetricsConfig.ignoreSubmodules,
 			}),
-			readRuntimeInfo(cwd),
-			wantPackage ? readPackageVersionResult(cwd) : Promise.resolve(undefined),
+			wantRuntime
+				? readRuntimeInfo(cwd)
+				: Promise.resolve({ kind: "ok" as const, runtime: undefined }),
+			wantPackage
+				? readPackageVersionResult(cwd)
+				: Promise.resolve({ kind: "ok" as const, result: null }),
 		]);
-		if (!sessionLifecycle.isCurrent(generation)) return;
+		if (!run.isCurrent() || !sessionLifecycle.isCurrent(generation)) return;
 		minimalistProjectRoot = git.kind === "ok" ? findRepositoryRoot(cwd) : undefined;
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd,
@@ -292,6 +325,7 @@ export default function (pi: ExtensionAPI) {
 		const editor = currentConfig.components.editor;
 		const minimalist = editor.styles.minimalist;
 		return (
+			effectiveEditorEnabled() &&
 			ownsInstalledEditorFactory() &&
 			editor.style === "minimalist" &&
 			(minimalist.showGit || minimalist.pathDisplay === "project")
@@ -330,6 +364,7 @@ export default function (pi: ExtensionAPI) {
 			);
 			projectRefreshActive = true;
 		}
+		if (force && !activated) projectRefreshScheduler.invalidate();
 		if (force || activated) scheduleProjectRefresh(ctx, { force: true });
 	};
 
@@ -387,6 +422,7 @@ export default function (pi: ExtensionAPI) {
 			sessionLifecycle.isCurrent() &&
 			agentStartedAt !== undefined &&
 			minimalistDecorationActive &&
+			effectiveEditorEnabled() &&
 			ownsInstalledEditorFactory() &&
 			currentConfig.components.editor.style === "minimalist" &&
 			currentConfig.components.editor.styles.minimalist.showTimer;
@@ -455,7 +491,7 @@ export default function (pi: ExtensionAPI) {
 		currentConfig = nextConfig;
 		if (sameReferences(before, after)) return;
 		reconcileSessionTimer();
-		if (needsProjectRefresh()) scheduleProjectRefresh(ctx, { force: true });
+		reconcileProjectRefresh(ctx, true);
 	};
 
 	const installUserMessages = () => {
@@ -482,19 +518,13 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			// Best effort cleanup.
 		} finally {
-			try {
-				removeUserMessageStyle();
-			} catch {
-				// Best effort cleanup of a stale registration from an earlier reload.
-			}
 			cleanupUserMessageStyle = () => {};
 			userMessageStyleInstalled = false;
 		}
 	};
 
 	const reconcileUserMessages = () => {
-		const messages = currentConfig.components.userMessages;
-		if (messages.enabled) installUserMessages();
+		if (effectiveUserMessagesEnabled()) installUserMessages();
 		else uninstallUserMessages();
 	};
 
@@ -522,11 +552,6 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			// Best effort cleanup.
 		} finally {
-			try {
-				removeSelectorBorderStyle();
-			} catch {
-				// Best effort cleanup of stale registrations from an earlier reload.
-			}
 			cleanupSelectorBorderStyle = () => {};
 			selectorBorderStyleInstalled = false;
 		}
@@ -534,8 +559,9 @@ export default function (pi: ExtensionAPI) {
 
 	const reconcileSelectorBorders = () => {
 		const selectors = currentConfig.components.selectorBorders;
-		if (selectors.enabled && selectors.style === "zentui") installSelectorBorders();
-		else uninstallSelectorBorders();
+		if (effectiveSelectorBordersEnabled() && selectors.style === "zentui") {
+			installSelectorBorders();
+		} else uninstallSelectorBorders();
 	};
 
 	const clearEditorOwnership = () => {
@@ -547,12 +573,14 @@ export default function (pi: ExtensionAPI) {
 		editorInstalled = false;
 	};
 
-	const trackZentuiEditorFactory = (factory: EditorFactory) => {
+	const trackZentuiEditorFactory = (factory: EditorFactory): boolean => {
+		if (!isOwnedEditorFactory(factory)) return false;
 		const baseFactory = getZentuiEditorBaseFactory(factory);
 		wrappedEditorFactory = baseFactory;
 		installedEditorFactory = factory;
 		editorInstallMode = baseFactory ? "wrapper" : "standalone";
 		editorInstalled = true;
+		return true;
 	};
 
 	const observeEditorFactory = (
@@ -568,7 +596,7 @@ export default function (pi: ExtensionAPI) {
 	const reconcileObservedEditorOwnership = (ctx: ExtensionContext) => {
 		const observed = observeEditorFactory(ctx);
 		if (!observed.known) return observed;
-		if (observed.factory && isZentuiEditorFactory(observed.factory)) {
+		if (observed.factory && isOwnedEditorFactory(observed.factory)) {
 			trackZentuiEditorFactory(observed.factory);
 		} else {
 			clearEditorOwnership();
@@ -615,6 +643,7 @@ export default function (pi: ExtensionAPI) {
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
+		factory[ZENTUI_EDITOR_OWNER] = editorOwnerToken;
 		return factory;
 	};
 
@@ -657,6 +686,7 @@ export default function (pi: ExtensionAPI) {
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
+		factory[ZENTUI_EDITOR_OWNER] = editorOwnerToken;
 		factory[ZENTUI_EDITOR_BASE_FACTORY] = baseFactory;
 		return factory;
 	};
@@ -690,7 +720,10 @@ export default function (pi: ExtensionAPI) {
 		return { ok: true };
 	};
 
-	const uninstallEditor = (ctx: ExtensionContext): EditorChangeResult => {
+	const uninstallEditor = (
+		ctx: ExtensionContext,
+		options: { allowStaleZentui?: boolean } = {},
+	): EditorChangeResult => {
 		const observed = observeEditorFactory(ctx);
 		if (!observed.known) {
 			return {
@@ -701,6 +734,10 @@ export default function (pi: ExtensionAPI) {
 		}
 		const currentFactory = observed.factory;
 		if (!currentFactory || !isZentuiEditorFactory(currentFactory)) {
+			clearEditorOwnership();
+			return { ok: true };
+		}
+		if (!isOwnedEditorFactory(currentFactory) && !options.allowStaleZentui) {
 			clearEditorOwnership();
 			return { ok: true };
 		}
@@ -742,14 +779,38 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
 		stopSessionTimer();
-		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx);
+		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx, true);
 	};
 
-	const resetFailedFooterInstallation = (ctx: ExtensionContext, token: symbol) => {
-		try {
-			ctx.ui.setFooter(undefined);
-		} catch {
-			// Best effort: Zentui initiated the failed replacement.
+	type FooterBookkeepingSnapshot = {
+		token: symbol | undefined;
+		requestRender: (() => void) | undefined;
+		getExtensionStatuses: () => ReadonlyMap<string, string>;
+	};
+
+	const snapshotFooterBookkeeping = (ctx: ExtensionContext): FooterBookkeepingSnapshot => ({
+		token: ownsStatusLine(ctx) ? installedFooterToken : undefined,
+		requestRender: requestFooterRender,
+		getExtensionStatuses: getActiveExtensionStatuses,
+	});
+
+	const resetFailedFooterInstallation = (
+		ctx: ExtensionContext,
+		token: symbol,
+		previous: FooterBookkeepingSnapshot,
+	) => {
+		// Pi has no transactional Footer replacement API. If a live replacement
+		// fails while retaining our predecessor, preserve that Footer's callbacks
+		// and timer. Otherwise clear only local bookkeeping; never issue a
+		// destructive setFooter(undefined) rollback.
+		if (
+			previous.token !== undefined &&
+			installedFooterToken === previous.token &&
+			ctxFooterOwner(ctx) === previous.token
+		) {
+			requestFooterRender = previous.requestRender;
+			getActiveExtensionStatuses = previous.getExtensionStatuses;
+			return;
 		}
 		clearFooterOwnership(ctx, token);
 		requestFooterRender = undefined;
@@ -760,6 +821,7 @@ export default function (pi: ExtensionAPI) {
 	const installStatusLine = (ctx: ExtensionContext) => {
 		if (installedFooterKind === "starship" && ownsStatusLine(ctx)) return;
 		const token = Symbol("zentui-starship-footer");
+		const previous = snapshotFooterBookkeeping(ctx);
 		try {
 			installFooter(ctx, state, getCurrentConfig, {
 				setRequestRender: (fn) => {
@@ -778,13 +840,14 @@ export default function (pi: ExtensionAPI) {
 			refresh();
 			reconcileSessionTimer();
 		} catch {
-			resetFailedFooterInstallation(ctx, token);
+			resetFailedFooterInstallation(ctx, token, previous);
 		}
 	};
 
 	const installHiddenStatusLine = (ctx: ExtensionContext) => {
 		if (installedFooterKind === "hidden" && ownsStatusLine(ctx)) return;
 		const token = Symbol("zentui-hidden-footer");
+		const previous = snapshotFooterBookkeeping(ctx);
 		try {
 			installHiddenFooter(ctx, () => clearFooterOwnership(ctx, token));
 			installedFooterKind = "hidden";
@@ -794,25 +857,28 @@ export default function (pi: ExtensionAPI) {
 			getActiveExtensionStatuses = () => new Map();
 			stopSessionTimer();
 		} catch {
-			resetFailedFooterInstallation(ctx, token);
+			resetFailedFooterInstallation(ctx, token, previous);
 		}
 	};
 
-	const uninstallStatusLine = (ctx: ExtensionContext) => {
-		stopSessionTimer();
+	const uninstallStatusLine = (
+		ctx: ExtensionContext,
+		options: { forceLocalCleanup?: boolean } = {},
+	) => {
 		const ownedToken = ownsStatusLine(ctx) ? installedFooterToken : undefined;
-		if (ownedToken) {
-			try {
-				ctx.ui.setFooter(undefined);
-			} catch {
-				// Best effort cleanup must not prevent other surfaces from reconciling.
-			}
-			clearFooterOwnership(ctx, ownedToken);
+		if (!ownedToken) return;
+		try {
+			ctx.ui.setFooter(undefined);
+		} catch {
+			// A live transition must preserve an owned Footer that Pi retained.
+			// Shutdown cannot keep local callbacks alive, so it clears bookkeeping.
+			if (!options.forceLocalCleanup) return;
 		}
+		clearFooterOwnership(ctx, ownedToken);
 	};
 
 	const reconcileFooter = (ctx: ExtensionContext) => {
-		switch (currentConfig.components.footer.style) {
+		switch (effectiveFooterStyle()) {
 			case "starship":
 				installStatusLine(ctx);
 				break;
@@ -854,15 +920,26 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const reconcileEditor = (ctx: ExtensionContext): EditorChangeResult | undefined => {
+	const reconcileEditor = (
+		ctx: ExtensionContext,
+		options: { allowStaleZentui?: boolean } = {},
+	): EditorChangeResult | undefined => {
 		try {
-			if (currentConfig.components.editor.enabled) {
+			if (effectiveEditorEnabled()) {
 				const currentFactory = ctx.ui.getEditorComponent();
-				const editorMissingOrReplaced = !editorInstalled || !isZentuiEditorFactory(currentFactory);
+				if (
+					isZentuiEditorFactory(currentFactory) &&
+					!isOwnedEditorFactory(currentFactory) &&
+					!options.allowStaleZentui
+				) {
+					clearEditorOwnership();
+					return;
+				}
+				const editorMissingOrReplaced = !editorInstalled || !isOwnedEditorFactory(currentFactory);
 				if (editorMissingOrReplaced) return installEditor(ctx);
 			} else {
 				const currentFactory = ctx.ui.getEditorComponent();
-				if (editorInstalled || isZentuiEditorFactory(currentFactory)) return uninstallEditor(ctx);
+				if (editorInstalled || isOwnedEditorFactory(currentFactory)) return uninstallEditor(ctx);
 			}
 		} catch {
 			return {
@@ -872,12 +949,15 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const applyConfiguredUi = (ctx: ExtensionContext): ApplyUiResult => {
+	const applyConfiguredUi = (
+		ctx: ExtensionContext,
+		options: { allowStaleZentui?: boolean } = {},
+	): ApplyUiResult => {
 		const result: ApplyUiResult = { editorBlocked: false };
 		if (!isTuiContext(ctx)) return result;
 		activeTheme = ctx.ui.theme;
 
-		const editorChange = reconcileEditor(ctx);
+		const editorChange = reconcileEditor(ctx, options);
 		if (editorChange && !editorChange.ok) {
 			result.editorBlocked = true;
 			result.editorReason = editorChange.reason;
@@ -906,26 +986,36 @@ export default function (pi: ExtensionAPI) {
 		cleanupFixedLayout(ctx);
 		uninstallUserMessages();
 		uninstallSelectorBorders();
+		try {
+			removeUserMessageStyle();
+		} catch {
+			// Startup alone may supersede a stale registration from an earlier reload.
+		}
+		try {
+			removeSelectorBorderStyle();
+		} catch {
+			// Startup alone may supersede a stale registration from an earlier reload.
+		}
 		uninstallStatusLine(ctx);
-		if (currentConfig.components.editor.enabled) clearEditorOwnership();
+		if (effectiveEditorEnabled()) clearEditorOwnership();
 		else {
 			try {
-				uninstallEditor(ctx);
+				uninstallEditor(ctx, { allowStaleZentui: true });
 			} catch {
 				// Reconciliation below retries observable stale ownership.
 			}
 		}
 
-		applyConfiguredUi(ctx);
+		applyConfiguredUi(ctx, { allowStaleZentui: true });
 		refresh();
 	};
 
 	const scheduleEditorReconciliation = (ctx: ExtensionContext) => {
 		sessionLifecycle.defer(() => {
-			if (!isTuiContext(ctx) || !currentConfig.components.editor.enabled) return;
+			if (!isTuiContext(ctx) || !effectiveEditorEnabled()) return;
 			const observed = observeEditorFactory(ctx);
 			if (!observed.known || observed.factory === installedEditorFactory) return;
-			if (!observed.factory || !isZentuiEditorFactory(observed.factory)) {
+			if (!observed.factory || !isOwnedEditorFactory(observed.factory)) {
 				clearEditorOwnership();
 				reconcileProjectRefresh(ctx);
 				refresh();
@@ -956,12 +1046,12 @@ export default function (pi: ExtensionAPI) {
 
 		let retainedEditorOwnership = false;
 		if (isTuiContext(ctx)) {
-			uninstallStatusLine(ctx);
+			uninstallStatusLine(ctx, { forceLocalCleanup: true });
 			try {
 				const before = observeEditorFactory(ctx);
 				if (before.known) {
 					const currentFactory = before.factory;
-					if (currentFactory && isZentuiEditorFactory(currentFactory)) {
+					if (currentFactory && isOwnedEditorFactory(currentFactory)) {
 						replaceEditor(
 							ctx,
 							getZentuiEditorBaseFactory(currentFactory) ??
@@ -972,7 +1062,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 				const after = observeEditorFactory(ctx);
-				if (after.known && after.factory && isZentuiEditorFactory(after.factory)) {
+				if (after.known && after.factory && isOwnedEditorFactory(after.factory)) {
 					trackZentuiEditorFactory(after.factory);
 					retainedEditorOwnership = true;
 				}
@@ -1017,7 +1107,9 @@ export default function (pi: ExtensionAPI) {
 		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext) {
 			currentConfig = saveEditorComponentPatch(patch);
 			let result: EditorChangeResult | undefined;
-			if (patch.enabled !== undefined && isTuiContext(ctx)) result = reconcileEditor(ctx);
+			if ((patch.enabled !== undefined || patch.style !== undefined) && isTuiContext(ctx)) {
+				result = reconcileEditor(ctx);
+			}
 			if (patch.style !== undefined && patch.style !== "minimalist") {
 				setMinimalistDecorationActive(false);
 			}
@@ -1033,15 +1125,12 @@ export default function (pi: ExtensionAPI) {
 		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
 			currentConfig = saveMinimalistEditorStylePatch(patch);
 			reconcileAgentTimer();
-			reconcileProjectRefresh(ctx);
-			if (needsProjectRefresh() && (patch.pathDisplay === "project" || patch.showGit === true)) {
-				scheduleProjectRefresh(ctx, { force: true });
-			}
+			reconcileProjectRefresh(ctx, patch.pathDisplay !== undefined || patch.showGit !== undefined);
 			refresh();
 		},
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
-			if (patch.enabled !== undefined) reconcileUserMessages();
+			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
 		},
 		setSelectorBordersComponent(
@@ -1053,14 +1142,14 @@ export default function (pi: ExtensionAPI) {
 			refresh();
 		},
 		setFooterComponent(patch: Partial<FooterComponentConfig>, ctx: ExtensionContext) {
-			const previousStyle = currentConfig.components.footer.style;
+			const previousStyle = effectiveFooterStyle();
 			currentConfig = saveFooterComponentPatch(patch);
-			const styleChanged = currentConfig.components.footer.style !== previousStyle;
+			const styleChanged = effectiveFooterStyle() !== previousStyle;
 			if (styleChanged && fixedLayoutEnabled) cleanupFixedLayout(ctx);
 			if (patch.style !== undefined) reconcileFooter(ctx);
 			if (styleChanged && currentConfig.layout.fixedEditor.enabled) reconcileFixedLayout(ctx);
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
-			reconcileProjectRefresh(ctx);
+			reconcileProjectRefresh(ctx, styleChanged);
 			reconcileSessionTimer();
 			refresh();
 		},
@@ -1105,15 +1194,11 @@ export default function (pi: ExtensionAPI) {
 			ctx: ExtensionContext,
 		) {
 			currentConfig = saveStarshipFooterStylePatch({ gitCommit: patch as GitCommitConfig });
-			if (patch.showTag !== undefined && needsProjectRefresh()) {
-				scheduleProjectRefresh(ctx, { force: true });
-			}
+			if (patch.showTag !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		setGitMetrics(patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) {
 			currentConfig = saveStarshipFooterStylePatch({ gitMetrics: patch as GitMetricsConfig });
-			if (patch.ignoreSubmodules !== undefined && needsProjectRefresh()) {
-				scheduleProjectRefresh(ctx, { force: true });
-			}
+			if (patch.ignoreSubmodules !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		getActiveExtensionStatuses() {
 			return getActiveExtensionStatuses();

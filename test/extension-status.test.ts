@@ -109,6 +109,56 @@ describe("collectExtensionStatusSegments", () => {
 		expect(segments.left.map((segment) => segment.text)).toEqual(["a", "z"]);
 	});
 
+	it("treats prototype-shaped status keys as opaque strings", () => {
+		const statuses = new Map([
+			["constructor", "constructor"],
+			["toString", "toString"],
+			["__proto__", "proto"],
+		]);
+		const defaults = collectExtensionStatusSegments(statuses, configWithExtensionStatuses({}));
+		expect(defaults.right.map((segment) => segment.key)).toEqual([
+			"__proto__",
+			"constructor",
+			"toString",
+		]);
+
+		const configured = collectExtensionStatusSegments(
+			statuses,
+			configWithExtensionStatuses({
+				placements: Object.fromEntries([
+					["constructor", "left"],
+					["toString", "middle"],
+					["__proto__", "off"],
+				]) as PolishedTuiConfig["extensionStatuses"]["placements"],
+				colorModes: Object.fromEntries([
+					["constructor", "original"],
+					["toString", "original"],
+					["__proto__", "original"],
+				]) as PolishedTuiConfig["extensionStatuses"]["colorModes"],
+			}),
+		);
+		expect(configured.left[0]).toMatchObject({ key: "constructor", colorMode: "original" });
+		expect(configured.middle[0]).toMatchObject({ key: "toString", colorMode: "original" });
+		expect(configured.right).toEqual([]);
+	});
+
+	it("falls back safely after runtime enum mutation", () => {
+		const config = configWithExtensionStatuses({});
+		const mutable = config.components.footer.styles.starship.extensionStatuses as unknown as {
+			defaultPlacement: string;
+			placements: Record<string, string>;
+			colorModes: Record<string, string>;
+		};
+		mutable.defaultPlacement = "center";
+		mutable.placements.alpha = "explode";
+		mutable.colorModes.alpha = "rainbow";
+
+		const segments = collectExtensionStatusSegments(new Map([["alpha", "ok"]]), config);
+		expect(segments.right).toEqual([
+			{ key: "alpha", text: "ok", placement: "right", colorMode: "zentui" },
+		]);
+	});
+
 	it("keeps original ANSI color only for statuses configured as original", () => {
 		const config = configWithExtensionStatuses({
 			colorModes: {

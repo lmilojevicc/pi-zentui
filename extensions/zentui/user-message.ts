@@ -1,85 +1,17 @@
 import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ZentuiConfig } from "./config";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
+import {
+	sanitizeRenderedUserMessageLines,
+	sanitizeRenderedUserMessageText,
+	stripUserMessageOscText,
+} from "./user-message-osc";
 import { renderUserMessageStyle, userMessageStyleCacheKey } from "./user-message-styles";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
-const ESC = "\x1b";
-const BEL = "\x07";
-const C1_OSC = "\x9d";
-const C1_ST = "\x9c";
-
-function oscStartLength(text: string, index: number): number {
-	if (text[index] === C1_OSC) return 1;
-	return text[index] === ESC && text[index + 1] === "]" ? 2 : 0;
-}
-
-type OscBoundary =
-	| { kind: "terminator"; index: number; length: number }
-	| { kind: "start"; index: number };
-
-function findOscBoundary(text: string, payloadStart: number): OscBoundary | undefined {
-	for (let index = payloadStart; index < text.length; index += 1) {
-		if (oscStartLength(text, index) > 0) return { kind: "start", index };
-		if (text[index] === BEL || text[index] === C1_ST) {
-			return { kind: "terminator", index, length: 1 };
-		}
-		if (text[index] === ESC && text[index + 1] === "\\") {
-			return { kind: "terminator", index, length: 2 };
-		}
-	}
-	return undefined;
-}
-
-function isCompleteOsc133Payload(payload: string): boolean {
-	return payload === "133" || payload.startsWith("133;");
-}
-
-function incompleteOsc133PrefixLength(payload: string): number {
-	if (payload.length > 0 && "133".startsWith(payload)) return payload.length;
-	if (!payload.startsWith("133;")) return 0;
-
-	let length = 4;
-	if (/^[A-D]$/.test(payload[length] ?? "")) length += 1;
-	if (payload[length] === ";") length += 1;
-	return length;
-}
-
-function stripOsc133Sequences(text: string): string {
-	let output = "";
-	let index = 0;
-	while (index < text.length) {
-		const startLength = oscStartLength(text, index);
-		if (startLength === 0) {
-			output += text[index];
-			index += 1;
-			continue;
-		}
-
-		const payloadStart = index + startLength;
-		const boundary = findOscBoundary(text, payloadStart);
-		const payloadEnd = boundary?.index ?? text.length;
-		const payload = text.slice(payloadStart, payloadEnd);
-		if (boundary?.kind === "terminator") {
-			const sequenceEnd = boundary.index + boundary.length;
-			if (!isCompleteOsc133Payload(payload)) output += text.slice(index, sequenceEnd);
-			index = sequenceEnd;
-			continue;
-		}
-
-		// An unterminated OSC introducer must not remain open and consume a later
-		// Zentui prompt marker. Preserve its human-readable payload, but remove a
-		// recognized (including partial) OSC 133 command prefix. A nested OSC start
-		// is processed independently on the next loop iteration.
-		const prefixLength = incompleteOsc133PrefixLength(payload);
-		output += payload.slice(prefixLength);
-		index = payloadEnd;
-		if (!boundary) break;
-	}
-	return output;
-}
 
 type PatchableUserMessagePrototype = {
 	children?: unknown[];
@@ -155,7 +87,7 @@ function renderZentuiUserMessage(
 	}
 
 	const lines = renderUserMessageStyle({
-		text: stripOsc133Sequences(text),
+		text,
 		width,
 		theme,
 		config,
@@ -180,6 +112,35 @@ function withPromptZoneMarkers(lines: string[]): string[] {
 	markedLines[markedLines.length - 1] =
 		OSC133_ZONE_END + OSC133_ZONE_FINAL + markedLines[markedLines.length - 1];
 	return markedLines;
+}
+
+function sanitizePredecessorRender(result: unknown): unknown {
+	if (typeof result === "string") return sanitizeRenderedUserMessageText(result);
+	if (!Array.isArray(result)) return result;
+	const stringRows = result.every((line): line is string => typeof line === "string");
+	if (stringRows) return sanitizeRenderedUserMessageLines(result);
+	return result.map((line) =>
+		typeof line === "string" ? sanitizeRenderedUserMessageText(line) : line,
+	);
+}
+
+function renderSafeOscFallback(
+	instance: PatchableUserMessagePrototype,
+	width: number,
+): string[] | undefined {
+	let text: string | undefined;
+	try {
+		text = isRecord(instance) ? getCachedMarkdownText(instance) : undefined;
+	} catch {
+		return undefined;
+	}
+	if (text === undefined) return undefined;
+	const stripped = stripUserMessageOscText(text);
+	if (stripped === text) return undefined;
+	const lines = (width > 0 ? wrapTextWithAnsi(stripped, width) : [""]).map(
+		sanitizeRenderedUserMessageText,
+	);
+	return withPromptZoneMarkers(lines.length > 0 ? lines : [""]);
 }
 
 export function removeUserMessageStyle(): void {
@@ -209,8 +170,10 @@ export function installUserMessageStyle(
 			"render",
 			"user-message-render",
 			({ predecessor, receiver, args }) => {
+				const renderPredecessor = () =>
+					sanitizePredecessorRender(Reflect.apply(predecessor, receiver, args));
 				const width = args[0];
-				if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
+				if (typeof width !== "number") return renderPredecessor();
 				try {
 					const lines = renderZentuiUserMessage(
 						receiver as PatchableUserMessagePrototype,
@@ -218,10 +181,14 @@ export function installUserMessageStyle(
 						getTheme(),
 						getConfig(),
 					);
-					if (!lines) return Reflect.apply(predecessor, receiver, args);
+					if (!lines) return renderPredecessor();
 					return lines.length ? withPromptZoneMarkers(lines) : lines;
 				} catch {
-					return Reflect.apply(predecessor, receiver, args);
+					const safeFallback = renderSafeOscFallback(
+						receiver as PatchableUserMessagePrototype,
+						width,
+					);
+					return safeFallback ?? renderPredecessor();
 				}
 			},
 		);

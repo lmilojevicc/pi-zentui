@@ -12,7 +12,6 @@ import {
 } from "@earendil-works/pi-tui";
 import {
 	type ColorSource,
-	type ColorSourcesConfig,
 	type CompactFooterMaxLines,
 	type ContextStyle,
 	type EditorBorderColorMode,
@@ -40,7 +39,6 @@ import {
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
-	type UiFeaturesConfig,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 } from "./config";
@@ -117,17 +115,17 @@ type ApplyResult = { applied: boolean; reason?: string };
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
-	setEditorComponent?: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
-	setMinimalist?: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
-	setUserMessagesComponent?: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
-	setSelectorBordersComponent?: (
+	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
+	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
+	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	setSelectorBordersComponent: (
 		patch: Partial<SelectorBordersComponentConfig>,
 		ctx: ExtensionContext,
 	) => void;
-	setFooterComponent?: (patch: FooterPatch, ctx: ExtensionContext) => void;
+	setFooterComponent: (patch: FooterPatch, ctx: ExtensionContext) => void;
 	setFooterSegments: (patch: Partial<FooterSegmentsConfig>, ctx: ExtensionContext) => void;
 	setFooterFormat: (value: string, ctx: ExtensionContext) => void;
-	setResponsiveFooter?: (
+	setResponsiveFooter: (
 		patch: Partial<Pick<PolishedTuiConfig, "responsiveFooter" | "compactFooterMaxLines">>,
 		ctx: ExtensionContext,
 	) => void;
@@ -136,24 +134,18 @@ type SettingsCommandDeps = {
 	setSeparator: (separator: SeparatorStyle) => void;
 	setPathDisplay: (patch: Partial<PathDisplayConfig>) => void;
 	setGitBranch: (patch: Partial<GitBranchConfig>) => void;
-	setGitCommit?: (
+	setGitCommit: (
 		patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 		ctx: ExtensionContext,
 	) => void;
-	setGitMetrics?: (patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) => void;
+	setGitMetrics: (patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
-	setExtensionStatusDefaultPlacement?: (placement: ExtensionStatusPlacement) => void;
+	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	setFixedEditor: (patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
-	/** Deprecated dependency fallbacks retained for older internal callers. */
-	setColorSources?: (patch: Partial<ColorSourcesConfig>) => void;
-	setUiFeatures?: (patch: Partial<UiFeaturesConfig>, ctx: ExtensionContext) => ApplyResult;
-	setEditorStyle?: (value: EditorStyle, ctx: ExtensionContext) => void;
-	setEditorModelLabel?: (value: ModelLabelSource, ctx: ExtensionContext) => void;
-	setEditorBorderColorMode?: (value: EditorBorderColorMode) => void;
 };
 
 const sectionLabels: Record<SettingsSection, string> = {
@@ -868,12 +860,12 @@ function withSectionFooter(lines: string[], theme: ExtensionContext["ui"]["theme
 
 export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCommandDeps): void {
 	const setEditor = (patch: EditorPatch, ctx: ExtensionContext): ApplyResult =>
-		deps.setEditorComponent?.(patch, ctx) ?? { applied: true };
+		deps.setEditorComponent(patch, ctx);
 	const setMessages = (patch: UserMessagesPatch, ctx: ExtensionContext) => {
-		deps.setUserMessagesComponent?.(patch, ctx);
+		deps.setUserMessagesComponent(patch, ctx);
 	};
 	const setFooter = (patch: FooterPatch, ctx: ExtensionContext) => {
-		deps.setFooterComponent?.(patch, ctx);
+		deps.setFooterComponent(patch, ctx);
 	};
 
 	pi.registerCommand("zentui", {
@@ -1044,7 +1036,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									notifyChange("Editor viewport indicators", newValue);
 									return;
 								}
-								if (id.startsWith("minimalist") && deps.setMinimalist) {
+								if (id.startsWith("minimalist")) {
 									if (
 										id === "minimalistPathDisplay" &&
 										["compact", "project", "full"].includes(newValue)
@@ -1103,19 +1095,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									return;
 								}
 								if (id === "selectorBordersEnabled" && enabled !== undefined) {
-									deps.setSelectorBordersComponent?.({ enabled }, ctx);
+									deps.setSelectorBordersComponent({ enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Selector borders", newValue);
 									return;
 								}
 								if (id === "selectorBordersStyle" && newValue === "zentui") {
-									deps.setSelectorBordersComponent?.({ style: newValue }, ctx);
+									deps.setSelectorBordersComponent({ style: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Selector border style", newValue);
 									return;
 								}
 								if (id === "selectorBordersColorSource" && isColorSource(newValue)) {
-									deps.setSelectorBordersComponent?.({ colorSource: newValue }, ctx);
+									deps.setSelectorBordersComponent({ colorSource: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Selector border colors", newValue);
 									return;
@@ -1168,7 +1160,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								}
 
 								if (id === "responsiveFooter" && enabled !== undefined) {
-									deps.setResponsiveFooter?.({ responsiveFooter: enabled }, ctx);
+									deps.setResponsiveFooter({ responsiveFooter: enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Responsive footer", newValue);
 									return;
@@ -1179,7 +1171,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								) {
 									const value: CompactFooterMaxLines =
 										newValue === "unlimited" ? "unlimited" : (Number(newValue) as 1 | 2 | 3);
-									deps.setResponsiveFooter?.({ compactFooterMaxLines: value }, ctx);
+									deps.setResponsiveFooter({ compactFooterMaxLines: value }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Compact footer rows", newValue);
 									return;
@@ -1228,25 +1220,25 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									return;
 								}
 								if (id === "gitCommitOnlyDetached" && enabled !== undefined) {
-									deps.setGitCommit?.({ onlyDetached: enabled }, ctx);
+									deps.setGitCommit({ onlyDetached: enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Commit only on detached HEAD", newValue);
 									return;
 								}
 								if (id === "gitCommitShowTag" && enabled !== undefined) {
-									deps.setGitCommit?.({ showTag: enabled }, ctx);
+									deps.setGitCommit({ showTag: enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Show exact-match tag", newValue);
 									return;
 								}
 								if (id === "gitMetricsOnlyNonzero" && enabled !== undefined) {
-									deps.setGitMetrics?.({ onlyNonzero: enabled }, ctx);
+									deps.setGitMetrics({ onlyNonzero: enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Hide zero metrics", newValue);
 									return;
 								}
 								if (id === "gitMetricsIgnoreSubmodules" && enabled !== undefined) {
-									deps.setGitMetrics?.({ ignoreSubmodules: enabled }, ctx);
+									deps.setGitMetrics({ ignoreSubmodules: enabled }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Ignore submodules", newValue);
 									return;
@@ -1256,7 +1248,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									id === "extensionStatusDefaultPlacement" &&
 									isExtensionStatusPlacement(newValue)
 								) {
-									deps.setExtensionStatusDefaultPlacement?.(newValue);
+									deps.setExtensionStatusDefaultPlacement(newValue);
 									settingsList = makeSettingsList("extensionStatusDefaultPlacement");
 									notifyChange("Default extension status placement", newValue);
 									return;
@@ -1295,7 +1287,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					render(width: number) {
 						const border = renderChromeBorder(
 							theme,
-							deps.getConfig().components.editor.colorSource,
+							deps.getConfig().components.selectorBorders.colorSource,
 							EDITOR_BORDER_STYLE,
 							"─".repeat(Math.max(0, width)),
 						);

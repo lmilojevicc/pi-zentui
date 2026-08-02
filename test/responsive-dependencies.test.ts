@@ -43,6 +43,17 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			};
 			return mocks.config;
 		},
+		saveFooterComponentPatch(patch: Record<string, unknown>) {
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				components: {
+					...mocks.config.components,
+					footer: { ...footer, ...patch },
+				},
+			};
+			return mocks.config;
+		},
 		saveStarshipFooterStylePatch(patch: Record<string, unknown>) {
 			const footer = mocks.config.components.footer;
 			const starship = footer.styles.starship;
@@ -197,7 +208,10 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 
 vi.mock("../extensions/zentui/git", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/git")>();
-	mocks.readGitStatus.mockImplementation(async () => actual.emptyGitStatus());
+	mocks.readGitStatus.mockImplementation(async () => ({
+		kind: "ok" as const,
+		status: actual.emptyGitStatus(),
+	}));
 	return { ...actual, readGitStatus: mocks.readGitStatus };
 });
 vi.mock("../extensions/zentui/runtime", () => ({ readRuntimeInfo: mocks.readRuntimeInfo }));
@@ -291,6 +305,8 @@ function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Pr
 		},
 		ui: {
 			theme,
+			getEditorText: () => "",
+			setEditorText() {},
 			setFooter(factory: unknown) {
 				footerFactory = factory;
 			},
@@ -335,8 +351,8 @@ beforeEach(() => {
 		compactFooterFormat: "$package",
 	};
 	mocks.readGitStatus.mockClear();
-	mocks.readRuntimeInfo.mockReset().mockResolvedValue(undefined);
-	mocks.readPackageVersionResult.mockReset().mockResolvedValue(undefined);
+	mocks.readRuntimeInfo.mockReset().mockResolvedValue({ kind: "ok", runtime: undefined });
+	mocks.readPackageVersionResult.mockReset().mockResolvedValue({ kind: "ok", result: null });
 	mocks.syncState.mockClear();
 });
 
@@ -352,6 +368,7 @@ describe("responsive footer dependency reconciliation", () => {
 		await emit(handlers, "session_start", ctx);
 		await settleProjectRefresh();
 		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
 
 		const gitReads = mocks.readGitStatus.mock.calls.length;
 		await command.handler('format "$directory"', ctx);
@@ -361,6 +378,230 @@ describe("responsive footer dependency reconciliation", () => {
 		await command.handler('format "$package"', ctx);
 		await settleProjectRefresh();
 		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
+	});
+
+	it("clears package state when its reference deactivates before a failed re-enable", async () => {
+		updateStarship({ format: "$package", responsive: false });
+		mocks.readPackageVersionResult.mockResolvedValueOnce({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "1.2.3" },
+		});
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+		};
+		expect(state.packageVersion).toEqual({ ecosystem: "nodejs", version: "1.2.3" });
+
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+
+		mocks.readPackageVersionResult.mockResolvedValue({ kind: "error" });
+		await command.handler('format "$package"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+	});
+
+	it("invalidates an in-flight package read across remove and failed re-enable", async () => {
+		updateStarship({ format: "$package", responsive: false });
+		let resolveObsoleteRead:
+			| ((value: { kind: "ok"; result: { ecosystem: string; version: string } }) => void)
+			| undefined;
+		mocks.readPackageVersionResult
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoleteRead = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
+
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+		};
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+
+		await command.handler('format "$package"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+
+		resolveObsoleteRead?.({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "9.9.9-obsolete" },
+		});
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+	});
+
+	it("replaces in-flight Footer probes across live styles while Minimalist keeps refresh active", async () => {
+		const editor = mocks.config.components.editor;
+		updateStarship({ format: "$package $runtime", responsive: false });
+		mocks.config = {
+			...mocks.config,
+			components: {
+				...mocks.config.components,
+				editor: {
+					...editor,
+					enabled: true,
+					style: "minimalist",
+					styles: {
+						...editor.styles,
+						minimalist: { ...editor.styles.minimalist, showGit: true },
+					},
+				},
+			},
+		};
+		let resolveObsoletePackage:
+			| ((value: { kind: "ok"; result: { ecosystem: string; version: string } }) => void)
+			| undefined;
+		let resolveObsoleteRuntime:
+			| ((value: {
+					kind: "ok";
+					runtime: { name: string; symbol: string; style: string; version: string };
+			  }) => void)
+			| undefined;
+		mocks.readPackageVersionResult
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoletePackage = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		mocks.readRuntimeInfo
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoleteRuntime = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+			runtime?: { name: string; version?: string };
+		};
+		await command.handler("footer off", ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		await command.handler("footer on", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		resolveObsoletePackage?.({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "9.9.9-obsolete" },
+		});
+		resolveObsoleteRuntime?.({
+			kind: "ok",
+			runtime: {
+				name: "Obsolete",
+				symbol: "O",
+				style: "bold red",
+				version: "9.9.9-obsolete",
+			},
+		});
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		const footerFactory = ctx.footerFactory as
+			| ((
+					tui: { requestRender(): void },
+					theme: Theme,
+					data: {
+						onBranchChange(callback: () => void): () => void;
+						getExtensionStatuses(): Map<string, string>;
+					},
+			  ) => { render(width: number): string[] })
+			| undefined;
+		const rendered =
+			footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			})
+				.render(120)
+				.join("\n") ?? "";
+		expect(rendered).not.toContain("9.9.9-obsolete");
+		expect(rendered).not.toContain("Obsolete");
+	});
+
+	it("probes runtime only while a custom Footer format references it", async () => {
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
+
+		await command.handler('format "$runtime"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+	});
+
+	it("counts the enabled built-in runtime segment as an active reference", async () => {
+		updateStarship({
+			format: "",
+			responsive: false,
+			segments: { ...mocks.config.components.footer.styles.starship.segments, runtime: true },
+		});
+		const { handlers } = loadExtension();
+		await emit(handlers, "session_start", createContext());
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+	});
+
+	it("skips runtime and package probes for Minimalist-only project refreshes", async () => {
+		const editor = mocks.config.components.editor;
+		const footer = mocks.config.components.footer;
+		mocks.config = {
+			...mocks.config,
+			components: {
+				...mocks.config.components,
+				editor: {
+					...editor,
+					enabled: true,
+					style: "minimalist",
+					styles: {
+						...editor.styles,
+						minimalist: { ...editor.styles.minimalist, showGit: true },
+					},
+				},
+				footer: { ...footer, style: "native" },
+			},
+		};
+		const { handlers } = loadExtension();
+		await emit(handlers, "session_start", createContext());
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledOnce();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
+		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
 	});
 
 	it("refreshes compact-only probes immediately when responsiveness is enabled", async () => {

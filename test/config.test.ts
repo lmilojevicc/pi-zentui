@@ -21,6 +21,9 @@ import {
 	defaultConfig,
 	ensureConfigExists,
 	FOOTER_FORMAT_VARIABLES,
+	getExtensionStatusColorMode,
+	getExtensionStatusPlacement,
+	hasUnsupportedComponentStyle,
 	mergeConfig,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
@@ -764,13 +767,15 @@ describe("Phase 4 style migration", () => {
 					},
 				},
 				(path) => {
-					saveUnrelated(path);
+					const unrelatedConfig = saveUnrelated(path);
+					expect(hasUnsupportedComponentStyle(unrelatedConfig, owner)).toBe(true);
 					const preserved = readRaw(path);
 					expect(preserved.components[owner].style).toBe(`future-${owner}`);
 					expect(preserved.components[owner].futureOption).toBe("keep");
 					expect(preserved.components[owner].styles.future).toEqual({ keep: true });
 
-					saveStyle(path);
+					const replacedConfig = saveStyle(path);
+					expect(hasUnsupportedComponentStyle(replacedConfig, owner)).toBe(false);
 					const replaced = readRaw(path);
 					expect(replaced.components[owner].style).toBe(expectedStyle);
 					expect(replaced.components[owner].futureOption).toBe("keep");
@@ -2717,6 +2722,66 @@ describe("Opencode and Footer follow-up migration", () => {
 				"native",
 			);
 		});
+	});
+
+	it("ignores inherited extension-status overrides and validates runtime mutations", () => {
+		const config = structuredClone(defaultConfig);
+		const statuses = config.components.footer.styles.starship.extensionStatuses;
+		statuses.placements = Object.create({ constructor: "left" }) as Record<
+			string,
+			(typeof statuses.placements)[string]
+		>;
+		statuses.colorModes = Object.create({ constructor: "original" }) as Record<
+			string,
+			(typeof statuses.colorModes)[string]
+		>;
+		expect(getExtensionStatusPlacement(config, "constructor")).toBe("right");
+		expect(getExtensionStatusColorMode(config, "constructor")).toBe("zentui");
+
+		Object.defineProperty(statuses.placements, "constructor", {
+			value: "left",
+			enumerable: true,
+			configurable: true,
+		});
+		Object.defineProperty(statuses.colorModes, "constructor", {
+			value: "original",
+			enumerable: true,
+			configurable: true,
+		});
+		expect(getExtensionStatusPlacement(config, "constructor")).toBe("left");
+		expect(getExtensionStatusColorMode(config, "constructor")).toBe("original");
+
+		(statuses as unknown as { defaultPlacement: string }).defaultPlacement = "center";
+		(statuses.placements as unknown as Record<string, string>).alpha = "explode";
+		(statuses.colorModes as unknown as Record<string, string>).alpha = "rainbow";
+		expect(getExtensionStatusPlacement(config, "missing")).toBe("right");
+		expect(getExtensionStatusPlacement(config, "alpha")).toBe("right");
+		expect(getExtensionStatusColorMode(config, "alpha")).toBe("zentui");
+	});
+
+	it("marks only explicit non-empty unknown canonical component styles", () => {
+		const future = mergeConfig({
+			components: {
+				editor: { style: "future-editor" },
+				userMessages: { style: "future-messages" },
+				selectorBorders: { style: "future-selectors" },
+				footer: { style: "future-footer" },
+			},
+		});
+		for (const owner of ["editor", "userMessages", "selectorBorders", "footer"] as const) {
+			expect(hasUnsupportedComponentStyle(future, owner)).toBe(true);
+		}
+
+		for (const style of [undefined, "", "   ", null, false, {}, []]) {
+			const ordinary = mergeConfig({ components: { editor: { style } } });
+			expect(hasUnsupportedComponentStyle(ordinary, "editor")).toBe(false);
+		}
+		expect(
+			hasUnsupportedComponentStyle(
+				mergeConfig({ components: { editor: { style: "polished" } } }),
+				"editor",
+			),
+		).toBe(false);
 	});
 
 	it.each([

@@ -137,35 +137,79 @@ describe("pure user-message styles", () => {
 		}
 	});
 
-	it("preserves complete 7-bit and C1 OSC 8 controls byte-for-byte", () => {
-		const starts = ["\x1b]", "\x9d"];
-		const terminators = ["\x07", "\x1b\\", "\x9c"];
+	it("preserves complete 7-bit OSC 8 controls byte-for-byte", () => {
 		for (const style of userMessageStyles) {
-			for (const start of starts) {
-				for (const terminator of terminators) {
-					const open = `${start}8;;https://example.com${terminator}`;
-					const close = `${start}8;;${terminator}`;
-					const output = render(style, `${open}raw${close}`, 80).join("\n");
-					expect(output.split(open)).toHaveLength(2);
-					expect(output.split(close)).toHaveLength(2);
-					expect(output).toContain(`${open}raw${close}`);
-				}
+			for (const terminator of ["\x07", "\x1b\\"]) {
+				const open = `\x1b]8;;https://example.com${terminator}`;
+				const close = `\x1b]8;;${terminator}`;
+				const output = render(style, `${open}raw${close}`, 80).join("\n");
+				expect(output.split(open)).toHaveLength(2);
+				expect(output.split(close)).toHaveLength(2);
+				expect(output).toContain(`${open}raw${close}`);
 			}
+		}
+	});
+
+	it("preserves a balanced OSC 8 close immediately before a non-final Markdown row", () => {
+		const open = "\x1b]8;;https://example.com\x07";
+		const close = "\x1b]8;;\x07";
+		const source = `before ${open}LINK${close}\nafter`;
+		for (const style of userMessageStyles) {
+			for (let width = 1; width <= 40; width += 1) {
+				const output = render(style, source, width).join("\n");
+				if (style === "framed" && width <= 2) {
+					expect(output).not.toContain("LINK");
+					expect(output).not.toContain(open);
+					expect(output).not.toContain(close);
+					continue;
+				}
+				expect(output.split(open)).toHaveLength(2);
+				expect(output.split(close)).toHaveLength(2);
+				expect(output.indexOf(open)).toBeLessThan(output.indexOf(close));
+				const visible = output.replace(open, "").replace(close, "");
+				expect(plain(visible).replaceAll(/[^\p{L}]/gu, "")).toContain("beforeLINKafter");
+				expect(output).not.toMatch(/[\u200b\u200c\u2060]/);
+			}
+		}
+	});
+
+	it.each([
+		["unmatched open", "\x1b]8;;https://example.com\x07raw"],
+		["stray close", "raw\x1b]8;;\x07"],
+		[
+			"nested open",
+			"\x1b]8;;https://first.example\x07one \x1b]8;;https://second.example\x07two\x1b]8;;\x07",
+		],
+	] as const)("fails closed for %s OSC 8 streams", (_name, source) => {
+		for (const style of userMessageStyles) {
+			const output = render(style, source, 80).join("\n");
+			expect(output).not.toContain("\x1b]8;");
+			expect(output).toMatch(/raw|one/);
+		}
+	});
+
+	it("strips C1 OSC 8 instead of exposing controls unsupported by fixed selection", () => {
+		const open = "\x9d8;;https://example.com\x9c";
+		const close = "\x9d8;;\x9c";
+		for (const style of userMessageStyles) {
+			const output = render(style, `${open}raw${close}`, 80).join("\n");
+			expect(output).toContain("raw");
+			expect(output).not.toContain("\x9d");
+			expect(output).not.toContain("\x9c");
 		}
 	});
 
 	it("preserves duplicate and mixed OSC 8 ordering alongside Markdown links", () => {
 		const firstOpen = "\x1b]8;;https://first.example\x07";
-		const firstClose = "\x1b]8;;\x07";
-		const secondOpen = "\x9d8;;https://second.example\x9c";
-		const secondClose = "\x9d8;;\x9c";
+		const firstClose = "\x1b]8;;\x1b\\";
+		const secondOpen = "\x1b]8;;https://second.example\x1b\\";
+		const secondClose = "\x1b]8;;\x07";
 		const text = `${firstOpen}one${firstClose} ${secondOpen}two${secondClose} ${firstOpen}three${firstClose} [markdown](https://markdown.example)`;
 		for (const style of userMessageStyles) {
 			const output = render(style, text, 160).join("\n");
-			expect(output.split(firstOpen)).toHaveLength(3);
-			expect(output.split(firstClose)).toHaveLength(3);
-			expect(output.split(secondOpen)).toHaveLength(2);
-			expect(output.split(secondClose)).toHaveLength(2);
+			expect(output.split(`${firstOpen}one${firstClose}`)).toHaveLength(2);
+			expect(output.split(`${secondOpen}two${secondClose}`)).toHaveLength(2);
+			expect(output.split(`${firstOpen}three${firstClose}`)).toHaveLength(2);
 			expect(output.indexOf(`${firstOpen}one${firstClose}`)).toBeLessThan(
 				output.indexOf(`${secondOpen}two${secondClose}`),
 			);
@@ -173,6 +217,57 @@ describe("pure user-message styles", () => {
 				output.indexOf(`${firstOpen}three${firstClose}`),
 			);
 			expect(output).toContain("markdown");
+		}
+	});
+
+	it("removes hostile raw OSC before Markdown while preserving Markdown links", () => {
+		const markdown = "[docs](https://markdown.example)";
+		const hostile = "\x1b]52;c;c2VjcmV0\x07";
+		for (const style of userMessageStyles) {
+			const clean = render(style, markdown, 120).join("\n");
+			const mixed = render(style, `${hostile}${markdown}`, 120).join("\n");
+			expect(mixed).toBe(clean);
+			expect(mixed).not.toContain("\x1b]52");
+			expect(mixed).not.toContain("c2VjcmV0");
+			expect(mixed).toContain("docs");
+		}
+	});
+
+	it("fails closed when Markdown duplicates an OSC 8 shield across wrapped lines", () => {
+		const open = "\x1b]8;;https://raw.example\x07";
+		const close = "\x1b]8;;\x07";
+		const clipboard = "\x1b]52;c;c2VjcmV0\x07";
+		const source = `[docs](https://markdown.example/${open}nested${close}) ${clipboard}tail`;
+		for (const style of userMessageStyles) {
+			for (const width of [...Array.from({ length: 40 }, (_, index) => index + 1), 160]) {
+				const output = render(style, source, width).join("\n");
+				expect(output).not.toMatch(/[\u200b\u200c\u2060]/);
+				expect(output).not.toContain("\x1b]52");
+				expect(output).not.toContain("c2VjcmV0");
+				expect(output).not.toContain(open);
+				expect(output).not.toContain(close);
+			}
+		}
+	});
+
+	it("removes raw non-OSC terminal controls before Markdown", () => {
+		const hostile = [
+			"\x1b[2J",
+			"\x9b2J",
+			"\x1bPsecret\x1b\\",
+			"\x90secret\x9c",
+			"\x1bXsecret\x1b\\",
+			"\x1b^secret\x1b\\",
+			"\x1b_secret\x1b\\",
+			"\x07",
+			"\x01",
+			"\x7f",
+		].join("");
+		for (const style of userMessageStyles) {
+			const output = render(style, `before${hostile}after`, 80).join("\n");
+			expect(output).toContain("beforeafter");
+			expect(output).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/);
+			expect(output).not.toContain("secret");
 		}
 	});
 

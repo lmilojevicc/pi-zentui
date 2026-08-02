@@ -29,7 +29,7 @@
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./extensions/zentui/index.ts",
 		"pi:install-local": "${PI_BIN:-/opt/homebrew/bin/pi} install ./ -l",
 		"fmt": "biome format --write .",
-		"fmt:check": "biome format --check .",
+		"fmt:check": "biome format .",
 		"verify": "npm run lint && npm run typecheck && npm run test",
 		"pack:check": "npm pack --dry-run",
 		"prepublishOnly": "npm run verify && npm run pack:check"

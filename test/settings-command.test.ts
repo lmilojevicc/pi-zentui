@@ -497,8 +497,11 @@ describe("component-oriented /zentui settings", () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
+		expect(component.render(160)[0]).not.toContain("\x1b[90m");
 		selectLabel(component, "Selector border colors");
 		component.handleInput(" ");
+		expect(component.render(160)[0]).toContain("\x1b[90m");
+		expect(harness.config.components.editor.colorSource).toBe("theme");
 		goToSection(component, "Editor");
 		selectLabel(component, "Editor colors");
 		component.handleInput(" ");

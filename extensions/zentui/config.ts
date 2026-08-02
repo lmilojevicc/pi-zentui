@@ -37,6 +37,7 @@ export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
 export type UserMessageStyle = "framed" | "framed-copy-friendly" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
 export type FooterStyle = "native" | "starship" | "hidden";
+export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
 export type EditorBorderColorMode = "static" | "adaptive";
@@ -223,6 +224,7 @@ export type GitMetricsConfig = {
 	ignoreSubmodules: boolean;
 };
 
+const DEFAULT_EXTENSION_STATUS_PLACEMENT: ExtensionStatusPlacement = "right";
 const DEFAULT_EXTENSION_STATUS_COLOR_MODE: ExtensionStatusColorMode = "zentui";
 
 export type ExtensionStatusesConfig = {
@@ -1276,6 +1278,40 @@ function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
 	};
 }
 
+const unsupportedComponentStyles = new WeakMap<ZentuiConfig, ReadonlySet<ComponentStyleOwner>>();
+
+const knownComponentStyleIds: Record<ComponentStyleOwner, ReadonlySet<string>> = {
+	editor: new Set([
+		"opencode",
+		"opencode-copy-friendly",
+		"minimalist",
+		"polished",
+		"polished-copy-friendly",
+	]),
+	userMessages: new Set(["framed", "framed-copy-friendly", "compact", "labeled"]),
+	selectorBorders: new Set(["zentui"]),
+	footer: new Set(["native", "starship", "hidden"]),
+};
+
+function unsupportedSelectedStyleId(
+	record: ConfigRecord,
+	owner: ComponentStyleOwner,
+): string | undefined {
+	const component = recordValue(recordValue(record.components)[owner]);
+	if (!hasOwn(component, "style")) return undefined;
+	const style = component.style;
+	return typeof style === "string" && style.trim() && !knownComponentStyleIds[owner].has(style)
+		? style
+		: undefined;
+}
+
+export function hasUnsupportedComponentStyle(
+	config: ZentuiConfig,
+	owner: ComponentStyleOwner,
+): boolean {
+	return unsupportedComponentStyles.get(config)?.has(owner) ?? false;
+}
+
 export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
@@ -1293,7 +1329,13 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 			fixedEditor: resolveFixedEditor(layout.fixedEditor, config.fixedEditor),
 		},
 	};
-	return compatibilityView(canonical);
+	const view = compatibilityView(canonical);
+	const unsupported = new Set<ComponentStyleOwner>();
+	for (const owner of ["editor", "userMessages", "selectorBorders", "footer"] as const) {
+		if (unsupportedSelectedStyleId(config, owner) !== undefined) unsupported.add(owner);
+	}
+	if (unsupported.size > 0) unsupportedComponentStyles.set(view, unsupported);
+	return view;
 }
 
 export function getExtensionStatusPlacement(
@@ -1301,17 +1343,25 @@ export function getExtensionStatusPlacement(
 	key: string,
 ): ExtensionStatusPlacement {
 	const statuses = config.components.footer.styles.starship.extensionStatuses;
-	return statuses.placements[key] ?? statuses.defaultPlacement;
+	if (Object.hasOwn(statuses.placements, key)) {
+		const placement = statuses.placements[key];
+		if (isExtensionStatusPlacement(placement)) return placement;
+	}
+	return isExtensionStatusPlacement(statuses.defaultPlacement)
+		? statuses.defaultPlacement
+		: DEFAULT_EXTENSION_STATUS_PLACEMENT;
 }
 
 export function getExtensionStatusColorMode(
 	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusColorMode {
-	return (
-		config.components.footer.styles.starship.extensionStatuses.colorModes[key] ??
-		DEFAULT_EXTENSION_STATUS_COLOR_MODE
-	);
+	const colorModes = config.components.footer.styles.starship.extensionStatuses.colorModes;
+	if (Object.hasOwn(colorModes, key)) {
+		const colorMode = colorModes[key];
+		if (isExtensionStatusColorMode(colorMode)) return colorMode;
+	}
+	return DEFAULT_EXTENSION_STATUS_COLOR_MODE;
 }
 
 export function loadConfig(): PolishedTuiConfig {
@@ -1337,45 +1387,14 @@ function overlayKnown(raw: unknown, known: unknown): unknown {
 	return output;
 }
 
-type ComponentStyleOwner = keyof ComponentsConfig;
-
 type PreservedStyleIds = Partial<Record<ComponentStyleOwner, string>>;
 
 function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
-	const components = recordValue(record.components);
-	const editorStyle = recordValue(components.editor).style;
-	const userMessageStyle = recordValue(components.userMessages).style;
-	const selectorBorderStyle = recordValue(components.selectorBorders).style;
-	const footerStyle = recordValue(components.footer).style;
 	return {
-		editor:
-			typeof editorStyle === "string" &&
-			editorStyle !== "opencode" &&
-			editorStyle !== "opencode-copy-friendly" &&
-			editorStyle !== "polished" &&
-			editorStyle !== "polished-copy-friendly" &&
-			editorStyle !== "minimalist"
-				? editorStyle
-				: undefined,
-		userMessages:
-			typeof userMessageStyle === "string" &&
-			userMessageStyle !== "framed" &&
-			userMessageStyle !== "framed-copy-friendly" &&
-			userMessageStyle !== "compact" &&
-			userMessageStyle !== "labeled"
-				? userMessageStyle
-				: undefined,
-		selectorBorders:
-			typeof selectorBorderStyle === "string" && selectorBorderStyle !== "zentui"
-				? selectorBorderStyle
-				: undefined,
-		footer:
-			typeof footerStyle === "string" &&
-			footerStyle !== "native" &&
-			footerStyle !== "starship" &&
-			footerStyle !== "hidden"
-				? footerStyle
-				: undefined,
+		editor: unsupportedSelectedStyleId(record, "editor"),
+		userMessages: unsupportedSelectedStyleId(record, "userMessages"),
+		selectorBorders: unsupportedSelectedStyleId(record, "selectorBorders"),
+		footer: unsupportedSelectedStyleId(record, "footer"),
 	};
 }
 

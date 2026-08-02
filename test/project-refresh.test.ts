@@ -61,7 +61,7 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(1);
-		expect(refresh).toHaveBeenLastCalledWith("initial");
+		expect(refresh).toHaveBeenLastCalledWith("initial", expect.anything());
 		expect(afterRefresh).toHaveBeenCalledTimes(1);
 
 		scheduler.schedule("first-pending");
@@ -78,7 +78,7 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(2);
-		expect(refresh).toHaveBeenLastCalledWith("latest-pending");
+		expect(refresh).toHaveBeenLastCalledWith("latest-pending", expect.anything());
 		expect(afterRefresh).toHaveBeenCalledTimes(2);
 	});
 
@@ -111,7 +111,7 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(2);
-		expect(refresh).toHaveBeenLastCalledWith("pending");
+		expect(refresh).toHaveBeenLastCalledWith("pending", expect.anything());
 	});
 
 	it("preserves force intent while a refresh is in flight", async () => {
@@ -137,7 +137,7 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(2);
-		expect(refresh).toHaveBeenLastCalledWith("dependency-change");
+		expect(refresh).toHaveBeenLastCalledWith("dependency-change", expect.anything());
 		expect(afterRefresh).toHaveBeenCalledTimes(2);
 
 		scheduler.schedule("ordinary-follow-up");
@@ -151,7 +151,7 @@ describe("createProjectRefreshScheduler", () => {
 		vi.advanceTimersByTime(1);
 		await flushPromises();
 		expect(refresh).toHaveBeenCalledTimes(3);
-		expect(refresh).toHaveBeenLastCalledWith("ordinary-follow-up");
+		expect(refresh).toHaveBeenLastCalledWith("ordinary-follow-up", expect.anything());
 	});
 
 	it("supports forced refreshes for initial status reads", async () => {
@@ -166,7 +166,7 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(2);
-		expect(refresh).toHaveBeenLastCalledWith("forced");
+		expect(refresh).toHaveBeenLastCalledWith("forced", expect.anything());
 	});
 
 	it("recovers from failed refreshes", async () => {
@@ -184,7 +184,67 @@ describe("createProjectRefreshScheduler", () => {
 		await flushPromises();
 
 		expect(refresh).toHaveBeenCalledTimes(2);
-		expect(refresh).toHaveBeenLastCalledWith("next");
+		expect(refresh).toHaveBeenLastCalledWith("next", expect.anything());
 		expect(afterRefresh).toHaveBeenCalledTimes(2);
+	});
+
+	it("invalidates an active run before starting a dependency replacement", async () => {
+		const resolvers = new Map<string, () => void>();
+		const applied: string[] = [];
+		const refresh = vi.fn(
+			(target: string, run: { isCurrent: () => boolean }) =>
+				new Promise<void>((resolve) => {
+					resolvers.set(target, () => {
+						if (run.isCurrent()) applied.push(target);
+						resolve();
+					});
+				}),
+		);
+		const afterRefresh = vi.fn();
+		const scheduler = createProjectRefreshScheduler(refresh, afterRefresh, 0);
+
+		scheduler.schedule("old");
+		scheduler.invalidate();
+		scheduler.schedule("replacement", { force: true });
+		expect(refresh).toHaveBeenCalledTimes(2);
+
+		resolvers.get("old")?.();
+		await flushPromises();
+		expect(applied).toEqual([]);
+		expect(afterRefresh).not.toHaveBeenCalled();
+
+		resolvers.get("replacement")?.();
+		await flushPromises();
+		expect(applied).toEqual(["replacement"]);
+		expect(afterRefresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("makes stopped runs stale when a restarted run finishes first", async () => {
+		const resolvers = new Map<string, () => void>();
+		const applied: string[] = [];
+		const refresh = vi.fn(
+			(target: string, run: { isCurrent: () => boolean }) =>
+				new Promise<void>((resolve) => {
+					resolvers.set(target, () => {
+						if (run.isCurrent()) applied.push(target);
+						resolve();
+					});
+				}),
+		);
+		const afterRefresh = vi.fn();
+		const scheduler = createProjectRefreshScheduler(refresh, afterRefresh, 0);
+
+		scheduler.schedule("old");
+		scheduler.stop();
+		scheduler.schedule("new");
+		expect(refresh).toHaveBeenCalledTimes(2);
+
+		resolvers.get("new")?.();
+		await flushPromises();
+		resolvers.get("old")?.();
+		await flushPromises();
+
+		expect(applied).toEqual(["new"]);
+		expect(afterRefresh).toHaveBeenCalledTimes(1);
 	});
 });

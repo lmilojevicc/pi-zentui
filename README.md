@@ -27,7 +27,7 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 - Optional segments (off by default): selected model/provider, `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
 - Right side shows context usage, token counts, and cost
 - Built-in footer segments can be shown or hidden individually from `/zentui`
-- Fully custom Starship-style layout via a `footerFormat` template string — see [Footer Format Template](#footer-format-template)
+- Fully custom Starship-style layout via the `components.footer.styles.starship.format` template string — see [Footer Format Template](#footer-format-template)
 - Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
   middle, or right side, or hidden per status key from `/zentui`
 
@@ -36,7 +36,7 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 - `opencode` (default) keeps an accent rail on every interior row
 - `opencode-copy-friendly` (**Opencode (copy-friendly)** in `/zentui`) preserves the low-rail rendering for clean terminal selection
 - `minimalist` moves session name, cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
-- Model name and provider appear inside both Opencode editor variants
+- The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
 - Opencode autocomplete rows retain Pi's original unframed trailing layout; Minimalist keeps autocomplete inside its rounded frame
 - Configurable model, provider, thinking-level, accent, and border colors
 - **Fixed editor** (experimental, opt-in): pin the editor cluster at the bottom of the terminal while the transcript scrolls above, independently of selected editor and Footer modes
@@ -56,7 +56,7 @@ opencode                 opencode-copy-friendly     minimalist
 ### User messages
 
 - `framed` (default) preserves the full-width bordered prompt box with an accent rail
-- `framed-copy-friendly` (**Framed (copy-friendly)** in `/zentui`) keeps the full-width horizontal borders and blank spacer rows while removing the copied accent rail and gutter
+- `framed-copy-friendly` (**Framed (copy-friendly)** in `/zentui`) keeps the full-width horizontal borders and blank spacer rows, removes the copied accent rail, and retains a one-cell leading gutter before body text.
 - `compact` uses only an accent rail, with no border or padding rows
 - `labeled` uses a rounded box with the fixed label `User`
 - Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
@@ -66,7 +66,7 @@ opencode                 opencode-copy-friendly     minimalist
 framed                    framed-copy-friendly
 ────────────────────      ────────────────────
 │
-│ Message                 Message
+│ Message                  Message
 │
 ────────────────────      ────────────────────
 
@@ -398,6 +398,8 @@ Default config values — copy this and change any value you want:
 - Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
 - Selector borders support only `zentui`; set their owning `enabled` field to `false` for native Pi behavior.
 - Flat released keys such as `editorStyle`, `features`, `footerFormat`, and `fixedEditor` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` and `layout` paths are the primary JSON interface, and component saves materialize canonical snapshots.
+- Explicit unsupported future component style IDs are preserved unchanged on disk but fail open at runtime: Editor, User-message, and selector-border customization stay disabled, while Footer behavior is Native. Missing, empty, or malformed style values continue normal default and legacy migration behavior.
+- The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output and will remain available until at least the next major release. This output deprecation is separate from accepted legacy flat JSON input.
 - `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
 - `editorAccent` styles Editor and User-message accent rails and the labeled message label.
@@ -436,7 +438,7 @@ Set `metadataFormat` under either opencode style in `~/.pi/agent/zentui.json` to
 }
 ```
 
-The syntax follows the relevant `footerFormat` conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
+The syntax follows the Footer Format Template conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
 
 | Token           | Renders                                                                                       |
 | --------------- | --------------------------------------------------------------------------------------------- |
