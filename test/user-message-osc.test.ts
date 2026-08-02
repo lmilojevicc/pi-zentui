@@ -3,25 +3,24 @@ import {
 	isValidUserMessageOsc8Payload,
 	sanitizeRenderedUserMessageLines,
 	sanitizeRenderedUserMessageText,
-	sanitizeUserMessageOscText,
-	stripUserMessageOscText,
+	sanitizeUserMessageSourceText,
 } from "../extensions/zentui/user-message-osc";
 
 const safeTerminators = ["\x07", "\x1b\\"];
 
-describe("sanitizeUserMessageOscText", () => {
-	it.each(safeTerminators)("preserves structurally valid 7-bit OSC 8 byte-for-byte (%j)", (end) => {
+describe("sanitizeUserMessageSourceText", () => {
+	it.each(safeTerminators)("strips structurally valid 7-bit OSC 8 controls (%j)", (end) => {
 		const open = `\x1b]8;id=docs;https://example.test/a${end}`;
 		const close = `\x1b]8;;${end}`;
-		const source = `before ${open}link${close} after`;
-		expect(sanitizeUserMessageOscText(source)).toBe(source);
+		expect(sanitizeUserMessageSourceText(`before ${open}link${close} after`)).toBe(
+			"before link after",
+		);
 	});
 
-	it("preserves a balanced link spanning source rows", () => {
+	it("strips a balanced link spanning source rows while preserving text", () => {
 		const open = "\x1b]8;;https://example.test\x07";
 		const close = "\x1b]8;;\x07";
-		const source = `${open}first\nsecond${close}`;
-		expect(sanitizeUserMessageOscText(source)).toBe(source);
+		expect(sanitizeUserMessageSourceText(`${open}first\nsecond${close}`)).toBe("first\nsecond");
 	});
 
 	it.each([
@@ -35,7 +34,7 @@ describe("sanitizeUserMessageOscText", () => {
 	] as const)(
 		"strips every OSC 8 control for an unbalanced %s stream",
 		(_name, source, visible) => {
-			const output = sanitizeUserMessageOscText(source);
+			const output = sanitizeUserMessageSourceText(source);
 			expect(output).toBe(visible);
 			expect(output).not.toContain("\x1b]8;");
 		},
@@ -48,7 +47,7 @@ describe("sanitizeUserMessageOscText", () => {
 	] as const)("strips unsupported %s OSC 8 controls", (_name, start, end) => {
 		const open = `${start}8;;https://example.test${end}`;
 		const close = `${start}8;;${end}`;
-		expect(sanitizeUserMessageOscText(`before ${open}link${close} after`)).toBe(
+		expect(sanitizeUserMessageSourceText(`before ${open}link${close} after`)).toBe(
 			"before link after",
 		);
 	});
@@ -56,8 +55,8 @@ describe("sanitizeUserMessageOscText", () => {
 	it.each(["0;title", "2;title", "52;c;c2VjcmV0", "133;A", "9;text", "hello"])(
 		"removes complete non-OSC-8 command %j and its payload",
 		(payload) => {
-			expect(sanitizeUserMessageOscText(`before\x1b]${payload}\x07after`)).toBe("beforeafter");
-			expect(sanitizeUserMessageOscText(`before\x9d${payload}\x9cafter`)).toBe("beforeafter");
+			expect(sanitizeUserMessageSourceText(`before\x1b]${payload}\x07after`)).toBe("beforeafter");
+			expect(sanitizeUserMessageSourceText(`before\x9d${payload}\x9cafter`)).toBe("beforeafter");
 		},
 	);
 
@@ -70,20 +69,14 @@ describe("sanitizeUserMessageOscText", () => {
 		"8;;https://example.test/has space",
 		"8;id=x;",
 	])("removes malformed OSC 8 payload %j", (payload) => {
-		expect(sanitizeUserMessageOscText(`left\x1b]${payload}\x07right`)).toBe("leftright");
+		expect(sanitizeUserMessageSourceText(`left\x1b]${payload}\x07right`)).toBe("leftright");
 	});
 
 	it("neutralizes unterminated and nested OSC without consuming later visible text", () => {
-		expect(sanitizeUserMessageOscText("left\x1b]133;A;visible")).toBe("leftvisible");
-		expect(sanitizeUserMessageOscText("left\x1b]2;title\x1b]8;;https://safe.test\x07right")).toBe(
-			"left2;titleright",
-		);
-	});
-
-	it("can remove valid OSC 8 as a fail-closed rendering fallback", () => {
-		const open = "\x1b]8;;https://safe.test\x07";
-		const close = "\x1b]8;;\x07";
-		expect(stripUserMessageOscText(`before ${open}link${close} after`)).toBe("before link after");
+		expect(sanitizeUserMessageSourceText("left\x1b]133;A;visible")).toBe("leftvisible");
+		expect(
+			sanitizeUserMessageSourceText("left\x1b]2;title\x1b]8;;https://safe.test\x07right"),
+		).toBe("left2;titleright");
 	});
 
 	it.each([
@@ -103,11 +96,21 @@ describe("sanitizeUserMessageOscText", () => {
 		["standalone C1", "a\x85b", "ab"],
 		["generic escape", "a\x1b(0b", "ab"],
 	] as const)("removes %s terminal controls", (_name, source, expected) => {
-		expect(sanitizeUserMessageOscText(source)).toBe(expected);
+		expect(sanitizeUserMessageSourceText(source)).toBe(expected);
 	});
 
 	it("preserves Markdown-safe structural whitespace", () => {
-		expect(sanitizeUserMessageOscText("a\tb\nc")).toBe("a\tb\nc");
+		expect(sanitizeUserMessageSourceText("a\tb\nc")).toBe("a\tb\nc");
+	});
+
+	it("strips many raw links in one linear source pass", () => {
+		const open = "\x1b]8;;https://example.test\x07";
+		const close = "\x1b]8;;\x07";
+		const source = Array.from({ length: 20_000 }, (_, index) => `${open}${index}${close}`).join(
+			" ",
+		);
+		const expected = Array.from({ length: 20_000 }, (_, index) => String(index)).join(" ");
+		expect(sanitizeUserMessageSourceText(source)).toBe(expected);
 	});
 });
 

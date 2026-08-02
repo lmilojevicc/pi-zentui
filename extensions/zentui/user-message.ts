@@ -5,7 +5,7 @@ import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-r
 import {
 	sanitizeRenderedUserMessageLines,
 	sanitizeRenderedUserMessageText,
-	stripUserMessageOscText,
+	sanitizeUserMessageSourceText,
 } from "./user-message-osc";
 import { renderUserMessageStyle, userMessageStyleCacheKey } from "./user-message-styles";
 
@@ -124,7 +124,7 @@ function sanitizePredecessorRender(result: unknown): unknown {
 	);
 }
 
-function renderSafeOscFallback(
+function renderSafeSourceFallback(
 	instance: PatchableUserMessagePrototype,
 	width: number,
 ): string[] | undefined {
@@ -135,7 +135,7 @@ function renderSafeOscFallback(
 		return undefined;
 	}
 	if (text === undefined) return undefined;
-	const stripped = stripUserMessageOscText(text);
+	const stripped = sanitizeUserMessageSourceText(text);
 	if (stripped === text) return undefined;
 	const lines = (width > 0 ? wrapTextWithAnsi(stripped, width) : [""]).map(
 		sanitizeRenderedUserMessageText,
@@ -184,7 +184,7 @@ export function installUserMessageStyle(
 					if (!lines) return renderPredecessor();
 					return lines.length ? withPromptZoneMarkers(lines) : lines;
 				} catch {
-					const safeFallback = renderSafeOscFallback(
+					const safeFallback = renderSafeSourceFallback(
 						receiver as PatchableUserMessagePrototype,
 						width,
 					);

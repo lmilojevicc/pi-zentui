@@ -10,12 +10,6 @@ const C1_APC = "\x9f";
 const CAN = 0x18;
 const SUB = 0x1a;
 
-export type UserMessageOscSequence = {
-	end: number;
-	payload: string;
-	validOsc8: boolean;
-};
-
 type ControlBoundary =
 	| { kind: "terminator"; index: number; length: number; safeOsc8Terminator: boolean }
 	| { kind: "start"; index: number };
@@ -31,14 +25,9 @@ type FilterResult = {
 	balancedOsc8: boolean;
 };
 
-/** Only 7-bit OSC is preserved; C1 controls are always removed. */
-export function userMessageOscStartLength(text: string, index: number): number {
-	return text[index] === ESC && text[index + 1] === "]" ? 2 : 0;
-}
-
 function anyOscStartLength(text: string, index: number): number {
 	if (text[index] === C1_OSC) return 1;
-	return userMessageOscStartLength(text, index);
+	return text[index] === ESC && text[index + 1] === "]" ? 2 : 0;
 }
 
 function findOscBoundary(text: string, payloadStart: number): ControlBoundary | undefined {
@@ -82,23 +71,6 @@ export function isValidUserMessageOsc8Payload(payload: string): boolean {
 			!terminalControlPattern.test(value)
 		);
 	});
-}
-
-export function readUserMessageOscSequence(
-	text: string,
-	index: number,
-): UserMessageOscSequence | undefined {
-	const startLength = userMessageOscStartLength(text, index);
-	if (startLength === 0) return undefined;
-	const payloadStart = index + startLength;
-	const boundary = findOscBoundary(text, payloadStart);
-	if (boundary?.kind !== "terminator") return undefined;
-	const payload = text.slice(payloadStart, boundary.index);
-	return {
-		end: boundary.index + boundary.length,
-		payload,
-		validOsc8: boundary.safeOsc8Terminator && isValidUserMessageOsc8Payload(payload),
-	};
 }
 
 function incompleteOsc133PrefixLength(payload: string): number {
@@ -167,19 +139,6 @@ function updateOsc8Balance(payload: string, state: { open: boolean; invalid: boo
 	}
 	if (state.open) state.invalid = true;
 	state.open = true;
-}
-
-export function hasBalancedUserMessageOsc8(text: string): boolean {
-	const state = { open: false, invalid: false };
-	for (let index = 0; index < text.length; index += 1) {
-		const startLength = userMessageOscStartLength(text, index);
-		if (startLength === 0) continue;
-		const sequence = readUserMessageOscSequence(text, index);
-		if (!sequence?.validOsc8) return false;
-		updateOsc8Balance(sequence.payload, state);
-		index = sequence.end - 1;
-	}
-	return !state.open && !state.invalid;
 }
 
 function filterUserMessageTerminalText(text: string, options: FilterOptions): FilterResult {
@@ -262,17 +221,8 @@ function filterBalancedUserMessageTerminalText(text: string, options: FilterOpti
 	return filterUserMessageTerminalText(text, { ...options, preserveValidOsc8: false }).text;
 }
 
-/** Sanitize raw Markdown input, preserving only balanced, validated 7-bit OSC 8 controls. */
-export function sanitizeUserMessageOscText(text: string): string {
-	return filterBalancedUserMessageTerminalText(text, {
-		preserveValidOsc8: true,
-		preserveSourceWhitespace: true,
-		preserveSgr: false,
-	});
-}
-
-/** Remove every source terminal control for fail-closed Markdown rerendering. */
-export function stripUserMessageOscText(text: string): string {
+/** Strip every terminal control from untrusted source text before Markdown rendering. */
+export function sanitizeUserMessageSourceText(text: string): string {
 	return filterBalancedUserMessageTerminalText(text, {
 		preserveValidOsc8: false,
 		preserveSourceWhitespace: true,

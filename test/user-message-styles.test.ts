@@ -137,116 +137,76 @@ describe("pure user-message styles", () => {
 		}
 	});
 
-	it("preserves complete 7-bit OSC 8 controls byte-for-byte", () => {
+	it("strips every raw OSC 8 control while preserving visible text", () => {
+		const pairs = [
+			["\x1b]8;;https://example.com\x07", "\x1b]8;;\x07"],
+			["\x1b]8;;https://example.com\x1b\\", "\x1b]8;;\x1b\\"],
+			["\x9d8;;https://example.com\x9c", "\x9d8;;\x9c"],
+		] as const;
 		for (const style of userMessageStyles) {
-			for (const terminator of ["\x07", "\x1b\\"]) {
-				const open = `\x1b]8;;https://example.com${terminator}`;
-				const close = `\x1b]8;;${terminator}`;
-				const output = render(style, `${open}raw${close}`, 80).join("\n");
-				expect(output.split(open)).toHaveLength(2);
-				expect(output.split(close)).toHaveLength(2);
-				expect(output).toContain(`${open}raw${close}`);
+			for (const [open, close] of pairs) {
+				const output = render(style, `before ${open}VISIBLE${close}\nafter`, 80).join("\n");
+				expect(output).not.toContain(open);
+				expect(output).not.toContain(close);
+				expect(plain(output).replaceAll(/[^\p{L}]/gu, "")).toContain("beforeVISIBLEafter");
 			}
 		}
 	});
 
-	it("preserves a balanced OSC 8 close immediately before a non-final Markdown row", () => {
-		const open = "\x1b]8;;https://example.com\x07";
+	it("strips raw OSC 8 independently of Markdown source context", () => {
+		const open = "\x1b]8;;https://raw.example\x07";
 		const close = "\x1b]8;;\x07";
-		const source = `before ${open}LINK${close}\nafter`;
+		const contexts = [
+			`${open}VISIBLE${close}`,
+			`[docs](https://markdown.example/${open}VISIBLE${close})`,
+			`![image](https://markdown.example/${open}VISIBLE${close})`,
+			`\` ${open}VISIBLE${close} \``,
+			`\`\`foo \`\`\` bar \` ${open}VISIBLE${close} \`\``,
+			`~~~\n${open}VISIBLE${close}\n~~~`,
+			`[foo\nbar]: ${open}VISIBLE${close}\n\n[foo bar]`,
+			`<https://markdown.example/${open}VISIBLE${close}>`,
+			`See,https://markdown.example/a_(b)/${open}VISIBLE${close}!`,
+			`[broken](https://markdown.example/${open}VISIBLE${close}`,
+			`（https://markdown.example/${open}VISIBLE${close}）`,
+		];
 		for (const style of userMessageStyles) {
-			for (let width = 1; width <= 40; width += 1) {
-				const output = render(style, source, width).join("\n");
-				if (style === "framed" && width <= 2) {
-					expect(output).not.toContain("LINK");
-					expect(output).not.toContain(open);
-					expect(output).not.toContain(close);
-					continue;
-				}
-				expect(output.split(open)).toHaveLength(2);
-				expect(output.split(close)).toHaveLength(2);
-				expect(output.indexOf(open)).toBeLessThan(output.indexOf(close));
-				const visible = output.replace(open, "").replace(close, "");
-				expect(plain(visible).replaceAll(/[^\p{L}]/gu, "")).toContain("beforeLINKafter");
-				expect(output).not.toMatch(/[\u200b\u200c\u2060]/);
+			for (const source of contexts) {
+				const output = render(style, `${source} TAIL`, 160).join("\n");
+				expect(output).not.toContain(open);
+				expect(output).not.toContain(close);
+				expect(output).toContain("TAIL");
 			}
+		}
+	});
+
+	it("keeps Markdown-generated links clickable after raw-source sanitization", () => {
+		const markdown = "[docs](https://markdown.example) <https://autolink.example>";
+		const hostile = "\x1b]52;c;c2VjcmV0\x07";
+		for (const style of userMessageStyles) {
+			const clean = render(style, markdown, 160).join("\n");
+			const mixed = render(style, `${hostile}${markdown}`, 160).join("\n");
+			expect(mixed).toBe(clean);
+			expect(mixed).toContain("\x1b]8;;https://markdown.example");
+			expect(mixed).toContain("\x1b]8;;https://autolink.example");
+			expect(mixed).not.toContain("\x1b]52");
+			expect(mixed).not.toContain("c2VjcmV0");
 		}
 	});
 
 	it.each([
 		["unmatched open", "\x1b]8;;https://example.com\x07raw"],
 		["stray close", "raw\x1b]8;;\x07"],
+		["C1 unmatched open", "\x9d8;;https://example.com\x9craw"],
 		[
 			"nested open",
 			"\x1b]8;;https://first.example\x07one \x1b]8;;https://second.example\x07two\x1b]8;;\x07",
 		],
-	] as const)("fails closed for %s OSC 8 streams", (_name, source) => {
+	] as const)("strips raw %s OSC 8 streams", (_name, source) => {
 		for (const style of userMessageStyles) {
 			const output = render(style, source, 80).join("\n");
 			expect(output).not.toContain("\x1b]8;");
-			expect(output).toMatch(/raw|one/);
-		}
-	});
-
-	it("strips C1 OSC 8 instead of exposing controls unsupported by fixed selection", () => {
-		const open = "\x9d8;;https://example.com\x9c";
-		const close = "\x9d8;;\x9c";
-		for (const style of userMessageStyles) {
-			const output = render(style, `${open}raw${close}`, 80).join("\n");
-			expect(output).toContain("raw");
 			expect(output).not.toContain("\x9d");
-			expect(output).not.toContain("\x9c");
-		}
-	});
-
-	it("preserves duplicate and mixed OSC 8 ordering alongside Markdown links", () => {
-		const firstOpen = "\x1b]8;;https://first.example\x07";
-		const firstClose = "\x1b]8;;\x1b\\";
-		const secondOpen = "\x1b]8;;https://second.example\x1b\\";
-		const secondClose = "\x1b]8;;\x07";
-		const text = `${firstOpen}one${firstClose} ${secondOpen}two${secondClose} ${firstOpen}three${firstClose} [markdown](https://markdown.example)`;
-		for (const style of userMessageStyles) {
-			const output = render(style, text, 160).join("\n");
-			expect(output.split(`${firstOpen}one${firstClose}`)).toHaveLength(2);
-			expect(output.split(`${secondOpen}two${secondClose}`)).toHaveLength(2);
-			expect(output.split(`${firstOpen}three${firstClose}`)).toHaveLength(2);
-			expect(output.indexOf(`${firstOpen}one${firstClose}`)).toBeLessThan(
-				output.indexOf(`${secondOpen}two${secondClose}`),
-			);
-			expect(output.indexOf(`${secondOpen}two${secondClose}`)).toBeLessThan(
-				output.indexOf(`${firstOpen}three${firstClose}`),
-			);
-			expect(output).toContain("markdown");
-		}
-	});
-
-	it("removes hostile raw OSC before Markdown while preserving Markdown links", () => {
-		const markdown = "[docs](https://markdown.example)";
-		const hostile = "\x1b]52;c;c2VjcmV0\x07";
-		for (const style of userMessageStyles) {
-			const clean = render(style, markdown, 120).join("\n");
-			const mixed = render(style, `${hostile}${markdown}`, 120).join("\n");
-			expect(mixed).toBe(clean);
-			expect(mixed).not.toContain("\x1b]52");
-			expect(mixed).not.toContain("c2VjcmV0");
-			expect(mixed).toContain("docs");
-		}
-	});
-
-	it("fails closed when Markdown duplicates an OSC 8 shield across wrapped lines", () => {
-		const open = "\x1b]8;;https://raw.example\x07";
-		const close = "\x1b]8;;\x07";
-		const clipboard = "\x1b]52;c;c2VjcmV0\x07";
-		const source = `[docs](https://markdown.example/${open}nested${close}) ${clipboard}tail`;
-		for (const style of userMessageStyles) {
-			for (const width of [...Array.from({ length: 40 }, (_, index) => index + 1), 160]) {
-				const output = render(style, source, width).join("\n");
-				expect(output).not.toMatch(/[\u200b\u200c\u2060]/);
-				expect(output).not.toContain("\x1b]52");
-				expect(output).not.toContain("c2VjcmV0");
-				expect(output).not.toContain(open);
-				expect(output).not.toContain(close);
-			}
+			expect(output).toMatch(/raw|one/);
 		}
 	});
 

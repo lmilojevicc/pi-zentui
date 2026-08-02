@@ -2381,7 +2381,7 @@ describe("Pi docs compliance", () => {
 		},
 	);
 
-	it("allows only 7-bit OSC 8 from raw user-message controls before adding one prompt zone", () => {
+	it("strips every raw user-message control before adding one prompt zone", () => {
 		installUserMessageStyle(
 			() => makeTheme(),
 			() => defaultConfig,
@@ -2392,7 +2392,9 @@ describe("Pi docs compliance", () => {
 		const rendered = new UserMessageComponent(hostile).render(100).join("\n");
 
 		expectSinglePromptZone(rendered);
-		expect(rendered).toContain(`${open}link${close}`);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
 		expect(rendered).not.toContain("\x1b]0;");
 		expect(rendered).not.toContain("\x1b]52;");
 		expect(rendered).not.toContain("PAYLOAD");
@@ -2402,7 +2404,7 @@ describe("Pi docs compliance", () => {
 	});
 
 	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
-		"preserves row-end OSC 8 without reopening the Markdown-destination exploit for %s",
+		"strips row-end and Markdown-destination raw OSC 8 for %s",
 		(style) => {
 			const config = structuredClone(defaultConfig);
 			config.components.userMessages.style = style;
@@ -2419,10 +2421,9 @@ describe("Pi docs compliance", () => {
 					.render(width)
 					.join("\n");
 				expectSinglePromptZone(preserved);
-				expect(preserved.split(open)).toHaveLength(2);
-				expect(preserved.split(close)).toHaveLength(2);
-				expect(preserved.indexOf(open)).toBeLessThan(preserved.indexOf(close));
-				expect(preserved).not.toMatch(/[\u200b\u200c\u2060]/);
+				expect(preserved).toContain("LINK");
+				expect(preserved).not.toContain(open);
+				expect(preserved).not.toContain(close);
 
 				const exploit = new UserMessageComponent(
 					`[docs](https://markdown.example/${open}nested${close}) ${clipboard}tail`,
@@ -2516,7 +2517,7 @@ describe("Pi docs compliance", () => {
 		],
 		["7-bit", "\x1b]133;Btail ", "\x1b]8;;https://example.com\x1b\\", "\x1b]8;;\x1b\\", "\x1b]133"],
 	] as const)(
-		"preserves a complete OSC 8 after an incomplete OSC 133 (%s)",
+		"strips complete OSC 8 after an incomplete OSC 133 (%s)",
 		(_name, hostile, open, close, hostileFragment) => {
 			installUserMessageStyle(
 				() => makeTheme(),
@@ -2528,7 +2529,9 @@ describe("Pi docs compliance", () => {
 			const visible = stripPromptMarks(rendered);
 
 			expectSinglePromptZone(rendered);
-			expect(rendered).toContain(`${open}link${close}`);
+			expect(rendered).toContain("link");
+			expect(rendered).not.toContain(open);
+			expect(rendered).not.toContain(close);
 			expect(visible).toContain("before tail ");
 			expect(visible).not.toContain(hostileFragment);
 		},
@@ -2546,7 +2549,9 @@ describe("Pi docs compliance", () => {
 		const visible = stripPromptMarks(rendered);
 
 		expectSinglePromptZone(rendered);
-		expect(rendered).toContain(`${open}link${close}`);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
 		expect(visible).toContain("one 9;alpha ");
 		expect(visible).toContain(" two tail");
 		expect(visible).not.toContain("\x1b]9;");
@@ -2554,7 +2559,7 @@ describe("Pi docs compliance", () => {
 		expect(visible).not.toContain("\x1b]133");
 	});
 
-	it("preserves unrelated complete OSC 8 sequences byte-for-byte", () => {
+	it("strips unrelated complete raw OSC 8 sequences", () => {
 		installUserMessageStyle(
 			() => makeTheme(),
 			() => defaultConfig,
@@ -2566,11 +2571,13 @@ describe("Pi docs compliance", () => {
 			.join("\n");
 
 		expectSinglePromptZone(rendered);
-		expect(rendered).toContain(`${open}link${close}`);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
 	});
 
 	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
-		"preserves 7-bit OSC 8 and strips C1 controls through Markdown for %s",
+		"strips raw OSC 8 and keeps Markdown links for %s",
 		(style) => {
 			const config = structuredClone(defaultConfig);
 			config.components.userMessages.style = style;
@@ -2591,10 +2598,12 @@ describe("Pi docs compliance", () => {
 
 			const rendered = new UserMessageComponent(source).render(240).join("\n");
 			expectSinglePromptZone(rendered);
-			for (const sequence of preserved) expect(rendered).toContain(sequence);
-			expect(rendered.split(preserved[0])).toHaveLength(3);
+			for (const sequence of preserved) expect(rendered).not.toContain(sequence);
+			expect(rendered).toContain("link-0");
+			expect(rendered).toContain("link-1");
 			expect(rendered).toContain("c1-link");
 			expect(rendered).toContain("markdown");
+			expect(rendered).toContain("\x1b]8;;https://markdown.example");
 			const visible = stripPromptMarks(rendered);
 			expect(visible).not.toContain("\x9d");
 			expect(visible).not.toContain("\x9c");
@@ -2639,9 +2648,15 @@ describe("Pi docs compliance", () => {
 			() => defaultConfig,
 		);
 		const clipboard = "\x1b]52;c;c2VjcmV0\x07";
-		const output = new UserMessageComponent(`before ${clipboard}after`).render(80).join("\n");
-		expect(output).toContain("before after");
+		const open = "\x1b]8;;https://raw.example\x07";
+		const close = "\x1b]8;;\x07";
+		const output = new UserMessageComponent(`before ${clipboard}${open}link${close} after`)
+			.render(80)
+			.join("\n");
+		expect(output).toContain("before link after");
 		expect(output).not.toContain("\x1b]52");
+		expect(output).not.toContain(open);
+		expect(output).not.toContain(close);
 		expect(output).not.toContain("c2VjcmV0");
 		expectSinglePromptZone(output);
 	});
