@@ -42,6 +42,8 @@ function makeValidPiFixture() {
 		},
 	);
 	const terminalWrite = vi.fn();
+	const terminalDrainInput = vi.fn(async (..._args: unknown[]) => "drained");
+	const terminalStop = vi.fn((..._args: unknown[]) => "stopped");
 	const makeRenderable = (label: string) => ({
 		render(width: number) {
 			return [`${label}:${width}`];
@@ -61,6 +63,8 @@ function makeValidPiFixture() {
 		columns: 80,
 		rows: rawRows,
 		write: terminalWrite,
+		drainInput: terminalDrainInput,
+		stop: terminalStop,
 	};
 	Object.defineProperty(terminal, "rows", {
 		configurable: true,
@@ -97,6 +101,8 @@ function makeValidPiFixture() {
 		terminal,
 		cluster: [status, above, editor, below, footer],
 		terminalWrite,
+		terminalDrainInput,
+		terminalStop,
 		rootRender,
 		doRender,
 		requestRender,
@@ -121,6 +127,16 @@ describe("Pi fixed-editor compatibility", () => {
 			"terminal write",
 			(fixture: ReturnType<typeof makeValidPiFixture>) =>
 				Reflect.deleteProperty(fixture.terminal, "write"),
+		],
+		[
+			"terminal drainInput",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.terminal, "drainInput"),
+		],
+		[
+			"terminal stop",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.terminal, "stop"),
 		],
 		[
 			"terminal rows",
@@ -249,6 +265,17 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(inspectPiTui(writeFixture.tui)).toBeUndefined();
 		expect(writeFixture.terminalWrite).not.toHaveBeenCalled();
 
+		for (const key of ["drainInput", "stop"] as const) {
+			const lifecycleFixture = makeValidPiFixture();
+			Object.defineProperty(lifecycleFixture.terminal, key, {
+				value: lifecycleFixture.terminal[key],
+				configurable: true,
+				writable: false,
+			});
+			expect(inspectPiTui(lifecycleFixture.tui)).toBeUndefined();
+			expect(lifecycleFixture.terminalWrite).not.toHaveBeenCalled();
+		}
+
 		const frozenFixture = makeValidPiFixture();
 		Object.freeze(frozenFixture.tui.children[0]);
 		expect(inspectPiTui(frozenFixture.tui)).toBeUndefined();
@@ -263,6 +290,8 @@ describe("Pi fixed-editor compatibility", () => {
 		const render = fixture.tui.render;
 		const doRender = fixture.tui.doRender;
 		const write = fixture.terminal.write;
+		const drainInput = fixture.terminal.drainInput;
+		const stop = fixture.terminal.stop;
 		const rowsDescriptor = Object.getOwnPropertyDescriptor(fixture.terminal, "rows");
 		const clusterDescriptors = fixture.cluster.map((component) =>
 			Object.getOwnPropertyDescriptor(component, "render"),
@@ -277,6 +306,8 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.tui.render).not.toBe(render);
 		expect(fixture.tui.doRender).not.toBe(doRender);
 		expect(fixture.terminal.write).not.toBe(write);
+		expect(fixture.terminal.drainInput).not.toBe(drainInput);
+		expect(fixture.terminal.stop).not.toBe(stop);
 		expect(fixture.cluster.every((component) => component.render(80).length === 0)).toBe(true);
 		expect(fixture.addInputListener).toHaveBeenCalledTimes(1);
 		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
@@ -287,6 +318,8 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.tui.render).toBe(render);
 		expect(fixture.tui.doRender).toBe(doRender);
 		expect(fixture.terminal.write).toBe(write);
+		expect(fixture.terminal.drainInput).toBe(drainInput);
+		expect(fixture.terminal.stop).toBe(stop);
 		expect(Object.getOwnPropertyDescriptor(fixture.terminal, "rows")).toEqual(rowsDescriptor);
 		expect(
 			fixture.cluster.map((component) => Object.getOwnPropertyDescriptor(component, "render")),
@@ -299,6 +332,178 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.requestRender).toHaveBeenCalledTimes(2);
 		expect(fixture.requestRender).toHaveBeenNthCalledWith(1, true);
 		expect(fixture.requestRender).toHaveBeenNthCalledWith(2, true);
+	});
+
+	it("exits the alternate screen before Pi drain and stop cleanup", async () => {
+		const fixture = makeValidPiFixture();
+		let drainReceiver: unknown;
+		let drainArgs: unknown[] = [];
+		let stopReceiver: unknown;
+		let stopArgs: unknown[] = [];
+		const drainResult = Promise.resolve("original-drain");
+		fixture.terminalDrainInput.mockImplementationOnce(function (this: unknown, ...args: unknown[]) {
+			drainReceiver = this;
+			drainArgs = args;
+			expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+			return drainResult;
+		});
+		fixture.terminalStop.mockImplementationOnce(function (this: unknown, ...args: unknown[]) {
+			stopReceiver = this;
+			stopArgs = args;
+			return "original-stop";
+		});
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		const requestsBefore = fixture.requestRender.mock.calls.length;
+
+		const returnedDrain = fixture.terminal.drainInput(250, 10);
+		expect(returnedDrain).toBe(drainResult);
+		await expect(returnedDrain).resolves.toBe("original-drain");
+		expect(drainReceiver).toBe(fixture.terminal);
+		expect(drainArgs).toEqual([250, 10]);
+		expect(fixture.requestRender).toHaveBeenCalledTimes(requestsBefore);
+		const resetWrites = fixture.terminalWrite.mock.calls.filter(
+			([write]) => write === emergencyTerminalReset(),
+		);
+		expect(resetWrites).toHaveLength(1);
+
+		expect(fixture.terminal.stop("suspend")).toBe("original-stop");
+		expect(stopReceiver).toBe(fixture.terminal);
+		expect(stopArgs).toEqual(["suspend"]);
+		expect(
+			fixture.terminalWrite.mock.calls.filter(([write]) => write === emergencyTerminalReset()),
+		).toHaveLength(1);
+
+		fixture.tui.doRender();
+		fixture.tui.doRender();
+		expect(
+			fixture.terminalWrite.mock.calls
+				.slice(-3)
+				.some(([write]) => String(write).includes("\x1b[?1049h")),
+		).toBe(true);
+		compositor.dispose("shutdown");
+	});
+
+	it("prepares once when Pi drain chains into terminal stop", async () => {
+		const fixture = makeValidPiFixture();
+		fixture.terminalDrainInput.mockImplementationOnce(async () => fixture.terminal.stop("nested"));
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: false,
+		}));
+		expect(compositor.install()).toBe(true);
+		await expect(fixture.terminal.drainInput()).resolves.toBe("stopped");
+		expect(fixture.terminalStop).toHaveBeenCalledWith("nested");
+		expect(
+			fixture.terminalWrite.mock.calls.filter(([write]) => write === emergencyTerminalReset()),
+		).toHaveLength(1);
+		compositor.dispose("shutdown");
+	});
+
+	it("always delegates Pi cleanup and retries reset after both reset sinks fail", async () => {
+		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const fallback = vi.fn(() => {
+			throw new Error("fallback failed");
+		});
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: false, copyNotice: false }),
+			undefined,
+			undefined,
+			fallback,
+		);
+		expect(compositor.install()).toBe(true);
+		fixture.terminalWrite.mockImplementation(() => {
+			throw new Error("terminal failed");
+		});
+		await expect(fixture.terminal.drainInput()).resolves.toBe("drained");
+		expect(fixture.terminalDrainInput).toHaveBeenCalledTimes(1);
+		expect(fallback).toHaveBeenCalledWith(emergencyTerminalReset());
+
+		fixture.terminalWrite.mockReset();
+		expect(fixture.terminal.stop()).toBe("stopped");
+		expect(fixture.terminalStop).toHaveBeenCalledTimes(1);
+		expect(fixture.terminalWrite).toHaveBeenCalledWith(emergencyTerminalReset());
+		compositor.dispose("shutdown");
+	});
+
+	it("preserves synchronous Pi stop failures after terminal preparation", () => {
+		const fixture = makeValidPiFixture();
+		fixture.terminalStop.mockImplementationOnce(() => {
+			throw new Error("stop failed");
+		});
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: false,
+		}));
+		expect(compositor.install()).toBe(true);
+		expect(() => fixture.terminal.stop()).toThrow("stop failed");
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+		compositor.dispose("shutdown");
+	});
+
+	it("preserves cleanup rejection and later third-party lifecycle replacements", async () => {
+		const fixture = makeValidPiFixture();
+		const rejection = Promise.reject(new Error("drain rejected"));
+		fixture.terminalDrainInput.mockReturnValueOnce(rejection);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: false,
+		}));
+		expect(compositor.install()).toBe(true);
+		await expect(fixture.terminal.drainInput()).rejects.toThrow("drain rejected");
+		const laterDrain = vi.fn();
+		const laterStop = vi.fn();
+		fixture.terminal.drainInput = laterDrain;
+		fixture.terminal.stop = laterStop;
+		compositor.dispose("shutdown");
+		expect(fixture.terminal.drainInput).toBe(laterDrain);
+		expect(fixture.terminal.stop).toBe(laterStop);
+	});
+
+	it("deletes temporary lifecycle wrappers when Pi methods were inherited", () => {
+		const fixture = makeValidPiFixture();
+		const drainInput = fixture.terminal.drainInput;
+		const stop = fixture.terminal.stop;
+		const prototype = Object.create(Object.getPrototypeOf(fixture.terminal), {
+			drainInput: { configurable: true, writable: true, value: drainInput },
+			stop: { configurable: true, writable: true, value: stop },
+		});
+		Reflect.deleteProperty(fixture.terminal, "drainInput");
+		Reflect.deleteProperty(fixture.terminal, "stop");
+		Object.setPrototypeOf(fixture.terminal, prototype);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: false,
+		}));
+		expect(compositor.install()).toBe(true);
+		expect(Object.hasOwn(fixture.terminal, "drainInput")).toBe(true);
+		expect(Object.hasOwn(fixture.terminal, "stop")).toBe(true);
+		compositor.dispose("shutdown");
+		expect(Object.hasOwn(fixture.terminal, "drainInput")).toBe(false);
+		expect(Object.hasOwn(fixture.terminal, "stop")).toBe(false);
+		expect(fixture.terminal.drainInput).toBe(drainInput);
+		expect(fixture.terminal.stop).toBe(stop);
 	});
 
 	it("rolls back patches when listener registration does not return cleanup", () => {
@@ -316,6 +521,8 @@ describe("Pi fixed-editor compatibility", () => {
 		if (!capabilities) return;
 		const render = fixture.tui.render;
 		const write = fixture.terminal.write;
+		const drainInput = fixture.terminal.drainInput;
+		const stop = fixture.terminal.stop;
 		const compositor = new TerminalSplitCompositor(capabilities, () => ({
 			enabled: true,
 			mouseScroll: false,
@@ -325,6 +532,8 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(compositor.install()).toBe(false);
 		expect(fixture.tui.render).toBe(render);
 		expect(fixture.terminal.write).toBe(write);
+		expect(fixture.terminal.drainInput).toBe(drainInput);
+		expect(fixture.terminal.stop).toBe(stop);
 		expect(fixture.cluster.every((component) => component.render(80).length > 0)).toBe(true);
 		expect(fixture.removeInputListener).toHaveBeenCalledTimes(1);
 		expect(fixture.getInputListener()).toBeUndefined();

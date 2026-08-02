@@ -52,4 +52,47 @@ describe("owned terminal state parser", () => {
 		parser.feed("\x1b[r");
 		expect(parser.state.scrollRegion).toBe("full");
 	});
+
+	it("detects a Kitty pop on the wrong screen", () => {
+		const parser = new OwnedTerminalStateParser(
+			{},
+			{
+				primary: { kittyFlags: 3, kittyStack: [1] },
+			},
+		);
+		parser.feed("\x1b[>7u\x1b[?2004h\x1b[?1049h\x1b[<u\x1b[?2004l\x1b[?1049l");
+		expect(parser.screen("primary").kittyFlags).toBe(7);
+		expect(parser.screen("primary").kittyStack).toEqual([1, 3]);
+		expect(parser.screen("primary").bracketedPaste).toBe(true);
+		expect(parser.keyboardUnderflows).toEqual(["alternate"]);
+		expect(parser.isSafe()).toBe(false);
+	});
+
+	it("restores a caller Kitty stack when Pi cleans up on the primary screen", () => {
+		const parser = new OwnedTerminalStateParser(
+			{},
+			{
+				primary: { kittyFlags: 3, kittyStack: [1] },
+			},
+		);
+		parser.feed("\x1b[>7u\x1b[?2004h\x1b[?1049h");
+		parser.feed(reset);
+		parser.feed("\x1b[<u\x1b[?2004l");
+		expect(parser.screen("primary").kittyFlags).toBe(3);
+		expect(parser.screen("primary").kittyStack).toEqual([1]);
+		expect(parser.screen("primary").bracketedPaste).toBe(false);
+		expect(parser.keyboardUnderflows).toEqual([]);
+		expect(parser.isSafe({ kittyFlags: 3, kittyStack: [1] })).toBe(true);
+	});
+
+	it("tracks modifyOtherKeys and bracketed paste per screen incrementally", () => {
+		const parser = new OwnedTerminalStateParser();
+		for (const byte of "\x1b[>4;2m\x1b[?2004h\x1b[?1049h\x1b[>4;0m\x1b[?2004l\x1b[?1049l")
+			parser.feed(byte);
+		expect(parser.screen("primary").modifyOtherKeys).toBe(2);
+		expect(parser.screen("primary").bracketedPaste).toBe(true);
+		expect(parser.screen("alternate").modifyOtherKeys).toBe(0);
+		expect(parser.screen("alternate").bracketedPaste).toBe(false);
+		expect(parser.isSafe()).toBe(false);
+	});
 });

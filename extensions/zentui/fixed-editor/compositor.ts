@@ -46,6 +46,16 @@ function restoreMethod(capability: PiMethodCapability): void {
 	else Reflect.deleteProperty(capability.target, capability.key);
 }
 
+function restoreOwnedMethod(
+	capability: PiMethodCapability,
+	wrapper: ((...args: unknown[]) => unknown) | null,
+): void {
+	if (!wrapper) return;
+	const descriptor = Object.getOwnPropertyDescriptor(capability.target, capability.key);
+	if (!descriptor || !("value" in descriptor) || descriptor.value !== wrapper) return;
+	restoreMethod(capability);
+}
+
 function replaceRenderable(
 	capability: PiRenderableCapability | null,
 	render: (width: number) => string[],
@@ -98,6 +108,9 @@ export class TerminalSplitCompositor {
 	private visibleScrollableRows = 0;
 	private readonly selection = new SelectionState();
 	private mouseResumeTimer: ReturnType<typeof setTimeout> | null = null;
+	private drainInputWrapper: ((...args: unknown[]) => unknown) | null = null;
+	private stopWrapper: ((...args: unknown[]) => unknown) | null = null;
+	private preparingTerminalCleanup = false;
 	private cursorVisible = true;
 	private cachedClusterRender: { width: number; rows: number; render: ClusterRender } | null = null;
 	private readonly onCopy: ((text: string) => void) | null;
@@ -120,6 +133,7 @@ export class TerminalSplitCompositor {
 		if (this.installed) return true;
 		if (this.disposed) return false;
 		try {
+			this.installTerminalCleanupWrappers();
 			for (const component of this.components()) {
 				if (!component) continue;
 				const captured = component;
@@ -171,6 +185,10 @@ export class TerminalSplitCompositor {
 			if (listener) attempt(() => this.capabilities.removeInputListener(listener));
 
 			for (const component of this.components()) attempt(() => restoreRenderable(component));
+			attempt(() => restoreOwnedMethod(this.capabilities.stopMethod, this.stopWrapper));
+			attempt(() => restoreOwnedMethod(this.capabilities.drainInputMethod, this.drainInputWrapper));
+			this.stopWrapper = null;
+			this.drainInputWrapper = null;
 			attempt(() => restoreMethod(this.capabilities.writeMethod));
 			attempt(() => restoreMethod(this.capabilities.doRenderMethod));
 			attempt(() => restoreMethod(this.capabilities.renderMethod));
@@ -216,6 +234,66 @@ export class TerminalSplitCompositor {
 		try {
 			this.dispose("shutdown");
 		} catch {}
+	}
+
+	private installTerminalCleanupWrappers(): void {
+		const compositor = this;
+		const drainCapability = this.capabilities.drainInputMethod;
+		const stopCapability = this.capabilities.stopMethod;
+		const drainWrapper = function (this: unknown, ...args: unknown[]): unknown {
+			try {
+				compositor.prepareForPiTerminalCleanup();
+			} catch {}
+			return Reflect.apply(drainCapability.method, this, args);
+		};
+		const stopWrapper = function (this: unknown, ...args: unknown[]): unknown {
+			try {
+				compositor.prepareForPiTerminalCleanup();
+			} catch {}
+			return Reflect.apply(stopCapability.method, this, args);
+		};
+		this.drainInputWrapper = drainWrapper;
+		this.stopWrapper = stopWrapper;
+		replaceMethod(drainCapability, drainWrapper);
+		replaceMethod(stopCapability, stopWrapper);
+	}
+
+	private prepareForPiTerminalCleanup(): void {
+		if (this.preparingTerminalCleanup) return;
+		this.preparingTerminalCleanup = true;
+		try {
+			const resumeTimer = this.mouseResumeTimer;
+			this.mouseResumeTimer = null;
+			if (resumeTimer) {
+				try {
+					clearTimeout(resumeTimer);
+				} catch {}
+			}
+			this.clearPhysicalTransitionState();
+			if (!this.terminalModesEntered) return;
+			let resetWritten = false;
+			try {
+				this.callOriginalWrite(CANONICAL_TERMINAL_RESET);
+				resetWritten = true;
+			} catch {
+				try {
+					this.fallbackWrite(CANONICAL_TERMINAL_RESET);
+					resetWritten = true;
+				} catch {}
+			}
+			if (!resetWritten) return;
+			this.terminalModesEntered = false;
+			this.transitionTarget = null;
+			this.transitionGuard = false;
+			this.completingTransition = false;
+			this.transactionMode = null;
+			this.activeMode = "not-entered";
+			this.pendingDesiredMode = "fixed";
+			this.renderPhase = "idle";
+			this.writing = false;
+		} finally {
+			this.preparingTerminalCleanup = false;
+		}
 	}
 
 	private components(): (PiRenderableCapability | null)[] {

@@ -15,7 +15,11 @@ export type CapturedPty = {
 export function spawnCapturedPty(
 	file: string,
 	args: string[],
-	options: { cwd: string; env: Record<string, string> },
+	options: {
+		cwd: string;
+		env: Record<string, string>;
+		keyboardMode?: "kitty" | "modifyOtherKeys";
+	},
 ): CapturedPty {
 	if (process.platform !== "win32") {
 		try {
@@ -37,8 +41,27 @@ export function spawnCapturedPty(
 		cwd: options.cwd,
 		env: options.env,
 	});
+	let emulatorPending = "";
 	terminal.onData((chunk) => {
 		data += chunk;
+		if (!options.keyboardMode) return;
+		emulatorPending += chunk;
+		while (true) {
+			const kittyQuery = emulatorPending.indexOf("\x1b[?u");
+			const attributesQuery = emulatorPending.indexOf("\x1b[c");
+			const indexes = [kittyQuery, attributesQuery].filter((index) => index >= 0);
+			if (indexes.length === 0) break;
+			const index = Math.min(...indexes);
+			if (index === kittyQuery) {
+				emulatorPending = emulatorPending.slice(index + "\x1b[?u".length);
+				if (options.keyboardMode === "kitty") terminal.write("\x1b[?7u");
+			} else {
+				emulatorPending = emulatorPending.slice(index + "\x1b[c".length);
+				terminal.write("\x1b[?1;2c");
+			}
+		}
+		const lastEscape = emulatorPending.lastIndexOf("\x1b");
+		emulatorPending = lastEscape >= 0 ? emulatorPending.slice(lastEscape) : "";
 	});
 	let exited = false;
 	let exitDescription = "";

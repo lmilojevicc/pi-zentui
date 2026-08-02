@@ -32,7 +32,7 @@ afterEach(async () => {
 	if (session) await cleanupSession(session);
 });
 
-async function launch(): Promise<CapturedPty> {
+async function launch(keyboardMode: "kitty" | "modifyOtherKeys" = "kitty"): Promise<CapturedPty> {
 	const agentDirectory = await mkdtemp(join(tmpdir(), "zentui-pty-"));
 	let session: PtySession | undefined;
 	try {
@@ -55,6 +55,7 @@ async function launch(): Promise<CapturedPty> {
 			],
 			{
 				cwd: root,
+				keyboardMode,
 				env: {
 					...Object.fromEntries(
 						Object.entries(process.env).filter(
@@ -99,6 +100,28 @@ function assertSafeReset(output: string, from: number): number {
 	expect(parser.isSafe()).toBe(true);
 	expect(output.slice(index, index + reset.length)).toBe(reset);
 	return index;
+}
+
+function assertFullTerminalCleanup(
+	output: string,
+	keyboardMode: "kitty" | "modifyOtherKeys",
+): void {
+	const parser = new OwnedTerminalStateParser(
+		{},
+		keyboardMode === "kitty" ? { primary: { kittyFlags: 3, kittyStack: [1] } } : {},
+		keyboardMode === "kitty",
+	);
+	parser.feed(output);
+	expect(parser.keyboardUnderflows).toEqual([]);
+	expect(
+		parser.isSafe(keyboardMode === "kitty" ? { kittyFlags: 3, kittyStack: [1] } : undefined),
+	).toBe(true);
+	expect(parser.screen("primary").bracketedPaste).toBe(false);
+	expect(parser.screen("primary").modifyOtherKeys).toBe(0);
+	expect(parser.screen("alternate").kittyFlags).toBe(0);
+	expect(parser.screen("alternate").kittyStack).toEqual([]);
+	expect(parser.screen("alternate").bracketedPaste).toBe(false);
+	expect(parser.screen("alternate").modifyOtherKeys).toBe(0);
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
@@ -206,7 +229,10 @@ describe("fixed editor real PTY cleanup", () => {
 			const boundary = pty.output().length;
 			await stop(pty);
 			await finishPi(pty);
-			assertSafeReset(pty.output(), boundary);
+			const resetIndex = assertSafeReset(pty.output(), boundary);
+			expect(pty.output().indexOf("\x1b[<u", resetIndex)).toBeGreaterThan(resetIndex);
+			expect(pty.output().indexOf("\x1b[?2004l", resetIndex)).toBeGreaterThan(resetIndex);
+			assertFullTerminalCleanup(pty.output(), "kitty");
 		},
 		30_000,
 	);
@@ -219,7 +245,59 @@ describe("fixed editor real PTY cleanup", () => {
 			await runCommand(pty, "/zentui fixed-editor disable", reset);
 			const resetIndex = assertSafeReset(pty.output(), boundary);
 			expect(pty.output().slice(resetIndex + reset.length)).not.toContain("\x1b[?1049h");
+			const liveParser = new OwnedTerminalStateParser(
+				{},
+				{
+					primary: { kittyFlags: 3, kittyStack: [1] },
+				},
+			);
+			liveParser.feed(pty.output().slice(0, resetIndex + reset.length));
+			expect(liveParser.state.buffer).toBe("primary");
+			expect(liveParser.screen("primary").kittyFlags).toBe(7);
+			expect(liveParser.screen("primary").bracketedPaste).toBe(true);
+			expect(liveParser.keyboardUnderflows).toEqual([]);
 			await runExitCommand(pty, "/quit");
+			assertFullTerminalCleanup(pty.output(), "kitty");
+		},
+		30_000,
+	);
+
+	run(
+		"exits before suspend cleanup and re-enters after resume",
+		async () => {
+			const pty = await launch("kitty");
+			const boundary = pty.output().length;
+			pty.pty.write("\x1a");
+			const resetIndex = await pty.waitFor(reset, 15_000, boundary);
+			await pty.waitFor("\x1b[?2004l", 15_000, resetIndex);
+			const suspended = new OwnedTerminalStateParser(
+				{},
+				{
+					primary: { kittyFlags: 3, kittyStack: [1] },
+				},
+			);
+			suspended.feed(pty.output().slice(0, pty.output().length));
+			expect(suspended.isSafe({ kittyFlags: 3, kittyStack: [1] })).toBe(true);
+
+			process.kill(pty.pty.pid, "SIGCONT");
+			const reentered = await pty.waitFor("\x1b[?1049h", 15_000, resetIndex + reset.length);
+			await pty.waitFor("\x1b[?1002h", 15_000, reentered);
+			await runExitCommand(pty, "/quit");
+			assertFullTerminalCleanup(pty.output(), "kitty");
+		},
+		35_000,
+	);
+
+	run(
+		"restores modifyOtherKeys fallback on the primary screen",
+		async () => {
+			const pty = await launch("modifyOtherKeys");
+			const boundary = pty.output().length;
+			await runExitCommand(pty, "/quit");
+			const resetIndex = assertSafeReset(pty.output(), boundary);
+			expect(pty.output().indexOf("\x1b[>4;0m", resetIndex)).toBeGreaterThan(resetIndex);
+			expect(pty.output().indexOf("\x1b[?2004l", resetIndex)).toBeGreaterThan(resetIndex);
+			assertFullTerminalCleanup(pty.output(), "modifyOtherKeys");
 		},
 		30_000,
 	);

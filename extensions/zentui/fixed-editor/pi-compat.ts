@@ -1,7 +1,7 @@
 /** Verified private Pi TUI capabilities required by the experimental fixed editor. @internal */
 export type PiMethodCapability = {
 	target: Record<PropertyKey, unknown>;
-	key: "render" | "doRender" | "write";
+	key: "render" | "doRender" | "write" | "drainInput" | "stop";
 	method: (...args: unknown[]) => unknown;
 	ownDescriptor: PropertyDescriptor | undefined;
 };
@@ -28,6 +28,8 @@ export type PiFixedEditorCapabilities = {
 	renderMethod: PiMethodCapability;
 	doRenderMethod: PiMethodCapability;
 	writeMethod: PiMethodCapability;
+	drainInputMethod: PiMethodCapability;
+	stopMethod: PiMethodCapability;
 	rowsOwnDescriptor: PropertyDescriptor | undefined;
 	readRawRows: () => number;
 	getColumns: () => number;
@@ -181,7 +183,10 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 	const renderMethod = writableMethod(value, "render");
 	const doRenderMethod = writableMethod(value, "doRender");
 	const writeMethod = writableMethod(terminalValue, "write");
-	if (!renderMethod || !doRenderMethod || !writeMethod) return undefined;
+	const drainInputMethod = writableMethod(terminalValue, "drainInput");
+	const stopMethod = writableMethod(terminalValue, "stop");
+	if (!renderMethod || !doRenderMethod || !writeMethod || !drainInputMethod || !stopMethod)
+		return undefined;
 
 	const addInputListenerValue = Reflect.get(value, "addInputListener");
 	const removeInputListenerValue = Reflect.get(value, "removeInputListener");
@@ -237,6 +242,8 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 		renderMethod,
 		doRenderMethod,
 		writeMethod,
+		drainInputMethod,
+		stopMethod,
 		rowsOwnDescriptor,
 		readRawRows: rowsReader(terminalValue, rowsDescriptor, initialRows),
 		getColumns: () => {
