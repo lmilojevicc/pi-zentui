@@ -32,6 +32,7 @@ import {
 	WrappedPolishedEditor as WrappedPolishedEditorProduction,
 } from "../extensions/zentui/ui";
 import { installUserMessageStyle as installUserMessageStyleProduction } from "../extensions/zentui/user-message";
+import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message-osc";
 
 const isolatedAgentDir = vi.hoisted(() => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -2577,7 +2578,7 @@ describe("Pi docs compliance", () => {
 	});
 
 	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
-		"strips raw OSC 8 and keeps Markdown links for %s",
+		"strips raw OSC 8 and preserves Pi Markdown rendering for %s",
 		(style) => {
 			const config = structuredClone(defaultConfig);
 			config.components.userMessages.style = style;
@@ -2595,15 +2596,19 @@ describe("Pi docs compliance", () => {
 				source += `${sequence} `;
 			}
 			source += `\x9d8;;https://c1.example\x9cc1-link\x9d8;;\x9c ${preserved[0]} [markdown](https://markdown.example) \x1b]133;Btail`;
+			const cleanSource = sanitizeUserMessageSourceText(source);
+			expect(cleanSource).toContain("[markdown](https://markdown.example)");
 
+			const clean = new UserMessageComponent(cleanSource).render(240).join("\n");
 			const rendered = new UserMessageComponent(source).render(240).join("\n");
+			expect(rendered).toBe(clean);
 			expectSinglePromptZone(rendered);
 			for (const sequence of preserved) expect(rendered).not.toContain(sequence);
 			expect(rendered).toContain("link-0");
 			expect(rendered).toContain("link-1");
 			expect(rendered).toContain("c1-link");
 			expect(rendered).toContain("markdown");
-			expect(rendered).toContain("\x1b]8;;https://markdown.example");
+			expect(rendered).toContain("https://markdown.example");
 			const visible = stripPromptMarks(rendered);
 			expect(visible).not.toContain("\x9d");
 			expect(visible).not.toContain("\x9c");

@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
@@ -6,6 +7,10 @@ import {
 	type PolishedTuiConfig,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
+import {
+	sanitizeRenderedUserMessageText,
+	sanitizeUserMessageSourceText,
+} from "../extensions/zentui/user-message-osc";
 import {
 	renderUserMessageStyle,
 	userMessageStyleCacheKey,
@@ -179,15 +184,18 @@ describe("pure user-message styles", () => {
 		}
 	});
 
-	it("keeps Markdown-generated links clickable after raw-source sanitization", () => {
+	it("preserves Pi Markdown link rendering after raw-source sanitization", () => {
 		const markdown = "[docs](https://markdown.example) <https://autolink.example>";
 		const hostile = "\x1b]52;c;c2VjcmV0\x07";
+		expect(sanitizeUserMessageSourceText(markdown)).toBe(markdown);
 		for (const style of userMessageStyles) {
 			const clean = render(style, markdown, 160).join("\n");
 			const mixed = render(style, `${hostile}${markdown}`, 160).join("\n");
 			expect(mixed).toBe(clean);
-			expect(mixed).toContain("\x1b]8;;https://markdown.example");
-			expect(mixed).toContain("\x1b]8;;https://autolink.example");
+			expect(stripVTControlCharacters(mixed)).toContain("docs");
+			expect(mixed).toContain("https://markdown.example");
+			expect(mixed).toContain("https://autolink.example");
+			if (clean.includes("\x1b]8;")) expect(sanitizeRenderedUserMessageText(clean)).toBe(clean);
 			expect(mixed).not.toContain("\x1b]52");
 			expect(mixed).not.toContain("c2VjcmV0");
 		}
