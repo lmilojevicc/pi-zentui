@@ -1,12 +1,18 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
 	defaultConfig,
 	type EditorStyle,
 	type PolishedTuiConfig,
 } from "../extensions/zentui/config";
-import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
+import { FIXED_EDITOR_LAYOUT } from "../extensions/zentui/fixed-editor/editor-layout";
+import { planFixedLayout } from "../extensions/zentui/fixed-editor/layout";
+import {
+	PolishedEditor,
+	renderWithAutocompleteCapture,
+	WrappedPolishedEditor,
+} from "../extensions/zentui/ui";
 
 function theme(): Theme {
 	return {
@@ -85,13 +91,19 @@ function baseEditor(options: {
 	autocomplete?: string[];
 }) {
 	const autocomplete = options.autocomplete ?? [];
+	const autocompleteList = {
+		filteredItems: autocomplete.map((value) => ({ value })),
+		selectedIndex: 0,
+		maxVisible: Math.max(1, autocomplete.length),
+		render: (_width?: number) => autocomplete,
+	};
 	return {
 		render(width: number) {
 			return [
 				options.malformedTop ?? nativeBorder(width, "above", options.above, options.ansi),
 				"typed text",
 				nativeBorder(width, "below", options.below, options.ansi),
-				...autocomplete,
+				...(autocomplete.length > 0 ? autocompleteList.render(width) : []),
 			];
 		},
 		invalidate() {},
@@ -99,7 +111,7 @@ function baseEditor(options: {
 		getText: () => "typed text",
 		setText() {},
 		isShowingAutocomplete: () => autocomplete.length > 0,
-		autocompleteList: { render: () => autocomplete },
+		autocompleteList,
 	};
 }
 
@@ -369,7 +381,7 @@ describe("editor viewport indicators", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
-	it("rerenders standalone Opencode at caller width when autocomplete extraction becomes unknown", () => {
+	it("captures standalone Opencode autocomplete from the base render without an extra render", () => {
 		const editor = standalone("opencode-copy-friendly");
 		let calls = 0;
 		Object.assign(editor as unknown as Record<string, unknown>, {
@@ -382,9 +394,9 @@ describe("editor viewport indicators", () => {
 			},
 		});
 		const lines = editor.render(80);
-		expect(calls).toBe(3);
+		expect(calls).toBe(1);
 		expect(lines.some((line) => line.includes("├"))).toBe(false);
-		expect(lines).toContain("caller-width-suggestion".padEnd(80));
+		expect(lines.some((line) => line.includes("caller-width-suggestion"))).toBe(true);
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
@@ -638,6 +650,197 @@ describe("editor viewport indicators", () => {
 		const truncatedNativeTop = truncateToWidth("─── ↑ 12 more ", 10, "");
 		const lines = wrapped(baseEditor({ below: 1, malformedTop: truncatedNativeTop })).render(40);
 		expect(lines[0]).toBe(truncatedNativeTop);
+	});
+});
+
+describe("same-render autocomplete capture", () => {
+	function source(render: (width: number) => string[]) {
+		return {
+			isShowingAutocomplete: () => true,
+			autocompleteList: {
+				filteredItems: [{ value: "one" }],
+				selectedIndex: 0,
+				maxVisible: 1,
+				render,
+			},
+		};
+	}
+
+	it("restores the exact predecessor after descriptor flags mutate", () => {
+		const predecessor = vi.fn(() => ["one"]);
+		const autocomplete = source(predecessor);
+		const original = Object.getOwnPropertyDescriptor(autocomplete.autocompleteList, "render");
+		const result = renderWithAutocompleteCapture(autocomplete as never, () => {
+			const rows = autocomplete.autocompleteList.render(20);
+			const wrapper = autocomplete.autocompleteList.render;
+			Object.defineProperty(autocomplete.autocompleteList, "render", {
+				value: wrapper,
+				configurable: true,
+				enumerable: false,
+				writable: false,
+			});
+			return rows;
+		});
+		expect(result.capture?.compatible).toBe(false);
+		expect(Object.getOwnPropertyDescriptor(autocomplete.autocompleteList, "render")).toEqual(
+			original,
+		);
+		expect(predecessor).toHaveBeenCalledTimes(1);
+	});
+
+	it("preserves a synchronous third-party replacement and suppresses metadata", () => {
+		const autocomplete = source(vi.fn(() => ["one"]));
+		const replacement = vi.fn(() => ["replacement"]);
+		const result = renderWithAutocompleteCapture(autocomplete as never, () => {
+			const rows = autocomplete.autocompleteList.render(20);
+			autocomplete.autocompleteList.render = replacement;
+			return rows;
+		});
+		expect(result.capture?.compatible).toBe(false);
+		expect(autocomplete.autocompleteList.render).toBe(replacement);
+	});
+
+	it("restores through a cleanup descriptor trap when the wrapper is still owned", () => {
+		const predecessor = vi.fn(() => ["one"]);
+		const target = source(predecessor).autocompleteList;
+		let descriptorReads = 0;
+		const proxy = new Proxy(target, {
+			getOwnPropertyDescriptor(current, property) {
+				descriptorReads++;
+				if (descriptorReads === 2) throw new Error("descriptor trap");
+				return Reflect.getOwnPropertyDescriptor(current, property);
+			},
+		});
+		const result = renderWithAutocompleteCapture(
+			{ isShowingAutocomplete: () => true, autocompleteList: proxy } as never,
+			() => proxy.render(20),
+		);
+		expect(result.capture?.compatible).toBe(false);
+		expect(target.render).toBe(predecessor);
+		expect(predecessor).toHaveBeenCalledTimes(1);
+	});
+
+	it("restores after throwing and supports nested capture without extra renders", () => {
+		const predecessor = vi.fn(() => ["one"]);
+		const autocomplete = source(predecessor);
+		const original = autocomplete.autocompleteList.render;
+		expect(() =>
+			renderWithAutocompleteCapture(autocomplete as never, () => {
+				autocomplete.autocompleteList.render(20);
+				throw new Error("render failed");
+			}),
+		).toThrow("render failed");
+		expect(autocomplete.autocompleteList.render).toBe(original);
+
+		predecessor.mockClear();
+		const outer = renderWithAutocompleteCapture(autocomplete as never, () =>
+			renderWithAutocompleteCapture(autocomplete as never, () =>
+				autocomplete.autocompleteList.render(20),
+			),
+		);
+		expect(predecessor).toHaveBeenCalledTimes(1);
+		expect(outer.capture).toMatchObject({ compatible: true, called: 1 });
+		expect(outer.value.capture).toMatchObject({ compatible: true, called: 1 });
+		expect(autocomplete.autocompleteList.render).toBe(original);
+	});
+});
+
+describe("fixed-editor semantic publication", () => {
+	it.each([
+		[
+			"opencode",
+			{
+				rowCount: 9,
+				cursorRow: 2,
+				borderBottom: 5,
+				minimumEditorRows: [0, 2, 5],
+				plannerRawRows: 5,
+				selectedIndex: 0,
+				itemRows: [6, 7, 8],
+				selectedRow: 6,
+			},
+		],
+		[
+			"opencode-copy-friendly",
+			{
+				rowCount: 9,
+				cursorRow: 2,
+				borderBottom: 5,
+				minimumEditorRows: [0, 2, 5],
+				plannerRawRows: 5,
+				selectedIndex: 1,
+				itemRows: [6, 7, 8],
+				selectedRow: 7,
+			},
+		],
+		[
+			"minimalist",
+			{
+				rowCount: 7,
+				cursorRow: 1,
+				borderBottom: 6,
+				minimumEditorRows: [0, 1, 6],
+				plannerRawRows: 6,
+				selectedIndex: 2,
+				itemRows: [3, 4, 5],
+				selectedRow: 5,
+			},
+		],
+	] as const)("publishes exact cursor and autocomplete rows for %s", (style, expected) => {
+		const autocomplete = {
+			filteredItems: [{ value: "one" }, { value: "two" }, { value: "three" }],
+			selectedIndex: expected.selectedIndex,
+			maxVisible: 3,
+			render: () => ["one", "two", "three"],
+		};
+		const base = {
+			render(width: number) {
+				return [
+					nativeBorder(width, "above"),
+					`typed${CURSOR_MARKER}`,
+					nativeBorder(width, "below"),
+					...autocomplete.render(),
+				];
+			},
+			invalidate() {},
+			handleInput() {},
+			getText: () => "typed",
+			setText() {},
+			isShowingAutocomplete: () => true,
+			autocompleteList: autocomplete,
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => withEditorStyle(config(), style),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/tmp" }),
+		);
+		const lines = editor.render(60);
+		const metadata = editor[FIXED_EDITOR_LAYOUT](lines, 60);
+		expect(metadata?.renderedRowCount).toBe(expected.rowCount);
+		expect(metadata?.editor.cursorRow).toBe(expected.cursorRow);
+		expect(metadata?.editor.borderPairs).toEqual([{ top: 0, bottom: expected.borderBottom }]);
+		expect(metadata?.autocomplete?.selection).toEqual({
+			known: true,
+			selectedIndex: expected.selectedIndex,
+			visibleWindow: { start: 0, end: 3 },
+			itemToOutputRows: [
+				{ itemIndex: 0, outputRow: expected.itemRows[0] },
+				{ itemIndex: 1, outputRow: expected.itemRows[1] },
+				{ itemIndex: 2, outputRow: expected.itemRows[2] },
+			],
+			selectedRow: expected.selectedRow,
+		});
+		if (!metadata) throw new Error("expected fixed-editor metadata");
+		expect(
+			planFixedLayout({ rawRows: expected.plannerRawRows, editorRows: lines, metadata }),
+		).toMatchObject({
+			mode: "fixed",
+			selectedEditorRows: expected.minimumEditorRows,
+			selectedAutocompleteRows: expect.arrayContaining([expected.selectedRow]),
+		});
 	});
 });
 

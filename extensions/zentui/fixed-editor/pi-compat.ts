@@ -16,6 +16,7 @@ export type PiFixedCluster = {
 	status: PiRenderableCapability | null;
 	aboveWidget: PiRenderableCapability | null;
 	editor: PiRenderableCapability;
+	editorChild?: unknown;
 	belowWidget: PiRenderableCapability | null;
 	footer: PiRenderableCapability | null;
 };
@@ -38,7 +39,9 @@ export type PiFixedEditorCapabilities = {
 	removeInputListener: (
 		listener: (data: string) => { consume?: boolean; data?: string } | undefined,
 	) => void;
-	requestRender?: (force?: boolean) => void;
+	requestRender: (force?: boolean) => void;
+	requestNormalRender: () => void;
+	requestForceRender: () => void;
 };
 
 function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
@@ -123,7 +126,8 @@ export function findEditorContainerIndex(
 
 function clusterCapability(children: unknown[], editorIndex: number): PiFixedCluster | undefined {
 	const editor = renderable(children[editorIndex]);
-	if (!editor) return undefined;
+	const editorChild = containerChildren(children[editorIndex])?.find(isEditorLike);
+	if (!editor || !editorChild) return undefined;
 	const optional = (index: number): PiRenderableCapability | null | undefined => {
 		if (index < 0 || index >= children.length) return null;
 		return renderable(children[index]);
@@ -140,7 +144,7 @@ function clusterCapability(children: unknown[], editorIndex: number): PiFixedClu
 	) {
 		return undefined;
 	}
-	return { status, aboveWidget, editor, belowWidget, footer };
+	return { status, aboveWidget, editor, editorChild, belowWidget, footer };
 }
 
 function readRowsValue(
@@ -224,6 +228,8 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 	}
 
 	const requestRenderValue = Reflect.get(value, "requestRender");
+	if (typeof requestRenderValue !== "function") return undefined;
+	const requestRender = (force?: boolean) => Reflect.apply(requestRenderValue, value, [force]);
 	return {
 		tui: value,
 		terminal: terminalValue,
@@ -280,10 +286,9 @@ function inspectPiTuiUnsafe(value: unknown): PiFixedEditorCapabilities | undefin
 		removeInputListener: (listener) => {
 			Reflect.apply(removeInputListenerValue, value, [listener]);
 		},
-		requestRender:
-			typeof requestRenderValue === "function"
-				? (force) => Reflect.apply(requestRenderValue, value, [force])
-				: undefined,
+		requestRender,
+		requestNormalRender: () => requestRender(),
+		requestForceRender: () => requestRender(true),
 	};
 }
 

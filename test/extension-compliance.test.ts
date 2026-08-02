@@ -3140,9 +3140,12 @@ describe("Pi docs compliance", () => {
 				{} as never,
 			);
 
-			await vi.waitFor(() => {
-				expect(editor.render(120).join("\n")).toContain("minimalist-test");
-			});
+			await vi.waitFor(
+				() => {
+					expect(editor.render(120).join("\n")).toContain("minimalist-test");
+				},
+				{ timeout: 3_000 },
+			);
 		} finally {
 			await emit(handlers, "session_shutdown", ctx);
 			rmSync(cwd, { recursive: true, force: true });

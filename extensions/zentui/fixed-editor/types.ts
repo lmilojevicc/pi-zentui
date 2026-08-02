@@ -30,8 +30,29 @@ export type CompositorConfig = {
 	copyNotice: boolean;
 };
 
+export type DisposalReason = "live" | "shutdown";
+
+export type FixedLayoutPlan =
+	| {
+			mode: "fixed";
+			transcriptRows: number;
+			selectedEditorRows: readonly number[];
+			selectedAutocompleteRows: readonly number[];
+			statusBudget: number;
+			aboveBudget: number;
+			belowBudget: number;
+			footerBudget: number;
+	  }
+	| {
+			mode: "normal-flow";
+			reason: "editor-minimum-does-not-fit" | "opaque-editor-does-not-fit";
+	  }
+	| { mode: "no-terminal-rows"; pendingDesiredMode: "fixed" | "normal-flow" };
+
 /** Result of rendering the pinned cluster. */
 export type ClusterRender = {
+	mode: "fixed" | "normal-flow" | "no-terminal-rows";
 	lines: string[];
 	cursor: { row: number; col: number } | null;
+	plan?: FixedLayoutPlan;
 };

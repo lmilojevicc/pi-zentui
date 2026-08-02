@@ -891,9 +891,9 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const cleanupFixedLayout = (ctx: ExtensionContext) => {
+	const cleanupFixedLayout = (ctx: ExtensionContext, reason: "live" | "shutdown" = "live") => {
 		try {
-			disposeFixedEditor(ctx);
+			disposeFixedEditor(reason, ctx);
 		} catch {
 			// Best effort ordinary-layout fallback.
 		}
@@ -1033,10 +1033,10 @@ export default function (pi: ExtensionAPI) {
 		resetAgentTimer();
 		stopProjectRefresh();
 
-		if (isTuiContext(ctx)) cleanupFixedLayout(ctx);
+		if (isTuiContext(ctx)) cleanupFixedLayout(ctx, "shutdown");
 		else {
 			try {
-				disposeFixedEditor(ctx);
+				disposeFixedEditor("shutdown", ctx);
 			} catch {
 				// Continue cleaning independent surfaces.
 			} finally {

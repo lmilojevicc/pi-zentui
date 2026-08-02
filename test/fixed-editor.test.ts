@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig } from "../extensions/zentui/config";
-import { capEditorLines, renderCluster } from "../extensions/zentui/fixed-editor/cluster";
+import { renderCluster } from "../extensions/zentui/fixed-editor/cluster";
 import { TerminalSplitCompositor } from "../extensions/zentui/fixed-editor/compositor";
 import {
 	clampScrollOffset,
@@ -17,14 +17,16 @@ import {
 } from "../extensions/zentui/fixed-editor/pi-compat";
 import { highlightSelection, SelectionState } from "../extensions/zentui/fixed-editor/selection";
 import {
+	DISABLE_ALT_SCROLL,
 	DISABLE_MOUSE,
-	ENABLE_ALT_SCROLL,
+	ENABLE_AUTOWRAP,
 	EXIT_ALT_SCREEN,
 	emergencyTerminalReset,
 	RESET_SCROLL_REGION,
 	SHOW_CURSOR,
 } from "../extensions/zentui/fixed-editor/terminal-modes";
 import { WrappedPolishedEditor } from "../extensions/zentui/ui";
+import { OwnedTerminalStateParser } from "./helpers/terminal-state";
 
 function makeValidPiFixture() {
 	let rawRows = 24;
@@ -139,6 +141,11 @@ describe("Pi fixed-editor compatibility", () => {
 			"input listener removal",
 			(fixture: ReturnType<typeof makeValidPiFixture>) =>
 				Reflect.deleteProperty(fixture.tui, "removeInputListener"),
+		],
+		[
+			"forced render",
+			(fixture: ReturnType<typeof makeValidPiFixture>) =>
+				Reflect.deleteProperty(fixture.tui, "requestRender"),
 		],
 		[
 			"children",
@@ -272,10 +279,10 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.terminal.write).not.toBe(write);
 		expect(fixture.cluster.every((component) => component.render(80).length === 0)).toBe(true);
 		expect(fixture.addInputListener).toHaveBeenCalledTimes(1);
-		expect(fixture.terminalWrite).toHaveBeenCalledTimes(1);
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
 
-		compositor.dispose();
-		compositor.dispose();
+		compositor.dispose("live");
+		compositor.dispose("live");
 
 		expect(fixture.tui.render).toBe(render);
 		expect(fixture.tui.doRender).toBe(doRender);
@@ -285,9 +292,13 @@ describe("Pi fixed-editor compatibility", () => {
 			fixture.cluster.map((component) => Object.getOwnPropertyDescriptor(component, "render")),
 		).toEqual(clusterDescriptors);
 		expect(fixture.inputListenerDisposer).toHaveBeenCalledTimes(1);
-		expect(fixture.removeInputListener).not.toHaveBeenCalled();
+		expect(fixture.removeInputListener).toHaveBeenCalledTimes(1);
 		expect(fixture.getInputListener()).toBeUndefined();
-		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(3);
+		// Initial viewport population plus the live-disposal repaint.
+		expect(fixture.requestRender).toHaveBeenCalledTimes(2);
+		expect(fixture.requestRender).toHaveBeenNthCalledWith(1, true);
+		expect(fixture.requestRender).toHaveBeenNthCalledWith(2, true);
 	});
 
 	it("rolls back patches when listener registration does not return cleanup", () => {
@@ -320,8 +331,199 @@ describe("Pi fixed-editor compatibility", () => {
 		expect(fixture.terminalWrite).not.toHaveBeenCalled();
 	});
 
-	it("keeps overlays visible and responds to rows, cursor, and wheel input", () => {
+	it("requests the first repaint and guards writes until it completes", () => {
 		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		expect(fixture.requestRender).toHaveBeenCalledTimes(1);
+		expect(fixture.requestRender).toHaveBeenCalledWith(true);
+		const writesBefore = fixture.terminalWrite.mock.calls.length;
+		fixture.terminal.write("interleaved");
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(writesBefore);
+		fixture.tui.doRender();
+		expect(fixture.doRender).toHaveBeenCalledTimes(1);
+		expect(fixture.terminalWrite.mock.calls.length).toBeGreaterThan(writesBefore);
+		compositor.dispose("shutdown");
+	});
+
+	it("resolves opaque fallback during initial and later attempted fixed transitions", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(10);
+		let editorHeight = 30;
+		Reflect.set(fixture.cluster[2], "render", () =>
+			Array.from({ length: editorHeight }, (_, index) => `opaque-${index}`),
+		);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		const parser = new OwnedTerminalStateParser();
+
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls) parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(true);
+		expect(fixture.terminal.rows).toBe(10);
+		expect(fixture.tui.render(80)).toEqual(fixture.rootRender(80));
+
+		// A fixed transition can become invalid before its forced callback runs.
+		editorHeight = 1;
+		fixture.tui.doRender();
+		editorHeight = 30;
+		const beforeFallback = fixture.terminalWrite.mock.calls.length;
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls.slice(beforeFallback))
+			parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(true);
+		expect(fixture.terminal.rows).toBe(10);
+		expect(fixture.tui.render(80)).toEqual(fixture.rootRender(80));
+
+		// Once the editor fits again, the next transition recovers fixed mode.
+		editorHeight = 1;
+		fixture.tui.doRender();
+		const beforeFixed = fixture.terminalWrite.mock.calls.length;
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls.slice(beforeFixed))
+			parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(false);
+		expect(fixture.terminal.rows).toBeLessThan(10);
+		expect(fixture.tui.render(80).length).toBeLessThan(fixture.rootRender(80).length);
+		compositor.dispose("shutdown");
+	});
+
+	it.each([true, false])(
+		"keeps alternate scroll disabled in initial fixed mode (mouseScroll=%s)",
+		(mouseScroll) => {
+			const fixture = makeValidPiFixture();
+			const capabilities = inspectPiTui(fixture.tui);
+			if (!capabilities) throw new Error("expected valid fixture");
+			const compositor = new TerminalSplitCompositor(capabilities, () => ({
+				enabled: true,
+				mouseScroll,
+				copyNotice: true,
+			}));
+			const parser = new OwnedTerminalStateParser();
+
+			expect(compositor.install()).toBe(true);
+			for (const [write] of fixture.terminalWrite.mock.calls) parser.feed(String(write));
+			expect(parser.state.buffer).toBe("alternate");
+			expect(parser.state.alternateScroll).toBe(false);
+
+			const previousWrites = fixture.terminalWrite.mock.calls.length;
+			fixture.tui.doRender();
+			for (const [write] of fixture.terminalWrite.mock.calls.slice(previousWrites))
+				parser.feed(String(write));
+			expect(parser.state.alternateScroll).toBe(false);
+			expect(parser.state.mouse1002).toBe(mouseScroll);
+			expect(parser.state.mouse1006).toBe(mouseScroll);
+
+			const beforeDispose = fixture.terminalWrite.mock.calls.length;
+			compositor.dispose("shutdown");
+			for (const [write] of fixture.terminalWrite.mock.calls.slice(beforeDispose))
+				parser.feed(String(write));
+			expect(parser.state.alternateScroll).toBe(false);
+			expect(parser.isSafe()).toBe(true);
+		},
+	);
+
+	it("canonically resets when the initial forced repaint request fails", () => {
+		const fixture = makeValidPiFixture();
+		fixture.requestRender.mockImplementation(() => {
+			throw new Error("force render failed");
+		});
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(false);
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+		expect(fixture.tui.render).toBe(fixture.rootRender);
+		expect(fixture.terminal.write).toBe(fixture.terminalWrite);
+	});
+
+	it("canonically resets when the second terminal-entry write fails", () => {
+		const fixture = makeValidPiFixture();
+		fixture.terminalWrite.mockImplementation((_data: string) => {
+			if (fixture.terminalWrite.mock.calls.length === 2) throw new Error("prelude failed");
+		});
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(false);
+		expect(fixture.terminalWrite.mock.calls[0]?.[0]).toContain("\x1b[?1049h");
+		expect(fixture.terminalWrite.mock.calls[1]?.[0]).toContain("\x1b[2J");
+		expect(fixture.terminalWrite.mock.calls[2]?.[0]).toBe(emergencyTerminalReset());
+		expect(fixture.tui.render).toBe(fixture.rootRender);
+		expect(fixture.terminal.write).toBe(fixture.terminalWrite);
+	});
+
+	it("falls back when both terminal entry and captured reset writes fail", () => {
+		const fixture = makeValidPiFixture();
+		fixture.terminalWrite.mockImplementation(() => {
+			throw new Error("writer failed");
+		});
+		const fallback = vi.fn();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: false, copyNotice: true }),
+			undefined,
+			undefined,
+			fallback,
+		);
+		expect(compositor.install()).toBe(false);
+		expect(fallback).toHaveBeenCalledWith(emergencyTerminalReset());
+		expect(fixture.tui.render).toBe(fixture.rootRender);
+	});
+
+	it("routes a live transition prelude failure through disposal", () => {
+		const fixture = makeValidPiFixture();
+		Reflect.set(fixture.cluster[2], "render", () => [
+			"top",
+			`cursor${CURSOR_MARKER}`,
+			"body",
+			"bottom",
+		]);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.setRows(3);
+		fixture.terminalWrite.mockImplementation((data: string) => {
+			if (data.includes("\x1b[2J")) throw new Error("transition prelude failed");
+		});
+		expect(() => fixture.tui.doRender()).toThrow("transition prelude failed");
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+		expect(fixture.tui.render).toBe(fixture.rootRender);
+		expect(fixture.terminal.write).toBe(fixture.terminalWrite);
+		expect(fixture.requestRender).toHaveBeenLastCalledWith(true);
+	});
+
+	it("gives overlays raw rows and recovers fixed rows after they close", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(40);
 		const capabilities = inspectPiTui(fixture.tui);
 		if (!capabilities) throw new Error("expected valid fixture");
 		const compositor = new TerminalSplitCompositor(capabilities, () => ({
@@ -330,14 +532,24 @@ describe("Pi fixed-editor compatibility", () => {
 			copyNotice: true,
 		}));
 		expect(compositor.install()).toBe(true);
+		expect(fixture.requestRender).toHaveBeenCalledWith(true);
+		fixture.tui.doRender();
 		const patchedRender = fixture.tui.render;
-		const narrowRows = fixture.terminal.rows;
-		fixture.setRows(40);
-		expect(fixture.terminal.rows).toBeGreaterThan(narrowRows);
+		expect(fixture.terminal.rows).toBeLessThan(40);
 
 		fixture.tui.overlayStack = [{}];
+		expect(fixture.terminal.rows).toBe(40);
 		expect(patchedRender(80)).toEqual(fixture.rootRender(80));
+		fixture.tui.doRender();
+		fixture.tui.doRender();
+		expect(fixture.terminal.rows).toBe(40);
+
 		fixture.tui.overlayStack = [];
+		expect(fixture.terminal.rows).toBe(40);
+		fixture.tui.doRender();
+		fixture.tui.doRender();
+		expect(fixture.terminal.rows).toBeLessThan(40);
+
 		fixture.setRows(12);
 		patchedRender(80);
 		fixture.terminal.write("update");
@@ -345,7 +557,7 @@ describe("Pi fixed-editor compatibility", () => {
 		fixture.requestRender.mockClear();
 		fixture.getInputListener()?.("\u001b[<64;1;1M");
 		expect(fixture.requestRender).toHaveBeenCalled();
-		compositor.dispose();
+		compositor.dispose("live");
 	});
 
 	it("repaints adaptive polished borders through the fixed-editor cluster without stale color", () => {
@@ -419,7 +631,7 @@ describe("Pi fixed-editor compatibility", () => {
 			expect(paintedRows.every((row) => visibleWidth(row) <= 80)).toBe(true);
 		}
 
-		compositor.dispose();
+		compositor.dispose("live");
 	});
 
 	it("clears the right-click mouse-resume timer on disposal", () => {
@@ -434,16 +646,446 @@ describe("Pi fixed-editor compatibility", () => {
 				copyNotice: true,
 			}));
 			expect(compositor.install()).toBe(true);
+			fixture.tui.doRender();
 			fixture.getInputListener()?.("\u001b[<2;1;1M");
 			expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toContain(DISABLE_MOUSE);
 
-			compositor.dispose();
+			compositor.dispose("live");
 			const writesAfterDispose = fixture.terminalWrite.mock.calls.length;
 			vi.advanceTimersByTime(1_200);
 			expect(fixture.terminalWrite).toHaveBeenCalledTimes(writesAfterDispose);
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("resumes mouse reporting only while fixed mode still owns input", () => {
+		vi.useFakeTimers();
+		try {
+			const fixture = makeValidPiFixture();
+			fixture.setRows(12);
+			const capabilities = inspectPiTui(fixture.tui);
+			if (!capabilities) throw new Error("expected valid fixture");
+			const compositor = new TerminalSplitCompositor(capabilities, () => ({
+				enabled: true,
+				mouseScroll: true,
+				copyNotice: true,
+			}));
+			expect(compositor.install()).toBe(true);
+			fixture.tui.doRender();
+			fixture.getInputListener()?.("\u001b[<2;1;1M");
+			const parser = new OwnedTerminalStateParser({
+				buffer: "alternate",
+				mouse1002: true,
+				mouse1006: true,
+			});
+			parser.feed(String(fixture.terminalWrite.mock.calls.at(-1)?.[0]));
+			expect(parser.state.mouse1002).toBe(false);
+
+			vi.advanceTimersByTime(1_200);
+			parser.feed(String(fixture.terminalWrite.mock.calls.at(-1)?.[0]));
+			expect(parser.state.mouse1002).toBe(true);
+			compositor.dispose("shutdown");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not resume mouse reporting after normal-flow or overlay ownership", () => {
+		vi.useFakeTimers();
+		try {
+			const makeCompositor = () => {
+				const fixture = makeValidPiFixture();
+				fixture.setRows(12);
+				const capabilities = inspectPiTui(fixture.tui);
+				if (!capabilities) throw new Error("expected valid fixture");
+				const compositor = new TerminalSplitCompositor(capabilities, () => ({
+					enabled: true,
+					mouseScroll: true,
+					copyNotice: true,
+				}));
+				expect(compositor.install()).toBe(true);
+				fixture.tui.doRender();
+				return { fixture, compositor };
+			};
+
+			const normal = makeCompositor();
+			normal.fixture.getInputListener()?.("\u001b[<2;1;1M");
+			normal.fixture.setRows(1);
+			normal.fixture.tui.doRender();
+			normal.fixture.tui.doRender();
+			const normalWrites = normal.fixture.terminalWrite.mock.calls.length;
+			vi.advanceTimersByTime(1_200);
+			expect(normal.fixture.terminalWrite).toHaveBeenCalledTimes(normalWrites);
+			normal.compositor.dispose("shutdown");
+
+			const overlay = makeCompositor();
+			overlay.fixture.getInputListener()?.("\u001b[<2;1;1M");
+			overlay.fixture.tui.overlayStack = [{}];
+			const overlayWrites = overlay.fixture.terminalWrite.mock.calls.length;
+			vi.advanceTimersByTime(1_200);
+			expect(overlay.fixture.terminalWrite).toHaveBeenCalledTimes(overlayWrites);
+			overlay.compositor.dispose("shutdown");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("copies an ordinary in-range selection and reports the selected text once", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(12);
+		const onCopy = vi.fn();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: true, copyNotice: true }),
+			onCopy,
+		);
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.tui.render(80);
+		const listener = fixture.getInputListener();
+
+		expect(listener?.("\u001b[<0;1;1M")).toEqual({ consume: true });
+		expect(listener?.("\u001b[<0;4;1m")).toEqual({ consume: true });
+		expect(onCopy).toHaveBeenCalledOnce();
+		expect(onCopy).toHaveBeenCalledWith("root");
+		expect(fixture.tui.render(80).join("\n")).not.toContain("\u001b[48;5;238m");
+		compositor.dispose("shutdown");
+	});
+
+	it("clears a transcript drag released over the pinned cluster", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(12);
+		const onCopy = vi.fn();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: true, copyNotice: true }),
+			onCopy,
+		);
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.tui.render(80);
+		const listener = fixture.getInputListener();
+		listener?.("\u001b[<0;1;1M");
+		listener?.("\u001b[<32;4;2M");
+		expect(fixture.tui.render(80).join("\n")).toContain("\u001b[48;5;238m");
+
+		fixture.requestRender.mockClear();
+		expect(listener?.("\u001b[<0;4;8m")).toEqual({ consume: true });
+		expect(fixture.requestRender).toHaveBeenCalledTimes(1);
+		expect(fixture.tui.render(80).join("\n")).not.toContain("\u001b[48;5;238m");
+		listener?.("\u001b[<0;4;2m");
+		expect(onCopy).not.toHaveBeenCalled();
+		compositor.dispose("shutdown");
+	});
+
+	it.each([
+		{
+			name: "an overlay",
+			enter: (fixture: ReturnType<typeof makeValidPiFixture>) => {
+				fixture.tui.overlayStack = [{}];
+			},
+			exit: (fixture: ReturnType<typeof makeValidPiFixture>) => {
+				fixture.tui.overlayStack = [];
+			},
+		},
+		{
+			name: "a height fallback",
+			enter: (fixture: ReturnType<typeof makeValidPiFixture>) => fixture.setRows(1),
+			exit: (fixture: ReturnType<typeof makeValidPiFixture>) => fixture.setRows(12),
+		},
+	])("clears an active transcript drag across $name transition and recovery", ({ enter, exit }) => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(12);
+		const onCopy = vi.fn();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: true, copyNotice: true }),
+			onCopy,
+		);
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.tui.render(80);
+		const listener = fixture.getInputListener();
+		listener?.("\u001b[<0;1;1M");
+		listener?.("\u001b[<32;4;2M");
+		expect(fixture.tui.render(80).join("\n")).toContain("\u001b[48;5;238m");
+
+		enter(fixture);
+		fixture.tui.doRender();
+		fixture.tui.doRender();
+		exit(fixture);
+		fixture.tui.doRender();
+		fixture.tui.doRender();
+
+		const recovered = fixture.tui.render(80).join("\n");
+		expect(recovered).not.toContain("\u001b[48;5;238m");
+		fixture.requestRender.mockClear();
+		expect(listener?.("\u001b[<0;4;2m")).toEqual({ consume: true });
+		expect(fixture.requestRender).not.toHaveBeenCalled();
+		expect(onCopy).not.toHaveBeenCalled();
+		expect(fixture.tui.render(80).join("\n")).not.toContain("\u001b[48;5;238m");
+		compositor.dispose("shutdown");
+	});
+
+	it("suspends installation and rendering at zero terminal rows", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(0);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		expect(fixture.terminalWrite).not.toHaveBeenCalled();
+		expect(fixture.requestRender).not.toHaveBeenCalled();
+		fixture.tui.doRender();
+		expect(fixture.doRender).not.toHaveBeenCalled();
+		expect(fixture.terminalWrite).not.toHaveBeenCalled();
+		fixture.setRows(12);
+		fixture.tui.doRender();
+		expect(fixture.requestRender).toHaveBeenCalledWith(true);
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(2);
+		const parser = new OwnedTerminalStateParser();
+		for (const [write] of fixture.terminalWrite.mock.calls) parser.feed(String(write));
+		expect(parser.state.buffer).toBe("alternate");
+		expect(parser.state.alternateScroll).toBe(false);
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls.slice(2)) parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(false);
+		compositor.dispose("shutdown");
+	});
+
+	it("propagates PageUp and PageDown for overlays and when no transcript range exists", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(40);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.tui.render(80);
+		const listener = fixture.getInputListener();
+		expect(listener?.("\x1b[5~")).toBeUndefined();
+		expect(listener?.("\x1b[6~")).toBeUndefined();
+		fixture.tui.overlayStack = [{}];
+		expect(listener?.("\x1b[5~")).toBeUndefined();
+		expect(listener?.("\x1b[6~")).toBeUndefined();
+		compositor.dispose("shutdown");
+	});
+
+	it("consumes PageUp and PageDown at transcript boundaries when a range exists", () => {
+		const fixture = makeValidPiFixture();
+		fixture.setRows(12);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.tui.render(80);
+		const listener = fixture.getInputListener();
+		expect(listener?.("\x1b[6~")).toEqual({ consume: true });
+		expect(listener?.("\x1b[5~")).toEqual({ consume: true });
+		for (let index = 0; index < 20; index++) listener?.("\x1b[5~");
+		expect(listener?.("\x1b[5~")).toEqual({ consume: true });
+		compositor.dispose("shutdown");
+	});
+
+	it("guards bidirectional fixed and normal-flow transitions", () => {
+		const fixture = makeValidPiFixture();
+		Reflect.set(fixture.cluster[2], "render", () => [
+			"top",
+			`cursor${CURSOR_MARKER}`,
+			"body",
+			"bottom",
+		]);
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		// Complete the initial forced fixed-mode render before testing later transitions.
+		fixture.tui.doRender();
+		const parser = new OwnedTerminalStateParser();
+		for (const [write] of fixture.terminalWrite.mock.calls) parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(false);
+		fixture.setRows(3);
+		fixture.terminalWrite.mockClear();
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls) parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(true);
+		expect(String(fixture.terminalWrite.mock.calls[0]?.[0])).toContain("\x1b[2J");
+		expect(String(fixture.terminalWrite.mock.calls[0]?.[0])).not.toContain("\x1b[3J");
+		const writesDuringGuard = fixture.terminalWrite.mock.calls.length;
+		fixture.terminal.write("partial");
+		expect(fixture.terminalWrite).toHaveBeenCalledTimes(writesDuringGuard);
+		fixture.tui.doRender();
+		expect(fixture.tui.render(80)).toEqual(fixture.rootRender(80));
+		fixture.setRows(24);
+		const beforeFixed = fixture.terminalWrite.mock.calls.length;
+		fixture.tui.doRender();
+		for (const [write] of fixture.terminalWrite.mock.calls.slice(beforeFixed))
+			parser.feed(String(write));
+		expect(parser.state.alternateScroll).toBe(false);
+		fixture.tui.doRender();
+		expect(parser.state.alternateScroll).toBe(false);
+		expect(fixture.tui.render(80).length).toBeLessThan(fixture.rootRender(80).length);
+		compositor.dispose("shutdown");
+	});
+
+	it("continues sibling descriptor restoration after an individual failure", () => {
+		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const rootRender = fixture.tui.render;
+		const terminalWrite = fixture.terminal.write;
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: false,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		const status = fixture.cluster[0];
+		const patchedStatus = Object.getOwnPropertyDescriptor(status, "render");
+		Object.defineProperty(status, "render", { ...patchedStatus, configurable: false });
+		compositor.dispose("shutdown");
+		expect(fixture.tui.render).toBe(rootRender);
+		expect(fixture.terminal.write).toBe(terminalWrite);
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+	});
+
+	it.each([
+		["status render", (f: ReturnType<typeof makeValidPiFixture>) => f.cluster[0], "render"],
+		["above render", (f: ReturnType<typeof makeValidPiFixture>) => f.cluster[1], "render"],
+		["editor render", (f: ReturnType<typeof makeValidPiFixture>) => f.cluster[2], "render"],
+		["below render", (f: ReturnType<typeof makeValidPiFixture>) => f.cluster[3], "render"],
+		["footer render", (f: ReturnType<typeof makeValidPiFixture>) => f.cluster[4], "render"],
+		["terminal write", (f: ReturnType<typeof makeValidPiFixture>) => f.terminal, "write"],
+		["root render", (f: ReturnType<typeof makeValidPiFixture>) => f.tui, "render"],
+		["root doRender", (f: ReturnType<typeof makeValidPiFixture>) => f.tui, "doRender"],
+		["terminal rows", (f: ReturnType<typeof makeValidPiFixture>) => f.terminal, "rows"],
+	] as const)(
+		"continues after individual %s descriptor restoration fails",
+		(_name, targetFor, key) => {
+			const fixture = makeValidPiFixture();
+			const capabilities = inspectPiTui(fixture.tui);
+			if (!capabilities) throw new Error("expected valid fixture");
+			const compositor = new TerminalSplitCompositor(capabilities, () => ({
+				enabled: true,
+				mouseScroll: false,
+				copyNotice: true,
+			}));
+			expect(compositor.install()).toBe(true);
+			const target = targetFor(fixture);
+			const descriptor = Object.getOwnPropertyDescriptor(target, key);
+			Object.defineProperty(target, key, { ...descriptor, configurable: false });
+			compositor.dispose("shutdown");
+			expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+			if (key !== "render" || target !== fixture.tui)
+				expect(fixture.tui.render).toBe(fixture.rootRender);
+			if (key !== "write") expect(fixture.terminal.write).toBe(fixture.terminalWrite);
+		},
+	);
+
+	it("isolates timer, disposer, and listener-removal failures from terminal reset", () => {
+		const fixture = makeValidPiFixture();
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(capabilities, () => ({
+			enabled: true,
+			mouseScroll: true,
+			copyNotice: true,
+		}));
+		expect(compositor.install()).toBe(true);
+		fixture.tui.doRender();
+		fixture.getInputListener()?.("\u001b[<2;1;1M");
+		fixture.inputListenerDisposer.mockImplementationOnce(() => {
+			throw new Error("disposer failed");
+		});
+		fixture.removeInputListener.mockImplementationOnce(() => {
+			throw new Error("removal failed");
+		});
+		const clear = vi.spyOn(globalThis, "clearTimeout").mockImplementation((() => {
+			throw new Error("timer failed");
+		}) as typeof clearTimeout);
+		try {
+			compositor.dispose("shutdown");
+		} finally {
+			clear.mockRestore();
+		}
+		expect(fixture.inputListenerDisposer).toHaveBeenCalled();
+		expect(fixture.removeInputListener).toHaveBeenCalled();
+		expect(fixture.terminalWrite.mock.calls.at(-1)?.[0]).toBe(emergencyTerminalReset());
+		expect(fixture.tui.render).toBe(fixture.rootRender);
+	});
+
+	it("uses the default stdout fallback when the captured reset writer fails", () => {
+		const fixture = makeValidPiFixture();
+		let failReset = false;
+		fixture.terminalWrite.mockImplementation((data: string) => {
+			if (failReset && data === emergencyTerminalReset()) throw new Error("writer closed");
+		});
+		const stdout = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation((() => true) as typeof process.stdout.write);
+		try {
+			const capabilities = inspectPiTui(fixture.tui);
+			if (!capabilities) throw new Error("expected valid fixture");
+			const compositor = new TerminalSplitCompositor(capabilities, () => ({
+				enabled: true,
+				mouseScroll: false,
+				copyNotice: true,
+			}));
+			expect(compositor.install()).toBe(true);
+			failReset = true;
+			compositor.dispose("shutdown");
+			expect(stdout).toHaveBeenCalledWith(emergencyTerminalReset());
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
+	it("uses the canonical reset fallback and never repaints on shutdown", () => {
+		const fixture = makeValidPiFixture();
+		const fallback = vi.fn();
+		let failReset = false;
+		fixture.terminalWrite.mockImplementation((data: string) => {
+			if (failReset && data === emergencyTerminalReset()) throw new Error("writer closed");
+		});
+		const capabilities = inspectPiTui(fixture.tui);
+		if (!capabilities) throw new Error("expected valid fixture");
+		const compositor = new TerminalSplitCompositor(
+			capabilities,
+			() => ({ enabled: true, mouseScroll: true, copyNotice: true }),
+			undefined,
+			undefined,
+			fallback,
+		);
+		expect(compositor.install()).toBe(true);
+		const requestsBefore = fixture.requestRender.mock.calls.length;
+		failReset = true;
+		compositor.dispose("shutdown");
+		expect(fallback).toHaveBeenCalledWith(emergencyTerminalReset());
+		expect(fixture.requestRender).toHaveBeenCalledTimes(requestsBefore);
 	});
 });
 
@@ -563,8 +1205,10 @@ describe("terminal-modes", () => {
 			expect(reset).toContain(EXIT_ALT_SCREEN);
 			expect(reset).toContain(DISABLE_MOUSE);
 			expect(reset).toContain(RESET_SCROLL_REGION);
-			expect(reset).toContain(ENABLE_ALT_SCROLL);
+			expect(reset).toContain(DISABLE_ALT_SCROLL);
+			expect(reset).toContain(ENABLE_AUTOWRAP);
 			expect(reset).toContain(SHOW_CURSOR);
+			expect(reset.indexOf(ENABLE_AUTOWRAP)).toBeLessThan(reset.indexOf(EXIT_ALT_SCREEN));
 		});
 	});
 });
@@ -617,28 +1261,6 @@ describe("cluster", () => {
 		});
 	});
 
-	describe("capEditorLines", () => {
-		it("keeps last N lines when no cursor marker", () => {
-			const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`);
-			const result = capEditorLines(lines, 5);
-			expect(result).toHaveLength(5);
-			expect(result[0]).toBe("line 5");
-		});
-
-		it("centers window on cursor row", () => {
-			const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`);
-			lines[15] = `line 15${CURSOR_MARKER}`;
-			const result = capEditorLines(lines, 5);
-			expect(result).toHaveLength(5);
-			expect(result[4]).toContain("line 15");
-		});
-
-		it("returns all lines when under max", () => {
-			const lines = ["a", "b", "c"];
-			expect(capEditorLines(lines, 5)).toBe(lines);
-		});
-	});
-
 	describe("renderCluster", () => {
 		it("renders and concatenates all cluster components", () => {
 			const cluster = {
@@ -665,18 +1287,31 @@ describe("cluster", () => {
 			expect(result.lines[0]).toBe("helloworld");
 		});
 
-		it("caps editor lines when total exceeds maxHeight", () => {
+		it("selects normal flow rather than cropping an oversized opaque editor", () => {
 			const manyLines = Array.from({ length: 30 }, (_, i) => `ed-${i}`);
+			const throwingEditor = new Proxy(
+				{},
+				{
+					get() {
+						throw new Error("opaque provider trap");
+					},
+				},
+			);
 			const cluster = {
 				status: null,
 				aboveWidget: null,
 				editor: makeCapability(manyLines),
+				editorChild: throwingEditor,
 				belowWidget: null,
 				footer: null,
 			};
-			// maxHeight = 10, maxRows = 9, so editor gets max 9 lines
+			expect(() => renderCluster(cluster, 80, 10)).not.toThrow();
 			const result = renderCluster(cluster, 80, 10);
-			expect(result.lines.length).toBeLessThanOrEqual(9);
+			expect(result).toMatchObject({
+				mode: "normal-flow",
+				lines: [],
+				plan: { mode: "normal-flow", reason: "opaque-editor-does-not-fit" },
+			});
 		});
 
 		it("preserves internal blank lines (low-rail polished padding)", () => {

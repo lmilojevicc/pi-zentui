@@ -16,6 +16,7 @@ import type { SessionLifecycle } from "../session-lifecycle";
 import { renderStyleForSourceOrFallback } from "../style";
 import { TerminalSplitCompositor } from "./compositor";
 import { inspectPiTui } from "./pi-compat";
+import type { DisposalReason } from "./types";
 
 let compositor: TerminalSplitCompositor | null = null;
 let didWarnUnsupported = false;
@@ -193,14 +194,14 @@ export function installFixedEditorProbe(
  * Dispose the compositor if active.
  * Call from session_shutdown and cleanupUi.
  */
-export function disposeFixedEditor(ctx?: ExtensionContext): void {
+export function disposeFixedEditor(reason: DisposalReason, ctx?: ExtensionContext): void {
 	cancelProbeInstall?.();
 	cancelProbeInstall = null;
 	const activeCompositor = compositor;
 	compositor = null;
 	let failure: unknown;
 	try {
-		activeCompositor?.dispose();
+		activeCompositor?.dispose(reason);
 	} catch (error) {
 		failure = error;
 	} finally {

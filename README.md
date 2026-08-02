@@ -547,6 +547,8 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 
 The fixed layout pins Pi's usable editor cluster at the bottom of the terminal while the transcript scrolls above. It can activate independently of Zentui editor and Footer style; Pi compatibility inspection decides whether it is safe. Hidden contributes zero rows and no spacer. A live Footer style change tears down the compositor, replaces the Footer, and reprobes the new component; reprobe failure leaves ordinary rendering active.
 
+At constrained heights, Zentui reserves one transcript row, keeps a complete Zentui editor frame and cursor, then prioritizes active autocomplete, Footer, below-editor widget, above-editor widget, and status. Editor content crops around the cursor; known autocomplete content crops around its selected item. Native and third-party editors are treated as opaque and are either pinned intact or rendered through Pi's normal layout. If the terminal later grows, fixed layout returns automatically without reinstalling the compositor.
+
 ### How to enable
 
 ```text
@@ -569,9 +571,15 @@ Or in `~/.pi/agent/zentui.json`:
 
 | Key | Action |
 | --- | ------ |
-| `PageUp` / `PageDown` | Scroll transcript one viewport up/down |
+| `PageUp` / `PageDown` | Scroll transcript one viewport up/down; consumed at either boundary while transcript scrolling exists |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll transcript up/down (Kitty protocol variants supported) |
 | `Enter` | Jump to bottom (and submit message) |
+
+PageUp/PageDown propagate to Pi when there is no transcript scroll range, while normal-flow fallback is active, or while an overlay owns input.
+
+### Graceful cleanup
+
+Live disable restores the full scroll region, mouse modes, alternate-scroll behavior, autowrap, cursor visibility, and primary screen before Pi repaints its normal layout. Pi lifecycle shutdown (`/quit`, Ctrl+C, Ctrl+D, SIGHUP, and SIGTERM) performs the same reset without a late repaint into the caller's shell. Cleanup after `SIGKILL`, a fatal crash that prevents Pi's shutdown callback, terminal disconnect, or failure of both terminal writers cannot be guaranteed.
 
 ### Mouse scroll (default on)
 
