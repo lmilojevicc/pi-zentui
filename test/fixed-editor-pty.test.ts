@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type CapturedPty, spawnCapturedPty } from "./helpers/pi-pty";
+import {
+	type CapturedPty,
+	probeOwnedProcessGroup,
+	signalOwnedProcessGroup,
+	spawnCapturedPty,
+	terminateWindowsPty,
+} from "./helpers/pi-pty";
 import { OwnedTerminalStateParser } from "./helpers/terminal-state";
 
 const run = process.env.RUN_FIXED_EDITOR_PTY === "1" ? it : it.skip;
@@ -15,14 +22,52 @@ type PtySession = {
 	cleanup?: Promise<void>;
 };
 
+function processExists(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		throw error;
+	}
+}
+
+function processGroupExists(pid: number): boolean {
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		throw error;
+	}
+}
+
+function processGroupId(pid: number): number {
+	return Number(
+		execFileSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" }).trim(),
+	);
+}
+
+function processState(pid: number): string {
+	return execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
+		encoding: "utf8",
+	}).trim();
+}
+
 let activeSession: PtySession | undefined;
 
 async function cleanupSession(session: PtySession): Promise<void> {
-	session.cleanup ??= (async () => {
-		await session.pty.close();
-		await rm(session.agentDirectory, { recursive: true, force: true });
-		await expect(access(session.agentDirectory)).rejects.toThrow();
-	})();
+	if (!session.cleanup) {
+		const attempt = (async () => {
+			await session.pty.close();
+			await rm(session.agentDirectory, { recursive: true, force: true });
+			await expect(access(session.agentDirectory)).rejects.toThrow();
+		})();
+		session.cleanup = attempt;
+		void attempt.catch(() => {
+			if (session.cleanup === attempt) session.cleanup = undefined;
+		});
+	}
 	await session.cleanup;
 }
 
@@ -66,6 +111,7 @@ async function launch(keyboardMode: "kitty" | "modifyOtherKeys" = "kitty"): Prom
 					PI_OFFLINE: "1",
 					PI_CODING_AGENT_DIR: agentDirectory,
 				},
+				gracefulExitInput: "\x03\x03",
 			},
 		);
 		session = { pty, agentDirectory };
@@ -74,10 +120,15 @@ async function launch(keyboardMode: "kitty" | "modifyOtherKeys" = "kitty"): Prom
 		await pty.waitFor("\x1b[?1002h", 15_000, entered);
 		return pty;
 	} catch (error) {
-		if (session) {
-			await cleanupSession(session);
-		} else {
-			await rm(agentDirectory, { recursive: true, force: true });
+		try {
+			if (session) await cleanupSession(session);
+			else await rm(agentDirectory, { recursive: true, force: true });
+		} catch (cleanupError) {
+			if (error instanceof Error) {
+				error.message += `\nPTY cleanup also failed: ${String(cleanupError)}`;
+				throw error;
+			}
+			throw new AggregateError([error, cleanupError], "PTY launch and cleanup failed");
 		}
 		throw error;
 	}
@@ -163,6 +214,33 @@ async function finishPi(pty: CapturedPty): Promise<void> {
 	await pty.waitForExit(15_000);
 }
 
+describe("PTY cleanup platform helpers", () => {
+	it("uses signal-less node-pty termination on Windows", () => {
+		const argumentCounts: number[] = [];
+		terminateWindowsPty((...args: never[]) => argumentCounts.push(args.length));
+		expect(argumentCounts).toEqual([0]);
+	});
+
+	it("surfaces EPERM immediately when probing or signaling an owned process group", () => {
+		const calls: Array<[number, NodeJS.Signals | 0]> = [];
+		const permissionError = Object.assign(new Error("denied"), { code: "EPERM" });
+		const deny = (pid: number, signal: NodeJS.Signals | 0) => {
+			calls.push([pid, signal]);
+			throw permissionError;
+		};
+		expect(() => probeOwnedProcessGroup(42, deny)).toThrow(
+			"Permission denied inspecting owned PTY process group 42",
+		);
+		expect(() => signalOwnedProcessGroup(42, "SIGTERM", deny)).toThrow(
+			"Permission denied signaling owned PTY process group 42",
+		);
+		expect(calls).toEqual([
+			[-42, 0],
+			[-42, "SIGTERM"],
+		]);
+	});
+});
+
 describe("fixed editor real PTY cleanup", () => {
 	run(
 		"awaits an exact timed-out child exit before removing its agent directory",
@@ -183,12 +261,101 @@ describe("fixed editor real PTY cleanup", () => {
 			const session = { pty, agentDirectory };
 			activeSession = session;
 			await pty.waitFor("ready", 2_000);
-			await expect(pty.waitFor("never", 50)).rejects.toThrow("PTY timeout");
+			await expect(pty.waitForExit(50)).rejects.toThrow("PTY timeout");
 			await cleanupSession(session);
 			expect(pty.hasExited()).toBe(true);
 			await expect(access(agentDirectory)).rejects.toThrow();
 		},
 		5_000,
+	);
+
+	run(
+		"kills an owned PTY group whose leader and child ignore graceful signals",
+		async () => {
+			if (process.platform === "win32") return;
+			const agentDirectory = await mkdtemp(join(tmpdir(), "zentui-pty-group-"));
+			const stubbornChild = [
+				"for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT']) process.on(signal, () => {});",
+				"if (process.send) process.send('ready');",
+				"setInterval(() => {}, 1000);",
+			].join("");
+			const stubbornLeader = [
+				"const { spawn } = require('node:child_process');",
+				"for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT']) process.on(signal, () => {});",
+				`const child = spawn(process.execPath, ['-e', ${JSON.stringify(stubbornChild)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });`,
+				"child.once('message', (message) => { if (message === 'ready') process.stdout.write('ready ' + process.pid + ' ' + child.pid); });",
+				"setInterval(() => {}, 1000);",
+			].join("");
+			const pty = spawnCapturedPty(process.execPath, ["-e", stubbornLeader], {
+				cwd: root,
+				env: Object.fromEntries(
+					Object.entries(process.env).filter(
+						(entry): entry is [string, string] => entry[1] !== undefined,
+					),
+				),
+				gracefulExitInput: "\x03\x03",
+			});
+			const session = { pty, agentDirectory };
+			activeSession = session;
+			await pty.waitFor("ready ", 2_000);
+			const match = pty.output().match(/ready (\d+) (\d+)/);
+			expect(match).not.toBeNull();
+			const leaderPid = Number(match?.[1]);
+			const childPid = Number(match?.[2]);
+			expect(leaderPid).toBe(pty.pty.pid);
+			expect(processGroupId(leaderPid)).toBe(leaderPid);
+			expect(processGroupId(childPid)).toBe(leaderPid);
+			expect(processGroupExists(leaderPid)).toBe(true);
+
+			const firstClose = pty.close();
+			expect(pty.close()).toBe(firstClose);
+			await firstClose;
+			await cleanupSession(session);
+
+			expect(pty.cleanupActions()).toEqual([
+				"write-graceful-exit",
+				"group-SIGCONT",
+				"group-SIGTERM",
+				"group-SIGCONT",
+				"group-SIGKILL",
+			]);
+			expect(processExists(leaderPid)).toBe(false);
+			expect(processExists(childPid)).toBe(false);
+			expect(processGroupExists(leaderPid)).toBe(false);
+		},
+		8_000,
+	);
+
+	run(
+		"cleans an OS-stopped Pi group without a test-body SIGCONT",
+		async () => {
+			if (process.platform === "win32") return;
+			const pty = await launch("kitty");
+			const session = activeSession;
+			expect(session).toBeDefined();
+			const pid = pty.pty.pid;
+			expect(processGroupId(pid)).toBe(pid);
+			process.kill(-pid, "SIGSTOP");
+			expect(
+				await waitUntil(() => {
+					try {
+						return processState(pid).includes("T");
+					} catch {
+						return false;
+					}
+				}, 2_000),
+			).toBe(true);
+			expect(processState(pid)).toContain("T");
+
+			if (session) await cleanupSession(session);
+
+			expect(pty.hasExited()).toBe(true);
+			expect(processExists(pid)).toBe(false);
+			expect(processGroupExists(pid)).toBe(false);
+			expect(pty.cleanupActions()[0]).toBe("write-graceful-exit");
+			expect(pty.cleanupActions()).toContain("group-SIGCONT");
+		},
+		30_000,
 	);
 
 	run.each([
@@ -224,7 +391,7 @@ describe("fixed editor real PTY cleanup", () => {
 		],
 	] as const)(
 		"restores terminal state after %s",
-		async (_name, stop) => {
+		async (name, stop) => {
 			const pty = await launch();
 			const boundary = pty.output().length;
 			await stop(pty);
@@ -233,6 +400,12 @@ describe("fixed editor real PTY cleanup", () => {
 			expect(pty.output().indexOf("\x1b[<u", resetIndex)).toBeGreaterThan(resetIndex);
 			expect(pty.output().indexOf("\x1b[?2004l", resetIndex)).toBeGreaterThan(resetIndex);
 			assertFullTerminalCleanup(pty.output(), "kitty");
+			if (name === "quit") {
+				const session = activeSession;
+				expect(session).toBeDefined();
+				if (session) await cleanupSession(session);
+				expect(pty.cleanupActions()).toEqual([]);
+			}
 		},
 		30_000,
 	);

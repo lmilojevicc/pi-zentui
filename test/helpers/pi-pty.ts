@@ -3,13 +3,61 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { type IPty, spawn } from "node-pty";
 
+type ProcessGroupSignal = (pid: number, signal: NodeJS.Signals | 0) => void;
+
+export function probeOwnedProcessGroup(
+	pid: number,
+	signalProcess: ProcessGroupSignal = process.kill,
+): boolean {
+	if (!Number.isSafeInteger(pid) || pid <= 1)
+		throw new Error(`Refusing to inspect unsafe PTY process group ${pid}`);
+	try {
+		signalProcess(-pid, 0);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM")
+			throw new Error(`Permission denied inspecting owned PTY process group ${pid}`, {
+				cause: error,
+			});
+		throw error;
+	}
+}
+
+export function signalOwnedProcessGroup(
+	pid: number,
+	signal: NodeJS.Signals,
+	signalProcess: ProcessGroupSignal = process.kill,
+): boolean {
+	if (!Number.isSafeInteger(pid) || pid <= 1)
+		throw new Error(`Refusing to signal unsafe PTY process group ${pid}`);
+	try {
+		signalProcess(-pid, signal);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM")
+			throw new Error(`Permission denied signaling owned PTY process group ${pid}`, {
+				cause: error,
+			});
+		throw error;
+	}
+}
+
+export function terminateWindowsPty(kill: () => void): void {
+	kill();
+}
+
 export type CapturedPty = {
 	pty: IPty;
 	output: () => string;
 	waitFor: (needle: string, timeoutMs?: number, from?: number) => Promise<number>;
 	waitForExit: (timeoutMs?: number) => Promise<void>;
 	hasExited: () => boolean;
-	close: (timeoutMs?: number) => Promise<void>;
+	cleanupActions: () => readonly string[];
+	close: () => Promise<void>;
 };
 
 export function spawnCapturedPty(
@@ -19,6 +67,7 @@ export function spawnCapturedPty(
 		cwd: string;
 		env: Record<string, string>;
 		keyboardMode?: "kitty" | "modifyOtherKeys";
+		gracefulExitInput?: string;
 	},
 ): CapturedPty {
 	if (process.platform !== "win32") {
@@ -65,9 +114,14 @@ export function spawnCapturedPty(
 	});
 	let exited = false;
 	let exitDescription = "";
+	let resolveExactExit!: () => void;
+	const exactExit = new Promise<void>((resolve) => {
+		resolveExactExit = resolve;
+	});
 	terminal.onExit(({ exitCode, signal }) => {
 		exited = true;
 		exitDescription = `exitCode=${exitCode}, signal=${signal}`;
+		resolveExactExit();
 	});
 	const diagnostics = () =>
 		`pid=${terminal.pid}${exitDescription ? `, ${exitDescription}` : ""}\n${data.slice(-4000)}`;
@@ -84,26 +138,90 @@ export function spawnCapturedPty(
 		}
 		throw new Error(`PTY timeout waiting for ${JSON.stringify(needle)}\n${diagnostics()}`);
 	};
+	const delay = (timeoutMs: number) =>
+		new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
 	const waitForExit = async (timeoutMs = 12_000): Promise<void> => {
+		if (exited) return;
+		const completed = await Promise.race([
+			exactExit.then(() => true),
+			delay(timeoutMs).then(() => false),
+		]);
+		if (!completed) throw new Error(`PTY timeout waiting for exit\n${diagnostics()}`);
+	};
+	const cleanupActions: string[] = [];
+	const pid = terminal.pid;
+	const ownedGroupExists = (): boolean => {
+		if (process.platform === "win32") return false;
+		try {
+			return probeOwnedProcessGroup(pid);
+		} catch (error) {
+			throw new Error(`PTY process-group inspection failed: ${String(error)}\n${diagnostics()}`, {
+				cause: error,
+			});
+		}
+	};
+	const signalOwnedGroup = (signal: NodeJS.Signals): boolean => {
+		try {
+			const signaled = signalOwnedProcessGroup(pid, signal);
+			if (signaled) cleanupActions.push(`group-${signal}`);
+			return signaled;
+		} catch (error) {
+			throw new Error(`PTY process-group ${signal} failed: ${String(error)}\n${diagnostics()}`, {
+				cause: error,
+			});
+		}
+	};
+	const waitForOwnedTreeExit = async (timeoutMs: number): Promise<boolean> => {
 		const deadline = Date.now() + timeoutMs;
-		while (!exited && Date.now() < deadline)
-			await new Promise((resolve) => setTimeout(resolve, 20));
-		if (!exited) throw new Error(`PTY timeout waiting for exit\n${diagnostics()}`);
+		while (Date.now() < deadline) {
+			if (exited && !ownedGroupExists()) return true;
+			if (exited) await delay(20);
+			else await Promise.race([exactExit, delay(20)]);
+		}
+		return exited && !ownedGroupExists();
+	};
+	// forkpty makes pid the owned session/process-group leader. Deliberately detached
+	// descendants are outside this group; Pi's TERM handler gets time to clean those.
+	const closeUnix = async (): Promise<void> => {
+		if (!Number.isSafeInteger(pid) || pid <= 1)
+			throw new Error(`Refusing to clean unsafe PTY process group ${pid}\n${diagnostics()}`);
+		if (exited && !ownedGroupExists()) return;
+		if (options.gracefulExitInput && !exited) {
+			terminal.write(options.gracefulExitInput);
+			cleanupActions.push("write-graceful-exit");
+		}
+		if (ownedGroupExists()) signalOwnedGroup("SIGCONT");
+		if (await waitForOwnedTreeExit(300)) return;
+		if (ownedGroupExists()) signalOwnedGroup("SIGTERM");
+		if (await waitForOwnedTreeExit(700)) return;
+		if (ownedGroupExists()) {
+			signalOwnedGroup("SIGCONT");
+			signalOwnedGroup("SIGKILL");
+		}
+		await waitForExit(2_000);
+		if (!(await waitForOwnedTreeExit(2_000)))
+			throw new Error(`PTY process group survived cleanup\n${diagnostics()}`);
+	};
+	const closeWindows = async (): Promise<void> => {
+		if (exited) return;
+		if (options.gracefulExitInput) {
+			terminal.write(options.gracefulExitInput);
+			cleanupActions.push("write-graceful-exit");
+			if (await Promise.race([exactExit.then(() => true), delay(300).then(() => false)])) return;
+		}
+		terminateWindowsPty(() => terminal.kill());
+		cleanupActions.push("pid-kill");
+		await waitForExit(2_000);
 	};
 	let closePromise: Promise<void> | undefined;
-	const close = (timeoutMs = 5_000): Promise<void> => {
-		closePromise ??= (async () => {
-			if (!exited) {
-				try {
-					terminal.kill();
-				} catch (error) {
-					if (!exited)
-						throw new Error(`PTY termination failed: ${String(error)}\n${diagnostics()}`);
-				}
-			}
-			await waitForExit(timeoutMs);
-		})();
-		return closePromise;
+	const close = (): Promise<void> => {
+		if (closePromise) return closePromise;
+		const attempt = process.platform === "win32" ? closeWindows() : closeUnix();
+		closePromise = attempt;
+		void attempt.catch(() => {
+			if (closePromise === attempt) closePromise = undefined;
+		});
+		return attempt;
 	};
 	return {
 		pty: terminal,
@@ -111,6 +229,7 @@ export function spawnCapturedPty(
 		waitFor,
 		waitForExit,
 		hasExited: () => exited,
+		cleanupActions: () => [...cleanupActions],
 		close,
 	};
 }

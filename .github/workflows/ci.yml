@@ -76,6 +76,6 @@ jobs:
           NODE
 
       - name: Verify fixed editor
-        run: timeout 15m npm run test:fixed-editor
+        run: timeout --signal=TERM --kill-after=30s 15m npm run test:fixed-editor
         env:
           RUN_FIXED_EDITOR_PTY: "1"
