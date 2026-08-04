@@ -11,11 +11,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { PolishedTuiConfig } from "../config";
+import type { ZentuiConfig } from "../config";
 import type { SessionLifecycle } from "../session-lifecycle";
 import { renderStyleForSourceOrFallback } from "../style";
 import { TerminalSplitCompositor } from "./compositor";
 import { inspectPiTui } from "./pi-compat";
+import type { DisposalReason } from "./types";
 
 let compositor: TerminalSplitCompositor | null = null;
 let didWarnUnsupported = false;
@@ -60,20 +61,20 @@ class CopyNoticeComponent implements Component {
 	invalidate(): void {}
 }
 
-function showCopyNotice(ctx: ExtensionContext, getConfig: () => PolishedTuiConfig): void {
+function showCopyNotice(ctx: ExtensionContext, getConfig: () => ZentuiConfig): void {
 	if (!ctx.hasUI || typeof ctx.ui.setWidget !== "function") return;
 	const config = getConfig();
 	ctx.ui.setWidget(COPY_NOTICE_KEY, (_tui, theme) => {
 		const text = renderStyleForSourceOrFallback(
 			theme,
-			config.colorSources.editor,
+			config.components.editor.colorSource,
 			undefined,
 			{ terminal: "yellow", theme: "warning" },
 			"Copied to clipboard",
 		);
 		const border = renderStyleForSourceOrFallback(
 			theme,
-			config.colorSources.editor,
+			config.components.editor.colorSource,
 			config.colors.editorBorder,
 			{ terminal: "yellow", theme: "border" },
 			"",
@@ -121,15 +122,11 @@ function warnUnsupported(ctx: ExtensionContext): void {
 	);
 }
 
-function installFromProbe(
-	ctx: ExtensionContext,
-	tui: TUI,
-	getConfig: () => PolishedTuiConfig,
-): void {
+function installFromProbe(ctx: ExtensionContext, tui: TUI, getConfig: () => ZentuiConfig): void {
 	if (compositor) return;
 	try {
 		const config = getConfig();
-		if (!config.fixedEditor?.enabled) return;
+		if (!config.layout.fixedEditor.enabled) return;
 
 		const capabilities = inspectPiTui(tui);
 		if (!capabilities) {
@@ -140,9 +137,9 @@ function installFromProbe(
 		const next = new TerminalSplitCompositor(
 			capabilities,
 			() => ({
-				enabled: getConfig().fixedEditor?.enabled ?? false,
-				mouseScroll: getConfig().fixedEditor?.mouseScroll ?? false,
-				copyNotice: getConfig().fixedEditor?.copyNotice ?? true,
+				enabled: getConfig().layout.fixedEditor.enabled,
+				mouseScroll: getConfig().layout.fixedEditor.mouseScroll,
+				copyNotice: getConfig().layout.fixedEditor.copyNotice,
 			}),
 			ctx.hasUI ? () => showCopyNotice(ctx, getConfig) : undefined,
 			ctx.hasUI ? () => clearCopyNotice(ctx) : undefined,
@@ -168,7 +165,7 @@ const WIDGET_KEY = "zentui-fixed-editor-probe";
  */
 export function installFixedEditorProbe(
 	ctx: ExtensionContext,
-	getConfig: () => PolishedTuiConfig,
+	getConfig: () => ZentuiConfig,
 	lifecycle: SessionLifecycle,
 ): void {
 	if (!lifecycle.isCurrent() || !ctx.hasUI) return;
@@ -197,17 +194,29 @@ export function installFixedEditorProbe(
  * Dispose the compositor if active.
  * Call from session_shutdown and cleanupUi.
  */
-export function disposeFixedEditor(ctx?: ExtensionContext): void {
+export function disposeFixedEditor(reason: DisposalReason, ctx?: ExtensionContext): void {
 	cancelProbeInstall?.();
 	cancelProbeInstall = null;
-	compositor?.dispose();
+	const activeCompositor = compositor;
 	compositor = null;
-	if (copyNoticeTimer) {
-		clearTimeout(copyNoticeTimer);
+	let failure: unknown;
+	try {
+		activeCompositor?.dispose(reason);
+	} catch (error) {
+		failure = error;
+	} finally {
+		if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
 		copyNoticeTimer = null;
+		storedCtx = null;
 	}
-	storedCtx = null;
-	if (ctx) clearCopyNotice(ctx);
+	if (ctx) {
+		try {
+			clearCopyNotice(ctx);
+		} catch (error) {
+			failure ??= error;
+		}
+	}
+	if (failure) throw failure;
 }
 
 /**

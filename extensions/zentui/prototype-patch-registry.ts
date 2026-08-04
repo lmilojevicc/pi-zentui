@@ -23,6 +23,7 @@ type Registration = {
 type PatchRecord = {
 	method: "render" | "invalidate";
 	predecessor: PrototypeMethod;
+	predecessorDescriptor?: PropertyDescriptor;
 	wrapper: PrototypeMethod;
 	registration?: Registration;
 };
@@ -31,9 +32,14 @@ type PatchRegistry = Map<PrototypePatchAdapter, PatchRecord>;
 
 type PatchTarget = Record<PropertyKey, unknown>;
 
-function registryFor(target: PatchTarget): PatchRegistry {
+function existingRegistry(target: PatchTarget): PatchRegistry | undefined {
 	const existing = target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
-	if (existing instanceof Map) return existing as PatchRegistry;
+	return existing instanceof Map ? (existing as PatchRegistry) : undefined;
+}
+
+function registryFor(target: PatchTarget): PatchRegistry {
+	const existing = existingRegistry(target);
+	if (existing) return existing;
 	const registry: PatchRegistry = new Map();
 	Object.defineProperty(target, ZENTUI_PROTOTYPE_PATCH_REGISTRY, {
 		value: registry,
@@ -42,9 +48,37 @@ function registryFor(target: PatchTarget): PatchRegistry {
 	return registry;
 }
 
+function deactivateRecord(record: PatchRecord): void {
+	if (!record.registration) return;
+	record.registration.behavior = undefined;
+	record.registration = undefined;
+}
+
+function restorePredecessor(target: PatchTarget, record: PatchRecord): void {
+	if (target[record.method] !== record.wrapper) return;
+	if (record.predecessorDescriptor) {
+		Object.defineProperty(target, record.method, record.predecessorDescriptor);
+	} else {
+		delete target[record.method];
+	}
+}
+
+function installWrapper(target: PatchTarget, record: PatchRecord): void {
+	const descriptor = record.predecessorDescriptor;
+	if (descriptor && "value" in descriptor) {
+		Object.defineProperty(target, record.method, { ...descriptor, value: record.wrapper });
+		return;
+	}
+	Object.defineProperty(target, record.method, {
+		value: record.wrapper,
+		writable: true,
+		enumerable: descriptor?.enumerable ?? true,
+		configurable: true,
+	});
+}
+
 function createCleanup(
 	target: PatchTarget,
-	method: "render" | "invalidate",
 	adapter: PrototypePatchAdapter,
 	registry: PatchRegistry,
 	record: PatchRecord,
@@ -55,12 +89,11 @@ function createCleanup(
 		if (cleaned) return;
 		cleaned = true;
 		if (record.registration?.token !== token) return;
-		record.registration.behavior = undefined;
-		record.registration = undefined;
+		deactivateRecord(record);
 
 		const current = registry.get(adapter);
 		if (current !== record) return;
-		if (target[method] === record.wrapper) target[method] = record.predecessor;
+		restorePredecessor(target, record);
 		registry.delete(adapter);
 		if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 	};
@@ -77,6 +110,8 @@ export function installPrototypePatch(
 	let record = registry.get(adapter);
 
 	if (!(record && record.method === method && target[method] === record.wrapper)) {
+		const displacedRecord = record;
+		const predecessorDescriptor = Object.getOwnPropertyDescriptor(target, method);
 		const predecessor = target[method];
 		if (typeof predecessor !== "function") {
 			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
@@ -85,6 +120,7 @@ export function installPrototypePatch(
 		const nextRecord: PatchRecord = {
 			method,
 			predecessor: predecessor as PrototypeMethod,
+			predecessorDescriptor,
 			wrapper: () => undefined,
 		};
 		const wrapper: PrototypeMethod = function zentuiPrototypeWrapper(
@@ -97,18 +133,34 @@ export function installPrototypePatch(
 				: Reflect.apply(nextRecord.predecessor, this, args);
 		};
 		nextRecord.wrapper = wrapper;
-		record = nextRecord;
-		registry.set(adapter, record);
 		try {
-			target[method] = wrapper;
+			installWrapper(target, nextRecord);
 		} catch (error) {
-			registry.delete(adapter);
 			if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 			throw error;
 		}
+		record = nextRecord;
+		registry.set(adapter, record);
+		if (displacedRecord && displacedRecord !== record) deactivateRecord(displacedRecord);
 	}
 
 	const token = Symbol(adapter);
 	record.registration = { token, behavior };
-	return createCleanup(target, method, adapter, registry, record, token);
+	return createCleanup(target, adapter, registry, record, token);
+}
+
+export function removePrototypePatch(
+	targetValue: object,
+	method: "render" | "invalidate",
+	adapter: PrototypePatchAdapter,
+): void {
+	const target = targetValue as PatchTarget;
+	const registry = existingRegistry(target);
+	const record = registry?.get(adapter);
+	if (!registry || !record || record.method !== method) return;
+
+	deactivateRecord(record);
+	restorePredecessor(target, record);
+	registry.delete(adapter);
+	if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 }

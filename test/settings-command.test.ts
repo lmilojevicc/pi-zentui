@@ -1,20 +1,33 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	defaultConfig,
+	type EditorComponentConfig,
 	type ExtensionStatusPlacement,
+	type FooterComponentConfig,
 	type PolishedTuiConfig,
+	type SelectorBordersComponentConfig,
+	type UserMessagesComponentConfig,
 } from "../extensions/zentui/config";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
 
-type Component = {
-	render(width: number): string[];
-	handleInput(data: string): void;
+type Component = { render(width: number): string[]; handleInput(data: string): void };
+type Command = {
+	handler(args: string, ctx: unknown): Promise<void>;
+	getArgumentCompletions(prefix: string): Array<{ value: string }> | null;
 };
-
-const sectionNames = ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"] as const;
+const sectionNames = [
+	"Appearance",
+	"Editor",
+	"User messages",
+	"Layout",
+	"Footer",
+	"Segments",
+	"Git",
+	"Extensions",
+] as const;
 type SectionName = (typeof sectionNames)[number];
 
 function theme(): Theme {
@@ -27,350 +40,220 @@ function theme(): Theme {
 		getThinkingBorderColor: () => (text: string) => text,
 	} as unknown as Theme;
 }
-
 function cloneConfig(): PolishedTuiConfig {
 	return structuredClone(defaultConfig);
 }
-
 function goToSection(component: Component, section: SectionName): void {
 	for (let index = 0; index < sectionNames.indexOf(section); index += 1)
 		component.handleInput("\t");
 }
-
 function selectLabel(component: Component, label: string): void {
-	for (let attempts = 0; attempts < 30; attempts += 1) {
-		if (component.render(120).some((line) => line.includes(`> ${label}`))) return;
+	for (let index = 0; index < 40; index += 1) {
+		if (component.render(160).some((line) => line.includes(`> ${label}`))) return;
 		component.handleInput("\x1b[B");
 	}
-	throw new Error(`Could not select settings row: ${label}`);
+	throw new Error(`Could not select ${label}`);
 }
-
-function renderedValue(component: Component, label: string): string {
+function row(component: Component, label: string): string {
 	selectLabel(component, label);
-	return component.render(120).find((line) => line.includes(`> ${label}`)) ?? "";
+	return component.render(160).find((line) => line.includes(`> ${label}`)) ?? "";
+}
+function focusedRow(component: Component): string {
+	return component.render(200).find((line) => line.includes("> ")) ?? "";
+}
+function expectFocusOrder(component: Component, labels: readonly string[]): void {
+	const first = focusedRow(component);
+	for (const [index, label] of labels.entries()) {
+		expect(focusedRow(component)).toContain(`> ${label}`);
+		if (index < labels.length - 1) component.handleInput("\x1b[B");
+	}
+	component.handleInput("\x1b[B");
+	expect(focusedRow(component)).toBe(first);
 }
 
-describe("bounded /zentui settings", () => {
-	it("orders the six sections and applies all six new controls from effective config", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const editorLabels: string[] = [];
-		const commitPatches: Array<Record<string, boolean>> = [];
-		const metricsPatches: Array<Record<string, boolean>> = [];
-		const defaultPlacements: ExtensionStatusPlacement[] = [];
-		const requestRender = vi.fn();
-		let firstRender = "";
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				setEditorModelLabel(value) {
-					editorLabels.push(value);
-					config.editorModelLabel = value;
-				},
-				setGitCommit(patch) {
-					commitPatches.push(patch as Record<string, boolean>);
-					Object.assign(config.gitCommit, patch);
-				},
-				setGitMetrics(patch) {
-					metricsPatches.push(patch as Record<string, boolean>);
-					Object.assign(config.gitMetrics, patch);
-				},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusDefaultPlacement(placement) {
-					defaultPlacements.push(placement);
-					config.extensionStatuses.defaultPlacement = placement;
-				},
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender,
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
+function createHarness(config = cloneConfig(), overrides: Record<string, unknown> = {}) {
+	let command: Command | undefined;
+	let component: Component | undefined;
+	const notifications: string[] = [];
+	let doneCalls = 0;
+	const calls = {
+		editor: [] as Partial<EditorComponentConfig>[],
+		messages: [] as Partial<UserMessagesComponentConfig>[],
+		selectors: [] as Partial<SelectorBordersComponentConfig>[],
+		footer: [] as Partial<FooterComponentConfig>[],
+		minimalist: [] as Array<Record<string, unknown>>,
+		fixed: [] as Array<Record<string, unknown>>,
+		segments: [] as Array<Record<string, boolean>>,
+		gitCommit: [] as Array<Record<string, boolean>>,
+		gitMetrics: [] as Array<Record<string, boolean>>,
+		extensionDefaultPlacement: [] as ExtensionStatusPlacement[],
+		recipe: [] as boolean[],
+	};
+	const deps = {
+		sessionLifecycle: new SessionLifecycle(),
+		getConfig: () => config,
+		setEditorComponent(patch: Partial<EditorComponentConfig>) {
+			calls.editor.push(patch);
+			Object.assign(config.components.editor, patch);
+			return { applied: true };
+		},
+		setMinimalist(patch: Record<string, unknown>) {
+			calls.minimalist.push(patch);
+			Object.assign(config.components.editor.styles.minimalist, patch);
+		},
+		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>) {
+			calls.messages.push(patch);
+			Object.assign(config.components.userMessages, patch);
+		},
+		setSelectorBordersComponent(patch: Partial<SelectorBordersComponentConfig>) {
+			calls.selectors.push(patch);
+			Object.assign(config.components.selectorBorders, patch);
+		},
+		setFooterComponent(patch: Partial<FooterComponentConfig>) {
+			calls.footer.push(patch);
+			Object.assign(config.components.footer, patch);
+		},
+		setFooterSegments(patch: Record<string, boolean>) {
+			calls.segments.push(patch);
+			Object.assign(config.components.footer.styles.starship.segments, patch);
+		},
+		setFooterFormat() {},
+		setResponsiveFooter() {},
+		setIconMode() {},
+		setContextStyle() {},
+		setSeparator() {},
+		setPathDisplay() {},
+		setGitBranch() {},
+		setGitCommit(patch: Record<string, boolean>) {
+			calls.gitCommit.push(patch);
+			Object.assign(config.components.footer.styles.starship.gitCommit, patch);
+		},
+		setGitMetrics(patch: Record<string, boolean>) {
+			calls.gitMetrics.push(patch);
+			Object.assign(config.components.footer.styles.starship.gitMetrics, patch);
+		},
+		getActiveExtensionStatuses: () => new Map(),
+		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
+			calls.extensionDefaultPlacement.push(placement);
+			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
+		},
+		setExtensionStatusPlacement() {},
+		setExtensionStatusColorMode() {},
+		setFixedEditor(patch: Record<string, unknown>) {
+			calls.fixed.push(patch);
+			Object.assign(config.layout.fixedEditor, patch);
+		},
+		requestRender() {},
+		settingsListTheme: {
+			label: (text: string) => text,
+			value: (text: string) => text,
+			description: (text: string) => text,
+			cursor: "> ",
+			hint: (text: string) => text,
+		},
+		...overrides,
+	};
+	registerZentuiSettingsCommand(
+		{
+			registerCommand(_name: string, value: unknown) {
+				command = value as Command;
 			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			cwd: process.cwd(),
-			ui: {
-				theme: theme(),
-				notify() {},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					firstRender = component.render(160).join("\n");
-
-					goToSection(component, "Editor");
-					selectLabel(component, "Editor model label");
-					component.handleInput(" ");
-
-					for (let index = 0; index < 3; index += 1) component.handleInput("\t");
-					selectLabel(component, "Commit only on detached HEAD");
-					component.handleInput(" ");
-					selectLabel(component, "Show exact-match tag");
-					component.handleInput(" ");
-					selectLabel(component, "Hide zero metrics");
-					component.handleInput(" ");
-					selectLabel(component, "Ignore submodules");
-					component.handleInput(" ");
-
-					component.handleInput("\t");
-					selectLabel(component, "Default placement");
-					component.handleInput(" ");
-				},
+		} as never,
+		deps as never,
+	);
+	const ctx = {
+		hasUI: true,
+		mode: "tui",
+		cwd: process.cwd(),
+		ui: {
+			theme: theme(),
+			notify(message: string) {
+				notifications.push(message);
 			},
-		});
+			async custom(factory: (...args: unknown[]) => unknown) {
+				component = factory({ requestRender() {} }, theme(), {}, () => {
+					doneCalls += 1;
+				}) as Component;
+			},
+		},
+	};
+	return {
+		config,
+		command: () => {
+			if (!command) throw new Error("Command was not registered");
+			return command;
+		},
+		component: () => {
+			if (!component) throw new Error("Settings component was not opened");
+			return component;
+		},
+		ctx,
+		calls,
+		notifications,
+		doneCalls: () => doneCalls,
+	};
+}
 
-		let lastIndex = -1;
-		for (const section of sectionNames) {
-			const index = firstRender.indexOf(section);
-			expect(index).toBeGreaterThan(lastIndex);
-			lastIndex = index;
+describe("component-oriented /zentui settings", () => {
+	it("uses the exact eight-section order in wide and narrow navigation", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		const wide = component.render(200).join("\n");
+		let previous = -1;
+		for (const name of sectionNames) {
+			const index = wide.indexOf(name);
+			expect(index).toBeGreaterThan(previous);
+			previous = index;
 		}
-		expect(editorLabels).toEqual(["name"]);
-		expect(commitPatches).toEqual([{ onlyDetached: false }, { showTag: false }]);
-		expect(metricsPatches).toEqual([{ onlyNonzero: false }, { ignoreSubmodules: true }]);
-		expect(defaultPlacements).toEqual(["off"]);
-		expect(requestRender).toHaveBeenCalledTimes(6);
+		for (const [index, name] of sectionNames.entries()) {
+			const lines = component.render(40);
+			expect(lines[1]).toContain(name);
+			expect(lines[1]).toContain(`(${index + 1}/8)`);
+			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+			component.handleInput("\t");
+		}
 	});
 
-	it("cycles editor border color mode live and reopens with the persisted value", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const values: string[] = [];
-		const rows: string[] = [];
-		const notifications: string[] = [];
-		const requestRender = vi.fn();
-		const tuiRequestRender = vi.fn();
-		let liveTuiRenderCalls = 0;
-		let closeCalls = 0;
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				setEditorBorderColorMode(value) {
-					values.push(value);
-					config.editorBorderColorMode = value;
-				},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender,
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		let invocation = 0;
-		const ctx = {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify(message: string) {
-					notifications.push(message);
-				},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					invocation += 1;
-					const component = factory({ requestRender: tuiRequestRender }, theme(), {}, () => {
-						closeCalls += 1;
-					}) as Component;
-					goToSection(component, "Editor");
-					rows.push(renderedValue(component, "Editor border color"));
-					if (invocation === 1) {
-						tuiRequestRender.mockClear();
-						component.handleInput(" ");
-						liveTuiRenderCalls = tuiRequestRender.mock.calls.length;
-						rows.push(renderedValue(component, "Editor border color"));
-					}
-				},
-			},
-		};
-
-		await command?.handler("", ctx);
-		await command?.handler("", ctx);
-
-		expect(values).toEqual(["adaptive"]);
-		expect(config.editorBorderColorMode).toBe("adaptive");
-		expect(rows[0]).toContain("static");
-		expect(rows[1]).toContain("adaptive");
-		expect(rows[2]).toContain("adaptive");
-		expect(requestRender).toHaveBeenCalledTimes(1);
-		expect(liveTuiRenderCalls).toBe(1);
-		expect(notifications).toEqual(["Editor border color: adaptive"]);
-		expect(closeCalls).toBe(0);
-	});
-
-	it("keeps editor border color unchanged when persistence fails", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const rows: string[] = [];
-		const notifications: Array<{ message: string; level: string }> = [];
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				setEditorBorderColorMode() {
-					throw new Error("config is read-only");
-				},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify(message: string, level: string) {
-					notifications.push({ message, level });
-				},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					goToSection(component, "Editor");
-					rows.push(renderedValue(component, "Editor border color"));
-					component.handleInput(" ");
-					rows.push(renderedValue(component, "Editor border color"));
-				},
-			},
-		});
-
-		expect(config.editorBorderColorMode).toBe("static");
-		expect(rows.every((row) => row.includes("static") && !row.includes("adaptive"))).toBe(true);
-		expect(notifications).toEqual([
-			{ message: "Could not update Zentui settings: config is read-only", level: "error" },
+	it("uses exact component-owned row sets and ordering", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		expectFocusOrder(component, [
+			"Selector borders",
+			"Selector border style",
+			"Selector border colors",
+			"Icon mode",
 		]);
-	});
 
-	it("keeps every active section visible and every line width-safe at 40 columns", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
+		goToSection(component, "Editor");
+		expectFocusOrder(component, [
+			"Editor",
+			"Editor style",
+			"Editor colors",
+			"Editor model label",
+			"Editor border color",
+			"Editor viewport indicators",
+		]);
 
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify() {},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					for (const [index, section] of sectionNames.entries()) {
-						const lines = component.render(40);
-						expect(lines[1]).toContain(section);
-						expect(lines[1]).toContain(`(${index + 1}/6)`);
-						expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
-						component.handleInput("\t");
-					}
-				},
-			},
-		});
-	});
-
-	it("uses the documented non-Git segment navigation order", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const expectedLabels = [
+		component.handleInput("\t");
+		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["Fixed editor (experimental)"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
+			"Footer style",
+			"Footer colors",
+			"Footer model label",
+			"Responsive footer",
+			"Compact footer rows",
+			"Context style",
+			"Separator",
+			"Path display",
+			"Path depth",
+		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
 			"Current directory",
 			"Session name",
 			"Runtime",
@@ -383,373 +266,406 @@ describe("bounded /zentui settings", () => {
 			"Current time",
 			"OS icon",
 			"Package version",
-		];
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify() {},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					goToSection(component, "Segments");
-					for (const label of expectedLabels) {
-						expect(component.render(120).some((line) => line.includes(`> ${label}`))).toBe(true);
-						component.handleInput("\x1b[B");
-					}
-				},
-			},
-		});
-	});
-
-	it("reopens changed controls with their effective current values", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const rows: string[] = [];
-		let invocation = 0;
-		let closeCalls = 0;
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				setEditorModelLabel(value) {
-					config.editorModelLabel = value;
-				},
-				setGitMetrics(patch) {
-					Object.assign(config.gitMetrics, patch);
-				},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		const ctx = {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify() {},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					invocation += 1;
-					const component = factory({ requestRender() {} }, theme(), {}, () => {
-						closeCalls += 1;
-					}) as Component;
-					goToSection(component, "Editor");
-					if (invocation === 1) {
-						selectLabel(component, "Editor model label");
-						component.handleInput(" ");
-						for (let index = 0; index < 3; index += 1) component.handleInput("\t");
-						selectLabel(component, "Ignore submodules");
-						component.handleInput(" ");
-						component.handleInput("\x1b");
-						return;
-					}
-
-					rows.push(renderedValue(component, "Editor model label"));
-					for (let index = 0; index < 3; index += 1) component.handleInput("\t");
-					rows.push(renderedValue(component, "Ignore submodules"));
-					component.handleInput("\x1b");
-				},
-			},
-		};
-
-		await command?.handler("", ctx);
-		await command?.handler("", ctx);
-
-		expect(invocation).toBe(2);
-		expect(closeCalls).toBe(2);
-		expect(rows[0]).toContain("name");
-		expect(rows[1]).toContain("enabled");
-	});
-
-	it("toggles model info, persists each change, and reopens with the effective value", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const patches: Array<Record<string, boolean>> = [];
-		const rows: string[] = [];
-		let invocation = 0;
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments(patch) {
-					patches.push(patch as Record<string, boolean>);
-					Object.assign(config.footerSegments, patch);
-				},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		const ctx = {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify() {},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					invocation += 1;
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					goToSection(component, "Segments");
-					selectLabel(component, "Model info");
-					if (invocation === 1) {
-						rows.push(renderedValue(component, "Model info"));
-						component.handleInput(" ");
-						rows.push(renderedValue(component, "Model info"));
-						component.handleInput(" ");
-						rows.push(renderedValue(component, "Model info"));
-						component.handleInput(" ");
-					}
-					rows.push(renderedValue(component, "Model info"));
-					component.handleInput("\x1b");
-				},
-			},
-		};
-
-		await command?.handler("", ctx);
-		await command?.handler("", ctx);
-
-		expect(patches).toEqual([{ modelInfo: true }, { modelInfo: false }, { modelInfo: true }]);
-		expect(config.footerSegments.modelInfo).toBe(true);
-		expect(rows).toEqual([
-			expect.stringContaining("disabled"),
-			expect.stringContaining("enabled"),
-			expect.stringContaining("disabled"),
-			expect.stringContaining("enabled"),
-			expect.stringContaining("enabled"),
 		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
+			"Git branch",
+			"Branch length",
+			"Git status",
+			"Git counts",
+			"Git commit",
+			"Commit only on detached HEAD",
+			"Show exact-match tag",
+			"Git line metrics",
+			"Hide zero metrics",
+			"Ignore submodules",
+		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["Default placement", "No active statuses"]);
 	});
 
-	it("rolls back the model-info control when persistence fails", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
+	it.each(["native", "hidden"] as const)(
+		"shows only Footer style for %s while retaining Starship preconfiguration sections",
+		async (style) => {
+			const config = cloneConfig();
+			config.components.footer.style = style;
+			const harness = createHarness(config);
+			await harness.command().handler("", harness.ctx);
+			const component = harness.component();
+			goToSection(component, "Footer");
+			expectFocusOrder(component, ["Footer style"]);
+			component.handleInput("\t");
+			expectFocusOrder(component, [
+				"Current directory",
+				"Session name",
+				"Runtime",
+				"Model info",
+				"Context usage",
+				"Token counts",
+				"Session cost",
+				"Session duration",
+				"Username@host",
+				"Current time",
+				"OS icon",
+				"Package version",
+			]);
+			component.handleInput("\t");
+			expect(row(component, "Git branch")).toContain("enabled");
+			component.handleInput("\t");
+			expect(row(component, "Default placement")).toContain("right");
+		},
+	);
+
+	it("keeps Footer-style focus through Native, Starship, and Hidden rebuilds", async () => {
 		const config = cloneConfig();
-		const patches: Array<Record<string, boolean>> = [];
-		const rows: string[] = [];
-		const notifications: Array<{ message: string; level: string }> = [];
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments(patch) {
-					patches.push(patch as Record<string, boolean>);
-					throw new Error("config is read-only");
-				},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify(message: string, level: string) {
-					notifications.push({ message, level });
-				},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					goToSection(component, "Segments");
-					selectLabel(component, "Model info");
-					rows.push(renderedValue(component, "Model info"));
-					component.handleInput(" ");
-					rows.push(renderedValue(component, "Model info"));
-				},
-			},
-		});
-
-		expect(patches).toEqual([{ modelInfo: true }]);
-		expect(config.footerSegments.modelInfo).toBe(false);
-		expect(rows).toEqual([
-			expect.stringContaining("disabled"),
-			expect.stringContaining("disabled"),
-		]);
-		expect(notifications).toEqual([
-			{ message: "Could not update Zentui settings: config is read-only", level: "error" },
-		]);
-	});
-
-	it("keeps a new control unchanged when persistence fails", async () => {
-		let command: { handler(args: string, ctx: unknown): Promise<void> } | undefined;
-		const config = cloneConfig();
-		const attemptedValues: string[] = [];
-		const notifications: Array<{ message: string; level: string }> = [];
-		const rows: string[] = [];
-
-		registerZentuiSettingsCommand(
-			{
-				registerCommand(_name: string, options: unknown) {
-					command = options as typeof command;
-				},
-			} as never,
-			{
-				sessionLifecycle: new SessionLifecycle(),
-				getConfig: () => config,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
-				setFooterSegments() {},
-				setFooterFormat() {},
-				setIconMode() {},
-				setContextStyle() {},
-				setSeparator() {},
-				setPathDisplay() {},
-				setGitBranch() {},
-				setEditorModelLabel(value) {
-					attemptedValues.push(value);
-					throw new Error("config is read-only");
-				},
-				getActiveExtensionStatuses: () => new Map(),
-				setExtensionStatusPlacement() {},
-				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
-				requestRender() {},
-				settingsListTheme: {
-					label: (text) => text,
-					value: (text) => text,
-					description: (text) => text,
-					cursor: "> ",
-					hint: (text) => text,
-				},
-			},
-		);
-
-		await command?.handler("", {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				theme: theme(),
-				notify(message: string, level: string) {
-					notifications.push({ message, level });
-				},
-				async custom(factory: (...args: unknown[]) => unknown) {
-					const component = factory({ requestRender() {} }, theme(), {}, () => {}) as Component;
-					goToSection(component, "Editor");
-					rows.push(renderedValue(component, "Editor model label"));
-					component.handleInput(" ");
-					rows.push(renderedValue(component, "Editor model label"));
-				},
-			},
-		});
-
-		expect(attemptedValues).toEqual(["name"]);
-		expect(config.editorModelLabel).toBe("id");
-		expect(rows).toHaveLength(2);
-		for (const row of rows) {
-			expect(row).toContain("id");
-			expect(row).not.toContain("name");
+		config.components.footer.style = "native";
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		for (const expected of ["Starship", "Hidden", "Native"]) {
+			component.handleInput(" ");
+			expect(focusedRow(component)).toContain("> Footer style");
+			expect(focusedRow(component)).toContain(expected);
 		}
-		expect(notifications).toEqual([
-			{
-				message: "Could not update Zentui settings: config is read-only",
-				level: "error",
-			},
+		expect(harness.calls.footer).toEqual([
+			{ style: "starship" },
+			{ style: "hidden" },
+			{ style: "native" },
 		]);
+	});
+
+	it("restores Footer-style focus and effective rows after persistence failure", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "native";
+		const harness = createHarness(config, {
+			setFooterComponent() {
+				throw new Error("read-only footer");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Footer style");
+		expect(focusedRow(component)).toContain("Native");
+		expectFocusOrder(component, ["Footer style"]);
+		expect(harness.notifications).toEqual(["Could not update Zentui settings: read-only footer"]);
+	});
+
+	it("shows exact minimalist and enabled-layout rows while components are disabled", async () => {
+		const config = cloneConfig();
+		config.components.editor.enabled = false;
+		config.components.editor.style = "minimalist";
+		config.components.userMessages.enabled = false;
+		config.layout.fixedEditor.enabled = true;
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		expectFocusOrder(component, [
+			"Editor",
+			"Editor style",
+			"Editor colors",
+			"Editor model label",
+			"Editor border color",
+			"Editor viewport indicators",
+			"Path",
+			"Context text",
+			"Context gauge",
+			"Session name",
+			"Timer",
+			"Cost",
+			"Git",
+		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["Fixed editor (experimental)", "Mouse scroll", "Copy notice"]);
+	});
+
+	it("routes every minimalist, Git option, and default-placement action", async () => {
+		const config = cloneConfig();
+		config.components.editor.style = "minimalist";
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+
+		for (const [label, value] of [
+			["Path", "project"],
+			["Context text", "percent-total"],
+			["Context gauge", "enabled"],
+			["Session name", "disabled"],
+			["Timer", "disabled"],
+			["Cost", "disabled"],
+			["Git", "disabled"],
+		] as const) {
+			selectLabel(component, label);
+			component.handleInput(" ");
+			expect(focusedRow(component)).toContain(`> ${label}`);
+			expect(focusedRow(component)).toContain(value);
+		}
+		expect(harness.calls.minimalist).toEqual([
+			{ pathDisplay: "project" },
+			{ contextFormat: "percent-total" },
+			{ contextGauge: true },
+			{ showSessionName: false },
+			{ showTimer: false },
+			{ showCost: false },
+			{ showGit: false },
+		]);
+
+		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
+		for (const [label, value] of [
+			["Commit only on detached HEAD", "disabled"],
+			["Show exact-match tag", "disabled"],
+			["Hide zero metrics", "disabled"],
+			["Ignore submodules", "enabled"],
+		] as const) {
+			selectLabel(component, label);
+			component.handleInput(" ");
+			expect(focusedRow(component)).toContain(`> ${label}`);
+			expect(focusedRow(component)).toContain(value);
+		}
+		expect(harness.calls.gitCommit).toEqual([{ onlyDetached: false }, { showTag: false }]);
+		expect(harness.calls.gitMetrics).toEqual([{ onlyNonzero: false }, { ignoreSubmodules: true }]);
+
+		component.handleInput("\t");
+		selectLabel(component, "Default placement");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Default placement");
+		expect(focusedRow(component)).toContain("off");
+		expect(harness.calls.extensionDefaultPlacement).toEqual(["off"]);
+		expect(config.components.footer.styles.starship.extensionStatuses.defaultPlacement).toBe("off");
+	});
+
+	it("restores editor-style focus by ID after dynamic rebuild", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor style");
+		expect(focusedRow(component)).toContain("Opencode (copy-friendly)");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor style");
+		expect(focusedRow(component)).toContain("Minimalist");
+		expect(harness.calls.editor).toEqual([
+			{ style: "opencode-copy-friendly" },
+			{ style: "minimalist" },
+		]);
+	});
+
+	it("shows friendly message style labels and restores focus after rebuild", async () => {
+		const harness = createHarness();
+		await harness.command().handler("messages", harness.ctx);
+		const component = harness.component();
+		selectLabel(component, "Message style");
+		expect(focusedRow(component)).toContain("Framed");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Framed (copy-friendly)");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Compact");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Message style");
+		expect(focusedRow(component)).toContain("Labeled");
+		expect(harness.calls.messages).toEqual([
+			{ style: "framed-copy-friendly" },
+			{ style: "compact" },
+			{ style: "labeled" },
+		]);
+	});
+
+	it("restores fixed-editor focus after conditional rows rebuild", async () => {
+		const harness = createHarness();
+		await harness.command().handler("layout", harness.ctx);
+		const component = harness.component();
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Fixed editor (experimental)");
+		expect(focusedRow(component)).toContain("enabled");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Fixed editor (experimental)");
+		expect(focusedRow(component)).toContain("disabled");
+		expect(harness.calls.fixed).toEqual([{ enabled: true }, { enabled: false }]);
+	});
+
+	it("routes color and model rows to separate component dependencies", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		expect(component.render(160)[0]).not.toContain("\x1b[90m");
+		selectLabel(component, "Selector border colors");
+		component.handleInput(" ");
+		expect(component.render(160)[0]).toContain("\x1b[90m");
+		expect(harness.config.components.editor.colorSource).toBe("theme");
+		goToSection(component, "Editor");
+		selectLabel(component, "Editor colors");
+		component.handleInput(" ");
+		selectLabel(component, "Editor model label");
+		component.handleInput(" ");
+		component.handleInput("\t");
+		selectLabel(component, "Message colors");
+		component.handleInput(" ");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		selectLabel(component, "Footer colors");
+		component.handleInput(" ");
+		selectLabel(component, "Footer model label");
+		component.handleInput(" ");
+		expect(harness.calls.selectors).toEqual([{ colorSource: "terminal" }]);
+		expect(harness.calls.editor).toEqual([{ colorSource: "terminal" }, { modelLabel: "name" }]);
+		expect(harness.calls.messages).toEqual([{ colorSource: "terminal" }]);
+		expect(harness.calls.footer).toEqual([{ colorSource: "terminal" }, { modelLabel: "name" }]);
+	});
+
+	it("rebuilds failed persistence with effective values and attempted-row focus", async () => {
+		const config = cloneConfig();
+		const harness = createHarness(config, {
+			setEditorComponent() {
+				throw new Error("read-only");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Editor model label");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor model label");
+		expect(focusedRow(component)).toContain("id");
+		expect(focusedRow(component)).not.toContain("name");
+		expect(harness.notifications).toEqual(["Could not update Zentui settings: read-only"]);
+	});
+
+	it("parses component direct operations and rejects removed copy commands", async () => {
+		const harness = createHarness();
+		for (const command of ["editor disable", "messages disable"]) {
+			await harness.command().handler(command, harness.ctx);
+		}
+		for (const command of [
+			"editor-copy-friendly enable",
+			"message-copy-friendly disable",
+			"copy-friendly enable",
+		]) {
+			await harness.command().handler(command, harness.ctx);
+		}
+		expect(harness.calls.editor).toEqual([{ enabled: false }]);
+		expect(harness.calls.messages).toEqual([{ enabled: false }]);
+		expect(harness.notifications.filter((message) => message.startsWith("Usage:"))).toHaveLength(3);
+		const values =
+			harness
+				.command()
+				.getArgumentCompletions("")
+				?.map((item) => item.value) ?? [];
+		expect(values).toContain("messages toggle");
+		expect(values.some((value) => value.includes("copy-friendly"))).toBe(false);
+	});
+
+	it.each([
+		["fixed-editor", "enable", true],
+		["fixed-editor", "disable", false],
+		["fixed-editor", "toggle", true],
+		["fixed_editor", "enable", true],
+		["fixed_editor", "disable", false],
+		["fixed_editor", "toggle", true],
+		["fixed editor", "enable", true],
+		["fixed editor", "disable", false],
+		["fixed editor", "toggle", true],
+	] as const)("routes %s %s only to layout", async (alias, action, enabled) => {
+		const harness = createHarness();
+		await harness.command().handler(`${alias} ${action}`, harness.ctx);
+		expect(harness.calls.fixed).toEqual([{ enabled }]);
+		expect(harness.calls.editor).toEqual([]);
+		expect(harness.config.components.editor.enabled).toBe(true);
+		expect(harness.config.layout.fixedEditor.enabled).toBe(enabled);
+		expect(harness.notifications).toEqual([`Fixed editor: ${enabled ? "enabled" : "disabled"}`]);
+	});
+
+	it("persists and reopens editor-border and model/segment controls", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		let component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Editor border color");
+		component.handleInput(" ");
+		selectLabel(component, "Editor model label");
+		component.handleInput(" ");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		selectLabel(component, "Ignore submodules");
+		component.handleInput(" ");
+		component.handleInput("\x1b[Z");
+		selectLabel(component, "Model info");
+		component.handleInput(" ");
+		component.handleInput("\x1b");
+		expect(harness.doneCalls()).toBe(1);
+
+		await harness.command().handler("", harness.ctx);
+		component = harness.component();
+		goToSection(component, "Editor");
+		expect(row(component, "Editor border color")).toContain("adaptive");
+		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		expect(row(component, "Ignore submodules")).toContain("enabled");
+		component.handleInput("\x1b[Z");
+		expect(row(component, "Model info")).toContain("enabled");
+		expect(harness.calls.editor).toEqual([{ borderColorMode: "adaptive" }, { modelLabel: "name" }]);
+		expect(harness.calls.gitMetrics).toEqual([{ ignoreSubmodules: true }]);
+		expect(harness.calls.segments).toEqual([{ modelInfo: true }]);
+		component.handleInput("\x1b");
+		expect(harness.doneCalls()).toBe(2);
+	});
+
+	it("rolls back editor-border and model-info rows when persistence fails", async () => {
+		const config = cloneConfig();
+		const harness = createHarness(config, {
+			setEditorComponent() {
+				throw new Error("read-only editor");
+			},
+			setFooterSegments() {
+				throw new Error("read-only segments");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Editor border color");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor border color");
+		expect(focusedRow(component)).toContain("static");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		component.handleInput("\t");
+		selectLabel(component, "Model info");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Model info");
+		expect(focusedRow(component)).toContain("disabled");
+		expect(config.components.editor.borderColorMode).toBe("static");
+		expect(config.components.footer.styles.starship.segments.modelInfo).toBe(false);
+		expect(harness.notifications).toEqual([
+			"Could not update Zentui settings: read-only editor",
+			"Could not update Zentui settings: read-only segments",
+		]);
+	});
+
+	it.each([
+		["messages", "User messages"],
+		["user-messages", "User messages"],
+		["layout", "Layout"],
+	])("opens %s directly in %s", async (argument, section) => {
+		const harness = createHarness();
+		await harness.command().handler(argument, harness.ctx);
+		expect(harness.component().render(40)[1]).toContain(section);
 	});
 });

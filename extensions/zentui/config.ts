@@ -33,6 +33,13 @@ export type { IconMode } from "./icons";
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";
 export type ModelLabelSource = "id" | "name";
+export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
+export type UserMessageStyle = "framed" | "framed-copy-friendly" | "compact" | "labeled";
+export type SelectorBorderStyle = "zentui";
+export type FooterStyle = "native" | "starship" | "hidden";
+export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
+export type MinimalistPathDisplayMode = "compact" | "project" | "full";
+export type MinimalistContextFormat = "percent" | "percent-total";
 export type EditorBorderColorMode = "static" | "adaptive";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
@@ -67,7 +74,6 @@ export type ColorSourcesConfig = {
 export type UiFeaturesConfig = {
 	editor: boolean;
 	statusLine: boolean;
-	copyFriendly: boolean;
 	viewportIndicators: boolean;
 };
 
@@ -97,6 +103,105 @@ export type FixedEditorConfig = {
 	copyNotice: boolean;
 };
 
+export type PolishedEditorStyleConfig = {
+	metadataFormat: string;
+};
+
+export type PolishedCopyFriendlyEditorStyleConfig = {
+	metadataFormat: string;
+};
+
+export type MinimalistEditorStyleConfig = {
+	pathDisplay: MinimalistPathDisplayMode;
+	contextFormat: MinimalistContextFormat;
+	contextGauge: boolean;
+	showSessionName: boolean;
+	showTimer: boolean;
+	showCost: boolean;
+	showGit: boolean;
+	contextThresholds: ContextThresholds;
+};
+
+/** Temporary name retained for existing settings consumers. */
+export type MinimalistConfig = MinimalistEditorStyleConfig;
+
+export type EditorStylesConfig = {
+	minimalist: MinimalistEditorStyleConfig;
+};
+
+export type EditorComponentConfig = {
+	enabled: boolean;
+	style: EditorStyle;
+	colorSource: ColorSource;
+	borderColorMode: EditorBorderColorMode;
+	modelLabel: ModelLabelSource;
+	viewportIndicators: boolean;
+	styles: {
+		opencode: PolishedEditorStyleConfig;
+		"opencode-copy-friendly": PolishedCopyFriendlyEditorStyleConfig;
+		minimalist: MinimalistEditorStyleConfig;
+	};
+};
+
+export type FramedUserMessageStyleConfig = Record<string, never>;
+export type FramedCopyFriendlyUserMessageStyleConfig = Record<string, never>;
+export type CompactUserMessageStyleConfig = Record<string, never>;
+export type LabeledUserMessageStyleConfig = Record<string, never>;
+
+export type UserMessagesComponentConfig = {
+	enabled: boolean;
+	style: UserMessageStyle;
+	colorSource: ColorSource;
+	styles: {
+		framed: FramedUserMessageStyleConfig;
+		"framed-copy-friendly": FramedCopyFriendlyUserMessageStyleConfig;
+		compact: CompactUserMessageStyleConfig;
+		labeled: LabeledUserMessageStyleConfig;
+	};
+};
+
+export type SelectorBordersComponentConfig = {
+	enabled: boolean;
+	style: SelectorBorderStyle;
+	colorSource: ColorSource;
+};
+
+export type StarshipFooterStyleConfig = {
+	format: string;
+	responsive: boolean;
+	compactFormat: string;
+	compactMaxLines: CompactFooterMaxLines;
+	separator: SeparatorStyle;
+	contextStyle: ContextStyle;
+	contextThresholds: ContextThresholds;
+	pathDisplay: PathDisplayConfig;
+	segments: FooterSegmentsConfig;
+	gitBranch: GitBranchConfig;
+	gitCommit: GitCommitConfig;
+	gitMetrics: GitMetricsConfig;
+	extensionStatuses: ExtensionStatusesConfig;
+};
+
+export type FooterComponentConfig = {
+	style: FooterStyle;
+	colorSource: ColorSource;
+	modelLabel: ModelLabelSource;
+	styles: {
+		starship: StarshipFooterStyleConfig;
+	};
+};
+
+export type ComponentsConfig = {
+	editor: EditorComponentConfig;
+	userMessages: UserMessagesComponentConfig;
+	selectorBorders: SelectorBordersComponentConfig;
+	footer: FooterComponentConfig;
+};
+
+export type LayoutConfig = {
+	fixedEditor: FixedEditorConfig;
+};
+
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
 export type ExtensionStatusColorMode = "zentui" | "original";
 
@@ -119,6 +224,7 @@ export type GitMetricsConfig = {
 	ignoreSubmodules: boolean;
 };
 
+const DEFAULT_EXTENSION_STATUS_PLACEMENT: ExtensionStatusPlacement = "right";
 const DEFAULT_EXTENSION_STATUS_COLOR_MODE: ExtensionStatusColorMode = "zentui";
 
 export type ExtensionStatusesConfig = {
@@ -131,8 +237,53 @@ const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
 export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
 
-export type PolishedTuiConfig = {
+export type ZentuiConfig = {
 	projectRefreshIntervalMs: number;
+	icons: ResolvedIcons;
+	colors: PolishedTuiColors;
+	components: ComponentsConfig;
+	layout: LayoutConfig;
+};
+
+export type PolishedTuiColors = {
+	cwd: ColorSpec;
+	sessionName: ColorSpec;
+	gitBranch: ColorSpec;
+	gitStatus: ColorSpec;
+	contextNormal: ColorSpec;
+	contextWarning: ColorSpec;
+	contextError: ColorSpec;
+	tokens: ColorSpec;
+	cost: ColorSpec;
+	separator: ColorSpec;
+	runtimePrefix: ColorSpec;
+	extensionStatus: ColorSpec;
+	sessionDuration: ColorSpec;
+	packageVersion: ColorSpec;
+	gitCommit: ColorSpec;
+	gitMetricsAdded: ColorSpec;
+	gitMetricsDeleted: ColorSpec;
+	username: ColorSpec;
+	time: ColorSpec;
+	os: ColorSpec;
+	editorAccent?: ColorSpec;
+	editorPrompt?: ColorSpec;
+	editorBorder?: ColorSpec;
+	editorModel?: ColorSpec;
+	editorProvider?: ColorSpec;
+	editorThinking?: ColorSpec;
+	editorThinkingMinimal?: ColorSpec;
+	editorThinkingLow?: ColorSpec;
+	editorThinkingMedium?: ColorSpec;
+	editorThinkingHigh?: ColorSpec;
+	editorThinkingXhigh?: ColorSpec;
+};
+
+/**
+ * Canonical configuration plus a temporary flat compatibility projection used
+ * by production consumers while they migrate to `components` and `layout`.
+ */
+export type PolishedTuiConfig = ZentuiConfig & {
 	footerFormat: string;
 	responsiveFooter: boolean;
 	compactFooterFormat: string;
@@ -141,44 +292,12 @@ export type PolishedTuiConfig = {
 	separator: SeparatorStyle;
 	contextStyle: ContextStyle;
 	editorModelLabel: ModelLabelSource;
+	editorStyle: EditorStyle;
+	editorStyles: EditorStylesConfig;
 	editorBorderColorMode: EditorBorderColorMode;
 	contextThresholds: ContextThresholds;
 	pathDisplay: PathDisplayConfig;
 	gitBranch: GitBranchConfig;
-	icons: ResolvedIcons;
-	colors: {
-		cwd: ColorSpec;
-		sessionName: ColorSpec;
-		gitBranch: ColorSpec;
-		gitStatus: ColorSpec;
-		contextNormal: ColorSpec;
-		contextWarning: ColorSpec;
-		contextError: ColorSpec;
-		tokens: ColorSpec;
-		cost: ColorSpec;
-		separator: ColorSpec;
-		runtimePrefix: ColorSpec;
-		extensionStatus: ColorSpec;
-		sessionDuration: ColorSpec;
-		packageVersion: ColorSpec;
-		gitCommit: ColorSpec;
-		gitMetricsAdded: ColorSpec;
-		gitMetricsDeleted: ColorSpec;
-		username: ColorSpec;
-		time: ColorSpec;
-		os: ColorSpec;
-		editorAccent?: ColorSpec;
-		editorPrompt?: ColorSpec;
-		editorBorder?: ColorSpec;
-		editorModel?: ColorSpec;
-		editorProvider?: ColorSpec;
-		editorThinking?: ColorSpec;
-		editorThinkingMinimal?: ColorSpec;
-		editorThinkingLow?: ColorSpec;
-		editorThinkingMedium?: ColorSpec;
-		editorThinkingHigh?: ColorSpec;
-		editorThinkingXhigh?: ColorSpec;
-	};
 	colorSources: ColorSourcesConfig;
 	features: UiFeaturesConfig;
 	footerSegments: FooterSegmentsConfig;
@@ -239,24 +358,85 @@ export const FOOTER_FORMAT_ALIASES: Record<string, string> = {
 
 export const configPath = join(getAgentDir(), "zentui.json");
 
-export const defaultConfig: PolishedTuiConfig = {
-	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
-	footerFormat: "",
-	responsiveFooter: true,
-	compactFooterFormat: DEFAULT_COMPACT_FOOTER_FORMAT,
-	compactFooterMaxLines: 2,
-	editorMetadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+const defaultFooterSegments: FooterSegmentsConfig = {
+	cwd: true,
+	sessionName: true,
+	gitBranch: true,
+	gitStatus: true,
+	gitCounts: false,
+	gitCommit: false,
+	gitMetrics: false,
+	runtime: true,
+	modelInfo: false,
+	context: true,
+	tokens: true,
+	cost: true,
+	sessionDuration: false,
+	username: false,
+	time: false,
+	os: false,
+	packageVersion: false,
+};
+
+const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
+	pathDisplay: "compact",
+	contextFormat: "percent",
+	contextGauge: false,
+	showSessionName: true,
+	showTimer: true,
+	showCost: true,
+	showGit: true,
+	contextThresholds: { warning: 70, error: 90 },
+};
+
+const defaultStarshipStyle: StarshipFooterStyleConfig = {
+	format: "",
+	responsive: true,
+	compactFormat: DEFAULT_COMPACT_FOOTER_FORMAT,
+	compactMaxLines: 2,
 	separator: "pipe",
 	contextStyle: "text",
-	editorModelLabel: "id",
-	editorBorderColorMode: "static",
 	contextThresholds: { warning: 70, error: 90 },
 	pathDisplay: { mode: "basename", depth: 0 },
+	segments: defaultFooterSegments,
 	gitBranch: { maxLength: "full" },
-	icons: {
-		mode: "auto",
-		...NERD_DEFAULT_ICONS,
+	gitCommit: { hashLength: 7, onlyDetached: true, showTag: true },
+	gitMetrics: { onlyNonzero: true, ignoreSubmodules: false },
+	extensionStatuses: { defaultPlacement: "right", placements: {}, colorModes: {} },
+};
+
+const defaultComponents: ComponentsConfig = {
+	editor: {
+		enabled: true,
+		style: "opencode",
+		colorSource: "theme",
+		borderColorMode: "static",
+		modelLabel: "id",
+		viewportIndicators: true,
+		styles: {
+			opencode: { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			"opencode-copy-friendly": { metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT },
+			minimalist: defaultMinimalistStyle,
+		},
 	},
+	userMessages: {
+		enabled: true,
+		style: "framed",
+		colorSource: "theme",
+		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
+	},
+	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
+	footer: {
+		style: "starship",
+		colorSource: "theme",
+		modelLabel: "id",
+		styles: { starship: defaultStarshipStyle },
+	},
+};
+
+export const defaultConfig: PolishedTuiConfig = {
+	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
+	icons: { mode: "auto", ...NERD_DEFAULT_ICONS },
 	colors: {
 		cwd: "bold cyan",
 		sessionName: "bold green",
@@ -279,55 +459,33 @@ export const defaultConfig: PolishedTuiConfig = {
 		time: "bold yellow",
 		os: "bold white",
 	},
-	colorSources: {
-		starship: "theme",
-		editor: "theme",
-		userMessages: "theme",
-	},
+	components: defaultComponents,
+	layout: { fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true } },
+	footerFormat: defaultStarshipStyle.format,
+	responsiveFooter: defaultStarshipStyle.responsive,
+	compactFooterFormat: defaultStarshipStyle.compactFormat,
+	compactFooterMaxLines: defaultStarshipStyle.compactMaxLines,
+	editorMetadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+	separator: defaultStarshipStyle.separator,
+	contextStyle: defaultStarshipStyle.contextStyle,
+	editorModelLabel: defaultComponents.editor.modelLabel,
+	editorStyle: defaultComponents.editor.style,
+	editorStyles: { minimalist: defaultMinimalistStyle },
+	editorBorderColorMode: defaultComponents.editor.borderColorMode,
+	contextThresholds: defaultStarshipStyle.contextThresholds,
+	pathDisplay: defaultStarshipStyle.pathDisplay,
+	gitBranch: defaultStarshipStyle.gitBranch,
+	colorSources: { starship: "theme", editor: "theme", userMessages: "theme" },
 	features: {
 		editor: true,
 		statusLine: true,
-		copyFriendly: false,
 		viewportIndicators: true,
 	},
-	footerSegments: {
-		cwd: true,
-		sessionName: true,
-		gitBranch: true,
-		gitStatus: true,
-		gitCounts: false,
-		runtime: true,
-		modelInfo: false,
-		context: true,
-		tokens: true,
-		cost: true,
-		sessionDuration: false,
-		username: false,
-		time: false,
-		os: false,
-		packageVersion: false,
-		gitCommit: false,
-		gitMetrics: false,
-	},
-	gitCommit: {
-		hashLength: 7,
-		onlyDetached: true,
-		showTag: true,
-	},
-	gitMetrics: {
-		onlyNonzero: true,
-		ignoreSubmodules: false,
-	},
-	extensionStatuses: {
-		defaultPlacement: "right",
-		placements: {},
-		colorModes: {},
-	},
-	fixedEditor: {
-		enabled: false,
-		mouseScroll: true,
-		copyNotice: true,
-	},
+	footerSegments: defaultFooterSegments,
+	gitCommit: defaultStarshipStyle.gitCommit,
+	gitMetrics: defaultStarshipStyle.gitMetrics,
+	extensionStatuses: defaultStarshipStyle.extensionStatuses,
+	fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true },
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -356,9 +514,21 @@ function parseContextStyle(value: unknown): ContextStyle {
 	return defaultConfig.contextStyle;
 }
 
-function parseEditorModelLabel(value: unknown): ModelLabelSource {
+function parseEditorModelLabel(
+	value: unknown,
+	fallback: ModelLabelSource = defaultComponents.editor.modelLabel,
+): ModelLabelSource {
 	if (value === "id" || value === "name") return value;
-	return defaultConfig.editorModelLabel;
+	return fallback;
+}
+
+function parseEditorStyle(value: unknown): EditorStyle {
+	if (value === "opencode" || value === "opencode-copy-friendly" || value === "minimalist") {
+		return value;
+	}
+	if (value === "polished") return "opencode";
+	if (value === "polished-copy-friendly") return "opencode-copy-friendly";
+	return defaultConfig.editorStyle;
 }
 
 function parseEditorBorderColorMode(value: unknown): EditorBorderColorMode {
@@ -374,8 +544,10 @@ function parseSeparatorStyle(value: unknown): SeparatorStyle {
 	return isSeparatorStyle(value) ? value : defaultConfig.separator;
 }
 
-function parseContextThresholds(value: unknown): ContextThresholds {
-	const defaults = defaultConfig.contextThresholds;
+function parseContextThresholds(
+	value: unknown,
+	defaults: ContextThresholds = defaultStarshipStyle.contextThresholds,
+): ContextThresholds {
 	if (!isRecord(value)) return { ...defaults };
 
 	const warningRaw = value.warning;
@@ -436,27 +608,6 @@ function colorValue(record: Record<string, unknown>, key: string): string | unde
 	return value !== undefined && isSupportedColorSpec(value) ? value : undefined;
 }
 
-function colorSourceValue(
-	record: Record<string, unknown>,
-	key: keyof ColorSourcesConfig,
-): ColorSource {
-	const value = record[key];
-	return value === "terminal" || value === "theme" ? value : defaultConfig.colorSources[key];
-}
-
-function booleanValue(record: Record<string, unknown>, key: keyof UiFeaturesConfig): boolean {
-	const value = record[key];
-	return typeof value === "boolean" ? value : defaultConfig.features[key];
-}
-
-function footerSegmentValue(
-	record: Record<string, unknown>,
-	key: keyof FooterSegmentsConfig,
-): boolean {
-	const value = record[key];
-	return typeof value === "boolean" ? value : defaultConfig.footerSegments[key];
-}
-
 function definedColors(
 	colors: Partial<Record<keyof PolishedTuiConfig["colors"], string | undefined>>,
 ): Partial<PolishedTuiConfig["colors"]> {
@@ -510,45 +661,6 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		editorThinkingHigh: colorValue(record, "editorThinkingHigh"),
 		editorThinkingXhigh: colorValue(record, "editorThinkingXhigh"),
 	});
-}
-
-function normalizeColorSources(record: Record<string, unknown>): ColorSourcesConfig {
-	return {
-		starship: colorSourceValue(record, "starship"),
-		editor: colorSourceValue(record, "editor"),
-		userMessages: colorSourceValue(record, "userMessages"),
-	};
-}
-
-function normalizeUiFeatures(record: Record<string, unknown>): UiFeaturesConfig {
-	return {
-		editor: booleanValue(record, "editor"),
-		statusLine: booleanValue(record, "statusLine"),
-		copyFriendly: booleanValue(record, "copyFriendly"),
-		viewportIndicators: booleanValue(record, "viewportIndicators"),
-	};
-}
-
-function normalizeFooterSegments(record: Record<string, unknown>): FooterSegmentsConfig {
-	return {
-		cwd: footerSegmentValue(record, "cwd"),
-		sessionName: footerSegmentValue(record, "sessionName"),
-		gitBranch: footerSegmentValue(record, "gitBranch"),
-		gitStatus: footerSegmentValue(record, "gitStatus"),
-		gitCounts: footerSegmentValue(record, "gitCounts"),
-		runtime: footerSegmentValue(record, "runtime"),
-		modelInfo: footerSegmentValue(record, "modelInfo"),
-		context: footerSegmentValue(record, "context"),
-		tokens: footerSegmentValue(record, "tokens"),
-		cost: footerSegmentValue(record, "cost"),
-		sessionDuration: footerSegmentValue(record, "sessionDuration"),
-		username: footerSegmentValue(record, "username"),
-		time: footerSegmentValue(record, "time"),
-		os: footerSegmentValue(record, "os"),
-		packageVersion: footerSegmentValue(record, "packageVersion"),
-		gitCommit: footerSegmentValue(record, "gitCommit"),
-		gitMetrics: footerSegmentValue(record, "gitMetrics"),
-	};
 }
 
 /** Clamp hashLength to Git's valid abbreviation range [4, 40]. */
@@ -639,12 +751,7 @@ function isColorSourceKey(value: string): value is keyof ColorSourcesConfig {
 }
 
 function isUiFeatureKey(value: string): value is keyof UiFeaturesConfig {
-	return (
-		value === "editor" ||
-		value === "statusLine" ||
-		value === "copyFriendly" ||
-		value === "viewportIndicators"
-	);
+	return value === "editor" || value === "statusLine" || value === "viewportIndicators";
 }
 
 function isFooterSegmentKey(value: string): value is keyof FooterSegmentsConfig {
@@ -775,99 +882,486 @@ function mutateConfig(path: string, mutate: (record: ConfigRecord) => void): Pol
 	return mergeConfig(state.record);
 }
 
-export function ensureConfigExists(): void {
+export function ensureConfigExists(_path = configPath): void {
 	// Intentionally left as a no-op. Zentui config is user-owned and
 	// compatibility-sensitive: runtime defaults come from `mergeConfig({})`, and
 	// the extension should not persist opinionated defaults unless the user
 	// explicitly changes a setting.
 }
 
-export function mergeConfig(parsed: unknown): PolishedTuiConfig {
-	const config = isRecord(parsed) ? parsed : {};
-	const iconsRecord = isRecord(config.icons) ? (config.icons as Record<string, unknown>) : {};
-	const iconMode = normalizeIconMode(iconsRecord.mode);
-	const iconOverrides = normalizeIconOverrides(iconsRecord);
-	const colors = isRecord(config.colors)
-		? normalizeColors(config.colors as Record<string, unknown>)
-		: {};
-	const colorSources = isRecord(config.colorSources)
-		? normalizeColorSources(config.colorSources as Record<string, unknown>)
-		: defaultConfig.colorSources;
-	const features = isRecord(config.features)
-		? normalizeUiFeatures(config.features as Record<string, unknown>)
-		: defaultConfig.features;
-	const footerSegments = isRecord(config.footerSegments)
-		? normalizeFooterSegments(config.footerSegments as Record<string, unknown>)
-		: defaultConfig.footerSegments;
-	const extensionStatuses = isRecord(config.extensionStatuses)
-		? normalizeExtensionStatuses(config.extensionStatuses as Record<string, unknown>)
-		: defaultConfig.extensionStatuses;
-	const gitCommit = isRecord(config.gitCommit)
-		? normalizeGitCommitConfig(config.gitCommit as Record<string, unknown>)
-		: defaultConfig.gitCommit;
-	const gitMetrics = isRecord(config.gitMetrics)
-		? normalizeGitMetricsConfig(config.gitMetrics as Record<string, unknown>)
-		: defaultConfig.gitMetrics;
-	const gitBranch = parseGitBranchConfig(config.gitBranch);
-	const fixedEditor = isRecord(config.fixedEditor)
-		? normalizeFixedEditorConfig(config.fixedEditor as Record<string, unknown>)
-		: defaultConfig.fixedEditor;
-	const editorMetadataFormat = stringValue(config, "editorMetadataFormat");
-	const compactFooterFormat = stringValue(config, "compactFooterFormat");
+function hasOwn(record: ConfigRecord, key: string): boolean {
+	return Object.hasOwn(record, key);
+}
+
+function recordValue(value: unknown): ConfigRecord {
+	return isRecord(value) ? value : {};
+}
+
+function resolvedValue(
+	canonical: ConfigRecord,
+	canonicalKey: string,
+	legacy?: ConfigRecord,
+	legacyKey = canonicalKey,
+): unknown {
+	if (hasOwn(canonical, canonicalKey)) return canonical[canonicalKey];
+	if (legacy && hasOwn(legacy, legacyKey)) return legacy[legacyKey];
+	return undefined;
+}
+
+function parseBoolean(value: unknown, fallback: boolean): boolean {
+	return typeof value === "boolean" ? value : fallback;
+}
+
+function parseColorSource(value: unknown, fallback: ColorSource): ColorSource {
+	return value === "theme" || value === "terminal" ? value : fallback;
+}
+
+function parseSelectorBorderStyle(value: unknown): SelectorBorderStyle {
+	return value === "zentui" ? value : "zentui";
+}
+
+function parseFooterStyle(value: unknown): FooterStyle | undefined {
+	return value === "native" || value === "starship" || value === "hidden" ? value : undefined;
+}
+
+function parseNonEmptyString(value: unknown, fallback: string): string {
+	return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function resolveContextThresholds(
+	canonical: unknown,
+	legacy: unknown,
+	defaults: ContextThresholds,
+): ContextThresholds {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return parseContextThresholds(
+		{
+			warning: resolvedValue(canonicalRecord, "warning", legacyRecord),
+			error: resolvedValue(canonicalRecord, "error", legacyRecord),
+		},
+		defaults,
+	);
+}
+
+function resolvePathDisplay(canonical: unknown, legacy: unknown): PathDisplayConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return parsePathDisplay({
+		mode: resolvedValue(canonicalRecord, "mode", legacyRecord),
+		depth: resolvedValue(canonicalRecord, "depth", legacyRecord),
+	});
+}
+
+function resolveGitBranch(canonical: unknown, legacy: unknown): GitBranchConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return parseGitBranchConfig({
+		maxLength: resolvedValue(canonicalRecord, "maxLength", legacyRecord),
+	});
+}
+
+function resolveGitCommit(canonical: unknown, legacy: unknown): GitCommitConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return normalizeGitCommitConfig({
+		hashLength: resolvedValue(canonicalRecord, "hashLength", legacyRecord),
+		onlyDetached: resolvedValue(canonicalRecord, "onlyDetached", legacyRecord),
+		showTag: resolvedValue(canonicalRecord, "showTag", legacyRecord),
+	});
+}
+
+function resolveGitMetrics(canonical: unknown, legacy: unknown): GitMetricsConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return normalizeGitMetricsConfig({
+		onlyNonzero: resolvedValue(canonicalRecord, "onlyNonzero", legacyRecord),
+		ignoreSubmodules: resolvedValue(canonicalRecord, "ignoreSubmodules", legacyRecord),
+	});
+}
+
+function resolveExtensionStatuses(canonical: unknown, legacy: unknown): ExtensionStatusesConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return normalizeExtensionStatuses({
+		defaultPlacement: resolvedValue(canonicalRecord, "defaultPlacement", legacyRecord),
+		placements: resolvedValue(canonicalRecord, "placements", legacyRecord),
+		colorModes: resolvedValue(canonicalRecord, "colorModes", legacyRecord),
+	});
+}
+
+const FOOTER_SEGMENT_KEYS = Object.keys(defaultFooterSegments) as Array<keyof FooterSegmentsConfig>;
+
+function resolveFooterSegments(canonical: unknown, legacy: unknown): FooterSegmentsConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return Object.fromEntries(
+		FOOTER_SEGMENT_KEYS.map((key) => [
+			key,
+			parseBoolean(resolvedValue(canonicalRecord, key, legacyRecord), defaultFooterSegments[key]),
+		]),
+	) as FooterSegmentsConfig;
+}
+
+function resolveFixedEditor(canonical: unknown, legacy: unknown): FixedEditorConfig {
+	const canonicalRecord = recordValue(canonical);
+	const legacyRecord = recordValue(legacy);
+	return normalizeFixedEditorConfig({
+		enabled: resolvedValue(canonicalRecord, "enabled", legacyRecord),
+		mouseScroll: resolvedValue(canonicalRecord, "mouseScroll", legacyRecord),
+		copyNotice: resolvedValue(canonicalRecord, "copyNotice", legacyRecord),
+	});
+}
+
+function legacyCopyFriendly(record: ConfigRecord): boolean {
+	return record.copyFriendly === true;
+}
+
+function resolveEditorStyle(
+	editor: ConfigRecord,
+	polished: ConfigRecord,
+	features: ConfigRecord,
+): EditorStyle {
+	const rawStyle = editor.style;
+	if (
+		rawStyle === "opencode" ||
+		rawStyle === "opencode-copy-friendly" ||
+		rawStyle === "minimalist"
+	) {
+		return rawStyle;
+	}
+	if (rawStyle === "polished-copy-friendly") return "opencode-copy-friendly";
+	if (rawStyle === "polished") {
+		return hasOwn(polished, "copyFriendly") && legacyCopyFriendly(polished)
+			? "opencode-copy-friendly"
+			: "opencode";
+	}
+	if (hasOwn(polished, "copyFriendly")) {
+		return legacyCopyFriendly(polished) ? "opencode-copy-friendly" : "opencode";
+	}
+	return legacyCopyFriendly(features) ? "opencode-copy-friendly" : "opencode";
+}
+
+function resolveFooterStyle(footer: ConfigRecord, features: ConfigRecord): FooterStyle {
+	const explicit = parseFooterStyle(footer.style);
+	if (explicit) return explicit;
+	if (typeof footer.enabled === "boolean") return footer.enabled ? "starship" : "native";
+	if (typeof features.statusLine === "boolean") {
+		return features.statusLine ? "starship" : "native";
+	}
+	return defaultComponents.footer.style;
+}
+
+function resolveUserMessagesSelection(
+	userMessages: ConfigRecord,
+	framed: ConfigRecord,
+	features: ConfigRecord,
+): Pick<UserMessagesComponentConfig, "enabled" | "style"> {
+	const normalEnabled = parseBoolean(
+		resolvedValue(userMessages, "enabled", features, "editor"),
+		defaultComponents.userMessages.enabled,
+	);
+	const rawStyle = userMessages.style;
+	if (rawStyle === "compact" || rawStyle === "labeled" || rawStyle === "framed-copy-friendly") {
+		return { style: rawStyle, enabled: normalEnabled };
+	}
+	if (rawStyle === "framed" || hasOwn(framed, "copyFriendly")) {
+		return {
+			style: legacyCopyFriendly(framed) ? "framed-copy-friendly" : "framed",
+			enabled: normalEnabled,
+		};
+	}
 	return {
-		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
-		footerFormat: stringValue(config, "footerFormat") ?? "",
-		responsiveFooter:
-			typeof config.responsiveFooter === "boolean"
-				? config.responsiveFooter
-				: defaultConfig.responsiveFooter,
-		compactFooterFormat:
-			compactFooterFormat && compactFooterFormat.length > 0
-				? compactFooterFormat
-				: DEFAULT_COMPACT_FOOTER_FORMAT,
-		compactFooterMaxLines: parseCompactFooterMaxLines(config.compactFooterMaxLines),
-		editorMetadataFormat:
-			editorMetadataFormat && editorMetadataFormat.length > 0
-				? editorMetadataFormat
-				: DEFAULT_EDITOR_METADATA_FORMAT,
-		separator: parseSeparatorStyle(config.separator),
-		contextStyle: parseContextStyle(config.contextStyle),
-		editorModelLabel: parseEditorModelLabel(config.editorModelLabel),
-		editorBorderColorMode: parseEditorBorderColorMode(config.editorBorderColorMode),
-		contextThresholds: parseContextThresholds(config.contextThresholds),
-		pathDisplay: parsePathDisplay(config.pathDisplay),
-		gitBranch,
-		icons: resolveConfiguredIcons(iconMode, iconOverrides),
-		colors: {
-			...defaultConfig.colors,
-			...colors,
-		},
-		colorSources: { ...colorSources },
-		features: { ...features },
-		footerSegments: { ...footerSegments },
-		gitCommit,
-		gitMetrics,
-		extensionStatuses: {
-			defaultPlacement: extensionStatuses.defaultPlacement,
-			placements: { ...extensionStatuses.placements },
-			colorModes: { ...extensionStatuses.colorModes },
-		},
-		fixedEditor,
+		style: legacyCopyFriendly(features) ? "framed-copy-friendly" : "framed",
+		enabled: normalEnabled,
 	};
 }
 
+function resolveComponents(config: ConfigRecord): ComponentsConfig {
+	const components = recordValue(config.components);
+	const editor = recordValue(components.editor);
+	const editorStyles = recordValue(editor.styles);
+	const opencode = recordValue(editorStyles.opencode);
+	const polished = recordValue(editorStyles.polished);
+	const opencodeCopyFriendly = recordValue(editorStyles["opencode-copy-friendly"]);
+	const polishedCopyFriendly = recordValue(editorStyles["polished-copy-friendly"]);
+	const minimalist = recordValue(editorStyles.minimalist);
+	const userMessages = recordValue(components.userMessages);
+	const userMessageStyles = recordValue(userMessages.styles);
+	const framed = recordValue(userMessageStyles.framed);
+	const selectorBorders = recordValue(components.selectorBorders);
+	const footer = recordValue(components.footer);
+	const footerStyles = recordValue(footer.styles);
+	const starship = recordValue(footerStyles.starship);
+	const features = recordValue(config.features);
+	const colorSources = recordValue(config.colorSources);
+
+	const minimalistThresholds = resolveContextThresholds(
+		minimalist.contextThresholds,
+		config.contextThresholds,
+		defaultMinimalistStyle.contextThresholds,
+	);
+	const footerThresholds = resolveContextThresholds(
+		starship.contextThresholds,
+		config.contextThresholds,
+		defaultStarshipStyle.contextThresholds,
+	);
+	const compactFormat = resolvedValue(starship, "compactFormat", config, "compactFooterFormat");
+	const metadataFormat = hasOwn(opencode, "metadataFormat")
+		? opencode.metadataFormat
+		: resolvedValue(polished, "metadataFormat", config, "editorMetadataFormat");
+	const lowRailMetadataFormat = hasOwn(opencodeCopyFriendly, "metadataFormat")
+		? opencodeCopyFriendly.metadataFormat
+		: hasOwn(polishedCopyFriendly, "metadataFormat")
+			? polishedCopyFriendly.metadataFormat
+			: metadataFormat;
+	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
+
+	return {
+		editor: {
+			enabled: parseBoolean(
+				resolvedValue(editor, "enabled", features, "editor"),
+				defaultComponents.editor.enabled,
+			),
+			style: resolveEditorStyle(editor, polished, features),
+			colorSource: parseColorSource(
+				resolvedValue(editor, "colorSource", colorSources, "editor"),
+				defaultComponents.editor.colorSource,
+			),
+			borderColorMode: parseEditorBorderColorMode(
+				resolvedValue(editor, "borderColorMode", config, "editorBorderColorMode"),
+			),
+			modelLabel: parseEditorModelLabel(
+				resolvedValue(editor, "modelLabel", config, "editorModelLabel"),
+				defaultComponents.editor.modelLabel,
+			),
+			viewportIndicators: parseBoolean(
+				resolvedValue(editor, "viewportIndicators", features, "viewportIndicators"),
+				defaultComponents.editor.viewportIndicators,
+			),
+			styles: {
+				opencode: {
+					metadataFormat: parseNonEmptyString(metadataFormat, DEFAULT_EDITOR_METADATA_FORMAT),
+				},
+				"opencode-copy-friendly": {
+					metadataFormat: parseNonEmptyString(
+						lowRailMetadataFormat,
+						DEFAULT_EDITOR_METADATA_FORMAT,
+					),
+				},
+				minimalist: {
+					pathDisplay:
+						minimalist.pathDisplay === "compact" ||
+						minimalist.pathDisplay === "project" ||
+						minimalist.pathDisplay === "full"
+							? minimalist.pathDisplay
+							: defaultMinimalistStyle.pathDisplay,
+					contextFormat:
+						minimalist.contextFormat === "percent" || minimalist.contextFormat === "percent-total"
+							? minimalist.contextFormat
+							: defaultMinimalistStyle.contextFormat,
+					contextGauge: parseBoolean(minimalist.contextGauge, defaultMinimalistStyle.contextGauge),
+					showSessionName: parseBoolean(
+						minimalist.showSessionName,
+						defaultMinimalistStyle.showSessionName,
+					),
+					showTimer: parseBoolean(minimalist.showTimer, defaultMinimalistStyle.showTimer),
+					showCost: parseBoolean(minimalist.showCost, defaultMinimalistStyle.showCost),
+					showGit: parseBoolean(minimalist.showGit, defaultMinimalistStyle.showGit),
+					contextThresholds: minimalistThresholds,
+				},
+			},
+		},
+		userMessages: {
+			enabled: userMessagesSelection.enabled,
+			style: userMessagesSelection.style,
+			colorSource: parseColorSource(
+				resolvedValue(userMessages, "colorSource", colorSources, "userMessages"),
+				defaultComponents.userMessages.colorSource,
+			),
+			styles: {
+				framed: {},
+				"framed-copy-friendly": {},
+				compact: {},
+				labeled: {},
+			},
+		},
+		selectorBorders: {
+			enabled: parseBoolean(
+				resolvedValue(selectorBorders, "enabled", features, "editor"),
+				defaultComponents.selectorBorders.enabled,
+			),
+			style: parseSelectorBorderStyle(resolvedValue(selectorBorders, "style")),
+			colorSource: parseColorSource(
+				resolvedValue(selectorBorders, "colorSource", colorSources, "editor"),
+				defaultComponents.selectorBorders.colorSource,
+			),
+		},
+		footer: {
+			style: resolveFooterStyle(footer, features),
+			colorSource: parseColorSource(
+				resolvedValue(footer, "colorSource", colorSources, "starship"),
+				defaultComponents.footer.colorSource,
+			),
+			modelLabel: parseEditorModelLabel(
+				resolvedValue(footer, "modelLabel", config, "editorModelLabel"),
+				defaultComponents.footer.modelLabel,
+			),
+			styles: {
+				starship: {
+					format:
+						typeof resolvedValue(starship, "format", config, "footerFormat") === "string"
+							? (resolvedValue(starship, "format", config, "footerFormat") as string)
+							: defaultStarshipStyle.format,
+					responsive: parseBoolean(
+						resolvedValue(starship, "responsive", config, "responsiveFooter"),
+						defaultStarshipStyle.responsive,
+					),
+					compactFormat: parseNonEmptyString(compactFormat, defaultStarshipStyle.compactFormat),
+					compactMaxLines: parseCompactFooterMaxLines(
+						resolvedValue(starship, "compactMaxLines", config, "compactFooterMaxLines"),
+					),
+					separator: parseSeparatorStyle(resolvedValue(starship, "separator", config, "separator")),
+					contextStyle: parseContextStyle(
+						resolvedValue(starship, "contextStyle", config, "contextStyle"),
+					),
+					contextThresholds: footerThresholds,
+					pathDisplay: resolvePathDisplay(starship.pathDisplay, config.pathDisplay),
+					segments: resolveFooterSegments(starship.segments, config.footerSegments),
+					gitBranch: resolveGitBranch(starship.gitBranch, config.gitBranch),
+					gitCommit: resolveGitCommit(starship.gitCommit, config.gitCommit),
+					gitMetrics: resolveGitMetrics(starship.gitMetrics, config.gitMetrics),
+					extensionStatuses: resolveExtensionStatuses(
+						starship.extensionStatuses,
+						config.extensionStatuses,
+					),
+				},
+			},
+		},
+	};
+}
+
+function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
+	const starship = config.components.footer.styles.starship;
+	const minimalist = config.components.editor.styles.minimalist;
+	return {
+		...config,
+		footerFormat: starship.format,
+		responsiveFooter: starship.responsive,
+		compactFooterFormat: starship.compactFormat,
+		compactFooterMaxLines: starship.compactMaxLines,
+		separator: starship.separator,
+		contextStyle: starship.contextStyle,
+		contextThresholds: starship.contextThresholds,
+		pathDisplay: starship.pathDisplay,
+		gitBranch: starship.gitBranch,
+		footerSegments: starship.segments,
+		gitCommit: starship.gitCommit,
+		gitMetrics: starship.gitMetrics,
+		extensionStatuses: starship.extensionStatuses,
+		editorStyle: config.components.editor.style,
+		editorStyles: { minimalist },
+		editorMetadataFormat: config.components.editor.styles.opencode.metadataFormat,
+		editorBorderColorMode: config.components.editor.borderColorMode,
+		editorModelLabel: config.components.editor.modelLabel,
+		colorSources: {
+			starship: config.components.footer.colorSource,
+			editor: config.components.editor.colorSource,
+			userMessages: config.components.userMessages.colorSource,
+		},
+		features: {
+			editor: config.components.editor.enabled,
+			statusLine: config.components.footer.style === "starship",
+			viewportIndicators: config.components.editor.viewportIndicators,
+		},
+		fixedEditor: config.layout.fixedEditor,
+	};
+}
+
+const unsupportedComponentStyles = new WeakMap<ZentuiConfig, ReadonlySet<ComponentStyleOwner>>();
+
+const knownComponentStyleIds: Record<ComponentStyleOwner, ReadonlySet<string>> = {
+	editor: new Set([
+		"opencode",
+		"opencode-copy-friendly",
+		"minimalist",
+		"polished",
+		"polished-copy-friendly",
+	]),
+	userMessages: new Set(["framed", "framed-copy-friendly", "compact", "labeled"]),
+	selectorBorders: new Set(["zentui"]),
+	footer: new Set(["native", "starship", "hidden"]),
+};
+
+function unsupportedSelectedStyleId(
+	record: ConfigRecord,
+	owner: ComponentStyleOwner,
+): string | undefined {
+	const component = recordValue(recordValue(record.components)[owner]);
+	if (!hasOwn(component, "style")) return undefined;
+	const style = component.style;
+	return typeof style === "string" && style.trim() && !knownComponentStyleIds[owner].has(style)
+		? style
+		: undefined;
+}
+
+export function hasUnsupportedComponentStyle(
+	config: ZentuiConfig,
+	owner: ComponentStyleOwner,
+): boolean {
+	return unsupportedComponentStyles.get(config)?.has(owner) ?? false;
+}
+
+export function mergeConfig(parsed: unknown): PolishedTuiConfig {
+	const config = isRecord(parsed) ? parsed : {};
+	const iconsRecord = recordValue(config.icons);
+	const colorsRecord = recordValue(config.colors);
+	const layout = recordValue(config.layout);
+	const canonical: ZentuiConfig = {
+		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
+		icons: resolveConfiguredIcons(
+			normalizeIconMode(iconsRecord.mode),
+			normalizeIconOverrides(iconsRecord),
+		),
+		colors: { ...defaultConfig.colors, ...normalizeColors(colorsRecord) },
+		components: resolveComponents(config),
+		layout: {
+			fixedEditor: resolveFixedEditor(layout.fixedEditor, config.fixedEditor),
+		},
+	};
+	const view = compatibilityView(canonical);
+	const unsupported = new Set<ComponentStyleOwner>();
+	for (const owner of ["editor", "userMessages", "selectorBorders", "footer"] as const) {
+		if (unsupportedSelectedStyleId(config, owner) !== undefined) unsupported.add(owner);
+	}
+	if (unsupported.size > 0) unsupportedComponentStyles.set(view, unsupported);
+	return view;
+}
+
 export function getExtensionStatusPlacement(
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusPlacement {
-	return config.extensionStatuses.placements[key] ?? config.extensionStatuses.defaultPlacement;
+	const statuses = config.components.footer.styles.starship.extensionStatuses;
+	if (Object.hasOwn(statuses.placements, key)) {
+		const placement = statuses.placements[key];
+		if (isExtensionStatusPlacement(placement)) return placement;
+	}
+	return isExtensionStatusPlacement(statuses.defaultPlacement)
+		? statuses.defaultPlacement
+		: DEFAULT_EXTENSION_STATUS_PLACEMENT;
 }
 
 export function getExtensionStatusColorMode(
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 	key: string,
 ): ExtensionStatusColorMode {
-	return config.extensionStatuses.colorModes[key] ?? DEFAULT_EXTENSION_STATUS_COLOR_MODE;
+	const colorModes = config.components.footer.styles.starship.extensionStatuses.colorModes;
+	if (Object.hasOwn(colorModes, key)) {
+		const colorMode = colorModes[key];
+		if (isExtensionStatusColorMode(colorMode)) return colorMode;
+	}
+	return DEFAULT_EXTENSION_STATUS_COLOR_MODE;
 }
 
 export function loadConfig(): PolishedTuiConfig {
@@ -879,55 +1373,341 @@ export function loadConfig(): PolishedTuiConfig {
 	}
 }
 
+function overlayKnown(raw: unknown, known: unknown): unknown {
+	if (!isRecord(known)) return known;
+	const output: ConfigRecord = isRecord(raw) ? { ...raw } : {};
+	for (const [key, value] of Object.entries(known)) {
+		Object.defineProperty(output, key, {
+			value: overlayKnown(output[key], value),
+			enumerable: true,
+			configurable: true,
+			writable: true,
+		});
+	}
+	return output;
+}
+
+type PreservedStyleIds = Partial<Record<ComponentStyleOwner, string>>;
+
+function unknownSelectedStyleIds(record: ConfigRecord): PreservedStyleIds {
+	return {
+		editor: unsupportedSelectedStyleId(record, "editor"),
+		userMessages: unsupportedSelectedStyleId(record, "userMessages"),
+		selectorBorders: unsupportedSelectedStyleId(record, "selectorBorders"),
+		footer: unsupportedSelectedStyleId(record, "footer"),
+	};
+}
+
+function restoreUnknownSelectedStyleIds(
+	record: ConfigRecord,
+	preserved: PreservedStyleIds,
+	replacedStyle?: ComponentStyleOwner,
+): void {
+	const components = recordValue(record.components);
+	for (const [owner, style] of Object.entries(preserved) as [ComponentStyleOwner, string][]) {
+		if (style === undefined || owner === replacedStyle) continue;
+		const component = recordValue(components[owner]);
+		component.style = style;
+		components[owner] = component;
+	}
+	record.components = components;
+}
+
+function saveComponentsMutation(
+	update: (components: ComponentsConfig) => void,
+	path: string,
+	cleanupRaw?: (record: ConfigRecord) => void,
+	replacedStyle?: ComponentStyleOwner,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const preservedStyles = unknownSelectedStyleIds(record);
+		const components = mergeConfig(record).components;
+		update(components);
+		const normalized = resolveComponents({ components });
+		record.components = overlayKnown(record.components, normalized);
+		restoreUnknownSelectedStyleIds(record, preservedStyles, replacedStyle);
+		cleanupRaw?.(record);
+	});
+}
+
+function deleteLegacyEditorCopyFriendly(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const editor = components.editor;
+	if (!isRecord(editor)) return;
+	const styles = editor.styles;
+	if (!isRecord(styles)) return;
+	const polished = styles.polished;
+	if (isRecord(polished)) delete polished.copyFriendly;
+}
+
+function deleteLegacyFooterEnabled(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const footer = components.footer;
+	if (isRecord(footer)) delete footer.enabled;
+}
+
+function deleteLegacyMessageCopyFriendly(record: ConfigRecord): void {
+	const components = record.components;
+	if (!isRecord(components)) return;
+	const userMessages = components.userMessages;
+	if (!isRecord(userMessages)) return;
+	const styles = userMessages.styles;
+	if (!isRecord(styles)) return;
+	const framed = styles.framed;
+	if (isRecord(framed)) delete framed.copyFriendly;
+}
+
+function applyEditorComponentPatch(
+	component: EditorComponentConfig,
+	patch: Partial<
+		Pick<
+			EditorComponentConfig,
+			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+		>
+	>,
+): void {
+	if (patch.enabled !== undefined) component.enabled = patch.enabled;
+	if (patch.style !== undefined) component.style = patch.style;
+	if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+	if (patch.borderColorMode !== undefined) component.borderColorMode = patch.borderColorMode;
+	if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
+	if (patch.viewportIndicators !== undefined) {
+		component.viewportIndicators = patch.viewportIndicators;
+	}
+}
+
+export function saveEditorComponentPatch(
+	patch: Partial<
+		Pick<
+			EditorComponentConfig,
+			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+		>
+	>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => applyEditorComponentPatch(components.editor, patch),
+		path,
+		patch.style !== undefined ? deleteLegacyEditorCopyFriendly : undefined,
+		patch.style !== undefined ? "editor" : undefined,
+	);
+}
+
+export function savePolishedEditorStylePatch(
+	patch: Partial<PolishedEditorStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const style = components.editor.styles.opencode;
+		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+	}, path);
+}
+
+export function savePolishedCopyFriendlyEditorStylePatch(
+	patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const style = components.editor.styles["opencode-copy-friendly"];
+		if (patch.metadataFormat !== undefined) style.metadataFormat = patch.metadataFormat;
+	}, path);
+}
+
+function applyMinimalistStylePatch(
+	style: MinimalistEditorStyleConfig,
+	patch: Partial<MinimalistEditorStyleConfig>,
+): void {
+	if (patch.pathDisplay !== undefined) style.pathDisplay = patch.pathDisplay;
+	if (patch.contextFormat !== undefined) style.contextFormat = patch.contextFormat;
+	if (patch.contextGauge !== undefined) style.contextGauge = patch.contextGauge;
+	if (patch.showSessionName !== undefined) style.showSessionName = patch.showSessionName;
+	if (patch.showTimer !== undefined) style.showTimer = patch.showTimer;
+	if (patch.showCost !== undefined) style.showCost = patch.showCost;
+	if (patch.showGit !== undefined) style.showGit = patch.showGit;
+	if (patch.contextThresholds !== undefined) {
+		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };
+	}
+}
+
+export function saveMinimalistEditorStylePatch(
+	patch: Partial<MinimalistEditorStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => applyMinimalistStylePatch(components.editor.styles.minimalist, patch),
+		path,
+	);
+}
+
+export function saveUserMessagesComponentPatch(
+	patch: Partial<Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.userMessages;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+		},
+		path,
+		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,
+		patch.style !== undefined ? "userMessages" : undefined,
+	);
+}
+
+export function saveSelectorBordersComponentPatch(
+	patch: Partial<SelectorBordersComponentConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.selectorBorders;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+		},
+		path,
+		undefined,
+		patch.style !== undefined ? "selectorBorders" : undefined,
+	);
+}
+
+export function saveFooterComponentPatch(
+	patch: Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.footer;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;
+		},
+		path,
+		patch.style !== undefined ? deleteLegacyFooterEnabled : undefined,
+		patch.style !== undefined ? "footer" : undefined,
+	);
+}
+
+function applyStarshipStylePatch(
+	style: StarshipFooterStyleConfig,
+	patch: Partial<StarshipFooterStyleConfig>,
+): void {
+	if (patch.format !== undefined) style.format = patch.format;
+	if (patch.responsive !== undefined) style.responsive = patch.responsive;
+	if (patch.compactFormat !== undefined) style.compactFormat = patch.compactFormat;
+	if (patch.compactMaxLines !== undefined) style.compactMaxLines = patch.compactMaxLines;
+	if (patch.separator !== undefined) style.separator = patch.separator;
+	if (patch.contextStyle !== undefined) style.contextStyle = patch.contextStyle;
+	if (patch.contextThresholds !== undefined) {
+		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };
+	}
+	if (patch.pathDisplay !== undefined) {
+		style.pathDisplay = { ...style.pathDisplay, ...patch.pathDisplay };
+	}
+	if (patch.segments !== undefined) style.segments = { ...style.segments, ...patch.segments };
+	if (patch.gitBranch !== undefined) style.gitBranch = { ...style.gitBranch, ...patch.gitBranch };
+	if (patch.gitCommit !== undefined) style.gitCommit = { ...style.gitCommit, ...patch.gitCommit };
+	if (patch.gitMetrics !== undefined)
+		style.gitMetrics = { ...style.gitMetrics, ...patch.gitMetrics };
+	if (patch.extensionStatuses !== undefined) {
+		style.extensionStatuses = {
+			...style.extensionStatuses,
+			...patch.extensionStatuses,
+			placements: {
+				...style.extensionStatuses.placements,
+				...patch.extensionStatuses.placements,
+			},
+			colorModes: {
+				...style.extensionStatuses.colorModes,
+				...patch.extensionStatuses.colorModes,
+			},
+		};
+	}
+}
+
+export function saveStarshipFooterStylePatch(
+	patch: Partial<StarshipFooterStyleConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => applyStarshipStylePatch(components.footer.styles.starship, patch),
+		path,
+	);
+}
+
+export function saveLayoutFixedEditorPatch(
+	patch: Partial<FixedEditorConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const fixedEditor = mergeConfig(record).layout.fixedEditor;
+		if (patch.enabled !== undefined) fixedEditor.enabled = patch.enabled;
+		if (patch.mouseScroll !== undefined) fixedEditor.mouseScroll = patch.mouseScroll;
+		if (patch.copyNotice !== undefined) fixedEditor.copyNotice = patch.copyNotice;
+		const normalized = normalizeFixedEditorConfig(fixedEditor as unknown as ConfigRecord);
+		const layout = recordValue(record.layout);
+		record.layout = overlayKnown(layout, { fixedEditor: normalized });
+	});
+}
+
 export function saveColorSourcesPatch(
 	patch: Partial<ColorSourcesConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.colorSources)
-			? { ...(record.colorSources as Record<string, unknown>) }
-			: {};
-		record.colorSources = {
-			...existing,
-			...validColorSourceEntries(patch),
-		};
-	});
+	const valid = validColorSourceEntries(patch);
+	return saveComponentsMutation((components) => {
+		if (valid.starship !== undefined) components.footer.colorSource = valid.starship;
+		if (valid.editor !== undefined) {
+			components.editor.colorSource = valid.editor;
+			components.selectorBorders.colorSource = valid.editor;
+		}
+		if (valid.userMessages !== undefined) {
+			components.userMessages.colorSource = valid.userMessages;
+		}
+	}, path);
 }
 
 export function saveUiFeaturesPatch(
 	patch: Partial<UiFeaturesConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.features)
-			? { ...(record.features as Record<string, unknown>) }
-			: {};
-		record.features = {
-			...existing,
-			...validUiFeatureEntries(patch),
-		};
-	});
+	const valid = validUiFeatureEntries(patch);
+	return saveComponentsMutation(
+		(components) => {
+			if (valid.editor !== undefined) {
+				components.editor.enabled = valid.editor;
+				components.userMessages.enabled = valid.editor;
+				components.selectorBorders.enabled = valid.editor;
+			}
+			if (valid.statusLine !== undefined) {
+				components.footer.style = valid.statusLine ? "starship" : "native";
+			}
+			if (valid.viewportIndicators !== undefined) {
+				components.editor.viewportIndicators = valid.viewportIndicators;
+			}
+		},
+		path,
+		valid.statusLine !== undefined ? deleteLegacyFooterEnabled : undefined,
+		valid.statusLine !== undefined ? "footer" : undefined,
+	);
 }
 
 export function saveFooterSegmentsPatch(
 	patch: Partial<FooterSegmentsConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.footerSegments)
-			? { ...(record.footerSegments as Record<string, unknown>) }
-			: {};
-		record.footerSegments = {
-			...existing,
-			...validFooterSegmentEntries(patch),
-		};
-	});
+	return saveStarshipFooterStylePatch(
+		{ segments: validFooterSegmentEntries(patch) as FooterSegmentsConfig },
+		path,
+	);
 }
 
 export function saveFooterFormatPatch(value: string, path = configPath): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		record.footerFormat = typeof value === "string" ? value : "";
-	});
+	return saveStarshipFooterStylePatch({ format: typeof value === "string" ? value : "" }, path);
 }
 
 export function saveResponsiveFooterPatch(
@@ -936,150 +1716,146 @@ export function saveResponsiveFooterPatch(
 	>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		if (typeof patch.responsiveFooter === "boolean") {
-			record.responsiveFooter = patch.responsiveFooter;
-		}
-		if (typeof patch.compactFooterFormat === "string") {
-			record.compactFooterFormat = patch.compactFooterFormat;
-		}
-		if (patch.compactFooterMaxLines !== undefined) {
-			record.compactFooterMaxLines = parseCompactFooterMaxLines(patch.compactFooterMaxLines);
-		}
-	});
+	const canonical: Partial<StarshipFooterStyleConfig> = {};
+	if (typeof patch.responsiveFooter === "boolean") canonical.responsive = patch.responsiveFooter;
+	if (typeof patch.compactFooterFormat === "string")
+		canonical.compactFormat = patch.compactFooterFormat;
+	if (patch.compactFooterMaxLines !== undefined) {
+		canonical.compactMaxLines = parseCompactFooterMaxLines(patch.compactFooterMaxLines);
+	}
+	return saveStarshipFooterStylePatch(canonical, path);
 }
 
 export function saveIconsModePatch(mode: IconMode, path = configPath): PolishedTuiConfig {
 	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.icons) ? { ...(record.icons as Record<string, unknown>) } : {};
-		record.icons = {
-			...existing,
-			mode: normalizeIconMode(mode),
-		};
+		const existing = isRecord(record.icons) ? { ...record.icons } : {};
+		record.icons = { ...existing, mode: normalizeIconMode(mode) };
 	});
 }
 
 export function saveContextStylePatch(style: ContextStyle, path = configPath): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		record.contextStyle = parseContextStyle(style);
-	});
+	return saveStarshipFooterStylePatch({ contextStyle: parseContextStyle(style) }, path);
 }
 
 export function saveSeparatorPatch(
 	separator: SeparatorStyle,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		record.separator = parseSeparatorStyle(separator);
-	});
+	return saveStarshipFooterStylePatch({ separator: parseSeparatorStyle(separator) }, path);
 }
 
 export function saveContextThresholdsPatch(
 	thresholds: Partial<ContextThresholds>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.contextThresholds)
-			? { ...(record.contextThresholds as Record<string, unknown>) }
-			: {};
-		record.contextThresholds = {
-			...existing,
+	if (typeof thresholds.warning === "bigint" || typeof thresholds.error === "bigint") {
+		throw new TypeError("Context thresholds must be JSON-serializable numbers");
+	}
+	return saveComponentsMutation((components) => {
+		components.editor.styles.minimalist.contextThresholds = {
+			...components.editor.styles.minimalist.contextThresholds,
 			...thresholds,
 		};
-	});
+		components.footer.styles.starship.contextThresholds = {
+			...components.footer.styles.starship.contextThresholds,
+			...thresholds,
+		};
+	}, path);
 }
 
 export function savePathDisplayPatch(
 	patch: Partial<PathDisplayConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.pathDisplay)
-			? { ...(record.pathDisplay as Record<string, unknown>) }
-			: {};
-		if (patch.mode !== undefined) existing.mode = patch.mode;
-		if (patch.depth !== undefined) existing.depth = patch.depth;
-		record.pathDisplay = existing;
-	});
+	return saveComponentsMutation((components) => {
+		components.footer.styles.starship.pathDisplay = {
+			...components.footer.styles.starship.pathDisplay,
+			...patch,
+		};
+	}, path);
 }
 
 export function saveGitBranchPatch(
 	patch: Partial<GitBranchConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.gitBranch)
-			? { ...(record.gitBranch as Record<string, unknown>) }
-			: {};
-		if (patch.maxLength !== undefined)
-			existing.maxLength = normalizeGitBranchMaxLength(patch.maxLength);
-		record.gitBranch = existing;
-	});
+	return saveComponentsMutation((components) => {
+		components.footer.styles.starship.gitBranch = {
+			...components.footer.styles.starship.gitBranch,
+			...patch,
+		};
+	}, path);
 }
 
 export function saveEditorModelLabel(
 	value: ModelLabelSource,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		record.editorModelLabel = parseEditorModelLabel(value);
-	});
+	return saveComponentsMutation((components) => {
+		const normalized = parseEditorModelLabel(value);
+		components.editor.modelLabel = normalized;
+		components.footer.modelLabel = normalized;
+	}, path);
+}
+
+export function saveEditorStyle(value: EditorStyle, path = configPath): PolishedTuiConfig {
+	return saveEditorComponentPatch({ style: parseEditorStyle(value) }, path);
+}
+
+export function saveMinimalistPatch(
+	patch: Partial<MinimalistConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveMinimalistEditorStylePatch(patch, path);
 }
 
 export function saveEditorBorderColorMode(
 	value: EditorBorderColorMode,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		record.editorBorderColorMode = parseEditorBorderColorMode(value);
-	});
+	return saveEditorComponentPatch({ borderColorMode: parseEditorBorderColorMode(value) }, path);
 }
 
 export function saveGitCommitPatch(
 	patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.gitCommit)
-			? { ...(record.gitCommit as Record<string, unknown>) }
-			: {};
-		if (typeof patch.onlyDetached === "boolean") existing.onlyDetached = patch.onlyDetached;
-		if (typeof patch.showTag === "boolean") existing.showTag = patch.showTag;
-		record.gitCommit = existing;
-	});
+	const valid: Partial<GitCommitConfig> = {};
+	if (typeof patch.onlyDetached === "boolean") valid.onlyDetached = patch.onlyDetached;
+	if (typeof patch.showTag === "boolean") valid.showTag = patch.showTag;
+	return saveComponentsMutation((components) => {
+		components.footer.styles.starship.gitCommit = {
+			...components.footer.styles.starship.gitCommit,
+			...valid,
+		};
+	}, path);
 }
 
 export function saveGitMetricsPatch(
 	patch: Partial<GitMetricsConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.gitMetrics)
-			? { ...(record.gitMetrics as Record<string, unknown>) }
-			: {};
-		if (typeof patch.onlyNonzero === "boolean") existing.onlyNonzero = patch.onlyNonzero;
-		if (typeof patch.ignoreSubmodules === "boolean") {
-			existing.ignoreSubmodules = patch.ignoreSubmodules;
-		}
-		record.gitMetrics = existing;
-	});
+	const valid: Partial<GitMetricsConfig> = {};
+	if (typeof patch.onlyNonzero === "boolean") valid.onlyNonzero = patch.onlyNonzero;
+	if (typeof patch.ignoreSubmodules === "boolean") valid.ignoreSubmodules = patch.ignoreSubmodules;
+	return saveComponentsMutation((components) => {
+		components.footer.styles.starship.gitMetrics = {
+			...components.footer.styles.starship.gitMetrics,
+			...valid,
+		};
+	}, path);
 }
 
 export function saveExtensionStatusDefaultPlacement(
 	placement: ExtensionStatusPlacement,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.extensionStatuses)
-			? { ...(record.extensionStatuses as Record<string, unknown>) }
-			: {};
-		record.extensionStatuses = {
-			...existing,
-			defaultPlacement: isExtensionStatusPlacement(placement)
+	return saveComponentsMutation((components) => {
+		components.footer.styles.starship.extensionStatuses.defaultPlacement =
+			isExtensionStatusPlacement(placement)
 				? placement
-				: defaultConfig.extensionStatuses.defaultPlacement,
-		};
-	});
+				: defaultConfig.extensionStatuses.defaultPlacement;
+	}, path);
 }
 
 export function saveExtensionStatusPlacement(
@@ -1087,26 +1863,14 @@ export function saveExtensionStatusPlacement(
 	placement: ExtensionStatusPlacement,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existingExtensionStatuses = isRecord(record.extensionStatuses)
-			? { ...(record.extensionStatuses as Record<string, unknown>) }
-			: {};
-		const existingPlacements = isRecord(existingExtensionStatuses.placements)
-			? { ...(existingExtensionStatuses.placements as Record<string, unknown>) }
-			: {};
-
-		Object.defineProperty(existingPlacements, key, {
+	return saveComponentsMutation((components) => {
+		Object.defineProperty(components.footer.styles.starship.extensionStatuses.placements, key, {
 			value: placement,
 			enumerable: true,
 			configurable: true,
 			writable: true,
 		});
-
-		record.extensionStatuses = {
-			...existingExtensionStatuses,
-			placements: existingPlacements,
-		};
-	});
+	}, path);
 }
 
 export function saveExtensionStatusColorMode(
@@ -1114,41 +1878,19 @@ export function saveExtensionStatusColorMode(
 	colorMode: ExtensionStatusColorMode,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existingExtensionStatuses = isRecord(record.extensionStatuses)
-			? { ...(record.extensionStatuses as Record<string, unknown>) }
-			: {};
-		const existingColorModes = isRecord(existingExtensionStatuses.colorModes)
-			? { ...(existingExtensionStatuses.colorModes as Record<string, unknown>) }
-			: {};
-
-		Object.defineProperty(existingColorModes, key, {
+	return saveComponentsMutation((components) => {
+		Object.defineProperty(components.footer.styles.starship.extensionStatuses.colorModes, key, {
 			value: colorMode,
 			enumerable: true,
 			configurable: true,
 			writable: true,
 		});
-
-		record.extensionStatuses = {
-			...existingExtensionStatuses,
-			colorModes: existingColorModes,
-		};
-	});
+	}, path);
 }
 
 export function saveFixedEditorPatch(
 	patch: Partial<FixedEditorConfig>,
 	path = configPath,
 ): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const existing = isRecord(record.fixedEditor)
-			? { ...(record.fixedEditor as Record<string, unknown>) }
-			: {};
-		record.fixedEditor = {
-			...existing,
-			...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-			...(patch.mouseScroll !== undefined ? { mouseScroll: patch.mouseScroll } : {}),
-			...(patch.copyNotice !== undefined ? { copyNotice: patch.copyNotice } : {}),
-		};
-	});
+	return saveLayoutFixedEditorPatch(patch, path);
 }

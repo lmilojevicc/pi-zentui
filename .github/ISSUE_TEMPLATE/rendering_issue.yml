@@ -17,7 +17,7 @@ body:
           required: true
         - label: I am using a Nerd Font or verified whether the issue reproduces with one.
           required: true
-        - label: I checked whether copy-friendly mode changes the behavior, if relevant.
+        - label: I checked whether switching the affected component style or disabling custom styling changes the behavior, if relevant.
           required: false
 
   - type: input
@@ -72,7 +72,8 @@ body:
         - Previous user message styling
         - Runtime/git segment
         - Colors/theme mapping
-        - Copy-friendly mode
+        - Opencode (copy-friendly) editor style
+        - Framed (copy-friendly) user-message style
         - Other
     validations:
       required: true

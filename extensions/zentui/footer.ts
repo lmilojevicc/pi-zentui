@@ -1,7 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig, SeparatorStyle } from "./config";
+import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	collectExtensionStatusSegments,
 	type ExtensionStatusSegment,
@@ -37,7 +38,7 @@ import {
 } from "./format";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
-import type { FooterState } from "./state";
+import { type FooterState, modelLabelFor } from "./state";
 import { renderStyleForSource } from "./style";
 
 const separatorText: Record<SeparatorStyle, string> = {
@@ -180,12 +181,13 @@ function composeFooterContent(
 export function installFooter(
 	ctx: ExtensionContext,
 	state: FooterState,
-	getConfig: () => PolishedTuiConfig,
+	getConfig: () => ZentuiConfig,
 	hooks: {
 		setRequestRender: (fn: (() => void) | undefined) => void;
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		onDispose?: () => void;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -201,14 +203,19 @@ export function installFooter(
 				unsubscribeBranch();
 				hooks.setRequestRender(undefined);
 				hooks.setExtensionStatusesGetter?.(undefined);
+				hooks.onDispose?.();
 			},
 			invalidate() {},
 			render(width: number): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
-				const wideFormatTokens = config.footerFormat ? parseFooterFormat(config.footerFormat) : [];
-				const compactFormatTokens = config.responsiveFooter
-					? parseFooterFormat(config.compactFooterFormat)
+				const footer = config.components.footer;
+				const footerModelLabel = modelLabelFor(state, footer.modelLabel);
+				const wideFormatTokens = config.components.footer.styles.starship.format
+					? parseFooterFormat(config.components.footer.styles.starship.format)
+					: [];
+				const compactFormatTokens = config.components.footer.styles.starship.responsive
+					? parseFooterFormat(config.components.footer.styles.starship.compactFormat)
 					: [];
 				const wideReferences = collectFooterFormatReferences(
 					wideFormatTokens,
@@ -218,28 +225,50 @@ export function installFooter(
 					compactFormatTokens,
 					FOOTER_FORMAT_ALIASES,
 				);
-				const colorSource = config.colorSources.starship;
+				const colorSource = config.components.footer.colorSource;
 				const iconMode = config.icons.mode;
+				const formattedCwd = sanitizeEditorMetadataText(
+					formatCwdLabel(ctx.cwd, config.icons.cwd, {
+						mode: config.components.footer.styles.starship.pathDisplay.mode,
+						depth: config.components.footer.styles.starship.pathDisplay.depth,
+					}),
+				);
+				const branch = sanitizeEditorMetadataText(state.branch ?? "") || undefined;
+				const gitStateLabel = sanitizeEditorMetadataText(state.gitStateLabel ?? "");
+				const commit = state.commit
+					? {
+							...state.commit,
+							oid: state.commit.oid ? sanitizeEditorMetadataText(state.commit.oid) || null : null,
+							tag: state.commit.tag ? sanitizeEditorMetadataText(state.commit.tag) || null : null,
+						}
+					: undefined;
+				const runtime = state.runtime
+					? {
+							...state.runtime,
+							name: sanitizeEditorMetadataText(state.runtime.name),
+							symbol: sanitizeEditorMetadataText(state.runtime.symbol),
+							version: sanitizeEditorMetadataText(state.runtime.version ?? ""),
+						}
+					: undefined;
+				const packageVersion = state.packageVersion
+					? {
+							...state.packageVersion,
+							version: sanitizeEditorMetadataText(state.packageVersion.version),
+						}
+					: undefined;
 				const separator = renderStyleForSource(
 					theme,
 					colorSource,
 					config.colors.separator,
-					separatorText[config.separator],
+					separatorText[config.components.footer.styles.starship.separator],
 				);
 				const innerWidth = Math.max(1, width - 2);
-				const cwdLabel = renderStyleForSource(
-					theme,
-					colorSource,
-					config.colors.cwd,
-					formatCwdLabel(ctx.cwd, config.icons.cwd, {
-						mode: config.pathDisplay.mode,
-						depth: config.pathDisplay.depth,
-					}),
-				);
+				const cwdLabel = renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
 				const needsSessionName =
-					(config.footerFormat
+					(config.components.footer.styles.starship.format
 						? wideReferences.has("session_name")
-						: config.footerSegments.sessionName) || compactReferences.has("session_name");
+						: config.components.footer.styles.starship.segments.sessionName) ||
+					compactReferences.has("session_name");
 				const sessionName = needsSessionName
 					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
 					: "";
@@ -247,9 +276,11 @@ export function installFooter(
 					? renderStyleForSource(theme, colorSource, config.colors.sessionName, sessionName)
 					: "";
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
-				const branch = state.branch;
 				const branchText = branch
-					? formatGitBranchText(branch, config.gitBranch.maxLength)
+					? formatGitBranchText(
+							branch,
+							config.components.footer.styles.starship.gitBranch.maxLength,
+						)
 					: undefined;
 				const contextUsage = ctx.getContextUsage();
 				const liveContext = hooks.getLiveContext?.();
@@ -262,10 +293,13 @@ export function installFooter(
 				const contextLabel = buildContextDisplayLabel({
 					percent: contextPercent,
 					contextWindow,
-					style: config.contextStyle,
+					style: config.components.footer.styles.starship.contextStyle,
 					asciiGauge: iconMode === "ascii",
 				});
-				const tier = contextColorTier(contextPercent, config.contextThresholds);
+				const tier = contextColorTier(
+					contextPercent,
+					config.components.footer.styles.starship.contextThresholds,
+				);
 				const contextColor =
 					tier === "error"
 						? config.colors.contextError
@@ -289,7 +323,7 @@ export function installFooter(
 				const gitStatusColor = (text: string) =>
 					renderStyleForSource(theme, colorSource, config.colors.gitStatus, text);
 				const gitIcon = config.icons.git ? gitColor(config.icons.git) : "";
-				const gitCounts = config.footerSegments.gitCounts;
+				const gitCounts = config.components.footer.styles.starship.segments.gitCounts;
 				const stashLabel =
 					state.stashed > 0
 						? gitCounts
@@ -320,7 +354,6 @@ export function installFooter(
 				})();
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
-				const gitStateLabel = state.gitStateLabel ?? "";
 				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
 				const renderVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
@@ -340,17 +373,13 @@ export function installFooter(
 						case "git_state":
 							return gitStateBlock;
 						case "runtime": {
-							if (!state.runtime) return "";
-							const symbol = resolveRuntimeSymbol(
-								state.runtime.name,
-								state.runtime.symbol,
-								iconMode,
-							);
-							const label = state.runtime.version ? `${symbol} ${state.runtime.version}` : symbol;
-							return renderStyleForSource(theme, colorSource, state.runtime.style, label);
+							if (!runtime) return "";
+							const symbol = resolveRuntimeSymbol(runtime.name, runtime.symbol, iconMode);
+							const label = runtime.version ? `${symbol} ${runtime.version}` : symbol;
+							return renderStyleForSource(theme, colorSource, runtime.style, label);
 						}
 						case "model":
-							return sanitizeExtensionStatusText(state.modelLabel);
+							return sanitizeExtensionStatusText(footerModelLabel);
 						case "provider":
 							return sanitizeExtensionStatusText(state.providerLabel);
 						case "session_duration":
@@ -405,19 +434,19 @@ export function installFooter(
 						case "package":
 							return formatPackageVersionSegment(
 								theme,
-								state.packageVersion,
+								packageVersion,
 								colorSource,
 								iconMode,
 								config.icons.package,
 								config.colors.packageVersion,
 							);
 						case "package_version":
-							return state.packageVersion?.version
+							return packageVersion?.version
 								? renderStyleForSource(
 										theme,
 										colorSource,
 										config.colors.packageVersion,
-										state.packageVersion.version,
+										packageVersion.version,
 									)
 								: "";
 						case "sep":
@@ -425,25 +454,20 @@ export function installFooter(
 						case "git_commit":
 							return formatGitCommitSegment(
 								theme,
-								state.commit,
-								config.gitCommit,
+								commit,
+								config.components.footer.styles.starship.gitCommit,
 								colorSource,
 								config.colors.gitCommit,
 							);
 						case "git_tag":
-							return config.gitCommit.showTag && state.commit?.tag
-								? renderStyleForSource(
-										theme,
-										colorSource,
-										config.colors.gitCommit,
-										state.commit.tag,
-									)
+							return config.components.footer.styles.starship.gitCommit.showTag && commit?.tag
+								? renderStyleForSource(theme, colorSource, config.colors.gitCommit, commit.tag)
 								: "";
 						case "git_metrics":
 							return formatGitMetricsSegment(
 								theme,
 								state.metrics,
-								config.gitMetrics,
+								config.components.footer.styles.starship.gitMetrics,
 								colorSource,
 								config.colors.gitMetricsAdded,
 								config.colors.gitMetricsDeleted,
@@ -471,16 +495,22 @@ export function installFooter(
 					}
 				};
 				const branchParts: string[] = [];
-				if (config.footerSegments.gitBranch) {
+				if (config.components.footer.styles.starship.segments.gitBranch) {
 					if (branchText) {
 						branchParts.push("on", gitIcon, gitColor(branchText));
-					} else if (state.commit?.detached) {
+					} else if (commit?.detached) {
 						// `HEAD` uses git-branch style; `(hash)` uses git-commit style
 						// (bold green) per Starship `git_commit` format.
 						branchParts.push("on", gitIcon, gitColor("HEAD"));
-						if (config.footerSegments.gitCommit && state.commit.oid) {
-							const shortHash = state.commit.oid.slice(0, config.gitCommit.hashLength);
-							const tag = config.gitCommit.showTag && state.commit.tag ? state.commit.tag : "";
+						if (config.components.footer.styles.starship.segments.gitCommit && commit.oid) {
+							const shortHash = commit.oid.slice(
+								0,
+								config.components.footer.styles.starship.gitCommit.hashLength,
+							);
+							const tag =
+								config.components.footer.styles.starship.gitCommit.showTag && commit.tag
+									? commit.tag
+									: "";
 							const inner = [shortHash, tag].filter(Boolean).join(" ");
 							branchParts.push(
 								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${inner})`),
@@ -488,25 +518,24 @@ export function installFooter(
 						}
 					}
 				}
-				const gitStatusParts = config.footerSegments.gitStatus && statusBlock ? [statusBlock] : [];
-				const showGitState = config.footerSegments.gitBranch || config.footerSegments.gitStatus;
+				const gitStatusParts =
+					config.components.footer.styles.starship.segments.gitStatus && statusBlock
+						? [statusBlock]
+						: [];
+				const showGitState =
+					config.components.footer.styles.starship.segments.gitBranch ||
+					config.components.footer.styles.starship.segments.gitStatus;
 				const gitStateParts = showGitState && gitStateBlock ? [gitStateBlock] : [];
 				const branchLabel = [...branchParts, ...gitStatusParts, ...gitStateParts]
 					.filter(Boolean)
 					.join(" ");
-				const runtimeLabel = config.footerSegments.runtime
-					? formatRuntimeSegment(
-							theme,
-							state.runtime,
-							config.colors.runtimePrefix,
-							colorSource,
-							iconMode,
-						)
+				const runtimeLabel = config.components.footer.styles.starship.segments.runtime
+					? formatRuntimeSegment(theme, runtime, config.colors.runtimePrefix, colorSource, iconMode)
 					: "";
-				const packageVersionLabel = config.footerSegments.packageVersion
+				const packageVersionLabel = config.components.footer.styles.starship.segments.packageVersion
 					? formatPackageVersionSegment(
 							theme,
-							state.packageVersion,
+							packageVersion,
 							colorSource,
 							iconMode,
 							config.icons.package,
@@ -515,22 +544,23 @@ export function installFooter(
 					: "";
 				// Skip standalone gitCommit when hash is already folded into the
 				// branch display on detached HEAD.
-				const hashFoldedIntoBranch = state.commit?.detached && config.footerSegments.gitBranch;
+				const hashFoldedIntoBranch =
+					commit?.detached && config.components.footer.styles.starship.segments.gitBranch;
 				const gitCommitLabel =
-					config.footerSegments.gitCommit && !hashFoldedIntoBranch
+					config.components.footer.styles.starship.segments.gitCommit && !hashFoldedIntoBranch
 						? formatGitCommitSegment(
 								theme,
-								state.commit,
-								config.gitCommit,
+								commit,
+								config.components.footer.styles.starship.gitCommit,
 								colorSource,
 								config.colors.gitCommit,
 							)
 						: "";
-				const gitMetricsLabel = config.footerSegments.gitMetrics
+				const gitMetricsLabel = config.components.footer.styles.starship.segments.gitMetrics
 					? formatGitMetricsSegment(
 							theme,
 							state.metrics,
-							config.gitMetrics,
+							config.components.footer.styles.starship.gitMetrics,
 							colorSource,
 							config.colors.gitMetricsAdded,
 							config.colors.gitMetricsDeleted,
@@ -538,7 +568,11 @@ export function installFooter(
 					: "";
 
 				const sessionDurationSegment = (() => {
-					if (!config.footerSegments.sessionDuration || !state.sessionStartEpoch) return "";
+					if (
+						!config.components.footer.styles.starship.segments.sessionDuration ||
+						!state.sessionStartEpoch
+					)
+						return "";
 					const timeLabel = buildSessionDurationLabel(state.sessionStartEpoch);
 					const prefix = renderStyleForSource(theme, colorSource, "", "up for");
 					const time = renderStyleForSource(
@@ -549,7 +583,7 @@ export function installFooter(
 					);
 					return `${prefix} ${time}`;
 				})();
-				const usernameSegment = config.footerSegments.username
+				const usernameSegment = config.components.footer.styles.starship.segments.username
 					? renderStyleForSource(
 							theme,
 							colorSource,
@@ -557,7 +591,7 @@ export function installFooter(
 							formatUsernameHostLabel(config.icons.username),
 						)
 					: "";
-				const osSegment = config.footerSegments.os
+				const osSegment = config.components.footer.styles.starship.segments.os
 					? renderStyleForSource(
 							theme,
 							colorSource,
@@ -568,8 +602,10 @@ export function installFooter(
 				const left = [
 					osSegment,
 					usernameSegment,
-					config.footerSegments.cwd ? cwdLabel : "",
-					config.footerSegments.sessionName ? builtInSessionNameLabel : "",
+					config.components.footer.styles.starship.segments.cwd ? cwdLabel : "",
+					config.components.footer.styles.starship.segments.sessionName
+						? builtInSessionNameLabel
+						: "",
 					branchLabel,
 					gitCommitLabel,
 					gitMetricsLabel,
@@ -580,13 +616,13 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 
-				const modelInfoSegment = config.footerSegments.modelInfo
+				const modelInfoSegment = config.components.footer.styles.starship.segments.modelInfo
 					? composeModelInfoLabel(
-							sanitizeExtensionStatusText(state.modelLabel),
+							sanitizeExtensionStatusText(footerModelLabel),
 							sanitizeExtensionStatusText(state.providerLabel),
 						)
 					: "";
-				const timeSegment = config.footerSegments.time
+				const timeSegment = config.components.footer.styles.starship.segments.time
 					? renderStyleForSource(
 							theme,
 							colorSource,
@@ -615,9 +651,9 @@ export function installFooter(
 					.join(" ");
 				const right = [
 					modelInfoSegment,
-					config.footerSegments.context ? builtInContextLabel : "",
-					config.footerSegments.tokens ? builtInTokenLabel : "",
-					config.footerSegments.cost ? builtInCostLabel : "",
+					config.components.footer.styles.starship.segments.context ? builtInContextLabel : "",
+					config.components.footer.styles.starship.segments.tokens ? builtInTokenLabel : "",
+					config.components.footer.styles.starship.segments.cost ? builtInCostLabel : "",
 					timeSegment,
 				]
 					.filter(Boolean)
@@ -626,7 +662,7 @@ export function installFooter(
 				let contentLeft = left;
 				let contentMiddle = "";
 				let contentRight = right;
-				if (config.footerFormat) {
+				if (config.components.footer.styles.starship.format) {
 					const {
 						left: fmtLeft,
 						middle: fmtMiddle,
@@ -667,7 +703,8 @@ export function installFooter(
 						return truncateToWidth(framed, width, "");
 					});
 
-				if (!config.responsiveFooter) return frameRows([renderLegacyContent()]);
+				if (!config.components.footer.styles.starship.responsive)
+					return frameRows([renderLegacyContent()]);
 
 				const fullZones = {
 					left: appendStatusArea(
@@ -699,7 +736,9 @@ export function installFooter(
 						theme,
 						colorSource,
 						config.colors.cwd,
-						formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
+						sanitizeEditorMetadataText(
+							formatCwdLabel(ctx.cwd, config.icons.cwd, { mode: "basename", depth: 0 }),
+						),
 					),
 					chunkBudget,
 					"…",
@@ -763,11 +802,21 @@ export function installFooter(
 					packCompactChunks(
 						compactChunks,
 						innerWidth,
-						config.compactFooterMaxLines,
+						config.components.footer.styles.starship.compactMaxLines,
 						renderVariable("sep"),
 					),
 				);
 			},
 		};
 	});
+}
+
+export function installHiddenFooter(ctx: ExtensionContext, onDispose?: () => void): void {
+	ctx.ui.setFooter(() => ({
+		dispose: onDispose,
+		invalidate() {},
+		render(): string[] {
+			return [];
+		},
+	}));
 }

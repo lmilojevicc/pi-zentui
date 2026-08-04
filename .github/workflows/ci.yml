@@ -32,3 +32,50 @@ jobs:
 
       - name: Dry-run pack
         run: npm run pack:check
+
+  fixed-editor-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        pi-version: ["0.80.3", "0.82.1", "0.83.0"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin matching Pi package versions
+        env:
+          PI_VERSION: ${{ matrix.pi-version }}
+        run: |
+          npm pkg set "devDependencies.@earendil-works/pi-ai=$PI_VERSION"
+          npm pkg set "devDependencies.@earendil-works/pi-coding-agent=$PI_VERSION"
+          npm pkg set "devDependencies.@earendil-works/pi-tui=$PI_VERSION"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Attest Pi package versions
+        env:
+          PI_VERSION: ${{ matrix.pi-version }}
+        run: |
+          npm ls --depth=0 @earendil-works/pi-ai @earendil-works/pi-coding-agent @earendil-works/pi-tui
+          node - <<'NODE'
+          for (const name of ["pi-ai", "pi-coding-agent", "pi-tui"]) {
+            const pkg = require(`./node_modules/@earendil-works/${name}/package.json`)
+            if (pkg.version !== process.env.PI_VERSION) throw new Error(`${pkg.name}: ${pkg.version}`)
+            console.log(pkg.name, pkg.version)
+          }
+          NODE
+
+      - name: Verify fixed editor
+        run: timeout --signal=TERM --kill-after=30s 15m npm run test:fixed-editor
+        env:
+          RUN_FIXED_EDITOR_PTY: "1"

@@ -42,6 +42,12 @@ export const SHOW_CURSOR = "\x1b[?25h";
 /** Clear entire line. */
 export const CLEAR_LINE = "\x1b[2K";
 
+/** Clear the current viewport without erasing scrollback. */
+export const CLEAR_DISPLAY = "\x1b[2J";
+
+/** Move the cursor home. */
+export const HOME_CURSOR = "\x1b[H";
+
 /** Disable auto-wrap (DECAWM off). */
 export const DISABLE_AUTOWRAP = "\x1b[?7l";
 
@@ -58,18 +64,32 @@ export function cursorTo(row: number, col: number): string {
 	return `\x1b[${row};${col}H`;
 }
 
-/**
- * Emit all sequences needed to restore the terminal to a safe state.
- * Call on dispose and process.exit to avoid leaving the terminal broken.
- */
-export function emergencyTerminalReset(): string {
+/** Canonical idempotent reset for every terminal mode owned by Zentui. */
+export const CANONICAL_TERMINAL_RESET =
+	SYNC_BEGIN +
+	RESET_SCROLL_REGION +
+	DISABLE_MOUSE +
+	DISABLE_ALT_SCROLL +
+	ENABLE_AUTOWRAP +
+	SHOW_CURSOR +
+	EXIT_ALT_SCREEN +
+	SYNC_END;
+
+/** Clear-and-normalize prelude for a physical layout transition. */
+export function transitionPrelude(target: "fixed" | "normal-flow"): string {
 	return (
 		SYNC_BEGIN +
 		RESET_SCROLL_REGION +
+		ENABLE_AUTOWRAP +
 		DISABLE_MOUSE +
-		ENABLE_ALT_SCROLL +
-		EXIT_ALT_SCREEN +
+		(target === "fixed" ? DISABLE_ALT_SCROLL : ENABLE_ALT_SCROLL) +
 		SHOW_CURSOR +
+		HOME_CURSOR +
+		CLEAR_DISPLAY +
 		SYNC_END
 	);
+}
+
+export function emergencyTerminalReset(): string {
+	return CANONICAL_TERMINAL_RESET;
 }

@@ -31,22 +31,42 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	return {
 		...actual,
 		ensureConfigExists: () => {},
-		loadConfig: () => ({
-			...actual.defaultConfig,
-			projectRefreshIntervalMs: 0,
-			features: { ...actual.defaultConfig.features, editor: false, statusLine: true },
-			footerSegments: { ...actual.defaultConfig.footerSegments, modelInfo: true },
-		}),
+		loadConfig: () => {
+			const footer = actual.defaultConfig.components.footer;
+			return {
+				...actual.defaultConfig,
+				projectRefreshIntervalMs: 0,
+				components: {
+					...actual.defaultConfig.components,
+					editor: { ...actual.defaultConfig.components.editor, enabled: false },
+					footer: {
+						...footer,
+						enabled: true,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								segments: { ...footer.styles.starship.segments, modelInfo: true },
+							},
+						},
+					},
+				},
+			};
+		},
 	};
 });
 
 vi.mock("../extensions/zentui/git", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/git")>();
-	return { ...actual, readGitStatus: async () => actual.emptyGitStatus() };
+	return {
+		...actual,
+		readGitStatus: async () => ({ kind: "ok" as const, status: actual.emptyGitStatus() }),
+	};
 });
-vi.mock("../extensions/zentui/runtime", () => ({ readRuntimeInfo: async () => undefined }));
+vi.mock("../extensions/zentui/runtime", () => ({
+	readRuntimeInfo: async () => ({ kind: "ok" as const, runtime: undefined }),
+}));
 vi.mock("../extensions/zentui/package-version", () => ({
-	readPackageVersionResult: async () => undefined,
+	readPackageVersionResult: async () => ({ kind: "ok" as const, result: null }),
 }));
 
 import zentui from "../extensions/zentui/index";
@@ -232,7 +252,6 @@ describe("telemetry lifecycle integration", () => {
 		await emit(handlers, "session_start", first.ctx);
 		const firstFooter = first.createFooter();
 		expect(rendered(firstFooter)).toMatch(/\(sub\).*\(auto\)|\(auto\).*\(sub\)/);
-		firstFooter.dispose?.();
 		await emit(handlers, "session_shutdown", first.ctx);
 		expect(() => first.createFooter()).toThrow("footer was not installed");
 

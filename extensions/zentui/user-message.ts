@@ -1,17 +1,13 @@
-import { type Theme, type ThemeColor, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { ZentuiConfig } from "./config";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import {
-	Markdown,
-	type MarkdownTheme,
-	truncateToWidth,
-	visibleWidth,
-} from "@earendil-works/pi-tui";
-import type { PolishedTuiConfig } from "./config";
-import { installPrototypePatch } from "./prototype-patch-registry";
-import {
-	EDITOR_ACCENT_FALLBACK,
-	EDITOR_BORDER_FALLBACK,
-	renderStyleForSourceOrFallback,
-} from "./style";
+	sanitizeRenderedUserMessageLines,
+	sanitizeRenderedUserMessageText,
+	sanitizeUserMessageSourceText,
+} from "./user-message-osc";
+import { renderUserMessageStyle, userMessageStyleCacheKey } from "./user-message-styles";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -68,95 +64,17 @@ function getCachedMarkdownText(instance: object): string | undefined {
 	return text;
 }
 
-function getUserMessageConfigKey(config: PolishedTuiConfig): string {
-	return [
-		config.features.copyFriendly ? "copy" : "chrome",
-		config.colorSources.userMessages,
-		config.colors.editorAccent ?? "",
-		config.colors.editorBorder ?? "",
-		config.icons.rail,
-	].join("\0");
-}
-
-function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): string {
-	if (!theme) return text;
-	try {
-		return theme.fg(color, text);
-	} catch {
-		return text;
-	}
-}
-
-function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
-	return {
-		heading: (text) => themeFg(theme, "mdHeading", text),
-		link: (text) => themeFg(theme, "mdLink", text),
-		linkUrl: (text) => themeFg(theme, "mdLinkUrl", text),
-		code: (text) => themeFg(theme, "mdCode", text),
-		codeBlock: (text) => themeFg(theme, "mdCodeBlock", text),
-		codeBlockBorder: (text) => themeFg(theme, "mdCodeBlockBorder", text),
-		quote: (text) => themeFg(theme, "mdQuote", text),
-		quoteBorder: (text) => themeFg(theme, "mdQuoteBorder", text),
-		hr: (text) => themeFg(theme, "mdHr", text),
-		listBullet: (text) => themeFg(theme, "mdListBullet", text),
-		bold: (text) => (theme ? theme.bold(text) : text),
-		italic: (text) => (theme ? theme.italic(text) : text),
-		underline: (text) => (theme ? theme.underline(text) : text),
-		strikethrough: (text) => (theme ? theme.strikethrough(text) : text),
-	};
-}
-
-function fillLine(content: string, width: number): string {
-	const truncated = truncateToWidth(content, Math.max(0, width), "");
-	const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
-	return `${truncated}${pad}`;
-}
-
-function renderPromptBoxRail(theme: Theme | undefined, config: PolishedTuiConfig): string {
-	if (config.features.copyFriendly) return "";
-	const railGlyph = config.icons.rail;
-
-	return `${
-		theme
-			? renderStyleForSourceOrFallback(
-					theme,
-					config.colorSources.userMessages,
-					config.colors.editorAccent,
-					EDITOR_ACCENT_FALLBACK,
-					railGlyph,
-				)
-			: railGlyph
-	} `;
-}
-
-function renderPromptBoxLine(
-	line: string,
-	width: number,
-	theme: Theme | undefined,
-	config: PolishedTuiConfig,
-): string {
-	if (width <= 0) return "";
-	const rail = renderPromptBoxRail(theme, config);
-	const contentWidth = Math.max(0, width - visibleWidth(rail));
-	const content = config.features.copyFriendly
-		? truncateToWidth(line, contentWidth, "")
-		: fillLine(line, contentWidth);
-	return truncateToWidth(`${rail}${content}`, width, "");
-}
-
 function renderZentuiUserMessage(
 	instance: PatchableUserMessagePrototype,
 	width: number,
 	theme: Theme | undefined,
-	config: PolishedTuiConfig,
+	config: ZentuiConfig,
 ): string[] | undefined {
 	if (!isRecord(instance)) return undefined;
 
 	const text = getCachedMarkdownText(instance);
 	if (text === undefined) return undefined;
-	if (width <= 0) return [""];
-
-	const configKey = getUserMessageConfigKey(config);
+	const configKey = userMessageStyleCacheKey(config);
 	const cached = userMessageRenderCache.get(instance);
 	if (
 		cached?.hasMarkdownText &&
@@ -168,30 +86,12 @@ function renderZentuiUserMessage(
 		return cached.renderedLines;
 	}
 
-	const railWidth = visibleWidth(renderPromptBoxRail(theme, config));
-	const contentWidth = Math.max(1, width - railWidth);
-	const renderer = new Markdown(text, 0, 0, makeMarkdownTheme(theme), {
-		color: (content) => themeFg(theme, "userMessageText", content),
+	const lines = renderUserMessageStyle({
+		text,
+		width,
+		theme,
+		config,
 	});
-	const body = renderer.render(contentWidth);
-	const contentLines = body.length > 0 ? body : [""];
-	const border = theme
-		? renderStyleForSourceOrFallback(
-				theme,
-				config.colorSources.userMessages,
-				config.colors.editorBorder,
-				EDITOR_BORDER_FALLBACK,
-				"─".repeat(width),
-			)
-		: "─".repeat(width);
-	const lines = [
-		truncateToWidth(border, width, ""),
-		renderPromptBoxLine("", width, theme, config),
-		...contentLines.map((line) => renderPromptBoxLine(line, width, theme, config)),
-		renderPromptBoxLine("", width, theme, config),
-		truncateToWidth(border, width, ""),
-	];
-
 	userMessageRenderCache.set(instance, {
 		hasMarkdownText: true,
 		text,
@@ -204,6 +104,9 @@ function renderZentuiUserMessage(
 }
 
 function withPromptZoneMarkers(lines: string[]): string[] {
+	if (lines.length === 1) {
+		return [`${OSC133_ZONE_START}${lines[0]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`];
+	}
 	const markedLines = [...lines];
 	markedLines[0] = OSC133_ZONE_START + markedLines[0];
 	markedLines[markedLines.length - 1] =
@@ -211,9 +114,44 @@ function withPromptZoneMarkers(lines: string[]): string[] {
 	return markedLines;
 }
 
+function sanitizePredecessorRender(result: unknown): unknown {
+	if (typeof result === "string") return sanitizeRenderedUserMessageText(result);
+	if (!Array.isArray(result)) return result;
+	const stringRows = result.every((line): line is string => typeof line === "string");
+	if (stringRows) return sanitizeRenderedUserMessageLines(result);
+	return result.map((line) =>
+		typeof line === "string" ? sanitizeRenderedUserMessageText(line) : line,
+	);
+}
+
+function renderSafeSourceFallback(
+	instance: PatchableUserMessagePrototype,
+	width: number,
+): string[] | undefined {
+	let text: string | undefined;
+	try {
+		text = isRecord(instance) ? getCachedMarkdownText(instance) : undefined;
+	} catch {
+		return undefined;
+	}
+	if (text === undefined) return undefined;
+	const stripped = sanitizeUserMessageSourceText(text);
+	if (stripped === text) return undefined;
+	const lines = (width > 0 ? wrapTextWithAnsi(stripped, width) : [""]).map(
+		sanitizeRenderedUserMessageText,
+	);
+	return withPromptZoneMarkers(lines.length > 0 ? lines : [""]);
+}
+
+export function removeUserMessageStyle(): void {
+	const prototype = UserMessageComponent.prototype;
+	removePrototypePatch(prototype, "render", "user-message-render");
+	removePrototypePatch(prototype, "invalidate", "user-message-invalidate");
+}
+
 export function installUserMessageStyle(
 	getTheme: () => Theme | undefined,
-	getConfig: () => PolishedTuiConfig,
+	getConfig: () => ZentuiConfig,
 ): Cleanup {
 	const prototype = UserMessageComponent.prototype;
 	const cleanupInvalidate = installPrototypePatch(
@@ -232,17 +170,26 @@ export function installUserMessageStyle(
 			"render",
 			"user-message-render",
 			({ predecessor, receiver, args }) => {
+				const renderPredecessor = () =>
+					sanitizePredecessorRender(Reflect.apply(predecessor, receiver, args));
 				const width = args[0];
-				if (typeof width !== "number") return Reflect.apply(predecessor, receiver, args);
-				const lines = renderZentuiUserMessage(
-					receiver as PatchableUserMessagePrototype,
-					width,
-					getTheme(),
-					getConfig(),
-				);
-				if (!lines) return Reflect.apply(predecessor, receiver, args);
-				if (lines.length === 0) return lines;
-				return withPromptZoneMarkers(lines);
+				if (typeof width !== "number") return renderPredecessor();
+				try {
+					const lines = renderZentuiUserMessage(
+						receiver as PatchableUserMessagePrototype,
+						width,
+						getTheme(),
+						getConfig(),
+					);
+					if (!lines) return renderPredecessor();
+					return lines.length ? withPromptZoneMarkers(lines) : lines;
+				} catch {
+					const safeFallback = renderSafeSourceFallback(
+						receiver as PatchableUserMessagePrototype,
+						width,
+					);
+					return safeFallback ?? renderPredecessor();
+				}
 			},
 		);
 	} catch (error) {

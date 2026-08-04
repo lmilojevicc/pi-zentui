@@ -4,7 +4,7 @@ import { disposeFixedEditor, installFixedEditorProbe } from "../extensions/zentu
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 
 afterEach(() => {
-	disposeFixedEditor();
+	disposeFixedEditor("shutdown");
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
@@ -64,7 +64,10 @@ describe("fixed-editor probe lifecycle", () => {
 			ctx as never,
 			() => ({
 				...defaultConfig,
-				fixedEditor: { ...defaultConfig.fixedEditor, enabled: true },
+				layout: {
+					...defaultConfig.layout,
+					fixedEditor: { ...defaultConfig.layout.fixedEditor, enabled: true },
+				},
 			}),
 			lifecycle,
 		);
@@ -114,14 +117,17 @@ describe("fixed-editor probe lifecycle", () => {
 			ctx as never,
 			() => ({
 				...defaultConfig,
-				fixedEditor: { ...defaultConfig.fixedEditor, enabled: true },
+				layout: {
+					...defaultConfig.layout,
+					fixedEditor: { ...defaultConfig.layout.fixedEditor, enabled: true },
+				},
 			}),
 			lifecycle,
 		);
 		const component = widgetFactory?.({ terminal: { write: terminalWrite } });
 		component?.render();
 
-		disposeFixedEditor();
+		disposeFixedEditor("live");
 		await Promise.resolve();
 		await Promise.resolve();
 

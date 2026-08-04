@@ -8,10 +8,13 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 
 ## What is this?
 
-Zentui brings two popular aesthetics to Pi:
+Zentui styles three major Pi surfaces independently:
 
-- **[Starship](https://starship.rs/) footer** — shows your current directory, git branch, git status indicators, and runtime/version detection in a compact, icon-rich format
-- **[Opencode](https://github.com/opencode-ai/opencode) editor** — clean bordered input box with accent rail, copy-friendly mode, and model/provider display inside the editor frame
+- **Editor** — selectable opencode, low-rail opencode, and minimalist input frames inspired by [Opencode](https://github.com/opencode-ai/opencode)
+- **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
+- **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
+
+Editor, User messages, and selector borders use an `enabled` field. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** (selector borders and icons) and **Layout** (the fixed-editor experiment) remain supporting configuration domains.
 
 ## Features
 
@@ -24,18 +27,55 @@ Zentui brings two popular aesthetics to Pi:
 - Optional segments (off by default): selected model/provider, `user@host`, current time, OS icon, session duration, and the **project package version** (e.g. `package.json` → `0.6.0`) — distinct from the runtime segment, which shows the installed toolchain
 - Right side shows context usage, token counts, and cost
 - Built-in footer segments can be shown or hidden individually from `/zentui`
-- Fully custom Starship-style layout via a `footerFormat` template string — see [Footer Format Template](#footer-format-template)
+- Fully custom Starship-style layout via the `components.footer.styles.starship.format` template string — see [Footer Format Template](#footer-format-template)
 - Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
   middle, or right side, or hidden per status key from `/zentui`
 
 ### Editor (Opencode-inspired)
 
-- Bordered input box with configurable accent rail and border colors
-- Model name and provider displayed inside the editor frame
-- Configurable model, provider, and thinking-level indicator colors
-- Prompt-box-style user messages matching the ZentUI input chrome
-- Copy-friendly mode hides editor and previous-message rail glyphs so terminal selection copies less chrome
-- **Fixed editor** (experimental, opt-in): Pin the editor and footer at the bottom of the terminal while the transcript scrolls above
+- `opencode` (default) keeps an accent rail on every interior row
+- `opencode-copy-friendly` (**Opencode (copy-friendly)** in `/zentui`) preserves the low-rail rendering for clean terminal selection
+- `minimalist` moves session name, cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
+- The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
+- Opencode autocomplete rows retain Pi's original unframed trailing layout; Minimalist keeps autocomplete inside its rounded frame
+- Configurable model, provider, thinking-level, accent, and border colors
+- **Fixed editor** (experimental, opt-in): pin the editor cluster at the bottom of the terminal while the transcript scrolls above, independently of selected editor and Footer modes
+
+Editor previews:
+
+```text
+opencode                 opencode-copy-friendly     minimalist
+────────────────────     ────────────────────       ╭─ session ── model ╮
+│
+│ prompt                 › prompt                  │ prompt             │
+│
+│ metadata                metadata                 ╰─ git ───── path ──╯
+────────────────────     ────────────────────
+```
+
+### User messages
+
+- `framed` (default) preserves the full-width bordered prompt box with an accent rail
+- `framed-copy-friendly` (**Framed (copy-friendly)** in `/zentui`) keeps the full-width horizontal borders and blank spacer rows, removes the copied accent rail, and retains a one-cell leading gutter before body text.
+- `compact` uses only an accent rail, with no border or padding rows
+- `labeled` uses a rounded box with the fixed label `User`
+- Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
+- No custom `plain` message style is provided
+
+```text
+framed                    framed-copy-friendly
+────────────────────      ────────────────────
+│
+│ Message                  Message
+│
+────────────────────      ────────────────────
+
+compact                    labeled
+│ Message                 ╭─ User ───────────╮
+│ Continued               │ Message          │
+                          │ Continued        │
+                          ╰──────────────────╯
+```
 
 ### Git Status Icons
 
@@ -130,16 +170,20 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu is split into exactly six sections, in this order. Use `Tab` and `Shift+Tab` to switch sections. Every listed control patches the shown JSON equivalent:
+The interactive `/zentui` menu is split into exactly eight component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
 
-1. **Appearance** — Starship/footer colors (`colorSources.starship`); editor + previous-message colors (`colorSources.editor` and `colorSources.userMessages`); separator (`separator`); icon mode (`icons.mode`).
-2. **Editor** — editor enabled (`features.editor`); editor border color mode (`editorBorderColorMode`); editor model label (`editorModelLabel`); copy-friendly mode (`features.copyFriendly`); viewport indicators (`features.viewportIndicators`); fixed editor (`fixedEditor.enabled`); and, while fixed editor is enabled, mouse scroll (`fixedEditor.mouseScroll`) and copy notice (`fixedEditor.copyNotice`).
-3. **Footer** — status line enabled (`features.statusLine`); responsive footer (`responsiveFooter`); compact footer rows (`compactFooterMaxLines`); context style (`contextStyle`); path display (`pathDisplay.mode`); path depth (`pathDisplay.depth`).
-4. **Segments** — visibility toggles for every non-Git built-in segment under `footerSegments`: `cwd`, `sessionName`, `runtime`, `modelInfo`, `context`, `tokens`, `cost`, `sessionDuration`, `username`, `time`, `os`, and `packageVersion`.
-5. **Git** — Git branch visibility (`footerSegments.gitBranch`); branch length (`gitBranch.maxLength`); Git status visibility (`footerSegments.gitStatus`); Git counts visibility (`footerSegments.gitCounts`); Git commit visibility (`footerSegments.gitCommit`); commit-only-detached (`gitCommit.onlyDetached`); exact-match tag (`gitCommit.showTag`); Git metrics visibility (`footerSegments.gitMetrics`); hide zero metrics (`gitMetrics.onlyNonzero`); ignore submodules (`gitMetrics.ignoreSubmodules`).
-6. **Extensions** — default placement (`extensionStatuses.defaultPlacement`) first, followed by placement (`extensionStatuses.placements[key]`) and color (`extensionStatuses.colorModes[key]`) controls for currently active status keys.
+1. **Appearance** — selector-border enablement, style, and colors; icon mode.
+2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, and settings for the selected editor style.
+3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), and colors.
+4. **Layout** — fixed-editor enablement, mouse scrolling, and copy notices.
+5. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
+6. **Segments** — visibility toggles for non-Git Starship segments.
+7. **Git** — Starship Git segment and probe controls.
+8. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-Free-form values such as custom formats, raw colors/styles, numeric values outside the shown presets, and inactive extension keys remain JSON-only.
+Editor and User messages retain independent enablement and style configuration. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
+
+Starship-specific Footer rows are shown only while Starship is selected. The **Segments**, **Git**, and **Extensions** sections remain available for preconfiguration under every Footer style. Free-form values such as custom formats, Opencode metadata format, raw colors/styles, numeric values outside the shown presets, and inactive extension keys remain JSON-only.
 
 Useful slash-command shortcuts:
 
@@ -149,10 +193,13 @@ Useful slash-command shortcuts:
 /zentui statusline enable
 /zentui statusline disable
 /zentui editor toggle
+/zentui messages enable
+/zentui messages disable
+/zentui messages toggle
 /zentui statusline toggle
-/zentui copy-friendly enable
-/zentui copy-friendly disable
-/zentui copy-friendly toggle
+/zentui messages
+/zentui user-messages
+/zentui layout
 /zentui viewport-indicators enable
 /zentui viewport-indicators disable
 /zentui viewport-indicators toggle
@@ -163,30 +210,125 @@ Useful slash-command shortcuts:
 /zentui format clear
 ```
 
+`footer`, `statusline`, `status`, and `status line` are aliases: enable selects Starship, disable selects Native, and toggle selects Native only from Starship (Native or Hidden toggle to Starship).
+
 Default config values — copy this and change any value you want:
 
 ```json
 {
 	"projectRefreshIntervalMs": 30000,
-	"footerFormat": "",
-	"responsiveFooter": true,
-	"compactFooterFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
-	"compactFooterMaxLines": 2,
-	"editorMetadataFormat": "$model  $provider(  $thinking)",
-	"separator": "pipe",
-	"contextStyle": "text",
-	"editorModelLabel": "id",
-	"editorBorderColorMode": "static",
-	"contextThresholds": {
-		"warning": 70,
-		"error": 90
+	"components": {
+		"editor": {
+			"enabled": true,
+			"style": "opencode",
+			"colorSource": "theme",
+			"borderColorMode": "static",
+			"modelLabel": "id",
+			"viewportIndicators": true,
+			"styles": {
+				"opencode": {
+					"metadataFormat": "$model  $provider(  $thinking)"
+				},
+				"opencode-copy-friendly": {
+					"metadataFormat": "$model  $provider(  $thinking)"
+				},
+				"minimalist": {
+					"pathDisplay": "compact",
+					"contextFormat": "percent",
+					"contextGauge": false,
+					"showSessionName": true,
+					"showTimer": true,
+					"showCost": true,
+					"showGit": true,
+					"contextThresholds": {
+						"warning": 70,
+						"error": 90
+					}
+				}
+			}
+		},
+		"userMessages": {
+			"enabled": true,
+			"style": "framed",
+			"colorSource": "theme",
+			"styles": {
+				"framed": {},
+				"framed-copy-friendly": {},
+				"compact": {},
+				"labeled": {}
+			}
+		},
+		"selectorBorders": {
+			"enabled": true,
+			"style": "zentui",
+			"colorSource": "theme"
+		},
+		"footer": {
+			"style": "starship",
+			"colorSource": "theme",
+			"modelLabel": "id",
+			"styles": {
+				"starship": {
+					"format": "",
+					"responsive": true,
+					"compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+					"compactMaxLines": 2,
+					"separator": "pipe",
+					"contextStyle": "text",
+					"contextThresholds": {
+						"warning": 70,
+						"error": 90
+					},
+					"pathDisplay": {
+						"mode": "basename",
+						"depth": 0
+					},
+					"segments": {
+						"cwd": true,
+						"sessionName": true,
+						"gitBranch": true,
+						"gitStatus": true,
+						"gitCounts": false,
+						"runtime": true,
+						"modelInfo": false,
+						"context": true,
+						"tokens": true,
+						"cost": true,
+						"sessionDuration": false,
+						"username": false,
+						"time": false,
+						"os": false,
+						"packageVersion": false,
+						"gitCommit": false,
+						"gitMetrics": false
+					},
+					"gitBranch": {
+						"maxLength": "full"
+					},
+					"gitCommit": {
+						"hashLength": 7,
+						"onlyDetached": true,
+						"showTag": true
+					},
+					"gitMetrics": {
+						"onlyNonzero": true,
+						"ignoreSubmodules": false
+					},
+					"extensionStatuses": {
+						"defaultPlacement": "right",
+						"placements": {},
+						"colorModes": {}
+					}
+				}
+			}
+		}
 	},
-	"pathDisplay": {
-		"mode": "basename",
-		"depth": 0
-	},
-	"gitBranch": {
-		"maxLength": "full"
+	"layout": {
+		"fixedEditor": {
+			"enabled": false,
+			"mouseScroll": true,
+			"copyNotice": true
+		}
 	},
 	"icons": {
 		"mode": "auto",
@@ -242,103 +384,67 @@ Default config values — copy this and change any value you want:
 		"editorThinkingMedium": "thinkingMedium",
 		"editorThinkingHigh": "thinkingHigh",
 		"editorThinkingXhigh": "thinkingXhigh"
-	},
-	"colorSources": {
-		"starship": "theme",
-		"editor": "theme",
-		"userMessages": "theme"
-	},
-	"features": {
-		"editor": true,
-		"statusLine": true,
-		"copyFriendly": false,
-		"viewportIndicators": true
-	},
-	"footerSegments": {
-		"cwd": true,
-		"sessionName": true,
-		"gitBranch": true,
-		"gitStatus": true,
-		"gitCounts": false,
-		"runtime": true,
-		"modelInfo": false,
-		"context": true,
-		"tokens": true,
-		"cost": true,
-		"sessionDuration": false,
-		"username": false,
-		"time": false,
-		"os": false,
-		"packageVersion": false,
-		"gitCommit": false,
-		"gitMetrics": false
-	},
-	"gitCommit": {
-		"hashLength": 7,
-		"onlyDetached": true,
-		"showTag": true
-	},
-	"gitMetrics": {
-		"onlyNonzero": true,
-		"ignoreSubmodules": false
-	},
-	"extensionStatuses": {
-		"defaultPlacement": "right",
-		"placements": {},
-		"colorModes": {}
-	},
-	"fixedEditor": {
-		"enabled": false,
-		"mouseScroll": true,
-		"copyNotice": true
 	}
 }
 ```
 
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
-- `contextStyle`: `text` (default), `gauge`, or `text+gauge` for the context segment. Finite context percentages use one decimal place. Context usage refreshes during assistant streaming; token and cost totals remain canonical and finalize at turn boundaries.
-- `editorModelLabel`: controls the model shown in the editor frame, built-in model-info footer segment, and footer `$model` variable. `id` (default) shows the model id; `name` shows the model's display name (including custom `name` values set in `models.json`), falling back to the id when no name is set.
-- `editorBorderColorMode`: `static` (default) uses `colors.editorBorder`; `adaptive` follows Pi's current shell-mode and thinking-level editor border color. Cycle it from the `/zentui` **Editor** tab.
-- `editorMetadataFormat`: JSON-only template for the left side of the editor metadata row. Missing, non-string, or empty values restore the default `$model  $provider(  $thinking)` layout; non-empty strings, including whitespace-only strings, are preserved. See [Editor Metadata Format](#editor-metadata-format) below.
-- `separator`: controls the default footer layout and extension-status connectors: `pipe` (default, ` | `), `dot` (` · `), `chevron` (` › `), or `none` (one space). Cycle it from the `/zentui` **Appearance** tab. This selects the separator glyph; `colors.separator` controls its color. Custom `footerFormat` literals and `$sep` keep their existing behavior.
-- `contextThresholds`: `{ warning, error }` percentages (default `70` / `90`) that select contextNormal / contextWarning / contextError colors.
-- `pathDisplay`: controls how the cwd/`$cwd` path is shown. `mode` is `basename` (default, last segment only) or `full` (path with home contracted to `~`). In `full` mode, `depth` keeps only the last N trailing directories (`0` = entire path after `~`, max `5`); when parents are dropped the path is prefixed with `…/` (Starship-style). The `/zentui` **Footer** tab cycles path mode and path depth (`0`–`5`; depth is ignored for basename). Example: `~/Projects/foo/bar` with `depth: 2` → `…/foo/bar`.
-- `gitBranch.maxLength`: visible width of the built-in branch name and `$git_branch` / `$branch`. The default `full` preserves the complete name; any positive integer uses that width including the trailing `…`. `/zentui` **Git** cycles `full`, `10`, `20`, `30`, `40`, and `50`; custom positive integers can be set in JSON.
-- `icons`: every shown icon key is configurable; omit any key to use the Zentui default. `icons.mode` is `auto` | `nerd` | `ascii` (default `auto`, same glyphs as nerd). ASCII mode swaps in plain fallbacks for statusline icons and runtime symbols — useful without a Nerd Font. Custom per-icon strings always win over mode defaults. Custom `icons.os` always wins; when left at the mode default, Zentui maps the OS icon by platform. `rail` sets the vertical glyph drawn as the left rail of the active editor frame and previous user messages when `copyFriendly` is disabled (default `│`; any single Unicode vertical or block glyph). `editorPrompt` controls an optional copy-friendly editor prompt glyph; the default is `""` so copy-friendly mode stays rail-free.
-- `colorSources`: `theme` maps styles through Pi theme tokens; `terminal` emits terminal colors. `/zentui` switches these sources; manual JSON controls specific style values.
-- `features`: `editor` enables Zentui's custom editor, selector borders, and previous-message chrome. `statusLine` enables Zentui's custom footer/status line. `copyFriendly` hides editor and previous-message rail glyphs so native terminal selection copies less chrome. `viewportIndicators` preserves Pi's native `↑ N more` / `↓ N more` wrapped-row counts in Zentui's editor borders (default `true`). All four can be changed from `/zentui` or direct slash-command arguments.
-- `footerSegments`: show or hide individual built-in footer segments (`cwd`, `sessionName`, `gitBranch`, `gitStatus`, `gitCounts`, `gitCommit`, `gitMetrics`, `runtime`, `modelInfo`, `packageVersion`, `sessionDuration`, `username`, `time`, `os`, `context`, `tokens`, `cost`). `modelInfo` is off by default and shows the selected model plus the provider unless the model label already contains it. Toggle non-Git segments from **Segments** and Git segments from **Git** in `/zentui`.
-- `footerFormat`: optional Starship-style template string that fully controls the footer layout. When set, it overrides `footerSegments`. See [Footer Format Template](#footer-format-template) below. The `/zentui` **Footer** tab configures responsive behavior, compact rows, context style, and path display mode/depth; **Appearance** configures separator and icon mode; **Git** configures branch length; set or clear custom formats with `/zentui format`.
-- `responsiveFooter`: enabled by default. Zentui keeps the current aligned one-row footer while every settings-resolved left/middle/right zone fits without layout truncation. Otherwise it tries two complete left-aligned rows, preferring `left` / `middle right` and then `left middle` / `right`. Only when neither split fits does it use `compactFooterFormat`. Set `false` to restore the legacy one-row fitting behavior. Selection uses measured terminal-cell width, not fixed device breakpoints.
-- `compactFooterFormat`: JSON-only template used by the compact stage. The default keeps cwd, session name, git branch/status, context, and abbreviated token/cache metrics. A top-level `$wrap` is an automatic wrap opportunity: one space on the same row or no space at a row break. `$wrap_sep` is the same kind of boundary but renders the styled ` | ` divider only when its adjacent chunks share a row. Nested uses of either boundary remain empty variables. `$fill` is ignored. A standalone `$extensions` chunk inserts active non-`off` extension statuses in left/middle/right placement order; embedded uses render empty. Custom `footerFormat` values use this built-in compact fallback unless this key is also customized.
-- `compactFooterMaxLines`: `1`, `2`, `3`, or `"unlimited"` (default `2`). Finite limits crop remaining chunks with exactly one trailing `…`. Compact cwd always uses basename mode; cwd/session/branch chunks target half the available row width before final ANSI-aware clamping. `/zentui` exposes the responsive toggle and row limit, while compact format editing remains JSON-only. Pi supplies footer width but no supported viewport-height budget, so `"unlimited"` is explicit.
-- `gitCommit`: Starship [`git_commit`](https://starship.rs/config/#git-commit)-style options for the `gitCommit` footer segment. `hashLength` (default `7`, clamped to `4`–`40`) controls the short-hash display length. `onlyDetached` (default `true`) shows the hash mainly on detached HEAD. `showTag` (default `true`) appends an exact-match tag (`git describe --tags --exact-match HEAD`). The tag probe piggybacks on the existing git refresh — it only runs when both the segment and `showTag` are on, and misses/failures degrade silently.
-- `gitMetrics`: Starship [`git_metrics`](https://starship.rs/config/#git-metrics)-style options for the `gitMetrics` footer segment. Uses `git diff HEAD --numstat` (staged + unstaged combined — the Starship “total dirty” view) to show aggregate `+added −deleted` line counts. `onlyNonzero` (default `true`) omits each zero component independently and hides the segment entirely at `0/0`. `ignoreSubmodules` (default `false`) adds `--ignore-submodules=all`. The numstat diff piggybacks on the existing git refresh and uses a hard 2s timeout; a metrics-only failure degrades silently without discarding fresh branch/status data. On very large monorepos the diff may lag or be omitted on timeout.
-- `extensionStatuses`: controls third-party statuses published by other Pi extensions through `ctx.ui.setStatus()`. `defaultPlacement` and each `placements` value can be `off`, `left`, `middle`, or `right`. The **Extensions** tab in `/zentui` lists only statuses that are currently active. `defaultPlacement` applies only when a status key has no entry in `placements`; keyed overrides always win.
+- `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | minimalist` style selection, color source, border mode, model label, viewport indicators, and all three editor-style configurations.
+- `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
+- `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
+- `components.footer`: owns `native | starship | hidden` style selection, Footer color source, Footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses). Native restores Pi's built-in Footer; Hidden installs an empty component with zero rows.
+- `layout.fixedEditor`: owns fixed-layout enablement, mouse scrolling, and copy notices. Layout activation depends on Pi compatibility inspection, not on Zentui editor/Footer style.
+- Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
+- Selector borders support only `zentui`; set their owning `enabled` field to `false` for native Pi behavior.
+- Flat released keys such as `editorStyle`, `features`, `footerFormat`, and `fixedEditor` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` and `layout` paths are the primary JSON interface, and component saves materialize canonical snapshots.
+- Explicit unsupported future component style IDs are preserved unchanged on disk but fail open at runtime: Editor, User-message, and selector-border customization stay disabled, while Footer behavior is Native. Missing, empty, or malformed style values continue normal default and legacy migration behavior.
+- The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output and will remain available until at least the next major release. This output deprecation is separate from accepted legacy flat JSON input.
+- `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
-- `editorAccent` styles the active editor rail and previous user-message rail when `features.copyFriendly` is disabled.
-- `editorPrompt` styles the copy-friendly editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
-- `editorBorder` styles previous user-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
+- `editorAccent` styles Editor and User-message accent rails and the labeled message label.
+- `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
+- `editorBorder` styles the `framed` and `framed-copy-friendly` previous-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
-Tip: when using copy-friendly mode, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+
+## Minimalist editor style
+
+Set `components.editor.style` to `minimalist` or select it from the `/zentui` **Editor** tab. The rounded frame shows viewport counts, Bash state, the current/completed turn duration, and the explicit Pi session name at top left; cost, model, thinking level, and context usage at top right; viewport count plus Git branch/status at bottom left; and the configured path at bottom right. Unnamed sessions add no placeholder. Autocomplete stays inside the frame when Pi's existing editor output can be split safely. Unknown third-party editor layouts fail open without decoration.
+
+The Minimalist editor is inspired by [pi-custom-input](https://github.com/VinhLe1410/pi-custom-input), with an independent implementation in Zentui.
+
+While `minimalist` is selected, the `/zentui` **Editor** area shows its focused controls without repeating the style name on every row. Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or—with the gauge enabled and enough room—`[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+
+Footer visibility is controlled by `components.footer.style`: use `starship`, `native`, or `hidden`. Minimalist editor decoration and the Starship Footer may be shown together, including at narrow widths or after decoration fallback. Minimalist style does not remove Pi's header; the experimental fixed-editor layout remains separate.
 
 ## Editor Metadata Format
 
-Set `editorMetadataFormat` in `~/.pi/agent/zentui.json` to customize the left side of the editor metadata row:
+Set `metadataFormat` under either opencode style in `~/.pi/agent/zentui.json` to customize that style's metadata row. The two variants retain independent values:
 
 ```json
 {
-	"editorMetadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
+	"components": {
+		"editor": {
+			"styles": {
+				"opencode": {
+					"metadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
+				},
+				"opencode-copy-friendly": {
+					"metadataFormat": "$model( · $provider)"
+				}
+			}
+		}
+	}
 }
 ```
 
-The syntax follows the relevant `footerFormat` conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
+The syntax follows the Footer Format Template conventions: `$variable` and `${variable}` references, literal text and spaces, and conditional groups `( ... )` that disappear when all variables inside are empty. Unknown variables and `$fill` render empty; `$fill` never creates an editor layout zone because the right side remains reserved for structural Vim status.
 
 | Token           | Renders                                                                                       |
 | --------------- | --------------------------------------------------------------------------------------------- |
-| `$model`        | label selected by `editorModelLabel` (`id`, or name with ID fallback)                        |
+| `$model`        | label selected by `components.editor.modelLabel` (`id`, or name with ID fallback)            |
 | `$model_id`     | active Pi model ID                                                                            |
 | `$model_name`   | active Pi model display name; empty when no name is set                                       |
 | `$provider`     | provider label using Zentui's existing formatting                                             |
@@ -351,13 +457,21 @@ Missing, non-string, or empty values use the default `$model  $provider(  $think
 
 ## Footer Format Template
 
-For full control, set a Starship-style `footerFormat` template string. It supports `$variable` and `${variable}` tokens, a special `$fill` token that splits the line into left and right zones, and conditional groups `( ... )` that drop entirely when every nested variable is empty. When set, it overrides the built-in `footerSegments` layout; when empty or omitted, the segment layout above is used.
+For full control, set `components.footer.styles.starship.format` to a Starship-style template string. It supports `$variable` and `${variable}` tokens, a special `$fill` token that splits the line into left and right zones, and conditional groups `( ... )` that drop entirely when every nested variable is empty. When set, it overrides `components.footer.styles.starship.segments`; when empty or omitted, the segment layout above is used.
 
 A second `$fill` creates a **centered middle zone** — content between the two fills is true-centered (`floor((gap - middle) / 2)`), just like third-party statuses placed `middle`.
 
 ```json
 {
-	"footerFormat": "$os $username $cwd($sep$session_name)( on $git_branch)( $git_status)( via $runtime)$fill($context)($sep$tokens)($sep$cost)($sep$time)"
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$os $username $cwd($sep$session_name)( on $git_branch)( $git_status)( via $runtime)$fill($context)($sep$tokens)($sep$cost)($sep$time)"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -365,9 +479,19 @@ Center the branch between directory and cost:
 
 ```json
 {
-	"footerFormat": "$cwd $fill $git_branch $fill $cost"
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$cwd $fill $git_branch $fill $cost"
+				}
+			}
+		}
+	}
 }
 ```
+
+The released flat `footerFormat` and `footerSegments` keys remain accepted only as legacy migration inputs.
 
 ### Variables
 
@@ -384,7 +508,7 @@ Center the branch between directory and cost:
 | `$git_added`        |              | added line count (`+N`)                                             |
 | `$git_deleted`      |              | deleted line count (`−N`)                                           |
 | `$runtime`          |              | runtime icon + version                                              |
-| `$model`            |              | selected model label (`editorModelLabel`)                           |
+| `$model`            |              | selected model label (`components.footer.modelLabel`)                |
 | `$provider`         |              | formatted provider label                                            |
 | `$package`          |              | project package version, `is <glyph> <version>` (manifest-derived)  |
 | `$package_version`  |              | raw project package version (no icon)                               |
@@ -414,16 +538,18 @@ Center the branch between directory and cost:
 - Literal text (`on branch`, `using`, `\|`, spaces) is rendered verbatim — you control all spacing.
 - Each variable renders its core value only (no `on`/`via` prefixes); add those words as literal text.
 - Conditional groups: wrap optional pieces in parentheses, e.g. `$cwd( on $git_branch)($git_status)$fill($context)`. If every `$var` inside a group is empty, the whole group (including its literals) is dropped.
-- `$session_name` is available whenever `footerFormat` is set, independently of `footerSegments.sessionName`; use a conditional group such as `($sep$session_name)` so unnamed sessions leave no separator.
+- `$session_name` is available whenever `components.footer.styles.starship.format` is set, independently of `components.footer.styles.starship.segments.sessionName`; use a conditional group such as `($sep$session_name)` so unnamed sessions leave no separator.
 - The built-in wide footer appends cache totals to the token segment, `(sub)` to cost, and `(auto)` to context when available. Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible and include telemetry only through the atomic variables above.
-- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add their variables explicitly to `compactFooterFormat` to opt in at narrow widths.
+- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add their variables explicitly to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key is a legacy migration input.
 - Auto-compaction settings refresh on the next normal footer synchronization event. Unsupported Pi capabilities or settings-read errors safely omit optional markers.
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
 
 ## Fixed editor (experimental, opt-in)
 
-The fixed editor pins the Zentui editor and footer at the bottom of the terminal while the transcript scrolls above. This enables composing follow-up messages while referencing earlier conversation history.
+The fixed layout pins Pi's usable editor cluster at the bottom of the terminal while the transcript scrolls above. It can activate independently of Zentui editor and Footer style; Pi compatibility inspection decides whether it is safe. Hidden contributes zero rows and no spacer. A live Footer style change tears down the compositor, replaces the Footer, and reprobes the new component; reprobe failure leaves ordinary rendering active.
+
+At constrained heights, Zentui reserves one transcript row, keeps a complete Zentui editor frame and cursor, then prioritizes active autocomplete, Footer, below-editor widget, above-editor widget, and status. Editor content crops around the cursor; known autocomplete content crops around its selected item. Native and third-party editors are treated as opaque and are either pinned intact or rendered through Pi's normal layout. If the terminal later grows, fixed layout returns automatically without reinstalling the compositor.
 
 ### How to enable
 
@@ -435,8 +561,10 @@ Or in `~/.pi/agent/zentui.json`:
 
 ```json
 {
-	"fixedEditor": {
-		"enabled": true
+	"layout": {
+		"fixedEditor": {
+			"enabled": true
+		}
 	}
 }
 ```
@@ -445,19 +573,27 @@ Or in `~/.pi/agent/zentui.json`:
 
 | Key | Action |
 | --- | ------ |
-| `PageUp` / `PageDown` | Scroll transcript one viewport up/down |
+| `PageUp` / `PageDown` | Scroll transcript one viewport up/down; consumed at either boundary while transcript scrolling exists |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll transcript up/down (Kitty protocol variants supported) |
 | `Enter` | Jump to bottom (and submit message) |
 
+PageUp/PageDown propagate to Pi when there is no transcript scroll range, while normal-flow fallback is active, or while an overlay owns input.
+
+### Graceful cleanup
+
+Live disable restores the full scroll region, mouse modes, alternate-scroll behavior, autowrap, cursor visibility, and primary screen before Pi repaints its normal layout. Pi lifecycle shutdown (`/quit`, Ctrl+C, Ctrl+D, SIGHUP, and SIGTERM) performs the same reset without a late repaint into the caller's shell. Cleanup after `SIGKILL`, a fatal crash that prevents Pi's shutdown callback, terminal disconnect, or failure of both terminal writers cannot be guaranteed.
+
 ### Mouse scroll (default on)
 
-Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it via `/zentui` Features or:
+Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it from the `/zentui` **Layout** section or:
 
 ```json
 {
-	"fixedEditor": {
-		"enabled": true,
-		"mouseScroll": true
+	"layout": {
+		"fixedEditor": {
+			"enabled": true,
+			"mouseScroll": false
+		}
 	}
 }
 ```
@@ -469,7 +605,12 @@ Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable
 - **Incompatible with** `pi-powerline-footer`, `@tifan/pi-fixed-editor`, and `pi-sticky-input`. These packages patch the same Pi TUI internals; only one rendering owner can be active at a time.
 - **Alternate screen**: Uses the terminal's alternate screen buffer. Native scrollback history is not accessible while the fixed editor is active.
 - **Pi version fragility**: Patches internal TUI methods (`doRender`, `render`, `terminal.write`, `terminal.rows`) that may change across Pi versions. If the TUI layout is unsupported, Zentui falls back to normal rendering with a console warning.
+- Pi has no Footer getter or Footer-change event. Zentui observes normal third-party takeover through Pi's custom-component disposal callback and will not restore Native afterward. Direct internal mutation, a future Pi version that stops disposing replaced components, and automatic fixed-layout reprobe after third-party replacement cannot be detected.
 - If your terminal is stuck after a crash, run `reset` or restart the terminal.
+
+## Acknowledgments
+
+The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-custom-input](https://github.com/VinhLe1410/pi-custom-input) and is integrated with Zentui's existing editor, state, configuration, and compatibility layers.
 
 ## Requirements
 

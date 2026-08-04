@@ -1,0 +1,416 @@
+import { homedir } from "node:os";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it } from "vitest";
+import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import { installFooter } from "../extensions/zentui/footer";
+import { emptyGitStatus } from "../extensions/zentui/git";
+import {
+	formatElapsedDuration,
+	renderMinimalistFrame,
+} from "../extensions/zentui/minimalist-editor";
+import { createInitialState } from "../extensions/zentui/state";
+
+function theme(): Theme {
+	return {
+		fg(_color: string, text: string) {
+			return text;
+		},
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+		underline: (text: string) => text,
+		strikethrough: (text: string) => text,
+		inverse: (text: string) => text,
+	} as Theme;
+}
+
+function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
+	const editor = defaultConfig.components.editor;
+	return {
+		...defaultConfig,
+		...overrides,
+		components: {
+			...defaultConfig.components,
+			editor: {
+				...editor,
+				style: "minimalist",
+				borderColorMode: overrides.editorBorderColorMode ?? editor.borderColorMode,
+				colorSource: overrides.colorSources?.editor ?? editor.colorSource,
+				styles: {
+					...editor.styles,
+					minimalist: {
+						...editor.styles.minimalist,
+						...overrides.editorStyles?.minimalist,
+					},
+				},
+			},
+		},
+	};
+}
+
+function render(width = 80, inputText = "draft", viewport?: { above?: string; below?: string }) {
+	return renderMinimalistFrame({
+		width,
+		editorLines: ["draft"],
+		autocompleteLines: ["suggestion"],
+		viewport,
+		inputText,
+		metadata: {
+			cwd: `${homedir()}/project`,
+			branch: "feature/minimalist",
+			dirty: true,
+			ahead: 2,
+			behind: 1,
+			costLabel: "$0.123",
+			modelLabel: "model-x",
+			thinkingLevel: "high",
+			contextPercent: 42.4,
+			sessionName: "release prep",
+			agentDurationMs: 12_500,
+			agentActive: true,
+		},
+		uiTheme: theme(),
+		config: config(),
+	});
+}
+
+describe("minimalist editor frame", () => {
+	it("renders metadata and framed autocomplete", () => {
+		const lines = render();
+		expect(lines[0]).toContain("12s · release prep");
+		expect(lines[0]).toContain("$0.123 – model-x – high – 42%");
+		expect(lines[0]).toMatch(/^╭.*╮$/);
+		expect(lines[1]).toMatch(/^│ draft\s+│$/);
+		expect(lines[2]).toMatch(/^├─+┤$/);
+		expect(lines[3]).toContain("suggestion");
+		expect(lines.at(-1)).toContain("feature/minimalist * ↑2 ↓1");
+		expect(lines.at(-1)).toContain("project");
+		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("puts complete viewport counts first on their matching borders", () => {
+		const lines = render(80, "draft", { above: "7", below: "11" });
+		expect(lines[0]).toMatch(/^╭─ ↑ 7 more · 12s · release prep/);
+		expect(lines.at(-1)).toMatch(/^╰─ ↓ 11 more · feature\/minimalist \* ↑2 ↓1/);
+	});
+
+	it.each([
+		[{ above: "7" }, "↑ 7 more", "↓"],
+		[{ below: "11" }, "↓ 11 more", "↑"],
+	] as const)("supports one-sided viewport counts", (viewport, present, absent) => {
+		const borders = [render(80, "draft", viewport)[0], render(80, "draft", viewport).at(-1)].join(
+			"\n",
+		);
+		expect(borders).toContain(present);
+		expect(borders).not.toContain(`${absent} `);
+	});
+
+	it("omits viewport counts atomically when they do not fit", () => {
+		const lines = renderMinimalistFrame({
+			width: 18,
+			editorLines: ["draft"],
+			viewport: { above: "123456789", below: "987654321" },
+			inputText: "draft",
+			metadata: { cwd: "" },
+			uiTheme: theme(),
+			config: config(),
+		});
+		expect(lines[0]).not.toContain("more");
+		expect(lines.at(-1)).not.toContain("more");
+		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
+	});
+
+	it("shows visual shell markers without changing editor text", () => {
+		expect(render(80, "  !pwd")[0]).toContain("$ · 12s");
+		expect(render(80, "  !!pwd")[0]).toContain("$ · 12s");
+		expect(render(80, "draft")[0]).not.toContain("$ · 12s");
+		expect(render(80, "  !pwd")[1]).toContain("draft");
+	});
+
+	it("shows the explicit session name after the timer and omits it when disabled", () => {
+		const enabled = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", agentDurationMs: 12_000, sessionName: "release\nprep" },
+			uiTheme: theme(),
+			config: config(),
+		})[0];
+		expect(enabled).toContain("12s · release prep");
+
+		const disabled = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", agentDurationMs: 12_000, sessionName: "release prep" },
+			uiTheme: theme(),
+			config: config({
+				editorStyles: {
+					minimalist: {
+						...defaultConfig.editorStyles.minimalist,
+						showSessionName: false,
+					},
+				},
+			}),
+		})[0];
+		expect(disabled).not.toContain("release prep");
+	});
+
+	it("drops a long session name before viewport and operational indicators", () => {
+		const top = renderMinimalistFrame({
+			width: 34,
+			editorLines: ["draft"],
+			viewport: { above: "7" },
+			inputText: "!pwd",
+			metadata: {
+				cwd: "/tmp",
+				agentDurationMs: 12_000,
+				sessionName: "a very long session name that cannot fit",
+			},
+			uiTheme: theme(),
+			config: config(),
+		})[0];
+		expect(top).toContain("↑ 7 more · $ · 12s");
+		expect(top).not.toContain("session");
+		expect(visibleWidth(top)).toBeLessThanOrEqual(34);
+	});
+
+	it("formats active and completed elapsed durations", () => {
+		expect(formatElapsedDuration(-1)).toBe("0s");
+		expect(formatElapsedDuration(65_999)).toBe("1m 5s");
+		expect(formatElapsedDuration(3_661_000)).toBe("1h 1m");
+	});
+
+	it.each([5, 6, 8, 12, 20, 40, 80])("keeps every decorated row within %i columns", (width) => {
+		const lines = render(width);
+		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		expect(lines[0]).toMatch(/^╭.*╮$/);
+		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("fits long Git and cwd labels with the shared balanced border rule", () => {
+		const lines = renderMinimalistFrame({
+			width: 32,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/a/very/long/project/path/that/does/not/fit",
+				branch: "feature/a-very-long-branch-name-that-does-not-fit",
+				dirty: true,
+			},
+			uiTheme: theme(),
+			config: config(),
+		});
+		expect(lines.every((line) => visibleWidth(line) <= 32)).toBe(true);
+		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+		expect(lines.at(-1)).toContain("…");
+	});
+
+	it("renders Unicode and ANSI content without overflowing", () => {
+		const lines = renderMinimalistFrame({
+			width: 18,
+			editorLines: ["界 e\u0301 👩‍💻 \x1b[31mred\x1b[0m"],
+			inputText: "界",
+			metadata: {
+				cwd: "/tmp/界-project",
+				branch: "feature/👩‍💻-e\u0301-long",
+				modelLabel: "模型-👩‍💻",
+				contextPercent: 99,
+			},
+			uiTheme: theme(),
+			config: config(),
+		});
+		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
+		expect(lines.join("\n")).toContain("界");
+	});
+
+	it("renders compact, project-relative, and full minimalist paths", () => {
+		const pathLine = (pathDisplay: "compact" | "project" | "full", projectRoot?: string) =>
+			renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: `${homedir()}/workspace/repo/src/lib`, projectRoot },
+				uiTheme: theme(),
+				config: config({
+					editorStyles: {
+						minimalist: { ...defaultConfig.editorStyles.minimalist, pathDisplay },
+					},
+				}),
+			}).at(-1) ?? "";
+
+		expect(pathLine("compact")).toContain("lib");
+		expect(pathLine("project", `${homedir()}/workspace/repo`)).toContain("repo/src/lib");
+		expect(pathLine("project")).toContain("~/workspace/repo/src/lib");
+		expect(pathLine("full")).toContain("~/workspace/repo/src/lib");
+	});
+
+	it("supports focused visibility controls", () => {
+		const lines = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$1.000",
+				agentDurationMs: 5000,
+				contextPercent: 11,
+			},
+			uiTheme: theme(),
+			config: config({
+				editorStyles: {
+					minimalist: {
+						...defaultConfig.editorStyles.minimalist,
+						showTimer: false,
+						showCost: false,
+						showGit: false,
+					},
+				},
+			}),
+		});
+		const rendered = lines.join("\n");
+		expect(rendered).not.toContain("5s");
+		expect(rendered).not.toContain("$1.000");
+		expect(rendered).not.toContain("main");
+		expect(rendered).toContain("11%");
+	});
+
+	it("renders percent, percent-total, and gauge context forms", () => {
+		const contextLine = (
+			contextFormat: "percent" | "percent-total",
+			contextGauge: boolean,
+			contextWindow?: number,
+			width = 80,
+		) =>
+			renderMinimalistFrame({
+				width,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "/tmp", contextPercent: 11, contextWindow },
+				uiTheme: theme(),
+				config: config({
+					editorStyles: {
+						minimalist: {
+							...defaultConfig.editorStyles.minimalist,
+							contextFormat,
+							contextGauge,
+						},
+					},
+				}),
+			})[0] ?? "";
+
+		expect(contextLine("percent", false, 372_000)).toContain("11%");
+		expect(contextLine("percent", false, 372_000)).not.toContain("372k");
+		expect(contextLine("percent-total", false, 372_000)).toContain("11%/372k");
+		expect(contextLine("percent-total", false)).toContain("11%");
+		expect(contextLine("percent-total", false)).not.toContain("/");
+		expect(contextLine("percent-total", true, 372_000)).toContain("[█░░░░] 11%/372k");
+		const narrow = contextLine("percent-total", true, 372_000, 16);
+		expect(narrow).toContain("11%/372k");
+		expect(narrow).not.toContain("[");
+		expect(visibleWidth(narrow)).toBeLessThanOrEqual(16);
+	});
+
+	it("uses minimalist-owned context thresholds independently of footer thresholds", () => {
+		const base = config();
+		const divergent = {
+			...base,
+			colors: {
+				...base.colors,
+				contextNormal: "bright-black",
+				contextWarning: "yellow",
+				contextError: "red",
+			},
+			components: {
+				...base.components,
+				editor: {
+					...base.components.editor,
+					colorSource: "terminal" as const,
+					styles: {
+						...base.components.editor.styles,
+						minimalist: {
+							...base.components.editor.styles.minimalist,
+							contextThresholds: { warning: 40, error: 60 },
+						},
+					},
+				},
+				footer: {
+					...base.components.footer,
+					colorSource: "terminal" as const,
+					styles: {
+						starship: {
+							...base.components.footer.styles.starship,
+							format: "$context",
+							responsive: false,
+							contextThresholds: { warning: 70, error: 90 },
+						},
+					},
+				},
+			},
+		};
+		const taggedTheme = {
+			...theme(),
+			fg(color: string, text: string) {
+				return `[${color}]${text}`;
+			},
+		} as Theme;
+		const rendered = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "/tmp", contextPercent: 50 },
+			uiTheme: taggedTheme,
+			config: divergent,
+		}).join("\n");
+		expect(rendered).toContain("\x1b[33m50%\x1b[0m");
+		expect(rendered).not.toContain("\x1b[90m50%\x1b[0m");
+
+		let footerFactory:
+			| ((
+					tui: { requestRender(): void },
+					theme: Theme,
+					data: {
+						onBranchChange(callback: () => void): () => void;
+						getExtensionStatuses(): Map<string, string>;
+					},
+			  ) => { render(width: number): string[] })
+			| undefined;
+		const footerContext = {
+			cwd: "/tmp",
+			model: { contextWindow: 100_000 },
+			getContextUsage: () => ({ percent: 50, tokens: 50_000, contextWindow: 100_000 }),
+			sessionManager: { getSessionName: () => undefined },
+			ui: {
+				setFooter(factory: typeof footerFactory) {
+					footerFactory = factory;
+				},
+			},
+		};
+		installFooter(footerContext as never, createInitialState(emptyGitStatus()), () => divergent, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, taggedTheme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		});
+		const footerRendered = footer?.render(80).join("\n") ?? "";
+		expect(footerRendered).toContain("\x1b[90m50.0%/100k\x1b[0m");
+		expect(footerRendered).not.toContain("\x1b[33m50.0%/100k\x1b[0m");
+	});
+
+	it("uses the adaptive border callback when configured", () => {
+		const lines = renderMinimalistFrame({
+			width: 20,
+			editorLines: ["draft"],
+			inputText: "!pwd",
+			metadata: { cwd: "/tmp" },
+			uiTheme: theme(),
+			config: config({ editorBorderColorMode: "adaptive" }),
+			borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+		});
+		expect(lines.join("\n")).toContain("\x1b[36m");
+		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
+	});
+});

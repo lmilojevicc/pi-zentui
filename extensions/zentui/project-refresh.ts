@@ -4,8 +4,13 @@ export type ScheduleProjectRefreshOptions = {
 	force?: boolean;
 };
 
+export type ProjectRefreshRun = {
+	isCurrent: () => boolean;
+};
+
 export type ProjectRefreshScheduler<T> = {
 	schedule: (target: T, options?: ScheduleProjectRefreshOptions) => void;
+	invalidate: () => void;
 	stop: () => void;
 };
 
@@ -24,7 +29,7 @@ export function startProjectRefreshInterval(
 }
 
 export function createProjectRefreshScheduler<T>(
-	refresh: (target: T) => Promise<void>,
+	refresh: (target: T, run: ProjectRefreshRun) => Promise<void>,
 	afterRefresh: () => void,
 	throttleMs = PROJECT_REFRESH_THROTTLE_MS,
 ): ProjectRefreshScheduler<T> {
@@ -52,9 +57,12 @@ export function createProjectRefreshScheduler<T>(
 		}
 
 		const currentGeneration = generation;
+		const run: ProjectRefreshRun = {
+			isCurrent: () => currentGeneration === generation,
+		};
 		refreshInFlight = true;
 		lastRefreshStartedAt = Date.now();
-		void refresh(target)
+		void refresh(target, run)
 			.catch(() => undefined)
 			.finally(() => {
 				if (currentGeneration !== generation) return;
@@ -94,16 +102,19 @@ export function createProjectRefreshScheduler<T>(
 		delayedRefresh.unref?.();
 	};
 
+	const invalidate = () => {
+		generation += 1;
+		clearDelayedRefresh();
+		refreshInFlight = false;
+		refreshPending = false;
+		pendingForce = false;
+		pendingTarget = undefined;
+		lastRefreshStartedAt = undefined;
+	};
+
 	return {
 		schedule,
-		stop() {
-			generation += 1;
-			clearDelayedRefresh();
-			refreshInFlight = false;
-			refreshPending = false;
-			pendingForce = false;
-			pendingTarget = undefined;
-			lastRefreshStartedAt = undefined;
-		},
+		invalidate,
+		stop: invalidate,
 	};
 }

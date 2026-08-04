@@ -16,17 +16,23 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 
 vi.mock("../extensions/zentui/git", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/git")>();
-	return { ...actual, readGitStatus: async () => actual.emptyGitStatus() };
+	return {
+		...actual,
+		readGitStatus: async () => ({ kind: "ok" as const, status: actual.emptyGitStatus() }),
+	};
 });
 
 vi.mock("../extensions/zentui/runtime", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/runtime")>();
-	return { ...actual, readRuntimeInfo: async () => undefined };
+	return { ...actual, readRuntimeInfo: async () => ({ kind: "ok" as const, runtime: undefined }) };
 });
 
 vi.mock("../extensions/zentui/package-version", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/package-version")>();
-	return { ...actual, readPackageVersionResult: async () => undefined };
+	return {
+		...actual,
+		readPackageVersionResult: async () => ({ kind: "ok" as const, result: null }),
+	};
 });
 
 import zentui from "../extensions/zentui/index";

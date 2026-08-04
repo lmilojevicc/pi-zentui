@@ -90,7 +90,7 @@ export const PACKAGE_VERSION_ECOSYSTEMS = [
  * Empty / whitespace-only values return `undefined`.
  */
 function cleanVersion(value: string | undefined): string | undefined {
-	if (!value) return undefined;
+	if (!value || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return undefined;
 	let text = value.trim();
 	if (!text) return undefined;
 
@@ -113,8 +113,9 @@ function cleanVersion(value: string | undefined): string | undefined {
 	text = text.trim();
 	if (!text) return undefined;
 
-	// Reject obvious junk (whitespace, control chars, braces).
-	if (/[\s\r\n\t]/.test(text)) return undefined;
+	// Reject embedded whitespace and manifest syntax junk. Terminal controls
+	// were rejected before normalization so trimming cannot hide them.
+	if (/\s/.test(text)) return undefined;
 	if (/[{}\\<>]/.test(text)) return undefined;
 
 	return text;

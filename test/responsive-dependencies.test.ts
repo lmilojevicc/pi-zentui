@@ -30,36 +30,176 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		...actual,
 		ensureConfigExists: () => {},
 		loadConfig: () => mocks.config,
+		saveEditorComponentPatch(patch: Record<string, unknown>) {
+			mocks.config = {
+				...mocks.config,
+				components: {
+					...mocks.config.components,
+					editor: { ...mocks.config.components.editor, ...patch },
+				},
+				...(patch.modelLabel === undefined
+					? {}
+					: { editorModelLabel: patch.modelLabel as "id" | "name" }),
+			};
+			return mocks.config;
+		},
+		saveFooterComponentPatch(patch: Record<string, unknown>) {
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				components: {
+					...mocks.config.components,
+					footer: { ...footer, ...patch },
+				},
+			};
+			return mocks.config;
+		},
+		saveStarshipFooterStylePatch(patch: Record<string, unknown>) {
+			const footer = mocks.config.components.footer;
+			const starship = footer.styles.starship;
+			const nextStarship = {
+				...starship,
+				...patch,
+				...(patch.segments
+					? { segments: { ...starship.segments, ...(patch.segments as object) } }
+					: {}),
+				...(patch.gitCommit
+					? { gitCommit: { ...starship.gitCommit, ...(patch.gitCommit as object) } }
+					: {}),
+				...(patch.gitMetrics
+					? { gitMetrics: { ...starship.gitMetrics, ...(patch.gitMetrics as object) } }
+					: {}),
+			};
+			mocks.config = {
+				...mocks.config,
+				...(patch.format === undefined ? {} : { footerFormat: patch.format as string }),
+				...(patch.responsive === undefined
+					? {}
+					: { responsiveFooter: patch.responsive as boolean }),
+				...(patch.compactMaxLines === undefined
+					? {}
+					: { compactFooterMaxLines: patch.compactMaxLines as 1 | 2 | 3 | "unlimited" }),
+				...(patch.segments === undefined ? {} : { footerSegments: nextStarship.segments }),
+				...(patch.gitCommit === undefined ? {} : { gitCommit: nextStarship.gitCommit }),
+				...(patch.gitMetrics === undefined ? {} : { gitMetrics: nextStarship.gitMetrics }),
+				components: {
+					...mocks.config.components,
+					footer: { ...footer, styles: { starship: nextStarship } },
+				},
+			};
+			return mocks.config;
+		},
 		saveEditorModelLabel(value: "id" | "name") {
-			mocks.config = { ...mocks.config, editorModelLabel: value };
+			mocks.config = {
+				...mocks.config,
+				editorModelLabel: value,
+				components: {
+					...mocks.config.components,
+					editor: { ...mocks.config.components.editor, modelLabel: value },
+					footer: { ...mocks.config.components.footer, modelLabel: value },
+				},
+			};
 			return mocks.config;
 		},
 		saveFooterFormatPatch(value: string) {
-			mocks.config = { ...mocks.config, footerFormat: value };
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				footerFormat: value,
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: { starship: { ...footer.styles.starship, format: value } },
+					},
+				},
+			};
 			return mocks.config;
 		},
 		saveFooterSegmentsPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				footerSegments: { ...mocks.config.footerSegments, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								segments: { ...footer.styles.starship.segments, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
 		saveResponsiveFooterPatch(patch: Record<string, unknown>) {
-			mocks.config = { ...mocks.config, ...patch };
+			const footer = mocks.config.components.footer;
+			mocks.config = {
+				...mocks.config,
+				...patch,
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								...(patch.responsiveFooter === undefined
+									? {}
+									: { responsive: patch.responsiveFooter as boolean }),
+								...(patch.compactFooterMaxLines === undefined
+									? {}
+									: {
+											compactMaxLines: patch.compactFooterMaxLines as 1 | 2 | 3 | "unlimited",
+										}),
+							},
+						},
+					},
+				},
+			};
 			return mocks.config;
 		},
 		saveGitCommitPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				gitCommit: { ...mocks.config.gitCommit, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								gitCommit: { ...footer.styles.starship.gitCommit, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
 		saveGitMetricsPatch(patch: Record<string, boolean>) {
+			const footer = mocks.config.components.footer;
 			mocks.config = {
 				...mocks.config,
 				gitMetrics: { ...mocks.config.gitMetrics, ...patch },
+				components: {
+					...mocks.config.components,
+					footer: {
+						...footer,
+						styles: {
+							starship: {
+								...footer.styles.starship,
+								gitMetrics: { ...footer.styles.starship.gitMetrics, ...patch },
+							},
+						},
+					},
+				},
 			};
 			return mocks.config;
 		},
@@ -68,7 +208,10 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 
 vi.mock("../extensions/zentui/git", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/git")>();
-	mocks.readGitStatus.mockImplementation(async () => actual.emptyGitStatus());
+	mocks.readGitStatus.mockImplementation(async () => ({
+		kind: "ok" as const,
+		status: actual.emptyGitStatus(),
+	}));
 	return { ...actual, readGitStatus: mocks.readGitStatus };
 });
 vi.mock("../extensions/zentui/runtime", () => ({ readRuntimeInfo: mocks.readRuntimeInfo }));
@@ -129,6 +272,22 @@ async function settleProjectRefresh() {
 	for (let index = 0; index < 8; index++) await Promise.resolve();
 }
 
+function updateStarship(
+	patch: Partial<PolishedTuiConfig["components"]["footer"]["styles"]["starship"]>,
+) {
+	const footer = mocks.config.components.footer;
+	mocks.config = {
+		...mocks.config,
+		components: {
+			...mocks.config.components,
+			footer: {
+				...footer,
+				styles: { starship: { ...footer.styles.starship, ...patch } },
+			},
+		},
+	};
+}
+
 function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Promise<void>) {
 	let footerFactory: unknown;
 	let editorFactory: unknown;
@@ -146,6 +305,8 @@ function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Pr
 		},
 		ui: {
 			theme,
+			getEditorText: () => "",
+			setEditorText() {},
 			setFooter(factory: unknown) {
 				footerFactory = factory;
 			},
@@ -164,17 +325,34 @@ function createContext(custom?: (factory: (...args: unknown[]) => unknown) => Pr
 
 beforeEach(() => {
 	vi.useFakeTimers();
+	const footer = defaultConfig.components.footer;
 	mocks.config = {
 		...defaultConfig,
 		features: { ...defaultConfig.features, editor: false, statusLine: true },
+		components: {
+			...defaultConfig.components,
+			editor: { ...defaultConfig.components.editor, enabled: false },
+			footer: {
+				...footer,
+				style: "starship",
+				styles: {
+					starship: {
+						...footer.styles.starship,
+						format: "$cwd",
+						responsive: false,
+						compactFormat: "$package",
+					},
+				},
+			},
+		},
 		projectRefreshIntervalMs: 0,
 		footerFormat: "$cwd",
 		responsiveFooter: false,
 		compactFooterFormat: "$package",
 	};
 	mocks.readGitStatus.mockClear();
-	mocks.readRuntimeInfo.mockReset().mockResolvedValue(undefined);
-	mocks.readPackageVersionResult.mockReset().mockResolvedValue(undefined);
+	mocks.readRuntimeInfo.mockReset().mockResolvedValue({ kind: "ok", runtime: undefined });
+	mocks.readPackageVersionResult.mockReset().mockResolvedValue({ kind: "ok", result: null });
 	mocks.syncState.mockClear();
 });
 
@@ -190,6 +368,7 @@ describe("responsive footer dependency reconciliation", () => {
 		await emit(handlers, "session_start", ctx);
 		await settleProjectRefresh();
 		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
 
 		const gitReads = mocks.readGitStatus.mock.calls.length;
 		await command.handler('format "$directory"', ctx);
@@ -201,14 +380,237 @@ describe("responsive footer dependency reconciliation", () => {
 		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
 	});
 
+	it("clears package state when its reference deactivates before a failed re-enable", async () => {
+		updateStarship({ format: "$package", responsive: false });
+		mocks.readPackageVersionResult.mockResolvedValueOnce({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "1.2.3" },
+		});
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+		};
+		expect(state.packageVersion).toEqual({ ecosystem: "nodejs", version: "1.2.3" });
+
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+
+		mocks.readPackageVersionResult.mockResolvedValue({ kind: "error" });
+		await command.handler('format "$package"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+	});
+
+	it("invalidates an in-flight package read across remove and failed re-enable", async () => {
+		updateStarship({ format: "$package", responsive: false });
+		let resolveObsoleteRead:
+			| ((value: { kind: "ok"; result: { ecosystem: string; version: string } }) => void)
+			| undefined;
+		mocks.readPackageVersionResult
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoleteRead = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
+
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+		};
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+
+		await command.handler('format "$package"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+
+		resolveObsoleteRead?.({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "9.9.9-obsolete" },
+		});
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+	});
+
+	it("replaces in-flight Footer probes across live styles while Minimalist keeps refresh active", async () => {
+		const editor = mocks.config.components.editor;
+		updateStarship({ format: "$package $runtime", responsive: false });
+		mocks.config = {
+			...mocks.config,
+			components: {
+				...mocks.config.components,
+				editor: {
+					...editor,
+					enabled: true,
+					style: "minimalist",
+					styles: {
+						...editor.styles,
+						minimalist: { ...editor.styles.minimalist, showGit: true },
+					},
+				},
+			},
+		};
+		let resolveObsoletePackage:
+			| ((value: { kind: "ok"; result: { ecosystem: string; version: string } }) => void)
+			| undefined;
+		let resolveObsoleteRuntime:
+			| ((value: {
+					kind: "ok";
+					runtime: { name: string; symbol: string; style: string; version: string };
+			  }) => void)
+			| undefined;
+		mocks.readPackageVersionResult
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoletePackage = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		mocks.readRuntimeInfo
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveObsoleteRuntime = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "error" });
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+
+		const state = mocks.syncState.mock.calls[0]?.[0] as {
+			packageVersion?: { ecosystem: string; version: string };
+			runtime?: { name: string; version?: string };
+		};
+		await command.handler("footer off", ctx);
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		await command.handler("footer on", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readPackageVersionResult).toHaveBeenCalledTimes(2);
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledTimes(2);
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		resolveObsoletePackage?.({
+			kind: "ok",
+			result: { ecosystem: "nodejs", version: "9.9.9-obsolete" },
+		});
+		resolveObsoleteRuntime?.({
+			kind: "ok",
+			runtime: {
+				name: "Obsolete",
+				symbol: "O",
+				style: "bold red",
+				version: "9.9.9-obsolete",
+			},
+		});
+		await settleProjectRefresh();
+		expect(state.packageVersion).toBeUndefined();
+		expect(state.runtime).toBeUndefined();
+
+		const footerFactory = ctx.footerFactory as
+			| ((
+					tui: { requestRender(): void },
+					theme: Theme,
+					data: {
+						onBranchChange(callback: () => void): () => void;
+						getExtensionStatuses(): Map<string, string>;
+					},
+			  ) => { render(width: number): string[] })
+			| undefined;
+		const rendered =
+			footerFactory?.({ requestRender() {} }, makeTheme(), {
+				onBranchChange: () => () => {},
+				getExtensionStatuses: () => new Map(),
+			})
+				.render(120)
+				.join("\n") ?? "";
+		expect(rendered).not.toContain("9.9.9-obsolete");
+		expect(rendered).not.toContain("Obsolete");
+	});
+
+	it("probes runtime only while a custom Footer format references it", async () => {
+		const { handlers, command } = loadExtension();
+		const ctx = createContext();
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
+
+		await command.handler('format "$runtime"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+
+		await command.handler('format "$cwd"', ctx);
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+	});
+
+	it("counts the enabled built-in runtime segment as an active reference", async () => {
+		updateStarship({
+			format: "",
+			responsive: false,
+			segments: { ...mocks.config.components.footer.styles.starship.segments, runtime: true },
+		});
+		const { handlers } = loadExtension();
+		await emit(handlers, "session_start", createContext());
+		await settleProjectRefresh();
+		expect(mocks.readRuntimeInfo).toHaveBeenCalledOnce();
+	});
+
+	it("skips runtime and package probes for Minimalist-only project refreshes", async () => {
+		const editor = mocks.config.components.editor;
+		const footer = mocks.config.components.footer;
+		mocks.config = {
+			...mocks.config,
+			components: {
+				...mocks.config.components,
+				editor: {
+					...editor,
+					enabled: true,
+					style: "minimalist",
+					styles: {
+						...editor.styles,
+						minimalist: { ...editor.styles.minimalist, showGit: true },
+					},
+				},
+				footer: { ...footer, style: "native" },
+			},
+		};
+		const { handlers } = loadExtension();
+		await emit(handlers, "session_start", createContext());
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledOnce();
+		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
+		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
+	});
+
 	it("refreshes compact-only probes immediately when responsiveness is enabled", async () => {
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 3; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
@@ -238,24 +640,20 @@ describe("responsive footer dependency reconciliation", () => {
 		await emit(handlers, "session_start", ctx);
 		const before = mocks.syncState.mock.calls.length;
 		await command.handler("", ctx);
-		expect(mocks.config.editorModelLabel).toBe("name");
+		expect(mocks.config.components.editor.modelLabel).toBe("name");
+		expect(mocks.config.components.footer.modelLabel).toBe("id");
 		expect(mocks.syncState).toHaveBeenCalledTimes(before + 1);
-		expect(mocks.syncState.mock.calls.at(-1)?.[3]).toBe("name");
 	});
 
 	it("forces Git refreshes for exact-tag and submodule probe changes", async () => {
-		mocks.config = {
-			...mocks.config,
-			footerFormat: "$git_commit $git_metrics",
-			responsiveFooter: false,
-		};
+		updateStarship({ format: "$git_commit $git_metrics", responsive: false });
 		let target: "showTag" | "ignoreSubmodules" = "showTag";
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				render(width: number): string[];
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 4; index++) component.handleInput("\t");
+			for (let index = 0; index < 6; index++) component.handleInput("\t");
 			const label = target === "showTag" ? "Show exact-match tag" : "Ignore submodules";
 			for (let attempts = 0; attempts < 12; attempts++) {
 				if (component.render(140).some((line) => line.includes(`> ${label}`))) break;
@@ -281,14 +679,12 @@ describe("responsive footer dependency reconciliation", () => {
 	});
 
 	it("refreshes probes activated by built-in segment settings", async () => {
-		mocks.config = { ...mocks.config, footerFormat: "", compactFooterFormat: "$cwd" };
+		updateStarship({ format: "", compactFormat: "$cwd" });
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
+			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
 			for (let index = 0; index < 11; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
@@ -303,15 +699,13 @@ describe("responsive footer dependency reconciliation", () => {
 	});
 
 	it("does not refresh when only the compact row limit changes", async () => {
-		mocks.config = { ...mocks.config, responsiveFooter: true };
+		updateStarship({ responsive: true });
 		const ctx = createContext(async (factory) => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			component.handleInput?.("\t");
-			component.handleInput?.("\t");
-			component.handleInput?.("\x1b[B");
-			component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();

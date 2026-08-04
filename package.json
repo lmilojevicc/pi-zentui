@@ -26,10 +26,11 @@
 		"lint": "biome check .",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
+		"test:fixed-editor": "vitest run --maxWorkers=1 test/fixed-editor-editor-layout.test.ts test/fixed-editor-layout.test.ts test/fixed-editor.test.ts test/editor-viewport-indicators.test.ts test/minimalist-editor.test.ts test/session-lifecycle.test.ts test/fixed-editor-terminal-state.test.ts test/fixed-editor-pty.test.ts && vitest run --maxWorkers=1 test/extension-compliance.test.ts -t 'fixed editor|fixed-editor|fixed layout|fixed-layout'",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./extensions/zentui/index.ts",
 		"pi:install-local": "${PI_BIN:-/opt/homebrew/bin/pi} install ./ -l",
 		"fmt": "biome format --write .",
-		"fmt:check": "biome format --check .",
+		"fmt:check": "biome format .",
 		"verify": "npm run lint && npm run typecheck && npm run test",
 		"pack:check": "npm pack --dry-run",
 		"prepublishOnly": "npm run verify && npm run pack:check"
@@ -54,6 +55,7 @@
 		"@earendil-works/pi-coding-agent": "^0.82.1",
 		"@earendil-works/pi-tui": "^0.82.1",
 		"@types/node": "^26.0.0",
+		"node-pty": "^1.1.0",
 		"typescript": "^7.0.2",
 		"vitest": "^4.1.8"
 	}

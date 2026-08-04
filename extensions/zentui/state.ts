@@ -51,18 +51,27 @@ export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
 	};
 }
 
+export function modelLabelFor(
+	state: Pick<FooterState, "modelId" | "modelName">,
+	source: ModelLabelSource,
+): string {
+	return source === "name"
+		? state.modelName || state.modelId || "no-model"
+		: state.modelId || "no-model";
+}
+
 export function syncState(
 	state: FooterState,
 	ctx: ExtensionContext,
 	cacheHitIcon: string,
-	modelLabelSource: ModelLabelSource,
 	telemetry: FooterTelemetry = {},
 ): void {
 	const totals = getUsageTotals(ctx);
 	const m = ctx.model;
 	state.modelId = m?.id ?? "";
 	state.modelName = m?.name ?? "";
-	state.modelLabel = (modelLabelSource === "name" ? m?.name || m?.id : m?.id) ?? "no-model";
+	// Retained as a compatibility snapshot only; production surfaces format from raw fields.
+	state.modelLabel = modelLabelFor(state, "id");
 	state.providerLabel = formatProviderLabel(ctx.model?.provider);
 	state.contextLabel = buildContextLabel(ctx);
 	state.tokenLabel = buildTokenLabel(totals, cacheHitIcon);

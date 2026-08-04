@@ -1,7 +1,9 @@
-import { readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
+	initTheme,
 	ModelSelectorComponent,
 	SettingsSelectorComponent,
 	UserMessageComponent,
@@ -14,19 +16,23 @@ import {
 	type PolishedTuiConfig,
 	type SeparatorStyle,
 } from "../extensions/zentui/config";
-import { installFooter } from "../extensions/zentui/footer";
+import { installFooter as installFooterProduction } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import zentui, { activeFooterReferences } from "../extensions/zentui/index";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
-	installSelectorBorderStyle,
-	patchSelectorBorderStyle,
+	installSelectorBorderStyle as installSelectorBorderStyleProduction,
+	patchSelectorBorderStyle as patchSelectorBorderStyleProduction,
 } from "../extensions/zentui/selector-border";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
 import { createInitialState } from "../extensions/zentui/state";
-import { PolishedEditor, WrappedPolishedEditor } from "../extensions/zentui/ui";
-import { installUserMessageStyle } from "../extensions/zentui/user-message";
+import {
+	PolishedEditor as PolishedEditorProduction,
+	WrappedPolishedEditor as WrappedPolishedEditorProduction,
+} from "../extensions/zentui/ui";
+import { installUserMessageStyle as installUserMessageStyleProduction } from "../extensions/zentui/user-message";
+import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message-osc";
 
 const isolatedAgentDir = vi.hoisted(() => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -44,11 +50,232 @@ type FooterFactory = (...args: unknown[]) => {
 	dispose?: () => void;
 };
 
+const originalUserMessageRenderDescriptor = Object.getOwnPropertyDescriptor(
+	UserMessageComponent.prototype,
+	"render",
+);
+const originalUserMessageInvalidateDescriptor = Object.getOwnPropertyDescriptor(
+	UserMessageComponent.prototype,
+	"invalidate",
+);
+const originalModelSelectorRenderDescriptor = Object.getOwnPropertyDescriptor(
+	ModelSelectorComponent.prototype,
+	"render",
+);
+const originalSettingsSelectorRenderDescriptor = Object.getOwnPropertyDescriptor(
+	SettingsSelectorComponent.prototype,
+	"render",
+);
 const originalUserMessageRender = UserMessageComponent.prototype.render;
 const originalUserMessageInvalidate = UserMessageComponent.prototype.invalidate;
 const originalModelSelectorRender = ModelSelectorComponent.prototype.render;
 const originalSettingsSelectorRender = SettingsSelectorComponent.prototype.render;
+
+function restoreDescriptor(
+	target: object,
+	property: PropertyKey,
+	descriptor: PropertyDescriptor | undefined,
+): void {
+	if (descriptor) Object.defineProperty(target, property, descriptor);
+	else delete (target as Record<PropertyKey, unknown>)[property];
+}
 const inactiveSessionLifecycle = new SessionLifecycle();
+
+type SettingsCommandDeps = Parameters<typeof registerZentuiSettingsCommand>[1];
+
+const settingsCommandDefaults: SettingsCommandDeps = {
+	sessionLifecycle: inactiveSessionLifecycle,
+	getConfig: () => defaultConfig,
+	setEditorComponent: () => ({ applied: true }),
+	setMinimalist() {},
+	setUserMessagesComponent() {},
+	setSelectorBordersComponent() {},
+	setFooterComponent() {},
+	setFooterSegments() {},
+	setFooterFormat() {},
+	setResponsiveFooter() {},
+	setIconMode() {},
+	setContextStyle() {},
+	setSeparator() {},
+	setPathDisplay() {},
+	setGitBranch() {},
+	setGitCommit() {},
+	setGitMetrics() {},
+	getActiveExtensionStatuses: () => new Map<string, string>(),
+	setExtensionStatusDefaultPlacement() {},
+	setExtensionStatusPlacement() {},
+	setExtensionStatusColorMode() {},
+	setFixedEditor() {},
+	requestRender() {},
+};
+
+function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
+	const editor = config.components.editor;
+	const messages = config.components.userMessages;
+	const selectors = config.components.selectorBorders;
+	const footer = config.components.footer;
+	const starship = footer.styles.starship;
+	const flatChanged = <K extends keyof PolishedTuiConfig>(key: K) =>
+		config[key] !== defaultConfig[key];
+	return {
+		...config,
+		components: {
+			editor: {
+				...editor,
+				enabled: flatChanged("features") ? config.features.editor : editor.enabled,
+				style: flatChanged("editorStyle") ? config.editorStyle : editor.style,
+				colorSource: flatChanged("colorSources") ? config.colorSources.editor : editor.colorSource,
+				borderColorMode: flatChanged("editorBorderColorMode")
+					? config.editorBorderColorMode
+					: editor.borderColorMode,
+				modelLabel: flatChanged("editorModelLabel") ? config.editorModelLabel : editor.modelLabel,
+				viewportIndicators: flatChanged("features")
+					? config.features.viewportIndicators
+					: editor.viewportIndicators,
+				styles: {
+					...editor.styles,
+					opencode: {
+						...editor.styles.opencode,
+						metadataFormat: flatChanged("editorMetadataFormat")
+							? config.editorMetadataFormat
+							: editor.styles.opencode.metadataFormat,
+					},
+					minimalist: flatChanged("editorStyles")
+						? { ...editor.styles.minimalist, ...config.editorStyles.minimalist }
+						: editor.styles.minimalist,
+				},
+			},
+			userMessages: {
+				...messages,
+				enabled: flatChanged("features") ? config.features.editor : messages.enabled,
+				colorSource: flatChanged("colorSources")
+					? config.colorSources.userMessages
+					: messages.colorSource,
+				styles: { ...messages.styles },
+			},
+			selectorBorders: {
+				...selectors,
+				enabled: flatChanged("features") ? config.features.editor : selectors.enabled,
+				colorSource: flatChanged("colorSources")
+					? config.colorSources.editor
+					: selectors.colorSource,
+			},
+			footer: {
+				...footer,
+				style: flatChanged("features")
+					? config.features.statusLine
+						? "starship"
+						: "native"
+					: footer.style,
+				colorSource: flatChanged("colorSources")
+					? config.colorSources.starship
+					: footer.colorSource,
+				modelLabel: flatChanged("editorModelLabel") ? config.editorModelLabel : footer.modelLabel,
+				styles: {
+					starship: {
+						...starship,
+						format: flatChanged("footerFormat") ? config.footerFormat : starship.format,
+						responsive: flatChanged("responsiveFooter")
+							? config.responsiveFooter
+							: starship.responsive,
+						compactFormat: flatChanged("compactFooterFormat")
+							? config.compactFooterFormat
+							: starship.compactFormat,
+						compactMaxLines: flatChanged("compactFooterMaxLines")
+							? config.compactFooterMaxLines
+							: starship.compactMaxLines,
+						separator: flatChanged("separator") ? config.separator : starship.separator,
+						contextStyle: flatChanged("contextStyle") ? config.contextStyle : starship.contextStyle,
+						contextThresholds: flatChanged("contextThresholds")
+							? config.contextThresholds
+							: starship.contextThresholds,
+						pathDisplay: flatChanged("pathDisplay") ? config.pathDisplay : starship.pathDisplay,
+						segments: flatChanged("footerSegments") ? config.footerSegments : starship.segments,
+						gitBranch: flatChanged("gitBranch") ? config.gitBranch : starship.gitBranch,
+						gitCommit: flatChanged("gitCommit") ? config.gitCommit : starship.gitCommit,
+						gitMetrics: flatChanged("gitMetrics") ? config.gitMetrics : starship.gitMetrics,
+						extensionStatuses: flatChanged("extensionStatuses")
+							? config.extensionStatuses
+							: starship.extensionStatuses,
+					},
+				},
+			},
+		},
+		layout: {
+			...config.layout,
+			fixedEditor: flatChanged("fixedEditor") ? config.fixedEditor : config.layout.fixedEditor,
+		},
+	};
+}
+
+function installFooter(...args: Parameters<typeof installFooterProduction>) {
+	const getConfig = args[2];
+	return installFooterProduction(
+		args[0],
+		args[1],
+		() => canonicalizeTestConfig(getConfig() as PolishedTuiConfig),
+		args[3],
+	);
+}
+
+function installUserMessageStyle(...args: Parameters<typeof installUserMessageStyleProduction>) {
+	return installUserMessageStyleProduction(args[0], () =>
+		canonicalizeTestConfig(args[1]() as PolishedTuiConfig),
+	);
+}
+
+function installSelectorBorderStyle(
+	...args: Parameters<typeof installSelectorBorderStyleProduction>
+) {
+	return installSelectorBorderStyleProduction(
+		args[0],
+		args[1]
+			? () => canonicalizeTestConfig((args[1]?.() ?? defaultConfig) as PolishedTuiConfig)
+			: undefined,
+	);
+}
+
+function patchSelectorBorderStyle(...args: Parameters<typeof patchSelectorBorderStyleProduction>) {
+	return patchSelectorBorderStyleProduction(
+		args[0],
+		args[1],
+		args[2]
+			? () => canonicalizeTestConfig((args[2]?.() ?? defaultConfig) as PolishedTuiConfig)
+			: undefined,
+	);
+}
+
+class PolishedEditor extends PolishedEditorProduction {
+	constructor(...args: ConstructorParameters<typeof PolishedEditorProduction>) {
+		const getConfig = args[4];
+		super(
+			args[0],
+			args[1],
+			args[2],
+			args[3],
+			() => canonicalizeTestConfig(getConfig() as PolishedTuiConfig),
+			args[5],
+			args[6],
+			args[7],
+			args[8],
+		);
+	}
+}
+
+class WrappedPolishedEditor extends WrappedPolishedEditorProduction {
+	constructor(...args: ConstructorParameters<typeof WrappedPolishedEditorProduction>) {
+		const getConfig = args[2];
+		super(
+			args[0],
+			args[1],
+			() => canonicalizeTestConfig(getConfig() as PolishedTuiConfig),
+			args[3],
+			args[4],
+			args[5],
+			args[6],
+		);
+	}
+}
 
 function makeTheme(): Theme {
 	return {
@@ -146,7 +373,7 @@ function makeStrictTheme(): Theme {
 	} as unknown as Theme;
 }
 
-function makeUi(prefix = "") {
+function _makeUi(prefix = "") {
 	let editorComponent: unknown;
 	let editorText = "";
 	return {
@@ -170,11 +397,22 @@ function makeUi(prefix = "") {
 function configWithColorSources(
 	colorSources: Partial<PolishedTuiConfig["colorSources"]>,
 ): PolishedTuiConfig {
+	const merged = { ...defaultConfig.colorSources, ...colorSources };
 	return {
 		...defaultConfig,
-		colorSources: {
-			...defaultConfig.colorSources,
-			...colorSources,
+		colorSources: merged,
+		components: {
+			...defaultConfig.components,
+			editor: { ...defaultConfig.components.editor, colorSource: merged.editor },
+			selectorBorders: {
+				...defaultConfig.components.selectorBorders,
+				colorSource: merged.editor,
+			},
+			userMessages: {
+				...defaultConfig.components.userMessages,
+				colorSource: merged.userMessages,
+			},
+			footer: { ...defaultConfig.components.footer, colorSource: merged.starship },
 		},
 	};
 }
@@ -184,14 +422,10 @@ function configWithColors(
 	colorSources: Partial<PolishedTuiConfig["colorSources"]> = {},
 ): PolishedTuiConfig {
 	return {
-		...defaultConfig,
+		...configWithColorSources(colorSources),
 		colors: {
 			...defaultConfig.colors,
 			...colors,
-		},
-		colorSources: {
-			...defaultConfig.colorSources,
-			...colorSources,
 		},
 	};
 }
@@ -199,31 +433,50 @@ function configWithColors(
 function configWithExtensionStatuses(
 	extensionStatuses: Partial<PolishedTuiConfig["extensionStatuses"]>,
 ): PolishedTuiConfig {
+	const merged = {
+		...defaultConfig.extensionStatuses,
+		...extensionStatuses,
+		placements: {
+			...defaultConfig.extensionStatuses.placements,
+			...(extensionStatuses.placements ?? {}),
+		},
+	};
+	const footer = defaultConfig.components.footer;
 	return {
 		...defaultConfig,
-		extensionStatuses: {
-			...defaultConfig.extensionStatuses,
-			...extensionStatuses,
-			placements: {
-				...defaultConfig.extensionStatuses.placements,
-				...(extensionStatuses.placements ?? {}),
+		extensionStatuses: merged,
+		components: {
+			...defaultConfig.components,
+			footer: {
+				...footer,
+				styles: { starship: { ...footer.styles.starship, extensionStatuses: merged } },
 			},
 		},
 	};
 }
 
-function configWithFeatures(features: Partial<PolishedTuiConfig["features"]>): PolishedTuiConfig {
+function configWithLowRailStyle(lowRail: boolean): PolishedTuiConfig {
 	return {
 		...defaultConfig,
-		features: {
-			...defaultConfig.features,
-			...features,
+		components: {
+			...defaultConfig.components,
+			editor: {
+				...defaultConfig.components.editor,
+				style: lowRail ? "opencode-copy-friendly" : "opencode",
+			},
 		},
 	};
 }
 
 function stripPromptMarks(line: string): string {
 	return line.replaceAll(/\x1b]133;[ABC]\x07/g, "").replaceAll(/\x1b\[[0-9;]*m/g, "");
+}
+
+function expectSinglePromptZone(rendered: string): void {
+	expect(rendered.match(/\x1b\]133;A\x07/g)).toHaveLength(1);
+	expect(rendered.match(/\x1b\]133;B\x07/g)).toHaveLength(1);
+	expect(rendered.match(/\x1b\]133;C\x07/g)).toHaveLength(1);
+	expect(rendered).not.toContain("\x9d133;");
 }
 
 function stripTestTags(line: string): string {
@@ -294,14 +547,26 @@ afterAll(() => {
 
 afterEach(() => {
 	rmSync(join(isolatedAgentDir.path, "zentui.json"), { force: true });
-	UserMessageComponent.prototype.render = originalUserMessageRender;
-	UserMessageComponent.prototype.invalidate = originalUserMessageInvalidate;
+	restoreDescriptor(UserMessageComponent.prototype, "render", originalUserMessageRenderDescriptor);
+	restoreDescriptor(
+		UserMessageComponent.prototype,
+		"invalidate",
+		originalUserMessageInvalidateDescriptor,
+	);
 	delete (UserMessageComponent.prototype as unknown as Record<PropertyKey, unknown>)[
 		ZENTUI_PROTOTYPE_PATCH_REGISTRY
 	];
 
-	ModelSelectorComponent.prototype.render = originalModelSelectorRender;
-	SettingsSelectorComponent.prototype.render = originalSettingsSelectorRender;
+	restoreDescriptor(
+		ModelSelectorComponent.prototype,
+		"render",
+		originalModelSelectorRenderDescriptor,
+	);
+	restoreDescriptor(
+		SettingsSelectorComponent.prototype,
+		"render",
+		originalSettingsSelectorRenderDescriptor,
+	);
 	for (const selectorPrototype of [
 		ModelSelectorComponent.prototype,
 		SettingsSelectorComponent.prototype,
@@ -314,23 +579,346 @@ afterEach(() => {
 
 describe("Pi docs compliance", () => {
 	it("derives lazy data requirements from only the active wide and compact candidates", () => {
+		const starship = defaultConfig.components.footer.styles.starship;
 		const customWide = {
 			...defaultConfig,
-			footerFormat: "$cwd",
-			compactFooterFormat: "$package $git_tag $git_metrics $time",
-			footerSegments: {
-				...defaultConfig.footerSegments,
-				packageVersion: true,
-				gitCommit: true,
+			components: {
+				...defaultConfig.components,
+				footer: {
+					...defaultConfig.components.footer,
+					styles: {
+						starship: {
+							...starship,
+							format: "$cwd",
+							compactFormat: "$package $git_tag $git_metrics $time",
+							segments: { ...starship.segments, packageVersion: true, gitCommit: true },
+						},
+					},
+				},
 			},
 		};
 		expect(activeFooterReferences(customWide)).toEqual(
 			new Set(["cwd", "package", "git_tag", "git_metrics", "time"]),
 		);
-		expect(activeFooterReferences({ ...customWide, responsiveFooter: false })).toEqual(
-			new Set(["cwd"]),
-		);
+		expect(
+			activeFooterReferences({
+				...customWide,
+				components: {
+					...customWide.components,
+					footer: {
+						...customWide.components.footer,
+						styles: {
+							starship: {
+								...customWide.components.footer.styles.starship,
+								responsive: false,
+							},
+						},
+					},
+				},
+			}),
+		).toEqual(new Set(["cwd"]));
 	});
+	it("installs enabled copy-friendly framed messages while the editor is disabled", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { enabled: false },
+					userMessages: { enabled: true, style: "framed-copy-friendly" },
+					selectorBorders: { enabled: true },
+					footer: { enabled: false },
+				},
+			}),
+		);
+		const handlers = loadExtension();
+		const existingFactory = () => ({ render: () => ["native"] });
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: unknown = "untouched";
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).toBe(existingFactory);
+		expect(footerFactory).toBe("untouched");
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		const rendered = new UserMessageComponent("message").render(20).join("\n");
+		expectSinglePromptZone(rendered);
+		expect(stripPromptMarks(rendered)).toContain("────────────────────");
+		expect(stripPromptMarks(rendered)).not.toContain("│");
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("installs only the editor and footer when message and selector surfaces are disabled", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { enabled: true },
+					userMessages: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: { enabled: true },
+				},
+			}),
+		);
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: unknown;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).toBeTypeOf("function");
+		expect(footerFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).toBe(predecessor);
+		expect(new UserMessageComponent("message").render(20)).toEqual(["native:20"]);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("reconciles footer and fixed layout independently of all chrome surfaces", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { enabled: false },
+					userMessages: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: { enabled: true },
+				},
+				layout: { fixedEditor: { enabled: true } },
+			}),
+		);
+		const handlers = loadExtension();
+		const existingFactory = () => ({ render: () => ["native"] });
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: unknown;
+		let probeFactory: unknown;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+				setWidget(key: string, factory: unknown) {
+					if (key === "zentui-fixed-editor-probe") probeFactory = factory;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).toBe(existingFactory);
+		expect(footerFactory).toBeTypeOf("function");
+		expect(probeFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(probeFactory).toBeUndefined();
+	});
+
+	it("keeps every surface active when fixed-layout compatibility inspection fails", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: unknown;
+		let probeFactory: ((tui: unknown) => { render(): string[] }) | undefined;
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+				setWidget(key: string, factory: unknown) {
+					if (key === "zentui-fixed-editor-probe") {
+						probeFactory =
+							typeof factory === "function" ? (factory as typeof probeFactory) : undefined;
+					}
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		const tui = new Proxy(
+			{
+				terminal: { columns: 80, rows: 24, write() {} },
+				render: () => [],
+				doRender() {},
+				addInputListener: () => () => {},
+				removeInputListener() {},
+			},
+			{
+				get(target, property, receiver) {
+					if (property === "children") throw new Error("private shape changed");
+					return Reflect.get(target, property, receiver);
+				},
+			},
+		);
+		probeFactory?.(tui).render();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(warning).toHaveBeenCalledTimes(1);
+		expect(editorFactory).toBeTypeOf("function");
+		expect(footerFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("removes the fixed-layout probe and other surfaces when disposal cleanup throws", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
+		);
+		const handlers = loadExtension();
+		const existingFactory = () => ({
+			render: () => ["native"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: unknown;
+		let throwCopyNoticeCleanup = false;
+		let probeRemovals = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				getEditorText: () => "",
+				setEditorText() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+				setWidget(key: string, factory: unknown) {
+					if (key === "zentui-copy-notice" && factory === undefined && throwCopyNoticeCleanup) {
+						throw new Error("copy notice cleanup failed");
+					}
+					if (key === "zentui-fixed-editor-probe" && factory === undefined) probeRemovals += 1;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).not.toBe(existingFactory);
+		expect(footerFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		const removalsBeforeShutdown = probeRemovals;
+		throwCopyNoticeCleanup = true;
+
+		await expect(emit(handlers, "session_shutdown", ctx)).resolves.toBeUndefined();
+		expect(probeRemovals).toBe(removalsBeforeShutdown + 1);
+		expect(editorFactory).toBe(existingFactory);
+		expect(footerFactory).toBeUndefined();
+		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+	});
+
+	it("isolates footer installation failure without clearing a retained predecessor", async () => {
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		const predecessor = () => ({ render: () => ["third-party"] });
+		let footerFactory: unknown = predecessor;
+		const footerCalls: unknown[] = [];
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerCalls.push(factory);
+					if (factory) throw new Error("footer unavailable");
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await expect(emit(handlers, "session_start", ctx)).resolves.toBeUndefined();
+		expect(editorFactory).toBeTypeOf("function");
+		expect(footerFactory).toBe(predecessor);
+		expect(footerCalls).toHaveLength(1);
+		expect(footerCalls).not.toContain(undefined);
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(footerFactory).toBe(predecessor);
+		expect(footerCalls).not.toContain(undefined);
+	});
+
+	it("isolates selector installation failure from editor, messages, and footer", async () => {
+		const settingsPrototype = SettingsSelectorComponent.prototype as unknown as {
+			render: typeof originalSettingsSelectorRender | undefined;
+		};
+		settingsPrototype.render = undefined;
+		try {
+			const handlers = loadExtension();
+			let editorFactory: unknown;
+			let footerFactory: unknown;
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setEditorComponent(factory: unknown) {
+						editorFactory = factory;
+					},
+					getEditorComponent: () => editorFactory,
+					setFooter(factory: unknown) {
+						footerFactory = factory;
+					},
+				},
+			});
+
+			await emit(handlers, "session_start", ctx);
+			expect(editorFactory).toBeTypeOf("function");
+			expect(footerFactory).toBeTypeOf("function");
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			settingsPrototype.render = originalSettingsSelectorRender;
+		}
+	});
+
 	it("uses the current @earendil-works Pi packages instead of the old @mariozechner scope", () => {
 		const files = [
 			"package.json",
@@ -485,7 +1073,7 @@ describe("Pi docs compliance", () => {
 		);
 		expect(transferred).toEqual(Array.from({ length: 5 }, () => expanded));
 		expect(transferred).not.toContain(marker);
-		expect(patchPresenceDuringReplacements).toEqual([false, true, true, false, true]);
+		expect(patchPresenceDuringReplacements).toEqual([false, false, true, true, true]);
 	});
 
 	it("keeps the active factory when expanded editor text cannot be read", async () => {
@@ -499,12 +1087,15 @@ describe("Pi docs compliance", () => {
 			setText() {},
 		});
 		const editorFactory: unknown = existingFactory;
+		let footerFactory: unknown;
 		let setEditorCalls = 0;
 		const notifications: string[] = [];
 		const ctx = makeContext({
 			ui: {
 				theme: makeTheme(),
-				setFooter() {},
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
 				getEditorText() {
 					throw new Error("unavailable");
 				},
@@ -529,12 +1120,13 @@ describe("Pi docs compliance", () => {
 
 		expect(setEditorCalls).toBe(0);
 		expect(editorFactory).toBe(existingFactory);
-		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		expect(footerFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
 		expect(notifications.at(-1)).toContain("expanded editor text could not be read safely");
 	});
 
-	it("rolls back editor activation and all prototype patches when patch installation fails", async () => {
+	it("isolates user-message patch failure from editor and selector activation", async () => {
 		const handlers = loadExtension();
 		let editorFactory: unknown;
 		let setEditorCalls = 0;
@@ -557,20 +1149,16 @@ describe("Pi docs compliance", () => {
 		userPrototype.render = undefined;
 		try {
 			await emit(handlers, "session_start", ctx);
-			expect(editorFactory).toBeUndefined();
-			expect(setEditorCalls).toBe(2);
-			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
-			expect(SettingsSelectorComponent.prototype.render).toBe(originalSettingsSelectorRender);
+			expect(editorFactory).toBeTypeOf("function");
+			expect(setEditorCalls).toBe(1);
+			expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+			expect(SettingsSelectorComponent.prototype.render).not.toBe(originalSettingsSelectorRender);
 			expect(UserMessageComponent.prototype.invalidate).toBe(originalUserMessageInvalidate);
-			for (const prototype of [
-				ModelSelectorComponent.prototype,
-				SettingsSelectorComponent.prototype,
-				UserMessageComponent.prototype,
-			]) {
-				expect(
-					(prototype as unknown as Record<PropertyKey, unknown>)[ZENTUI_PROTOTYPE_PATCH_REGISTRY],
-				).toBeUndefined();
-			}
+			expect(
+				(UserMessageComponent.prototype as unknown as Record<PropertyKey, unknown>)[
+					ZENTUI_PROTOTYPE_PATCH_REGISTRY
+				],
+			).toBeUndefined();
 			await emit(handlers, "session_shutdown", ctx);
 		} finally {
 			userPrototype.render = originalUserMessageRender;
@@ -616,16 +1204,18 @@ describe("Pi docs compliance", () => {
 			await emit(handlers, "session_start", ctx);
 			expect(editorFactory).toBeTypeOf("function");
 			expect(editorFactory).not.toBe(existingFactory);
-			expect(assignedFactories).toHaveLength(3);
+			expect(assignedFactories).toHaveLength(1);
 			userPrototype.render = originalUserMessageRender;
 
 			const command = commands.get("zentui") as {
 				handler(args: string, ctx: unknown): Promise<void>;
 			};
 			await command.handler("editor disable", ctx);
+			expect(editorFactory).not.toBe(existingFactory);
+			expect(assignedFactories).toHaveLength(3);
+			await emit(handlers, "session_shutdown", ctx);
 			expect(editorFactory).toBe(existingFactory);
 			expect(assignedFactories).toHaveLength(4);
-			await emit(handlers, "session_shutdown", ctx);
 		} finally {
 			userPrototype.render = originalUserMessageRender;
 		}
@@ -784,7 +1374,8 @@ describe("Pi docs compliance", () => {
 
 		expect(runner.editorFactory).toBeUndefined();
 		expect(runner.setEditorCalls).toBe(2);
-		expect(runner.footerClears).toBe(1);
+		// A distinct ui wrapper carries no ownership token, so shutdown must not clobber it.
+		expect(runner.footerClears).toBe(0);
 	});
 
 	it("refreshes a stale Zentui editor factory on extension reload instead of adopting old closures", async () => {
@@ -814,6 +1405,151 @@ describe("Pi docs compliance", () => {
 		expect(setEditorCalls).toBe(2);
 		expect(editorFactory).not.toBe(firstFactory);
 		expect(editorFactory).toBeTypeOf("function");
+	});
+
+	it("keeps a newer instance installed when the older instance shuts down", async () => {
+		const firstHandlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: unknown;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: unknown) {
+					footerFactory = factory;
+				},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+
+		await emit(firstHandlers, "session_start", ctx);
+		const secondHandlers = loadExtension();
+		await emit(secondHandlers, "session_start", ctx);
+		const secondEditor = editorFactory;
+		const secondFooter = footerFactory;
+		const secondMessageRender = UserMessageComponent.prototype.render;
+		const secondMessageInvalidate = UserMessageComponent.prototype.invalidate;
+		const secondModelSelector = ModelSelectorComponent.prototype.render;
+		const secondSettingsSelector = SettingsSelectorComponent.prototype.render;
+
+		await emit(firstHandlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(secondEditor);
+		expect(footerFactory).toBe(secondFooter);
+		expect(UserMessageComponent.prototype.render).toBe(secondMessageRender);
+		expect(UserMessageComponent.prototype.invalidate).toBe(secondMessageInvalidate);
+		expect(ModelSelectorComponent.prototype.render).toBe(secondModelSelector);
+		expect(SettingsSelectorComponent.prototype.render).toBe(secondSettingsSelector);
+		expectSinglePromptZone(new UserMessageComponent("new").render(30).join("\n"));
+
+		await emit(secondHandlers, "session_shutdown", ctx);
+	});
+
+	it("cleans every stale owned surface on an enabled-to-disabled extension reload", async () => {
+		const firstHandlers = loadExtension();
+		const existingFactory = () => ({
+			render: () => ["native"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: unknown;
+		let setEditorCalls = 0;
+		let setFooterCalls = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				getEditorText: () => "",
+				setEditorText() {},
+				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					setFooterCalls += 1;
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await emit(firstHandlers, "session_start", ctx);
+		expect(editorFactory).not.toBe(existingFactory);
+		expect(footerFactory).toBeTypeOf("function");
+		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { enabled: false },
+					userMessages: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: { style: "native" },
+				},
+			}),
+		);
+		const secondHandlers = loadExtension();
+		await emit(secondHandlers, "session_start", ctx);
+
+		expect(editorFactory).toBe(existingFactory);
+		expect(footerFactory).toBeUndefined();
+		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(UserMessageComponent.prototype.invalidate).toBe(originalUserMessageInvalidate);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		expect(SettingsSelectorComponent.prototype.render).toBe(originalSettingsSelectorRender);
+		expect(setEditorCalls).toBe(2);
+		expect(setFooterCalls).toBe(2);
+	});
+
+	it("fails open for explicit unsupported component style IDs", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { enabled: true, style: "future-editor" },
+					userMessages: { enabled: true, style: "future-messages" },
+					selectorBorders: { enabled: true, style: "future-selectors" },
+					footer: { style: "future-footer" },
+				},
+			}),
+		);
+		const handlers = loadExtension();
+		const existingEditor = () => ({ render: () => ["native"] });
+		const existingFooter = () => ({ render: () => ["native"] });
+		let editorFactory: unknown = existingEditor;
+		let footerFactory: unknown = existingFooter;
+		let editorSets = 0;
+		let footerSets = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorSets += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: unknown) {
+					footerSets += 1;
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+		expect(editorFactory).toBe(existingEditor);
+		expect(footerFactory).toBe(existingFooter);
+		expect(editorSets).toBe(0);
+		expect(footerSets).toBe(0);
+		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		expect(SettingsSelectorComponent.prototype.render).toBe(originalSettingsSelectorRender);
+		await emit(handlers, "session_shutdown", ctx);
 	});
 
 	it("refreshes a stale wrapped Zentui editor without wrapping the old Zentui wrapper", async () => {
@@ -911,8 +1647,8 @@ describe("Pi docs compliance", () => {
 
 			await new Promise((resolve) => setTimeout(resolve, 1));
 			expect(editorFactory).toBe(takeoverFactory);
-			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
 
 			const command = commands.get("zentui") as {
 				handler(args: string, ctx: unknown): Promise<void>;
@@ -923,13 +1659,98 @@ describe("Pi docs compliance", () => {
 			editorFactory = takeoverFactory;
 			await command.handler("editor disable", ctx);
 			expect(editorFactory).toBe(takeoverFactory);
-			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-			expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+			// Editor enablement is component-local; messages and selector borders stay installed.
+			expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+			expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
 			await emit(handlers, "session_shutdown", ctx);
 			expect(editorFactory).toBe(takeoverFactory);
 			expect(setEditorCalls).toBe(2);
 		},
 	);
+
+	it("routes fixed-editor aliases through layout without retaking a third-party editor", async () => {
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notifications: string[] = [];
+		let editorFactory: unknown;
+		let setEditorCalls = 0;
+		const takeoverFactory = () => ({
+			render: () => ["takeover"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent() {
+					return editorFactory;
+				},
+				setWidget() {},
+				notify(message: string) {
+					notifications.push(message);
+				},
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		expect(setEditorCalls).toBe(1);
+		editorFactory = takeoverFactory;
+		await new Promise((resolve) => setTimeout(resolve, 1));
+
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+		for (const args of ["fixed-editor enable", "fixed_editor disable", "fixed editor toggle"])
+			await command.handler(args, ctx);
+
+		expect(editorFactory).toBe(takeoverFactory);
+		expect(setEditorCalls).toBe(1);
+		expect(notifications).toEqual([
+			"Fixed editor: enabled",
+			"Fixed editor: disabled",
+			"Fixed editor: enabled",
+		]);
+		const persisted = JSON.parse(
+			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
+		) as {
+			layout: { fixedEditor: { enabled: boolean } };
+		};
+		expect(persisted.layout.fixedEditor.enabled).toBe(true);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(takeoverFactory);
+	});
+
+	it("routes removed copy commands through the ordinary usage warning without mutation", async () => {
+		const path = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(path, JSON.stringify({ components: { editor: { style: "minimalist" } } }));
+		const before = readFileSync(path, "utf8");
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notifications: string[] = [];
+		const ctx = makeContext({ ui: { notify: (message: string) => notifications.push(message) } });
+		await emit(handlers, "session_start", ctx);
+		const command = commands.get("zentui") as {
+			handler(args: string, ctx: unknown): Promise<void>;
+		};
+
+		for (const args of [
+			"copy-friendly disable",
+			"editor-copy-friendly enable",
+			"message-copy-friendly disable",
+		]) {
+			await command.handler(args, ctx);
+		}
+		expect(readFileSync(path, "utf8")).toBe(before);
+		expect(notifications).toHaveLength(3);
+		expect(notifications.every((message) => message.startsWith("Usage: /zentui"))).toBe(true);
+		await emit(handlers, "session_shutdown", ctx);
+	});
 
 	it("does not reconcile an editor after its session shuts down", async () => {
 		vi.useFakeTimers();
@@ -973,6 +1794,108 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
+	it("renders editor and message style selections independently", () => {
+		let config: PolishedTuiConfig = {
+			...defaultConfig,
+			components: {
+				...defaultConfig.components,
+				editor: {
+					...defaultConfig.components.editor,
+					style: "opencode-copy-friendly",
+				},
+				userMessages: {
+					...defaultConfig.components.userMessages,
+					style: "framed",
+				},
+			},
+		};
+		const cleanup = installUserMessageStyleProduction(
+			() => makeTheme(),
+			() => config,
+		);
+		try {
+			const editor = new PolishedEditorProduction(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				{} as never,
+				makeTheme(),
+				() => config,
+				() => ({ modelLabel: "model", providerLabel: "provider" }),
+				() => "off",
+			);
+			editor.setText("draft");
+			expect(editor.render(80).join("\n")).not.toContain("│");
+			expect(new UserMessageComponent("message").render(80).join("\n")).toContain("│");
+
+			config = {
+				...config,
+				components: {
+					...config.components,
+					editor: { ...config.components.editor, style: "opencode" },
+					userMessages: { ...config.components.userMessages, style: "labeled" },
+				},
+			};
+			expect(editor.render(80).join("\n")).toContain("│");
+			expect(new UserMessageComponent("message 2").render(80).join("\n")).toContain("User");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it.each([
+		["opencode", "framed"],
+		["opencode", "framed-copy-friendly"],
+		["opencode", "compact"],
+		["opencode", "labeled"],
+		["opencode-copy-friendly", "framed"],
+		["opencode-copy-friendly", "framed-copy-friendly"],
+		["opencode-copy-friendly", "compact"],
+		["opencode-copy-friendly", "labeled"],
+		["minimalist", "framed"],
+		["minimalist", "framed-copy-friendly"],
+		["minimalist", "compact"],
+		["minimalist", "labeled"],
+	] as const)("composes %s Editor with %s messages independently", (editorStyle, messageStyle) => {
+		const config = structuredClone(defaultConfig);
+		config.components.editor.style = editorStyle;
+		config.components.userMessages.style = messageStyle;
+		installUserMessageStyleProduction(
+			() => makeTheme(),
+			() => config,
+		);
+		const messageWrapper = UserMessageComponent.prototype.render;
+		const editor = new PolishedEditorProduction(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+			makeTheme(),
+			() => config,
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+			() => ({ cwd: "/project" }),
+		);
+		editor.setText("draft");
+		const editorRendered = editor.render(80).join("\n");
+		const messageRendered = new UserMessageComponent("message").render(40).join("\n");
+
+		if (editorStyle === "opencode") expect(editorRendered).toContain("│");
+		else if (editorStyle === "opencode-copy-friendly") expect(editorRendered).not.toContain("│");
+		else expect(editorRendered).toContain("╭");
+		const plainMessage = stripPromptMarks(messageRendered);
+		if (messageStyle === "framed") expect(plainMessage).toContain("────");
+		else if (messageStyle === "framed-copy-friendly") {
+			expect(plainMessage).toContain("────");
+			expect(plainMessage).not.toContain("│");
+		} else if (messageStyle === "compact") {
+			expect(plainMessage).toContain("│ message");
+			expect(plainMessage).not.toContain("────");
+		} else expect(plainMessage).toContain("User");
+		expect(config.components.editor.style).toBe(editorStyle);
+		expect(config.components.userMessages).toMatchObject({ enabled: true, style: messageStyle });
+		expect(config.components.footer.style).toBe("starship");
+		expect(UserMessageComponent.prototype.render).toBe(messageWrapper);
+	});
+
 	it("renders user messages like the ZentUI prompt box", () => {
 		installUserMessageStyle(
 			() => makeTaggedTheme(),
@@ -995,20 +1918,21 @@ describe("Pi docs compliance", () => {
 		expect(rendered).not.toContain("xhigh");
 	});
 
-	it("hides previous user-message rails in copy-friendly mode", () => {
+	it("renders compact user messages without horizontal borders", () => {
+		const config = structuredClone(defaultConfig);
+		config.components.userMessages.style = "compact";
 		installUserMessageStyle(
 			() => makeTaggedTheme(),
-			() => configWithFeatures({ copyFriendly: true }),
+			() => config,
 		);
 
 		const lines = new UserMessageComponent("hello").render(80).map(stripPromptMarks);
 		const rendered = lines.join("\n");
 
-		expect(rendered).not.toContain("│");
-		expect(rendered).not.toContain("❯");
+		expect(rendered).toContain("│");
 		expect(rendered).toContain("hello");
-		expect(stripTestTags(lines[0])).toMatch(/^─+$/);
-		expect(stripTestTags(lines.at(-1) ?? "")).toMatch(/^─+$/);
+		expect(stripTestTags(lines[0])).not.toMatch(/^─+$/);
+		expect(stripTestTags(lines.at(-1) ?? "")).not.toMatch(/^─+$/);
 	});
 
 	it("renders the configured rail glyph on user messages", () => {
@@ -1056,6 +1980,48 @@ describe("Pi docs compliance", () => {
 		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
 	});
 
+	it("restyles cached history when message style or relevant chrome changes", () => {
+		let config = structuredClone(defaultConfig);
+		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);
+		const theme = { ...makeTaggedTheme(), fg } as unknown as Theme;
+		const wrapperBefore = UserMessageComponent.prototype.render;
+		installUserMessageStyle(
+			() => theme,
+			() => config,
+		);
+		const installedWrapper = UserMessageComponent.prototype.render;
+		const message = new UserMessageComponent("hello");
+
+		const framed = message.render(30).join("\n");
+		const callsAfterFramed = fg.mock.calls.length;
+		expect(framed).toContain("────");
+
+		config = structuredClone(config);
+		config.components.footer.style = "hidden";
+		expect(message.render(30).join("\n")).toBe(framed);
+		expect(fg).toHaveBeenCalledTimes(callsAfterFramed);
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "framed-copy-friendly";
+		const railFree = message.render(30).join("\n");
+		expect(railFree).toContain("────");
+		expect(railFree).not.toContain("│");
+		expect(railFree).not.toBe(framed);
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "compact";
+		const compact = message.render(30).join("\n");
+		expect(compact).toContain("│");
+		expect(compact).not.toContain("────");
+
+		config = structuredClone(config);
+		config.components.userMessages.style = "labeled";
+		const labeled = message.render(30).join("\n");
+		expect(labeled).toContain("User");
+		expect(UserMessageComponent.prototype.render).toBe(installedWrapper);
+		expect(installedWrapper).not.toBe(wrapperBefore);
+	});
+
 	it("clears cached user-message rendering on invalidate", () => {
 		let colorPrefix = "first";
 		const theme = {
@@ -1087,7 +2053,7 @@ describe("Pi docs compliance", () => {
 		expect(invalidatedRender).not.toContain("[first:userMessageText]hello");
 	});
 
-	it("renders selector top and bottom borders from the editor color source", () => {
+	it("renders selector borders from their independent canonical color source", () => {
 		const prototype = {
 			render(width: number) {
 				return ["─".repeat(width), "body", "─".repeat(width)];
@@ -1112,10 +2078,20 @@ describe("Pi docs compliance", () => {
 			},
 		};
 
-		patchSelectorBorderStyle(
+		patchSelectorBorderStyleProduction(
 			terminalPrototype,
 			() => makeTaggedTheme(),
-			() => configWithColorSources({ editor: "terminal" }),
+			() => ({
+				...defaultConfig,
+				components: {
+					...defaultConfig.components,
+					editor: { ...defaultConfig.components.editor, colorSource: "theme" },
+					selectorBorders: {
+						...defaultConfig.components.selectorBorders,
+						colorSource: "terminal",
+					},
+				},
+			}),
 		);
 		const terminalLines = terminalPrototype.render(8);
 
@@ -1158,6 +2134,45 @@ describe("Pi docs compliance", () => {
 		cleanup();
 		cleanup();
 		expect(prototype.render).toBe(predecessor);
+	});
+
+	it("removes the temporary own wrapper when the predecessor is inherited", () => {
+		const basePrototype = {
+			render(width: number) {
+				return ["─".repeat(width), "body", "─".repeat(width)];
+			},
+		};
+		const prototype = Object.create(basePrototype) as typeof basePrototype;
+		expect(Object.hasOwn(prototype, "render")).toBe(false);
+
+		const cleanup = patchSelectorBorderStyle(
+			prototype,
+			() => makeTaggedTheme(),
+			() => defaultConfig,
+		);
+		expect(Object.hasOwn(prototype, "render")).toBe(true);
+		cleanup();
+		expect(Object.hasOwn(prototype, "render")).toBe(false);
+		expect(prototype.render).toBe(basePrototype.render);
+	});
+
+	it("restores an own method descriptor exactly", () => {
+		const predecessor = (width: number) => ["─".repeat(width), "body", "─".repeat(width)];
+		const prototype = {} as { render: typeof predecessor };
+		Object.defineProperty(prototype, "render", {
+			value: predecessor,
+			writable: false,
+			enumerable: false,
+			configurable: true,
+		});
+		const descriptor = Object.getOwnPropertyDescriptor(prototype, "render");
+		const cleanup = patchSelectorBorderStyle(
+			prototype,
+			() => makeTaggedTheme(),
+			() => defaultConfig,
+		);
+		cleanup();
+		expect(Object.getOwnPropertyDescriptor(prototype, "render")).toEqual(descriptor);
 	});
 
 	it("does not stack selector wrappers and ignores stale cleanup", () => {
@@ -1209,7 +2224,7 @@ describe("Pi docs compliance", () => {
 		const prototype = { render: predecessor };
 		const firstTheme = vi.fn(() => makeTaggedTheme("first:"));
 		const secondTheme = vi.fn(() => makeTaggedTheme("second:"));
-		const cleanupFirst = patchSelectorBorderStyle(prototype, firstTheme, () => defaultConfig);
+		patchSelectorBorderStyle(prototype, firstTheme, () => defaultConfig);
 		const firstWrapper = prototype.render;
 		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
 			return ["third-party", ...firstWrapper.call(this, width)];
@@ -1217,7 +2232,6 @@ describe("Pi docs compliance", () => {
 		prototype.render = thirdParty;
 		const cleanupSecond = patchSelectorBorderStyle(prototype, secondTheme, () => defaultConfig);
 
-		cleanupFirst();
 		cleanupSecond();
 		firstTheme.mockClear();
 		secondTheme.mockClear();
@@ -1300,25 +2314,434 @@ describe("Pi docs compliance", () => {
 		expect(UserMessageComponent.prototype.render).toBe(predecessor);
 	});
 
-	it("preserves OSC 133 prompt-zone markers around user-message output", async () => {
-		const handlers = loadExtension();
-		await emit(handlers, "session_start", makeContext({ ui: makeUi() }));
+	it("sanitizes hostile predecessor output when message text cannot be found", () => {
+		const sgr = "\x1b[31mred\x1b[0m";
+		const open = "\x1b]8;;https://safe.example\x07";
+		const close = "\x1b]8;;\x07";
+		const predecessor = () => [
+			`before ${sgr} ${open}link${close} \x1b]52;c;CLIPBOARD\x07\x1b[2J\x1bPSECRET\x1b\\\x07 after`,
+		];
+		UserMessageComponent.prototype.render = predecessor;
+		const cleanup = installUserMessageStyle(
+			() => makeTaggedTheme(),
+			() => defaultConfig,
+		);
 
-		const lines = new UserMessageComponent("hello").render(40);
+		const rendered = UserMessageComponent.prototype.render.call({ children: [] }, 80).join("\n");
 
-		expect(lines[0].startsWith("\x1b]133;A\x07")).toBe(true);
-		expect(lines.at(-1)).toContain("\x1b]133;B\x07\x1b]133;C\x07");
+		expect(rendered).toContain(sgr);
+		expect(rendered).toContain(`${open}link${close}`);
+		expect(rendered).toContain("before");
+		expect(rendered).toContain("after");
+		expect(rendered).not.toContain("\x1b]52");
+		expect(rendered).not.toContain("CLIPBOARD");
+		expect(rendered).not.toContain("\x1b[2J");
+		expect(rendered).not.toContain("SECRET");
+		expect(rendered).not.toContain("\x07 after");
+		cleanup();
 	});
 
-	it("keeps user-message output within the requested render width", async () => {
-		const handlers = loadExtension();
-		await emit(handlers, "session_start", makeContext());
+	it("strips all predecessor OSC 8 when links are unbalanced across rows", () => {
+		const open = "\x1b]8;;https://safe.example\x07";
+		const close = "\x1b]8;;\x07";
+		const sgr = "\x1b[31mred\x1b[0m";
+		let rows = [`${open}first`, `second ${sgr}`];
+		UserMessageComponent.prototype.render = () => rows;
+		const cleanup = installUserMessageStyle(
+			() => makeTaggedTheme(),
+			() => defaultConfig,
+		);
 
-		const lines = new UserMessageComponent("hello ".repeat(20)).render(12).map(stripPromptMarks);
+		const instance = { children: [] };
+		expect(UserMessageComponent.prototype.render.call(instance, 80)).toEqual([
+			"first",
+			`second ${sgr}`,
+		]);
 
-		expect(lines.length).toBeGreaterThan(0);
-		expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+		rows = [`${open}first`, `second${close} ${sgr}`];
+		expect(UserMessageComponent.prototype.render.call(instance, 80)).toEqual([
+			`${open}first`,
+			`second${close} ${sgr}`,
+		]);
+		cleanup();
 	});
+
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"preserves exactly one OSC 133 prompt zone for %s messages",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+
+			const rendered = new UserMessageComponent("hello").render(40).join("\n");
+			expect(rendered.match(/\x1b\]133;A\x07/g)).toHaveLength(1);
+			expect(rendered.match(/\x1b\]133;B\x07\x1b\]133;C\x07/g)).toHaveLength(1);
+		},
+	);
+
+	it("strips every raw user-message control before adding one prompt zone", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const open = "\x1b]8;;https://example.test\x07";
+		const close = "\x1b]8;;\x07";
+		const hostile = `before \x1b]0;title\x07\x1b]52;c;PAYLOAD\x07\x1b[2J\x1bPSECRET\x1b\\\x9d8;;https://c1.example\x9c${open}link${close} after`;
+		const rendered = new UserMessageComponent(hostile).render(100).join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
+		expect(rendered).not.toContain("\x1b]0;");
+		expect(rendered).not.toContain("\x1b]52;");
+		expect(rendered).not.toContain("PAYLOAD");
+		expect(rendered).not.toContain("\x1b[2J");
+		expect(rendered).not.toContain("SECRET");
+		expect(rendered).not.toContain("\x9d");
+	});
+
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"strips row-end and Markdown-destination raw OSC 8 for %s",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+			const open = "\x1b]8;;https://raw.example\x07";
+			const close = "\x1b]8;;\x07";
+			const clipboard = "\x1b]52;c;c2VjcmV0\x07";
+
+			for (const width of [8, 40]) {
+				const preserved = new UserMessageComponent(`before ${open}LINK${close}\nafter`)
+					.render(width)
+					.join("\n");
+				expectSinglePromptZone(preserved);
+				expect(preserved).toContain("LINK");
+				expect(preserved).not.toContain(open);
+				expect(preserved).not.toContain(close);
+
+				const exploit = new UserMessageComponent(
+					`[docs](https://markdown.example/${open}nested${close}) ${clipboard}tail`,
+				)
+					.render(width)
+					.join("\n");
+				expectSinglePromptZone(exploit);
+				expect(exploit).not.toContain(open);
+				expect(exploit).not.toContain(close);
+				expect(exploit).not.toContain("\x1b]52");
+				expect(exploit).not.toContain("c2VjcmV0");
+				expect(exploit).not.toMatch(/[\u200b\u200c\u2060]/);
+			}
+		},
+	);
+
+	it("removes BEL, ST, and C1-ST terminated OSC 133 zones without removing user text", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const hostile = "before \x1b]133;A\x07middle \x1b]133;B\x1b\\after \x9d133;C\x9c final";
+		const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("before middle after  final");
+	});
+
+	it.each([
+		["unterminated ESC OSC", "before \x1b]133;Atail", "before tail", "\x1b]133"],
+		["unterminated C1 OSC", "before \x9d133;Btail", "before tail", "\x9d133"],
+		["partial ESC boundary", "before \x1b]13", "before ", "\x1b]13"],
+		["partial C1 boundary", "before \x9d1", "before ", "\x9d1"],
+		["complete command boundary", "before \x1b]133", "before ", "\x1b]133"],
+	] as const)(
+		"neutralizes %s while preserving trailing text",
+		(_name, hostile, visibleText, hostileFragment) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+			expectSinglePromptZone(rendered);
+			expect(rendered).toContain(visibleText);
+			expect(stripPromptMarks(rendered)).not.toContain(hostileFragment);
+		},
+	);
+
+	it("neutralizes multiple complete and incomplete OSC 133 sequences", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const hostile = "one \x1b]133;A\x07two \x9d133;B\x9cthree \x1b]133;Cfour";
+		const rendered = new UserMessageComponent(hostile).render(80).join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("one two three four");
+	});
+
+	it.each([
+		["7-bit then C1", "\x1b]9;payload ", "\x9d133;A\x9c", "\x1b]9;"],
+		["C1 then 7-bit", "\x9d9;payload ", "\x1b]133;A\x07", "\x9d9;"],
+	] as const)(
+		"bounds an unterminated unrelated OSC before a nested OSC 133 (%s)",
+		(_name, unrelated, hostile, openIntroducer) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(`before ${unrelated}${hostile}after`)
+				.render(80)
+				.join("\n");
+			const visible = stripPromptMarks(rendered);
+
+			expectSinglePromptZone(rendered);
+			expect(visible).toContain("before 9;payload after");
+			expect(visible).not.toContain(openIntroducer);
+			expect(visible).not.toContain(hostile);
+		},
+	);
+
+	it.each([
+		[
+			"C1 then 7-bit",
+			"\x9d133;Btail ",
+			"\x1b]8;;https://example.com\x1b\\",
+			"\x1b]8;;\x1b\\",
+			"\x9d133",
+		],
+		["7-bit", "\x1b]133;Btail ", "\x1b]8;;https://example.com\x1b\\", "\x1b]8;;\x1b\\", "\x1b]133"],
+	] as const)(
+		"strips complete OSC 8 after an incomplete OSC 133 (%s)",
+		(_name, hostile, open, close, hostileFragment) => {
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => defaultConfig,
+			);
+			const rendered = new UserMessageComponent(`before ${hostile}${open}link${close} after`)
+				.render(100)
+				.join("\n");
+			const visible = stripPromptMarks(rendered);
+
+			expectSinglePromptZone(rendered);
+			expect(rendered).toContain("link");
+			expect(rendered).not.toContain(open);
+			expect(rendered).not.toContain(close);
+			expect(visible).toContain("before tail ");
+			expect(visible).not.toContain(hostileFragment);
+		},
+	);
+
+	it("processes multiple nested OSC boundaries without overconsuming later sequences", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const open = "\x1b]8;;https://example.com\x1b\\";
+		const close = "\x1b]8;;\x1b\\";
+		const hostile = `one \x1b]9;alpha \x9d133;A${open}link${close} two \x1b]133;Btail`;
+		const rendered = new UserMessageComponent(hostile).render(120).join("\n");
+		const visible = stripPromptMarks(rendered);
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
+		expect(visible).toContain("one 9;alpha ");
+		expect(visible).toContain(" two tail");
+		expect(visible).not.toContain("\x1b]9;");
+		expect(visible).not.toContain("\x9d133");
+		expect(visible).not.toContain("\x1b]133");
+	});
+
+	it("strips unrelated complete raw OSC 8 sequences", () => {
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => defaultConfig,
+		);
+		const open = "\x1b]8;;https://example.com\x1b\\";
+		const close = "\x1b]8;;\x1b\\";
+		const rendered = new UserMessageComponent(`before ${open}link${close} after`)
+			.render(80)
+			.join("\n");
+
+		expectSinglePromptZone(rendered);
+		expect(rendered).toContain("link");
+		expect(rendered).not.toContain(open);
+		expect(rendered).not.toContain(close);
+	});
+
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"strips raw OSC 8 and preserves Pi Markdown rendering for %s",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+			const preserved: string[] = [];
+			let source = "before \x9d133;Atail ";
+			for (const [index, terminator] of ["\x07", "\x1b\\"].entries()) {
+				const open = `\x1b]8;;https://example.com/${index}${terminator}`;
+				const close = `\x1b]8;;${terminator}`;
+				const sequence = `${open}link-${index}${close}`;
+				preserved.push(sequence);
+				source += `${sequence} `;
+			}
+			source += `\x9d8;;https://c1.example\x9cc1-link\x9d8;;\x9c ${preserved[0]} [markdown](https://markdown.example) \x1b]133;Btail`;
+			const cleanSource = sanitizeUserMessageSourceText(source);
+			expect(cleanSource).toContain("[markdown](https://markdown.example)");
+
+			const clean = new UserMessageComponent(cleanSource).render(240).join("\n");
+			const rendered = new UserMessageComponent(source).render(240).join("\n");
+			expect(rendered).toBe(clean);
+			expectSinglePromptZone(rendered);
+			for (const sequence of preserved) expect(rendered).not.toContain(sequence);
+			expect(rendered).toContain("link-0");
+			expect(rendered).toContain("link-1");
+			expect(rendered).toContain("c1-link");
+			expect(rendered).toContain("markdown");
+			expect(rendered).toContain("https://markdown.example");
+			const visible = stripPromptMarks(rendered);
+			expect(visible).not.toContain("\x9d");
+			expect(visible).not.toContain("\x9c");
+			expect(visible).not.toContain("\x1b]133");
+		},
+	);
+
+	it("delegates byte-for-byte when message theme rendering throws", () => {
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const failingTheme = {
+			...makeTheme(),
+			fg() {
+				throw new Error("theme failed");
+			},
+		} as unknown as Theme;
+		installUserMessageStyle(
+			() => failingTheme,
+			() => defaultConfig,
+		);
+
+		const rendered = UserMessageComponent.prototype.render.call(
+			{ children: [{ text: "hello" }] },
+			42,
+		);
+		expect(rendered).toEqual(["native:42"]);
+		expect(rendered.join("\n")).not.toContain("\x1b]133;");
+	});
+
+	it("uses sanitized plain output when styled rendering fails with source OSC", () => {
+		UserMessageComponent.prototype.render = function predecessor() {
+			return [(this as unknown as { text: string }).text];
+		};
+		const failingTheme = {
+			...makeTheme(),
+			fg() {
+				throw new Error("theme failed");
+			},
+		} as unknown as Theme;
+		installUserMessageStyle(
+			() => failingTheme,
+			() => defaultConfig,
+		);
+		const clipboard = "\x1b]52;c;c2VjcmV0\x07";
+		const open = "\x1b]8;;https://raw.example\x07";
+		const close = "\x1b]8;;\x07";
+		const output = new UserMessageComponent(`before ${clipboard}${open}link${close} after`)
+			.render(80)
+			.join("\n");
+		expect(output).toContain("before link after");
+		expect(output).not.toContain("\x1b]52");
+		expect(output).not.toContain(open);
+		expect(output).not.toContain(close);
+		expect(output).not.toContain("c2VjcmV0");
+		expectSinglePromptZone(output);
+	});
+
+	it("delegates byte-for-byte when message cache-key construction throws", () => {
+		const predecessor = (width: number) => [`native:${width}`];
+		UserMessageComponent.prototype.render = predecessor;
+		const config = structuredClone(defaultConfig);
+		Object.defineProperty(config, "components", {
+			get() {
+				throw new Error("cache key failed");
+			},
+		});
+		installUserMessageStyle(
+			() => makeTheme(),
+			() => config,
+		);
+
+		const rendered = UserMessageComponent.prototype.render.call(
+			{ children: [{ text: "hello" }] },
+			42,
+		);
+		expect(rendered).toEqual(["native:42"]);
+		expect(rendered.join("\n")).not.toContain("\x1b]133;");
+	});
+
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"keeps zero-width %s output marker-safe",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+			const rendered = new UserMessageComponent("hello").render(0).join("\n");
+			expect(rendered).toBe("\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07");
+		},
+	);
+
+	it.each(["theme", "config"] as const)(
+		"fails open byte-for-byte when the %s getter throws",
+		(failure) => {
+			const predecessor = (width: number) => [`fallback:${width}`];
+			UserMessageComponent.prototype.render = predecessor;
+			installUserMessageStyle(
+				() => {
+					if (failure === "theme") throw new Error("theme failed");
+					return makeTheme();
+				},
+				() => {
+					if (failure === "config") throw new Error("config failed");
+					return defaultConfig;
+				},
+			);
+			const lines = UserMessageComponent.prototype.render.call(
+				{ children: [{ text: "hello" }] },
+				42,
+			);
+			expect(lines).toEqual(["fallback:42"]);
+			expect(lines.join("\n")).not.toContain("\x1b]133;");
+		},
+	);
+
+	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
+		"keeps %s user-message output within the requested render width",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.userMessages.style = style;
+			installUserMessageStyle(
+				() => makeTheme(),
+				() => config,
+			);
+
+			const lines = new UserMessageComponent("hello ".repeat(20)).render(12).map(stripPromptMarks);
+
+			expect(lines.length).toBeGreaterThan(0);
+			expect(lines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+		},
+	);
 
 	it("reuses user-message wrappers while stale cleanup leaves the new registration active", () => {
 		const predecessorRender = UserMessageComponent.prototype.render;
@@ -1356,7 +2779,7 @@ describe("Pi docs compliance", () => {
 		prototype.invalidate = predecessorInvalidate;
 		const firstTheme = vi.fn(() => makeTaggedTheme("first:"));
 		const secondTheme = vi.fn(() => makeTaggedTheme("second:"));
-		const cleanupFirst = installUserMessageStyle(firstTheme, () => defaultConfig);
+		installUserMessageStyle(firstTheme, () => defaultConfig);
 		const firstWrapper = prototype.render;
 		const thirdParty = function thirdParty(this: unknown, width: number): string[] {
 			return ["third-party", ...firstWrapper.call(this as never, width)];
@@ -1364,7 +2787,6 @@ describe("Pi docs compliance", () => {
 		prototype.render = thirdParty;
 		const cleanupSecond = installUserMessageStyle(secondTheme, () => defaultConfig);
 
-		cleanupFirst();
 		cleanupSecond();
 		firstTheme.mockClear();
 		secondTheme.mockClear();
@@ -1430,6 +2852,472 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 1)).toBe(true);
 		footer?.dispose?.();
 		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("renders editor and footer model labels from independent canonical owners", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: {
+					editor: { modelLabel: "name" },
+					userMessages: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: {
+						modelLabel: "id",
+						styles: { starship: { format: "$model", responsive: false } },
+					},
+				},
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			model: { id: "model-id", name: "Model Name", provider: "provider", contextWindow: 1000 },
+			ui: {
+				theme: makeTheme(),
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		const editor = (editorFactory as (...args: unknown[]) => { render(width: number): string[] })(
+			{ requestRender() {}, terminal: { rows: 24, cols: 100 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+		);
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(editor.render(100).join("\n")).toContain("Model Name");
+		expect(footer?.render(100).join("\n")).toContain("model-id");
+		expect(footer?.render(100).join("\n")).not.toContain("Model Name");
+		footer?.dispose?.();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("renders footer rows independently of editor decoration", () => {
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		installFooter(ctx as never, createInitialState(emptyGitStatus()), () => defaultConfig, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+	});
+
+	it("keeps the production footer visible while the minimalist editor decorates", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		let footerFactory: FooterFactory | undefined;
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		let sessionName = "release prep";
+		const ui = {
+			theme: makeTheme(),
+			setFooter(factory: FooterFactory | undefined) {
+				footerFactory = factory;
+			},
+			setEditorComponent(factory: unknown) {
+				editorFactory = factory;
+			},
+			getEditorComponent: () => editorFactory,
+		};
+		const ctx = makeContext({
+			ui,
+			sessionManager: {
+				getBranch: () => [],
+				getSessionName: () => sessionName,
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const editor = (
+			editorFactory as (...args: unknown[]) => {
+				render(width: number): string[];
+				setText(text: string): void;
+			}
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		editor.setText("draft");
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+
+		const namedFrame = editor.render(80)[0];
+		expect(namedFrame).toMatch(/^╭.*╮$/);
+		expect(namedFrame).toContain("release prep");
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		const rendersBeforeRename = tui.requestRender.mock.calls.length;
+		sessionName = "ship it";
+		await handlers.get("session_info_changed")?.[0]?.(
+			{ type: "session_info_changed", name: sessionName },
+			ctx,
+		);
+		expect(tui.requestRender).toHaveBeenCalledTimes(rendersBeforeRename + 1);
+		expect(editor.render(80)[0]).toContain("ship it");
+		expect(editor.render(80)[0]).not.toContain("release prep");
+		expect(editor.render(4)[0]).not.toContain("╭");
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+
+		const nativeEditorPrototype = Object.getPrototypeOf(PolishedEditor.prototype) as {
+			render(width: number): string[];
+		};
+		const nativeRender = vi.spyOn(nativeEditorPrototype, "render").mockImplementation(() => {
+			throw new Error("native render failed");
+		});
+		try {
+			expect(() => editor.render(80)).toThrow("native render failed");
+			expect(footer?.render(80).length).toBeGreaterThan(0);
+		} finally {
+			nativeRender.mockRestore();
+		}
+
+		expect(editor.render(80)[0]).toMatch(/^╭.*╮$/);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+		await emit(handlers, "agent_start", ctx);
+		const thirdPartyFactory = () => ({ render: () => ["third-party"] });
+		ui.setEditorComponent(thirdPartyFactory);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+		await emit(handlers, "model_select", ctx);
+		expect(clearIntervalSpy).toHaveBeenCalled();
+		clearIntervalSpy.mockRestore();
+
+		footer?.dispose?.();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("updates session names through a wrapped minimalist editor", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
+		);
+		const handlers = loadExtension();
+		const existingEditorFactory = () => ({
+			render: (width: number) => ["─".repeat(width), "base editor", "─".repeat(width)],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		let editorFactory: unknown = existingEditorFactory;
+		let sessionName = "release prep";
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+			sessionManager: {
+				getBranch: () => [],
+				getSessionName: () => sessionName,
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		expect(editorFactory).not.toBe(existingEditorFactory);
+		const editor = (
+			editorFactory as (...args: unknown[]) => ReturnType<typeof existingEditorFactory>
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		expect(editor.render(80)[0]).toContain("release prep");
+
+		const rendersBeforeRename = tui.requestRender.mock.calls.length;
+		sessionName = "ship it";
+		await handlers.get("session_info_changed")?.[0]?.(
+			{ type: "session_info_changed", name: sessionName },
+			ctx,
+		);
+		expect(tui.requestRender).toHaveBeenCalledTimes(rendersBeforeRename + 1);
+		expect(editor.render(80)[0]).toContain("ship it");
+		expect(editor.render(80)[0]).not.toContain("release prep");
+
+		await emit(handlers, "session_shutdown", ctx);
+		expect(editorFactory).toBe(existingEditorFactory);
+	});
+
+	it("keeps the production footer for unsupported wrapped minimalist output", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+			}),
+		);
+		const handlers = loadExtension();
+		const existingFactory = () => ({
+			render: (width: number) => [`third-party-${width}`, "draft", "help"],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "draft",
+			setText() {},
+		});
+		let editorFactory: unknown = existingFactory;
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		const editor = (editorFactory as (...args: unknown[]) => ReturnType<typeof existingFactory>)(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+		);
+		const footer = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+
+		expect(editor.render(80)).toEqual(["third-party-80", "draft", "help"]);
+		expect(footer?.render(80).length).toBeGreaterThan(0);
+
+		footer?.dispose?.();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("forces an initial project refresh for minimalist mode without a status line or polling", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "zentui-minimalist-project-"));
+		mkdirSync(join(cwd, ".git", "objects", "info"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "objects", "pack"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "refs", "heads"), { recursive: true });
+		mkdirSync(join(cwd, ".git", "refs", "tags"), { recursive: true });
+		writeFileSync(join(cwd, ".git", "HEAD"), "ref: refs/heads/minimalist-test\n");
+		writeFileSync(
+			join(cwd, ".git", "config"),
+			"[core]\n\trepositoryformatversion = 0\n\tbare = false\n",
+		);
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+				features: { statusLine: false },
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		const ctx = makeContext({
+			cwd,
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		try {
+			await emit(handlers, "session_start", ctx);
+			const editor = (editorFactory as (...args: unknown[]) => { render(width: number): string[] })(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				{} as never,
+			);
+
+			await vi.waitFor(
+				() => {
+					expect(editor.render(120).join("\n")).toContain("minimalist-test");
+				},
+				{ timeout: 3_000 },
+			);
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("ticks only a decorated minimalist turn and freezes or stops on lifecycle changes", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 0,
+				features: { statusLine: false },
+			}),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		let editorFactory: unknown;
+		const tui = { requestRender: vi.fn(), terminal: { rows: 24, cols: 80 } };
+		const notifications: string[] = [];
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				notify(message: string) {
+					notifications.push(message);
+				},
+				setEditorComponent(factory: unknown) {
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+			},
+		});
+		await emit(handlers, "session_start", ctx);
+		const editor = (
+			editorFactory as (...args: unknown[]) => {
+				render(width: number): string[];
+				setText(text: string): void;
+			}
+		)(tui as never, { borderColor: (text: string) => text, selectList: {} } as never, {} as never);
+		editor.setText("draft");
+		editor.render(80);
+
+		let now = Date.now();
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+		try {
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(1);
+			now += 2500;
+			vi.advanceTimersByTime(2500);
+			expect(editor.render(80)[0]).toContain("2s");
+
+			await emit(handlers, "agent_end", ctx);
+			expect(vi.getTimerCount()).toBe(0);
+			const frozen = editor.render(80)[0];
+			vi.advanceTimersByTime(5000);
+			expect(editor.render(80)[0]).toBe(frozen);
+
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(1);
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			await command.handler("editor disable", ctx);
+			expect(notifications).toEqual(["Editor: disabled"]);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			dateNow.mockRestore();
+			vi.useRealTimers();
+			await emit(handlers, "session_shutdown", ctx);
+		}
+	});
+
+	it("stops minimalist timer and project work after a genuinely late editor takeover", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({
+				components: { editor: { style: "minimalist" } },
+				projectRefreshIntervalMs: 5_000,
+				features: { statusLine: false },
+			}),
+		);
+		const handlers = loadExtension();
+		let editorFactory: unknown;
+		const ui = {
+			theme: makeTheme(),
+			setFooter() {},
+			setEditorComponent(factory: unknown) {
+				editorFactory = factory;
+			},
+			getEditorComponent: () => editorFactory,
+		};
+		const ctx = makeContext({ ui });
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			await emit(handlers, "session_start", ctx);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			const editor = (
+				editorFactory as (...args: unknown[]) => {
+					render(width: number): string[];
+					setText(text: string): void;
+				}
+			)(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				{} as never,
+			);
+			editor.setText("draft");
+			editor.render(80);
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(2);
+			const thirdPartyFactory = () => ({
+				render: () => ["third-party"],
+				invalidate() {},
+				handleInput() {},
+				getText: () => "",
+				setText() {},
+			});
+			ui.setEditorComponent(thirdPartyFactory);
+			vi.advanceTimersByTime(5_000);
+			expect(editorFactory).toBe(thirdPartyFactory);
+			expect(vi.getTimerCount()).toBe(0);
+
+			await emit(handlers, "agent_start", ctx);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not start turn intervals in polished or non-TUI sessions", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, features: { statusLine: false } }),
+		);
+		const polishedHandlers = loadExtension();
+		const polishedCtx = makeContext();
+		await emit(polishedHandlers, "session_start", polishedCtx);
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		await emit(polishedHandlers, "agent_start", polishedCtx);
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(polishedHandlers, "session_shutdown", polishedCtx);
+
+		const rpcHandlers = loadExtension();
+		const rpcCtx = makeContext({ hasUI: false, mode: "rpc" });
+		await emit(rpcHandlers, "session_start", rpcCtx);
+		await emit(rpcHandlers, "agent_start", rpcCtx);
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(rpcHandlers, "session_shutdown", rpcCtx);
+		setIntervalSpy.mockRestore();
 	});
 
 	it("does not crash when config colors contain Starship modifiers", () => {
@@ -1540,6 +3428,8 @@ describe("Pi docs compliance", () => {
 		});
 		const state = createInitialState(emptyGitStatus());
 		state.modelLabel = "GPT-5.6 Terra";
+		state.modelId = "GPT-5.6 Terra";
+		state.modelName = "GPT-5.6 Terra";
 		state.providerLabel = "OpenAI";
 		state.contextLabel = "0.5%/200k";
 		state.tokenLabel = "↑1 ↓2";
@@ -1583,12 +3473,14 @@ describe("Pi docs compliance", () => {
 			scheduleProjectRefresh() {},
 		});
 		state.modelLabel = "openai/gpt-5";
+		state.modelId = "openai/gpt-5";
 		expect(createFooter()?.render(200).join("\n")).toContain("openai/gpt-5 | 0.5%/200k");
 		expect(createFooter()?.render(200).join("\n")).not.toContain("openai/gpt-5 OpenAI");
 		state.providerLabel = "";
 		expect(createFooter()?.render(200).join("\n")).toContain("openai/gpt-5 | 0.5%/200k");
 
 		state.modelLabel = "custom-model";
+		state.modelId = "custom-model";
 		state.providerLabel = "Provider X";
 		installFooter(
 			ctx as never,
@@ -2423,13 +4315,13 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("[text]Anthropic");
 	});
 
-	it("hides editor rails in copy-friendly mode", () => {
+	it("hides editor rails in the low-rail polished style", () => {
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => configWithFeatures({ copyFriendly: true }),
+			() => configWithLowRailStyle(true),
 			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "high",
 		);
@@ -2532,10 +4424,10 @@ describe("Pi docs compliance", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 16)).toBe(true);
 	});
 
-	it("keeps Vim status when long custom metadata collides in rail and copy-friendly modes", () => {
-		for (const copyFriendly of [false, true]) {
+	it("keeps Vim status when long custom metadata collides in both polished modes", () => {
+		for (const lowRail of [false, true]) {
 			const config = {
-				...configWithFeatures({ copyFriendly }),
+				...configWithLowRailStyle(lowRail),
 				editorMetadataFormat: "very-long-custom-metadata-$model-$provider",
 			};
 			const editor = new WrappedPolishedEditor(
@@ -2561,16 +4453,15 @@ describe("Pi docs compliance", () => {
 		}
 	});
 
-	it("keeps blank structural metadata rows in copy-friendly mode", () => {
+	it("keeps blank structural metadata rows in the low-rail polished style", () => {
+		const config = configWithLowRailStyle(true);
+		config.components.editor.styles["opencode-copy-friendly"].metadataFormat = "($unknown)";
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => ({
-				...configWithFeatures({ copyFriendly: true }),
-				editorMetadataFormat: "($unknown)",
-			}),
+			() => config,
 			() => ({ modelLabel: "model", providerLabel: "provider" }),
 			() => "off",
 		);
@@ -2581,18 +4472,16 @@ describe("Pi docs compliance", () => {
 		expect(lines.at(-2)).toBe(" ");
 	});
 
-	it("uses custom copy-friendly editor prompt icon and color", () => {
+	it("uses the custom low-rail Editor prompt icon and color", () => {
+		const config = configWithLowRailStyle(true);
+		config.icons = { ...config.icons, editorPrompt: "›" };
+		config.colors = { ...config.colors, editorPrompt: "warning" };
 		const editor = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 			makeTaggedTheme(),
-			() => ({
-				...defaultConfig,
-				icons: { ...defaultConfig.icons, editorPrompt: "›" },
-				colors: { ...defaultConfig.colors, editorPrompt: "warning" },
-				features: { ...defaultConfig.features, copyFriendly: true },
-			}),
+			() => config,
 			() => ({ modelLabel: "claude-sonnet", providerLabel: "Anthropic" }),
 			() => "off",
 		);
@@ -2740,11 +4629,9 @@ describe("Pi docs compliance", () => {
 		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
 	});
 
-	it("unwraps branded copy-friendly frames without duplicating metadata", () => {
-		const config = {
-			...configWithFeatures({ copyFriendly: true }),
-			editorMetadataFormat: "copy-meta",
-		};
+	it("unwraps branded low-rail polished frames without duplicating metadata", () => {
+		const config = configWithLowRailStyle(true);
+		config.components.editor.styles["opencode-copy-friendly"].metadataFormat = "copy-meta";
 		const inner = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,
@@ -2924,9 +4811,12 @@ describe("Pi docs compliance", () => {
 		const bottom = lines.findLastIndex((line) => /^─+$/.test(stripTestTags(line).trim()));
 		expect(rendered.match(/autocomplete-meta/g)).toHaveLength(1);
 		expect(lines.filter((line) => /^─+$/.test(stripTestTags(line).trim()))).toHaveLength(2);
+		expect(lines.some((line) => stripTestTags(line).includes("├"))).toBe(false);
+		expect(bottom).toBe(lines.length - 4);
 		for (const suggestion of ["suggestion-one", "suggestion-two", "suggestion-three"]) {
 			expect(rendered.match(new RegExp(suggestion, "g"))).toHaveLength(1);
-			expect(lines.findIndex((line) => line.includes(suggestion))).toBeGreaterThan(bottom);
+			const row = lines.findIndex((line) => line.includes(suggestion));
+			expect(row).toBeGreaterThan(bottom);
 		}
 	});
 
@@ -3025,10 +4915,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3071,10 +4960,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3117,11 +5005,11 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
+				setEditorComponent(patch) {
+					featureChanges.push(patch as never);
 					return { applied: true };
 				},
 				setFooterSegments() {},
@@ -3150,14 +5038,14 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(featureChanges).toEqual([{ editor: false }]);
+		expect(featureChanges).toEqual([{ enabled: false }]);
 		expect(renderRequests).toBe(1);
 		expect(notifications).toEqual([{ message: "Editor: disabled", level: "info" }]);
 	});
 
 	it("toggles the status line from direct Zentui slash-command arguments", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const featureChanges: Partial<PolishedTuiConfig["features"]>[] = [];
+		const featureChanges: Array<Record<string, unknown>> = [];
 
 		registerZentuiSettingsCommand(
 			{
@@ -3166,12 +5054,11 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures(patch) {
+				setFooterComponent(patch) {
 					featureChanges.push(patch);
-					return { applied: true };
 				},
 				setFooterSegments() {},
 				setFooterFormat() {},
@@ -3190,12 +5077,11 @@ describe("Pi docs compliance", () => {
 
 		await command?.handler("status line off", { hasUI: false });
 
-		expect(featureChanges).toEqual([{ statusLine: false }]);
+		expect(featureChanges).toEqual([{ style: "native" }]);
 	});
 
-	it("toggles copy-friendly mode from direct Zentui slash-command arguments", async () => {
+	it("treats removed copy commands as unknown arguments", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const featureChanges: Partial<PolishedTuiConfig["features"]>[] = [];
 		const notifications: Array<{ message: string; level: string }> = [];
 
 		registerZentuiSettingsCommand(
@@ -3205,13 +5091,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
-					return { applied: true };
-				},
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3236,8 +5118,9 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(featureChanges).toEqual([{ copyFriendly: true }]);
-		expect(notifications).toEqual([{ message: "Copy-friendly mode: enabled", level: "info" }]);
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0]?.message).toMatch(/^Usage: \/zentui/);
+		expect(notifications[0]?.level).toBe("warning");
 	});
 
 	it("toggles viewport indicators from direct Zentui slash-command arguments", async () => {
@@ -3252,11 +5135,11 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures(patch) {
-					featureChanges.push(patch);
+				setEditorComponent(patch) {
+					featureChanges.push(patch as never);
 					return { applied: true };
 				},
 				setFooterSegments() {},
@@ -3300,10 +5183,10 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({
+				setEditorComponent: () => ({
 					applied: false,
 					reason:
 						"another extension is currently managing the editor; reload Pi to apply this change",
@@ -3357,10 +5240,10 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					...settingsCommandDefaults,
 					sessionLifecycle,
 					getConfig: () => defaultConfig,
-					setColorSources() {},
-					setUiFeatures() {
+					setEditorComponent() {
 						doneCallsAtFeatureChange.push(doneCalls);
 						return { applied: true };
 					},
@@ -3415,7 +5298,7 @@ describe("Pi docs compliance", () => {
 
 	it("does not update a settings value when persistence fails", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const attemptedPatches: Partial<PolishedTuiConfig["features"]>[] = [];
+		const attemptedPatches: Array<Record<string, unknown>> = [];
 		const notifications: string[] = [];
 		registerZentuiSettingsCommand(
 			{
@@ -3424,10 +5307,10 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures(patch) {
+				setUserMessagesComponent(patch) {
 					attemptedPatches.push(patch);
 					throw new Error("config is corrupt");
 				},
@@ -3473,7 +5356,7 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(attemptedPatches).toEqual([{ statusLine: false }, { statusLine: false }]);
+		expect(attemptedPatches).toEqual([{ enabled: false }, { enabled: false }]);
 		expect(notifications).toEqual([
 			"Could not update Zentui settings: config is corrupt",
 			"Could not update Zentui settings: config is corrupt",
@@ -3495,10 +5378,10 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					...settingsCommandDefaults,
 					sessionLifecycle,
 					getConfig: () => defaultConfig,
-					setColorSources() {},
-					setUiFeatures() {
+					setEditorComponent() {
 						featureChanges += 1;
 						return { applied: true };
 					},
@@ -3565,10 +5448,9 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					...settingsCommandDefaults,
 					sessionLifecycle: inactiveSessionLifecycle,
 					getConfig: () => config,
-					setColorSources() {},
-					setUiFeatures: () => ({ applied: true }),
 					setFooterSegments() {},
 					setFooterFormat() {},
 					setIconMode() {},
@@ -3611,16 +5493,18 @@ describe("Pi docs compliance", () => {
 
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
-		for (const section of ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"]) {
-			expect(themeLines.join("\n")).toContain(section);
-		}
+		expect(themeLines.join("\n")).toContain("Appearance");
+		expect(themeLines.join("\n")).toContain("(1/8)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
 			true,
 		);
 
-		const terminalLines = await renderSettings(configWithColorSources({ editor: "terminal" }));
+		const selectorTerminalConfig = structuredClone(defaultConfig);
+		selectorTerminalConfig.components.selectorBorders.colorSource = "terminal";
+		const terminalLines = await renderSettings(selectorTerminalConfig);
+		expect(selectorTerminalConfig.components.editor.colorSource).toBe("theme");
 		expect(terminalLines[0]).toContain("\u001b[90m────");
 		expect(terminalLines.at(-1)).toContain("\u001b[90m────");
 		expect(
@@ -3638,10 +5522,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3694,10 +5577,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setResponsiveFooter(patch) {
@@ -3732,9 +5614,8 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					component.handleInput?.("\t");
-					component.handleInput?.("\t");
-					component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -3758,10 +5639,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3807,8 +5687,8 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					component.handleInput?.("\x1b[B");
-					component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -3825,13 +5705,15 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(4);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
 		const run = async (maxLength: PolishedTuiConfig["gitBranch"]["maxLength"], presses: number) => {
 			let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 			const changes: Array<PolishedTuiConfig["gitBranch"]["maxLength"]> = [];
+			const config = structuredClone(defaultConfig);
+			config.components.footer.styles.starship.gitBranch.maxLength = maxLength;
 			registerZentuiSettingsCommand(
 				{
 					registerCommand(_name: string, options: unknown) {
@@ -3839,10 +5721,9 @@ describe("Pi docs compliance", () => {
 					},
 				} as never,
 				{
+					...settingsCommandDefaults,
 					sessionLifecycle: inactiveSessionLifecycle,
-					getConfig: () => ({ ...defaultConfig, gitBranch: { maxLength } }),
-					setColorSources() {},
-					setUiFeatures: () => ({ applied: true }),
+					getConfig: () => config,
 					setFooterSegments() {},
 					setFooterFormat() {},
 					setIconMode() {},
@@ -3876,7 +5757,7 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+						for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -3891,7 +5772,7 @@ describe("Pi docs compliance", () => {
 
 	it("keeps the Zentui settings command open after applying a change", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
+		const changes: Array<Record<string, unknown>> = [];
 		let dependencyRenderRequests = 0;
 		let tuiRenderRequests = 0;
 		let doneCalls = 0;
@@ -3903,12 +5784,12 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources(patch) {
+				setSelectorBordersComponent(patch) {
 					changes.push(patch);
 				},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -3953,20 +5834,21 @@ describe("Pi docs compliance", () => {
 						},
 					) as { handleInput?: (data: string) => void };
 					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
 		});
 
-		expect(changes).toEqual([{ editor: "terminal", userMessages: "terminal" }]);
+		expect(changes).toEqual([{ colorSource: "terminal" }]);
 		expect(dependencyRenderRequests).toBe(1);
 		expect(tuiRenderRequests).toBe(1);
 		expect(doneCalls).toBe(0);
 	});
 
-	it("shows mixed editor/message sources and cycles them together", async () => {
+	it("shows selector color sources independently", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const changes: Partial<PolishedTuiConfig["colorSources"]>[] = [];
+		const changes: Array<Record<string, unknown>> = [];
 		let rendered = "";
 
 		registerZentuiSettingsCommand(
@@ -3976,12 +5858,12 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => configWithColorSources({ editor: "theme", userMessages: "terminal" }),
-				setColorSources(patch) {
+				setSelectorBordersComponent(patch) {
 					changes.push(patch);
 				},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4017,21 +5899,39 @@ describe("Pi docs compliance", () => {
 					};
 					rendered = component.render?.(80).join("\n") ?? "";
 					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
 		});
 
-		expect(rendered).toContain("Editor + previous messages");
-		expect(rendered).toContain("mixed");
-		expect(changes).toEqual([{ editor: "theme", userMessages: "theme" }]);
+		expect(rendered).toContain("Selector border colors");
+		expect(rendered).not.toContain("Editor + previous messages");
+		expect(changes).toEqual([{ colorSource: "terminal" }]);
 	});
 
 	function navigateToSettingsSection(
 		component: { handleInput?: (data: string) => void },
-		section: "Appearance" | "Editor" | "Footer" | "Segments" | "Git" | "Extensions",
+		section:
+			| "Appearance"
+			| "Editor"
+			| "User messages"
+			| "Layout"
+			| "Footer"
+			| "Segments"
+			| "Git"
+			| "Extensions",
 	) {
-		const sections = ["Appearance", "Editor", "Footer", "Segments", "Git", "Extensions"];
+		const sections = [
+			"Appearance",
+			"Editor",
+			"User messages",
+			"Layout",
+			"Footer",
+			"Segments",
+			"Git",
+			"Extensions",
+		];
 		for (let index = 0; index < sections.indexOf(section); index += 1) {
 			component.handleInput?.("\t");
 		}
@@ -4048,10 +5948,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4107,10 +6006,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4171,10 +6069,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4236,10 +6133,9 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () => defaultConfig,
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4292,7 +6188,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(6);
+		expect(tuiRenderRequests).toBe(8);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -4306,13 +6202,12 @@ describe("Pi docs compliance", () => {
 				},
 			} as never,
 			{
+				...settingsCommandDefaults,
 				sessionLifecycle: inactiveSessionLifecycle,
 				getConfig: () =>
 					configWithExtensionStatuses({
 						placements: { active: "middle", inactive: "left" },
 					}),
-				setColorSources() {},
-				setUiFeatures: () => ({ applied: true }),
 				setFooterSegments() {},
 				setFooterFormat() {},
 				setIconMode() {},
@@ -4356,6 +6251,73 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("middle");
 		expect(rendered).not.toContain("inactive");
 	});
+	it("sanitizes project-derived metadata in built-in, custom, and compact Footer routes", () => {
+		const hostile = "safe\x1b]52;c;PAYLOAD\x07tail";
+		let footerFactory: FooterFactory | undefined;
+		const ctx = makeContext({
+			cwd: `/tmp/${hostile}`,
+			ui: {
+				theme: makeTheme(),
+				setFooter(factory: FooterFactory | undefined) {
+					footerFactory = factory;
+				},
+				setEditorComponent() {},
+			},
+		});
+		const state = createInitialState({
+			...emptyGitStatus(),
+			branch: hostile,
+			gitStateLabel: hostile,
+			commit: { oid: hostile, tag: hostile, detached: false },
+		});
+		state.runtime = { name: hostile, symbol: hostile, style: "", version: hostile };
+		state.packageVersion = { ecosystem: "nodejs", version: hostile };
+		const config = structuredClone(defaultConfig);
+		const starship = config.components.footer.styles.starship;
+		starship.format =
+			"$cwd $git_branch $git_state $git_commit $git_tag $runtime $package $package_version";
+		starship.compactFormat = starship.format;
+		starship.responsive = true;
+		starship.gitCommit.onlyDetached = false;
+		starship.gitCommit.showTag = true;
+		starship.segments = {
+			...starship.segments,
+			cwd: true,
+			gitBranch: true,
+			gitStatus: true,
+			gitCommit: true,
+			runtime: true,
+			packageVersion: true,
+			context: false,
+			tokens: false,
+			cost: false,
+		};
+		installFooter(ctx as never, state, () => config, {
+			setRequestRender() {},
+			scheduleProjectRefresh() {},
+		});
+		const component = footerFactory?.({ requestRender() {} }, makeTheme(), {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map<string, string>(),
+		});
+		if (!component) throw new Error("Footer was not installed");
+		const renderSafe = (width: number) => {
+			const rows = component.render(width);
+			const output = rows.join("\n");
+			const plain = output.replaceAll(/\x1b\[[0-9;:]*m/g, "");
+			expect(output).not.toContain("PAYLOAD");
+			expect(plain).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+			expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+			return output;
+		};
+
+		expect(renderSafe(500)).toContain("safetail");
+		starship.format = "";
+		expect(renderSafe(500)).toContain("safetail");
+		starship.format = "$cwd $git_branch $runtime $package";
+		expect(renderSafe(24)).toContain("safe");
+	});
+
 	type SessionNameFooterOptions = {
 		name?: string;
 		getSessionName?: () => string | undefined;
@@ -4573,5 +6535,326 @@ describe("Pi docs compliance", () => {
 		expect(handler?.({ type: "session_info_changed", name: "release prep" }, ctx)).toBeUndefined();
 		expect(renderRequests).toBe(before + 1);
 		await emit(handlers, "session_shutdown", ctx);
+	});
+});
+
+describe("three-state Footer lifecycle", () => {
+	function createFooterHarness() {
+		let factory: FooterFactory | undefined;
+		let component: ReturnType<FooterFactory> | undefined;
+		const factories: Array<FooterFactory | undefined> = [];
+		const branchSubscriptions = vi.fn(() => () => {});
+		const probeTransitions: unknown[] = [];
+		const tui = { requestRender: vi.fn() };
+		const footerData = {
+			onBranchChange: branchSubscriptions,
+			getExtensionStatuses: () => new Map<string, string>(),
+		};
+		const ui = {
+			theme: makeTheme(),
+			notify() {},
+			setFooter(next: FooterFactory | undefined) {
+				component?.dispose?.();
+				component = undefined;
+				factory = next;
+				factories.push(next);
+				if (next) component = next(tui, makeTheme(), footerData, () => {});
+			},
+			setEditorComponent() {},
+			getEditorComponent: () => undefined,
+			setWidget(key: string, next: unknown) {
+				if (key === "zentui-fixed-editor-probe") probeTransitions.push(next);
+			},
+		};
+		return {
+			ui,
+			factories,
+			branchSubscriptions,
+			probeTransitions,
+			get factory() {
+				return factory;
+			},
+			get component() {
+				return component;
+			},
+		};
+	}
+
+	it("installs Hidden as an owned zero-row component without Starship timers or subscriptions", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, components: { footer: { style: "hidden" } } }),
+		);
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		const harness = createFooterHarness();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: harness.ui });
+		await emit(handlers, "session_start", ctx);
+		expect(harness.component?.render(80)).toEqual([]);
+		expect(harness.branchSubscriptions).not.toHaveBeenCalled();
+		expect(setIntervalSpy).not.toHaveBeenCalled();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("does not replace an unrelated Footer on initial Native reconciliation", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ components: { footer: { style: "native" } } }),
+		);
+		const setFooter = vi.fn();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: { theme: makeTheme(), setFooter } });
+		await emit(handlers, "session_start", ctx);
+		expect(setFooter).not.toHaveBeenCalled();
+		await emit(handlers, "session_shutdown", ctx);
+		expect(setFooter).not.toHaveBeenCalled();
+	});
+
+	it("preserves an owned Starship Footer when a live Hidden replacement fails", async () => {
+		initTheme(undefined, false);
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(isolatedAgentDir.path, "zentui.json"),
+				JSON.stringify({
+					projectRefreshIntervalMs: 0,
+					components: {
+						footer: { style: "starship", styles: { starship: { format: "$time" } } },
+					},
+				}),
+			);
+			const commands = new Map<string, unknown>();
+			let factory: FooterFactory | undefined;
+			let component: ReturnType<FooterFactory> | undefined;
+			let rejectReplacement = false;
+			const tui = { requestRender: vi.fn() };
+			const ui = {
+				theme: makeTheme(),
+				notify() {},
+				setEditorComponent() {},
+				getEditorComponent: () => undefined,
+				setFooter(next: FooterFactory | undefined) {
+					if (rejectReplacement && next !== undefined) throw new Error("replacement unavailable");
+					component?.dispose?.();
+					factory = next;
+					component = next?.(tui, makeTheme(), {
+						onBranchChange: () => () => {},
+						getExtensionStatuses: () => new Map<string, string>(),
+					});
+				},
+				async custom(settingsFactory: (...args: unknown[]) => unknown) {
+					const settings = settingsFactory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+						handleInput(data: string): void;
+					};
+					for (let index = 0; index < 4; index++) settings.handleInput("\t");
+					settings.handleInput(" ");
+				},
+			};
+			const handlers = loadExtension({ commands });
+			const ctx = makeContext({ ui });
+			await emit(handlers, "session_start", ctx);
+			const predecessorFactory = factory;
+			const predecessorComponent = component;
+			expect(predecessorComponent?.render(80).join("\n")).toBeTruthy();
+
+			rejectReplacement = true;
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("", ctx);
+			expect(factory).toBe(predecessorFactory);
+			expect(component).toBe(predecessorComponent);
+			const requestsBeforeTick = tui.requestRender.mock.calls.length;
+			vi.advanceTimersByTime(1000);
+			expect(tui.requestRender.mock.calls.length).toBeGreaterThan(requestsBeforeTick);
+
+			rejectReplacement = false;
+			await emit(handlers, "session_shutdown", ctx);
+			expect(factory).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("preserves an owned Starship Footer when a live Native transition fails", async () => {
+		initTheme(undefined, false);
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(isolatedAgentDir.path, "zentui.json"),
+				JSON.stringify({
+					projectRefreshIntervalMs: 0,
+					components: {
+						footer: { style: "starship", styles: { starship: { format: "$time" } } },
+					},
+				}),
+			);
+			const commands = new Map<string, unknown>();
+			let factory: FooterFactory | undefined;
+			let component: ReturnType<FooterFactory> | undefined;
+			let rejectNative = false;
+			const tui = { requestRender: vi.fn() };
+			const ui = {
+				theme: makeTheme(),
+				notify() {},
+				setEditorComponent() {},
+				getEditorComponent: () => undefined,
+				setFooter(next: FooterFactory | undefined) {
+					if (rejectNative && next === undefined) throw new Error("native unavailable");
+					component?.dispose?.();
+					factory = next;
+					component = next?.(tui, makeTheme(), {
+						onBranchChange: () => () => {},
+						getExtensionStatuses: () => new Map<string, string>(),
+					});
+				},
+			};
+			const handlers = loadExtension({ commands });
+			const ctx = makeContext({ ui });
+			await emit(handlers, "session_start", ctx);
+			const predecessorFactory = factory;
+			const predecessorComponent = component;
+
+			rejectNative = true;
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("footer off", ctx);
+			expect(factory).toBe(predecessorFactory);
+			expect(component).toBe(predecessorComponent);
+			const requestsBeforeTick = tui.requestRender.mock.calls.length;
+			vi.advanceTimersByTime(1000);
+			expect(tui.requestRender.mock.calls.length).toBeGreaterThan(requestsBeforeTick);
+
+			rejectNative = false;
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("footer off", ctx);
+			expect(factory).toBeUndefined();
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("preserves an owned Hidden Footer when a live Native transition fails", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, components: { footer: { style: "hidden" } } }),
+		);
+		const commands = new Map<string, unknown>();
+		let factory: FooterFactory | undefined;
+		let component: ReturnType<FooterFactory> | undefined;
+		let rejectNative = false;
+		const ui = {
+			theme: makeTheme(),
+			notify() {},
+			setEditorComponent() {},
+			getEditorComponent: () => undefined,
+			setFooter(next: FooterFactory | undefined) {
+				if (rejectNative && next === undefined) throw new Error("native unavailable");
+				component?.dispose?.();
+				factory = next;
+				component = next?.({ requestRender() {} }, makeTheme(), {
+					onBranchChange: () => () => {},
+					getExtensionStatuses: () => new Map<string, string>(),
+				});
+			},
+		};
+		const handlers = loadExtension({ commands });
+		const ctx = makeContext({ ui });
+		await emit(handlers, "session_start", ctx);
+		const predecessorFactory = factory;
+		const predecessorComponent = component;
+		expect(predecessorComponent?.render(80)).toEqual([]);
+
+		rejectNative = true;
+		await (
+			commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+		).handler("footer off", ctx);
+		expect(factory).toBe(predecessorFactory);
+		expect(component).toBe(predecessorComponent);
+
+		rejectNative = false;
+		await (
+			commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+		).handler("footer off", ctx);
+		expect(factory).toBeUndefined();
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it("clears ownership after Pi-style external disposal and leaves the replacement on shutdown", async () => {
+		const harness = createFooterHarness();
+		const handlers = loadExtension();
+		const ctx = makeContext({ ui: harness.ui });
+		await emit(handlers, "session_start", ctx);
+		const replacement: FooterFactory = () => ({
+			invalidate() {},
+			render: () => ["third-party"],
+		});
+		harness.ui.setFooter(replacement);
+		expect(harness.component?.render(80)).toEqual(["third-party"]);
+		const callsBeforeShutdown = harness.factories.length;
+		await emit(handlers, "session_shutdown", ctx);
+		expect(harness.factories).toHaveLength(callsBeforeShutdown);
+		expect(harness.factory).toBe(replacement);
+	});
+
+	it("rebinds Footer and reprobes fixed layout across every live style transition", async () => {
+		initTheme(undefined, false);
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
+		);
+		const commands = new Map<string, unknown>();
+		const harness = createFooterHarness();
+		const handlers = loadExtension({ commands });
+		(
+			harness.ui as typeof harness.ui & {
+				custom: (factory: (...args: unknown[]) => unknown) => Promise<void>;
+			}
+		).custom = async (factory) => {
+			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+				handleInput(data: string): void;
+			};
+			for (let index = 0; index < 4; index++) settings.handleInput("\t");
+			settings.handleInput(" ");
+		};
+		const ctx = makeContext({ ui: harness.ui });
+		const chooseFooterStyle = async () => {
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("", ctx);
+		};
+		await emit(handlers, "session_start", ctx);
+		expect(harness.component?.render(80).length).toBeGreaterThan(0);
+		expect(harness.probeTransitions.map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.component?.render(80)).toEqual([]);
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.factory).toBeUndefined();
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		await chooseFooterStyle();
+		expect(harness.component?.render(80).length).toBeGreaterThan(0);
+		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
+			"undefined",
+			"function",
+		]);
+		expect(harness.probeTransitions).toHaveLength(8);
+		expect(
+			new Set(harness.probeTransitions.filter((value) => typeof value === "function")).size,
+		).toBe(4);
+		expect(harness.factories).toHaveLength(4);
+		expect(harness.branchSubscriptions).toHaveBeenCalledTimes(2);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(harness.probeTransitions.at(-1)).toBeUndefined();
 	});
 });

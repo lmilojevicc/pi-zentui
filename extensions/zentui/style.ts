@@ -282,6 +282,21 @@ export function renderThemeStyle(theme: ThemeLike, style: ColorSpec, text: strin
 	return safeThemeFg(theme, color, applyThemeModifiers(theme, tokens, text));
 }
 
+function renderStyleStrict(theme: ThemeLike, style: ColorSpec, text: string): string {
+	if (style.trim() === "") return text;
+	const styled = renderTerminalStyle(style, text);
+	return styled === text ? theme.fg(style, text) : styled;
+}
+
+function renderThemeStyleStrict(theme: ThemeLike, style: ColorSpec, text: string): string {
+	const trimmed = style.trim();
+	if (trimmed === "") return text;
+	const tokens = trimmed.split(/\s+/).filter(Boolean);
+	if (tokens.some(isExplicitTerminalColorToken)) return renderTerminalStyle(style, text);
+	const color = mapThemeColor(tokens) ?? "text";
+	return theme.fg(color, applyThemeModifiers(theme, tokens, text));
+}
+
 export function renderStyleForSource(
 	theme: ThemeLike,
 	source: ColorSource,
@@ -302,6 +317,20 @@ export function renderStyleForSourceOrFallback(
 ): string {
 	const fallbackStyle = typeof fallback === "string" ? fallback : fallback[source];
 	return renderStyleForSource(theme, source, style ?? fallbackStyle, text);
+}
+
+export function renderStyleForSourceOrFallbackStrict(
+	theme: ThemeLike,
+	source: ColorSource,
+	style: ColorSpec | undefined,
+	fallback: ColorSpec | SourceStyleFallback,
+	text: string,
+): string {
+	const fallbackStyle = typeof fallback === "string" ? fallback : fallback[source];
+	const resolvedStyle = style ?? fallbackStyle;
+	return source === "terminal"
+		? renderStyleStrict(theme, resolvedStyle, text)
+		: renderThemeStyleStrict(theme, resolvedStyle, text);
 }
 
 export function renderEditorAccent(text: string): string {

@@ -53,6 +53,13 @@ describe("readPackageVersion", () => {
 		expect(readPackageVersion(cwd)).toBeNull();
 	});
 
+	it("rejects terminal controls in a JSON-decoded package version", () => {
+		const cwd = makeProject({
+			"package.json": JSON.stringify({ version: "1.2.3\x1b]52;c;c2VjcmV0\x07" }),
+		});
+		expect(readPackageVersion(cwd)).toBeNull();
+	});
+
 	it("parses deno.json and deno.jsonc", () => {
 		const denoJson = makeProject({ "deno.json": JSON.stringify({ version: "0.1.0" }) });
 		const denoJsonc = makeProject({
@@ -296,6 +303,19 @@ describe("cleanVersion", () => {
 	});
 
 	it.each(["", "   ", "not a version", "1.2.3 with spaces", "{1.2.3}"])("rejects %j", (input) => {
+		expect(cleanVersion(input)).toBeUndefined();
+	});
+
+	it.each([
+		"1.2.3\x07",
+		"1.2.3\x1b",
+		"1.2.3\x7f",
+		"1.2.3\x9d",
+		"1.2.3\x9c",
+		"1.2.3\x1b[31m",
+		"1.2.3\n",
+		"1.2.3\t",
+	])("rejects terminal control input %j", (input) => {
 		expect(cleanVersion(input)).toBeUndefined();
 	});
 });
