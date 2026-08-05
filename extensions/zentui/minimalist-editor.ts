@@ -155,38 +155,56 @@ function renderTopRight(
 	uiTheme: Theme,
 	config: ZentuiConfig,
 	availableWidth: number,
+	renderBorder: (text: string) => string,
 ): string {
 	const source = config.components.editor.colorSource;
-	const parts: string[] = [];
+	const parts: Array<{ kind: "cost" | "model" | "other"; text: string }> = [];
+	const joinParts = (values: typeof parts) =>
+		values
+			.map((part, index) => {
+				if (index === 0) return part.text;
+				const previous = values[index - 1];
+				const separator =
+					previous?.kind === "cost" && part.kind === "model"
+						? renderBorder(" – ")
+						: safeThemeFg(uiTheme, "muted", " – ");
+				return `${separator}${part.text}`;
+			})
+			.join("");
 	const cost = config.components.editor.styles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.cost, cost));
+		parts.push({
+			kind: "cost",
+			text: renderStyleForSource(uiTheme, source, config.colors.cost, cost),
+		});
 	}
 	const model = sanitizeEditorMetadataText(metadata.modelLabel ?? "");
 	if (model) {
-		parts.push(
-			renderStyleForSourceOrFallback(
+		parts.push({
+			kind: "model",
+			text: renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
 				config.colors.editorModel,
 				EDITOR_ACCENT_FALLBACK,
 				model,
 			),
-		);
+		});
 	}
 	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
 	if (thinking && thinking.toLowerCase() !== "off") {
-		parts.push(
-			renderStyleForSourceOrFallback(
+		parts.push({
+			kind: "other",
+			text: renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
 				thinkingStyle(config, thinking),
 				"muted",
 				thinking,
 			),
-		);
+		});
 	}
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
@@ -213,16 +231,16 @@ function renderTopRight(
 			for (const gaugeWidth of [5, 3]) {
 				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
-				const candidate = joinStyled([...parts, styledGauge], safeThemeFg(uiTheme, "muted", " – "));
+				const candidate = joinParts([...parts, { kind: "other", text: styledGauge }]);
 				if (visibleWidth(candidate) <= availableWidth) {
 					context = styledGauge;
 					break;
 				}
 			}
 		}
-		parts.push(context);
+		parts.push({ kind: "other", text: context });
 	}
-	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " – "));
+	return joinParts(parts);
 }
 
 function renderBottomLeft(
@@ -389,7 +407,7 @@ export function renderMinimalistFrame({
 		width,
 		left: topLeft,
 		leftFallbacks: topFallbacks,
-		right: renderTopRight(metadata, uiTheme, config, topRightBudget),
+		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,

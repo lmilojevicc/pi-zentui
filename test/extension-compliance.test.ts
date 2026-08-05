@@ -1302,6 +1302,119 @@ describe("Pi docs compliance", () => {
 		expect(editor.render(80).join("\n")).toContain("base editor");
 	});
 
+	it("applies editor style changes at render time without replacing an opaque wrapper chain", async () => {
+		initTheme(undefined, false);
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, features: { statusLine: false } }),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const baseFactory = () => ({
+			render: (width: number) => ["─".repeat(width), "base editor", "─".repeat(width)],
+			invalidate() {},
+			handleInput() {},
+			getText: () => "",
+			setText() {},
+		});
+		let editorFactory: unknown = baseFactory;
+		let setEditorCalls = 0;
+		const ctx = makeContext({
+			ui: {
+				theme: makeTheme(),
+				setFooter() {},
+				setEditorComponent(factory: unknown) {
+					setEditorCalls += 1;
+					editorFactory = factory;
+				},
+				getEditorComponent: () => editorFactory,
+				notify() {},
+				async custom(factory: (...args: unknown[]) => unknown) {
+					const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
+						handleInput(data: string): void;
+					};
+					settings.handleInput("\t");
+					settings.handleInput("\x1b[B");
+					settings.handleInput(" ");
+					settings.handleInput(" ");
+				},
+			},
+		});
+
+		await emit(handlers, "session_start", ctx);
+		const zentuiFactory = editorFactory as (...args: unknown[]) => {
+			render(width: number): string[];
+		};
+		const opaqueWrapper = (...args: unknown[]) => zentuiFactory(...args);
+		editorFactory = opaqueWrapper;
+
+		await (
+			commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+		).handler("", ctx);
+
+		expect(editorFactory).toBe(opaqueWrapper);
+		expect(setEditorCalls).toBe(1);
+		const editor = opaqueWrapper(
+			{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+			{ borderColor: (text: string) => text, selectList: {} } as never,
+			{} as never,
+		);
+		expect(stripTestTags(editor.render(80)[0] ?? "")).toMatch(/^╭/);
+		await emit(handlers, "session_shutdown", ctx);
+	});
+
+	it.each(["exact", "metadata-wrapper"] as const)(
+		"deferred %s Zentui ownership activates minimalist-only project refresh",
+		async (observation) => {
+			vi.useFakeTimers();
+			try {
+				writeFileSync(
+					join(isolatedAgentDir.path, "zentui.json"),
+					JSON.stringify({
+						components: { editor: { style: "minimalist" } },
+						projectRefreshIntervalMs: 5_000,
+						features: { statusLine: false },
+					}),
+				);
+				const handlers = loadExtension();
+				let editorFactory: unknown;
+				let failFirstOwnedObservation = observation === "exact";
+				const ctx = makeContext({
+					ui: {
+						theme: makeTheme(),
+						setFooter() {},
+						setEditorComponent(factory: unknown) {
+							if (observation === "metadata-wrapper" && typeof factory === "function") {
+								const wrapper = (...args: unknown[]) =>
+									(factory as (...values: unknown[]) => unknown)(...args);
+								Object.assign(wrapper, factory);
+								editorFactory = wrapper;
+							} else {
+								editorFactory = factory;
+							}
+						},
+						getEditorComponent() {
+							if (failFirstOwnedObservation && editorFactory !== undefined) {
+								failFirstOwnedObservation = false;
+								throw new Error("temporarily unavailable");
+							}
+							return editorFactory;
+						},
+					},
+				});
+
+				await emit(handlers, "session_start", ctx);
+				expect(vi.getTimerCount()).toBe(1);
+				vi.advanceTimersByTime(0);
+				expect(vi.getTimerCount()).toBe(1);
+				await emit(handlers, "session_shutdown", ctx);
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+
 	it("restores a wrapped editor component on shutdown", async () => {
 		const handlers = loadExtension();
 		const existingEditorFactory = () => ({

@@ -413,4 +413,32 @@ describe("minimalist editor frame", () => {
 		expect(lines.join("\n")).toContain("\x1b[36m");
 		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
 	});
+
+	it("colors only the cost-model separator with the resolved border color", () => {
+		const taggedTheme = {
+			...theme(),
+			fg(color: string, text: string) {
+				return `[${color}]${text}`;
+			},
+		} as Theme;
+		const top = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "",
+				costLabel: "$0.788",
+				modelLabel: "gpt-5.6-sol",
+				thinkingLevel: "high",
+			},
+			uiTheme: taggedTheme,
+			config: config({ editorBorderColorMode: "adaptive" }),
+			borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+		})[0];
+
+		expect(top).toContain("$0.788\x1b[36m – \x1b[0m");
+		expect(top).toContain("gpt-5.6-sol[muted] – ");
+		expect(top).not.toContain("\x1b[36m$0.788");
+		expect(top).not.toContain("\x1b[36mgpt-5.6-sol");
+	});
 });

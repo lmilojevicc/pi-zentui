@@ -1014,7 +1014,11 @@ export default function (pi: ExtensionAPI) {
 		sessionLifecycle.defer(() => {
 			if (!isTuiContext(ctx) || !effectiveEditorEnabled()) return;
 			const observed = observeEditorFactory(ctx);
-			if (!observed.known || observed.factory === installedEditorFactory) return;
+			if (!observed.known) return;
+			if (observed.factory === installedEditorFactory) {
+				reconcileProjectRefresh(ctx);
+				return;
+			}
 			if (!observed.factory || !isOwnedEditorFactory(observed.factory)) {
 				clearEditorOwnership();
 				reconcileProjectRefresh(ctx);
@@ -1022,6 +1026,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			trackZentuiEditorFactory(observed.factory);
+			reconcileProjectRefresh(ctx);
 			refresh();
 		});
 	};
@@ -1107,7 +1112,7 @@ export default function (pi: ExtensionAPI) {
 		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext) {
 			currentConfig = saveEditorComponentPatch(patch);
 			let result: EditorChangeResult | undefined;
-			if ((patch.enabled !== undefined || patch.style !== undefined) && isTuiContext(ctx)) {
+			if (patch.enabled !== undefined && isTuiContext(ctx)) {
 				result = reconcileEditor(ctx);
 			}
 			if (patch.style !== undefined && patch.style !== "minimalist") {
