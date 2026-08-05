@@ -4,7 +4,7 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 
 ## Screenshots
 
-![Zentui](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/zentui.png)
+![Screenshot of Zentui with a framed user message, spacious Opencode Editor, model metadata, and Starship Footer.](./assets/main-cover.png)
 
 ## What is this?
 
@@ -43,15 +43,17 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 
 Editor previews:
 
-```text
-opencode                 opencode-copy-friendly     minimalist
-────────────────────     ────────────────────       ╭─ session ── model ╮
-│
-│ prompt                 › prompt                  │ prompt             │
-│
-│ metadata                metadata                 ╰─ git ───── path ──╯
-────────────────────     ────────────────────
-```
+<h4 align="center"><code>opencode</code></h4>
+
+![Zentui Opencode editor with an accent rail, model metadata, Nerd Font Git branch, and Starship footer.](./assets/screenshots/editor-opencode.png)
+
+<h4 align="center"><code>opencode-copy-friendly</code></h4>
+
+![Zentui copy-friendly Opencode editor with model metadata, Nerd Font Git branch, and Starship footer.](./assets/screenshots/editor-opencode-copy-friendly.png)
+
+<h4 align="center"><code>minimalist</code></h4>
+
+![Zentui Minimalist editor with session, cost, model, Git, and path metadata in a rounded frame with the Footer hidden.](./assets/screenshots/editor-minimalist.png)
 
 ### User messages
 
@@ -62,20 +64,23 @@ opencode                 opencode-copy-friendly     minimalist
 - Disabling User-message styling delegates byte-for-byte to Pi's native renderer; native is not a style ID
 - No custom `plain` message style is provided
 
-```text
-framed                    framed-copy-friendly
-────────────────────      ────────────────────
-│
-│ Message                  Message
-│
-────────────────────      ────────────────────
+User-message previews:
 
-compact                    labeled
-│ Message                 ╭─ User ───────────╮
-│ Continued               │ Message          │
-                          │ Continued        │
-                          ╰──────────────────╯
-```
+<h4 align="center"><code>framed</code></h4>
+
+![Zentui Framed user-message style with horizontal borders, spacer rows, and an accent rail.](./assets/screenshots/user-message-framed.png)
+
+<h4 align="center"><code>framed-copy-friendly</code></h4>
+
+![Zentui copy-friendly Framed user-message style with horizontal borders, spacer rows, and a copyable left edge.](./assets/screenshots/user-message-framed-copy-friendly.png)
+
+<h4 align="center"><code>compact</code></h4>
+
+![Zentui Compact user-message style with a slim accent rail and no surrounding borders.](./assets/screenshots/user-message-compact.png)
+
+<h4 align="center"><code>labeled</code></h4>
+
+![Zentui Labeled user-message style in a rounded frame with the label User.](./assets/screenshots/user-message-labeled.png)
 
 ### Git Status Icons
 
