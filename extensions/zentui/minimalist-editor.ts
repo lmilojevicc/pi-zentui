@@ -158,53 +158,38 @@ function renderTopRight(
 	renderBorder: (text: string) => string,
 ): string {
 	const source = config.components.editor.colorSource;
-	const parts: Array<{ kind: "cost" | "model" | "other"; text: string }> = [];
-	const joinParts = (values: typeof parts) =>
-		values
-			.map((part, index) => {
-				if (index === 0) return part.text;
-				const previous = values[index - 1];
-				const separator =
-					previous?.kind === "cost" && part.kind === "model"
-						? renderBorder(" – ")
-						: safeThemeFg(uiTheme, "muted", " – ");
-				return `${separator}${part.text}`;
-			})
-			.join("");
+	const parts: string[] = [];
+	const joinParts = (values: string[]) =>
+		values.map((part, index) => (index > 0 ? `${renderBorder(" – ")}${part}` : part)).join("");
 	const cost = config.components.editor.styles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
-		parts.push({
-			kind: "cost",
-			text: renderStyleForSource(uiTheme, source, config.colors.cost, cost),
-		});
+		parts.push(renderStyleForSource(uiTheme, source, config.colors.cost, cost));
 	}
 	const model = sanitizeEditorMetadataText(metadata.modelLabel ?? "");
 	if (model) {
-		parts.push({
-			kind: "model",
-			text: renderStyleForSourceOrFallback(
+		parts.push(
+			renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
 				config.colors.editorModel,
 				EDITOR_ACCENT_FALLBACK,
 				model,
 			),
-		});
+		);
 	}
 	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
 	if (thinking && thinking.toLowerCase() !== "off") {
-		parts.push({
-			kind: "other",
-			text: renderStyleForSourceOrFallback(
+		parts.push(
+			renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
 				thinkingStyle(config, thinking),
 				"muted",
 				thinking,
 			),
-		});
+		);
 	}
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
@@ -231,14 +216,14 @@ function renderTopRight(
 			for (const gaugeWidth of [5, 3]) {
 				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
-				const candidate = joinParts([...parts, { kind: "other", text: styledGauge }]);
+				const candidate = joinParts([...parts, styledGauge]);
 				if (visibleWidth(candidate) <= availableWidth) {
 					context = styledGauge;
 					break;
 				}
 			}
 		}
-		parts.push({ kind: "other", text: context });
+		parts.push(context);
 	}
 	return joinParts(parts);
 }

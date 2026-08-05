@@ -7,6 +7,7 @@ import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import {
 	formatElapsedDuration,
+	type MinimalistEditorMetadata,
 	renderMinimalistFrame,
 } from "../extensions/zentui/minimalist-editor";
 import { createInitialState } from "../extensions/zentui/state";
@@ -414,31 +415,67 @@ describe("minimalist editor frame", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
 	});
 
-	it("colors only the cost-model separator with the resolved border color", () => {
-		const taggedTheme = {
-			...theme(),
-			fg(color: string, text: string) {
-				return `[${color}]${text}`;
-			},
-		} as Theme;
+	it("colors every separator in the full top-right sequence with the resolved border color", () => {
 		const top = renderMinimalistFrame({
-			width: 80,
+			width: 100,
 			editorLines: ["draft"],
 			inputText: "draft",
 			metadata: {
 				cwd: "",
-				costLabel: "$0.788",
-				modelLabel: "gpt-5.6-sol",
-				thinkingLevel: "high",
+				costLabel: "$0.000",
+				modelLabel: "gpt-5.6-terra",
+				thinkingLevel: "minimal",
+				contextPercent: 0,
 			},
-			uiTheme: taggedTheme,
+			uiTheme: theme(),
 			config: config({ editorBorderColorMode: "adaptive" }),
 			borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
 		})[0];
 
-		expect(top).toContain("$0.788\x1b[36m – \x1b[0m");
-		expect(top).toContain("gpt-5.6-sol[muted] – ");
-		expect(top).not.toContain("\x1b[36m$0.788");
-		expect(top).not.toContain("\x1b[36mgpt-5.6-sol");
+		expect(top).toContain(
+			"$0.000\x1b[36m – \x1b[0mgpt-5.6-terra\x1b[36m – \x1b[0mminimal\x1b[36m – \x1b[0m0%",
+		);
+		expect(top.match(/\x1b\[36m – \x1b\[0m/g)).toHaveLength(3);
+		expect(top).not.toContain("\x1b[36m$0.000");
+		expect(top).not.toContain("\x1b[36mgpt-5.6-terra");
 	});
+
+	it.each([
+		[
+			"without cost",
+			{ cwd: "", modelLabel: "model", thinkingLevel: "low", contextPercent: 12 },
+			"model\x1b[36m – \x1b[0mlow\x1b[36m – \x1b[0m12%",
+		],
+		[
+			"without model",
+			{ cwd: "", costLabel: "$1", thinkingLevel: "high", contextPercent: 25 },
+			"$1\x1b[36m – \x1b[0mhigh\x1b[36m – \x1b[0m25%",
+		],
+		[
+			"without thinking",
+			{ cwd: "", costLabel: "$2", modelLabel: "model", contextPercent: 50 },
+			"$2\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0m50%",
+		],
+		[
+			"without context",
+			{ cwd: "", costLabel: "$3", modelLabel: "model", thinkingLevel: "xhigh" },
+			"$3\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0mxhigh",
+		],
+	] satisfies Array<[string, MinimalistEditorMetadata, string]>)(
+		"uses the resolved border separator %s",
+		(_name, metadata, expected) => {
+			const top = renderMinimalistFrame({
+				width: 100,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata,
+				uiTheme: theme(),
+				config: config({ editorBorderColorMode: "adaptive" }),
+				borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+			})[0];
+
+			expect(top).toContain(expected);
+			expect(top).not.toContain("[muted] – ");
+		},
+	);
 });
