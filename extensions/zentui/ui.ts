@@ -887,6 +887,10 @@ export class PolishedEditor extends CustomEditor {
 	render(width: number): string[] {
 		this.latestFixedLayout = null;
 		const config = this.getConfig();
+		if (!config.components.editor.enabled) {
+			this.reportMinimalistDecoration(false);
+			return clampRenderedLines(super.render(width), width);
+		}
 		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);
@@ -1086,6 +1090,10 @@ export class WrappedPolishedEditor implements EditorComponent {
 	render(width: number): string[] {
 		this.latestFixedLayout = null;
 		const config = this.getConfig();
+		if (!config.components.editor.enabled) {
+			this.reportMinimalistDecoration(false);
+			return clampRenderedLines(this.base.render(width), width);
+		}
 		if (config.components.editor.style === "minimalist") {
 			if (width <= 4) {
 				this.reportMinimalistDecoration(false);

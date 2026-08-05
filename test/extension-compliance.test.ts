@@ -1363,6 +1363,117 @@ describe("Pi docs compliance", () => {
 		await emit(handlers, "session_shutdown", ctx);
 	});
 
+	it("live-disables and re-enables a retained editor inside an opaque outer wrapper", async () => {
+		vi.useFakeTimers();
+		try {
+			initTheme(undefined, false);
+			writeFileSync(
+				join(isolatedAgentDir.path, "zentui.json"),
+				JSON.stringify({ projectRefreshIntervalMs: 0, features: { statusLine: false } }),
+			);
+			const commands = new Map<string, unknown>();
+			const handlers = loadExtension({ commands });
+			let editorFactory: unknown;
+			let setEditorCalls = 0;
+			let doneCalls = 0;
+			const outerInputs: string[] = [];
+			const ctx = makeContext({
+				ui: {
+					theme: makeTheme(),
+					setFooter() {},
+					setEditorComponent(factory: unknown) {
+						setEditorCalls += 1;
+						editorFactory = factory;
+					},
+					getEditorComponent: () => editorFactory,
+					notify() {},
+					async custom(factory: (...args: unknown[]) => unknown) {
+						const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {
+							doneCalls += 1;
+						}) as { handleInput(data: string): void };
+						settings.handleInput("\t");
+						settings.handleInput(" ");
+					},
+				},
+			});
+
+			await emit(handlers, "session_start", ctx);
+			await vi.runOnlyPendingTimersAsync();
+			const zentuiFactory = editorFactory as (...args: unknown[]) => {
+				render(width: number): string[];
+				invalidate(): void;
+				handleInput(data: string): void;
+				getText(): string;
+				setText(text: string): void;
+			};
+			const keybindings = { matches: () => false };
+			const retainedEditor = zentuiFactory(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				keybindings as never,
+			);
+			retainedEditor.setText("base editor");
+			const opaqueEditor = {
+				render: (width: number) => [`third-party:${width}`, ...retainedEditor.render(width)],
+				invalidate: () => retainedEditor.invalidate(),
+				handleInput(data: string) {
+					outerInputs.push(data);
+					retainedEditor.handleInput(data);
+				},
+				getText: () => retainedEditor.getText(),
+				setText: (text: string) => retainedEditor.setText(text),
+			};
+			const opaqueFactory = () => opaqueEditor;
+			editorFactory = opaqueFactory;
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			const zentuiLayers = (lines: string[]) =>
+				lines.filter((line) => line.includes("claude-sonnet")).length;
+
+			expect(zentuiLayers(opaqueEditor.render(80))).toBe(1);
+			await command.handler("", ctx);
+
+			expect(doneCalls).toBe(1);
+			expect(editorFactory).toBe(opaqueFactory);
+			expect(zentuiLayers(opaqueEditor.render(80))).toBe(1);
+			await vi.runOnlyPendingTimersAsync();
+
+			expect(editorFactory).toBe(opaqueFactory);
+			expect(setEditorCalls).toBe(1);
+			const disabledRender = opaqueEditor.render(80);
+			expect(disabledRender[0]).toBe("third-party:80");
+			expect(disabledRender.join("\n")).toContain("base editor");
+			expect(zentuiLayers(disabledRender)).toBe(0);
+			expect(disabledRender.slice(1)).toEqual(retainedEditor.render(80));
+
+			await command.handler("editor enable", ctx);
+			expect(setEditorCalls).toBe(2);
+			const activeEditor = (editorFactory as (...args: unknown[]) => typeof opaqueEditor)(
+				{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
+				{ borderColor: (text: string) => text, selectList: {} } as never,
+				keybindings as never,
+			);
+			const activeRender = activeEditor.render(80);
+			expect(activeRender).toContain("third-party:80");
+			expect(zentuiLayers(activeRender)).toBe(1);
+			expect(zentuiLayers(opaqueEditor.render(80))).toBe(1);
+			activeEditor.handleInput("x");
+			expect(outerInputs).toEqual(["x"]);
+			expect(retainedEditor.getText()).toBe("base editorx");
+
+			await command.handler("editor disable", ctx);
+			expect(editorFactory).toBe(opaqueFactory);
+			expect(activeEditor.render(80)).toEqual(opaqueEditor.render(80));
+			await command.handler("editor enable", ctx);
+			expect(zentuiLayers(activeEditor.render(80))).toBe(1);
+
+			await emit(handlers, "session_shutdown", ctx);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it.each(["exact", "metadata-wrapper"] as const)(
 		"deferred %s Zentui ownership activates minimalist-only project refresh",
 		async (observation) => {
