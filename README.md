@@ -14,7 +14,7 @@ Zentui styles three major Pi surfaces independently:
 - **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
 - **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
 
-Editor, User messages, and selector borders use an `enabled` field. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** (selector borders and icons) and **Layout** (the fixed-editor experiment) remain supporting configuration domains.
+Editor, User messages, and selector borders use an `enabled` field. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** contains selector-border and icon settings.
 
 ## Features
 
@@ -39,7 +39,6 @@ Editor, User messages, and selector borders use an `enabled` field. Footer uses 
 - The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
 - Opencode autocomplete rows retain Pi's original unframed trailing layout; Minimalist keeps autocomplete inside its rounded frame
 - Configurable model, provider, thinking-level, accent, and border colors
-- **Fixed editor** (experimental, opt-in): pin the editor cluster at the bottom of the terminal while the transcript scrolls above, independently of selected editor and Footer modes
 
 Editor previews:
 
@@ -175,16 +174,15 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu is split into exactly eight component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
+The interactive `/zentui` menu is split into exactly seven component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
 
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, and settings for the selected editor style.
 3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), and colors.
-4. **Layout** — fixed-editor enablement, mouse scrolling, and copy notices.
-5. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
-6. **Segments** — visibility toggles for non-Git Starship segments.
-7. **Git** — Starship Git segment and probe controls.
-8. **Extensions** — Starship extension-status placement and color controls for active keys.
+4. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
+5. **Segments** — visibility toggles for non-Git Starship segments.
+6. **Git** — Starship Git segment and probe controls.
+7. **Extensions** — Starship extension-status placement and color controls for active keys.
 
 Editor and User messages retain independent enablement and style configuration. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
 
@@ -204,13 +202,9 @@ Useful slash-command shortcuts:
 /zentui statusline toggle
 /zentui messages
 /zentui user-messages
-/zentui layout
 /zentui viewport-indicators enable
 /zentui viewport-indicators disable
 /zentui viewport-indicators toggle
-/zentui fixed-editor enable
-/zentui fixed-editor disable
-/zentui fixed-editor toggle
 /zentui format "$cwd on branch $git_branch$git_status using $runtime $fill $context"
 /zentui format clear
 ```
@@ -328,13 +322,6 @@ Default config values — copy this and change any value you want:
 			}
 		}
 	},
-	"layout": {
-		"fixedEditor": {
-			"enabled": false,
-			"mouseScroll": true,
-			"copyNotice": true
-		}
-	},
 	"icons": {
 		"mode": "auto",
 		"cwd": "",
@@ -399,10 +386,9 @@ Default config values — copy this and change any value you want:
 - `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
 - `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
 - `components.footer`: owns `native | starship | hidden` style selection, Footer color source, Footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses). Native restores Pi's built-in Footer; Hidden installs an empty component with zero rows.
-- `layout.fixedEditor`: owns fixed-layout enablement, mouse scrolling, and copy notices. Layout activation depends on Pi compatibility inspection, not on Zentui editor/Footer style.
 - Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
 - Selector borders support only `zentui`; set their owning `enabled` field to `false` for native Pi behavior.
-- Flat released keys such as `editorStyle`, `features`, `footerFormat`, and `fixedEditor` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` and `layout` paths are the primary JSON interface, and component saves materialize canonical snapshots.
+- Flat released keys such as `editorStyle`, `features`, and `footerFormat` remain accepted as migration input. `components.footer.enabled` and `features.statusLine` migrate to Starship or Native when no valid Footer style is present; Hidden projects `features.statusLine: false`. Canonical `components` paths are the primary JSON interface, and component saves materialize canonical snapshots.
 - Explicit unsupported future component style IDs are preserved unchanged on disk but fail open at runtime: Editor, User-message, and selector-border customization stay disabled, while Footer behavior is Native. Missing, empty, or malformed style values continue normal default and legacy migration behavior.
 - The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output and will remain available until at least the next major release. This output deprecation is separate from accepted legacy flat JSON input.
 - `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
@@ -422,7 +408,7 @@ The Minimalist editor is inspired by [pi-custom-input](https://github.com/VinhLe
 
 While `minimalist` is selected, the `/zentui` **Editor** area shows its focused controls without repeating the style name on every row. Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or—with the gauge enabled and enough room—`[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
 
-Footer visibility is controlled by `components.footer.style`: use `starship`, `native`, or `hidden`. Minimalist editor decoration and the Starship Footer may be shown together, including at narrow widths or after decoration fallback. Minimalist style does not remove Pi's header; the experimental fixed-editor layout remains separate.
+Footer visibility is controlled by `components.footer.style`: use `starship`, `native`, or `hidden`. Minimalist editor decoration and the Starship Footer may be shown together, including at narrow widths or after decoration fallback. Minimalist style does not remove Pi's header.
 
 ## Editor Metadata Format
 
@@ -550,68 +536,17 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 - Unknown `$variables` render empty.
 - Set or clear at runtime: `/zentui format "<template>"` and `/zentui format clear`.
 
-## Fixed editor (experimental, opt-in)
+## Pi fullscreen mode
 
-The fixed layout pins Pi's usable editor cluster at the bottom of the terminal while the transcript scrolls above. It can activate independently of Zentui editor and Footer style; Pi compatibility inspection decides whether it is safe. Hidden contributes zero rows and no spacer. A live Footer style change tears down the compositor, replaces the Footer, and reprobes the new component; reprobe failure leaves ordinary rendering active.
-
-At constrained heights, Zentui reserves one transcript row, keeps a complete Zentui editor frame and cursor, then prioritizes active autocomplete, Footer, below-editor widget, above-editor widget, and status. Editor content crops around the cursor; known autocomplete content crops around its selected item. Native and third-party editors are treated as opaque and are either pinned intact or rendered through Pi's normal layout. If the terminal later grows, fixed layout returns automatically without reinstalling the compositor.
-
-### How to enable
-
-```text
-/zentui fixed-editor enable
-```
-
-Or in `~/.pi/agent/zentui.json`:
+Pi 0.84 introduces a native fullscreen TUI with a sticky editor and Footer plus an independently scrollable transcript. Enable it in Pi's `~/.pi/agent/settings.json`:
 
 ```json
 {
-	"layout": {
-		"fixedEditor": {
-			"enabled": true
-		}
-	}
+	"tuiMode": "fullscreen"
 }
 ```
 
-### Keyboard controls
-
-| Key | Action |
-| --- | ------ |
-| `PageUp` / `PageDown` | Scroll transcript one viewport up/down; consumed at either boundary while transcript scrolling exists |
-| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll transcript up/down (Kitty protocol variants supported) |
-| `Enter` | Jump to bottom (and submit message) |
-
-PageUp/PageDown propagate to Pi when there is no transcript scroll range, while normal-flow fallback is active, or while an overlay owns input.
-
-### Graceful cleanup
-
-Live disable restores the full scroll region, mouse modes, alternate-scroll behavior, autowrap, cursor visibility, and primary screen before Pi repaints its normal layout. Pi lifecycle shutdown (`/quit`, Ctrl+C, Ctrl+D, SIGHUP, and SIGTERM) performs the same reset without a late repaint into the caller's shell. Cleanup after `SIGKILL`, a fatal crash that prevents Pi's shutdown callback, terminal disconnect, or failure of both terminal writers cannot be guaranteed.
-
-### Mouse scroll (default on)
-
-Mouse wheel scrolling is enabled by default when the fixed editor is on. Disable it from the `/zentui` **Layout** section or:
-
-```json
-{
-	"layout": {
-		"fixedEditor": {
-			"enabled": true,
-			"mouseScroll": false
-		}
-	}
-}
-```
-
-**Warning**: Mouse scroll enables SGR mouse reporting, which disables native terminal text selection, URL click-through, and tmux/Herdr scrollback for the Pi session. Toggle off if you need those features.
-
-### Conflicts and limitations
-
-- **Incompatible with** `pi-powerline-footer`, `@tifan/pi-fixed-editor`, and `pi-sticky-input`. These packages patch the same Pi TUI internals; only one rendering owner can be active at a time.
-- **Alternate screen**: Uses the terminal's alternate screen buffer. Native scrollback history is not accessible while the fixed editor is active.
-- **Pi version fragility**: Patches internal TUI methods (`doRender`, `render`, `terminal.write`, `terminal.rows`) that may change across Pi versions. If the TUI layout is unsupported, Zentui falls back to normal rendering with a console warning.
-- Pi has no Footer getter or Footer-change event. Zentui observes normal third-party takeover through Pi's custom-component disposal callback and will not restore Native afterward. Direct internal mutation, a future Pi version that stops disposing replaced components, and automatic fixed-layout reprobe after third-party replacement cannot be detected.
-- If your terminal is stuck after a crash, run `reset` or restart the terminal.
+You can also select fullscreen from Pi's `/settings` UI or start Pi with `--tui-mode fullscreen`. Zentui does not enable fullscreen automatically: Pi owns terminal layout, scrolling, and sticky placement, while Zentui supplies the configured editor and Footer components. Pi 0.80.3–0.83 remain supported for Zentui styling, without native sticky placement.
 
 ## Acknowledgments
 

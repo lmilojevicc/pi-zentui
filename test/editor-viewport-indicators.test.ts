@@ -1,13 +1,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
 	defaultConfig,
 	type EditorStyle,
 	type PolishedTuiConfig,
 } from "../extensions/zentui/config";
-import { FIXED_EDITOR_LAYOUT } from "../extensions/zentui/fixed-editor/editor-layout";
-import { planFixedLayout } from "../extensions/zentui/fixed-editor/layout";
 import {
 	PolishedEditor,
 	renderWithAutocompleteCapture,
@@ -742,105 +740,6 @@ describe("same-render autocomplete capture", () => {
 		expect(outer.capture).toMatchObject({ compatible: true, called: 1 });
 		expect(outer.value.capture).toMatchObject({ compatible: true, called: 1 });
 		expect(autocomplete.autocompleteList.render).toBe(original);
-	});
-});
-
-describe("fixed-editor semantic publication", () => {
-	it.each([
-		[
-			"opencode",
-			{
-				rowCount: 9,
-				cursorRow: 2,
-				borderBottom: 5,
-				minimumEditorRows: [0, 2, 5],
-				plannerRawRows: 5,
-				selectedIndex: 0,
-				itemRows: [6, 7, 8],
-				selectedRow: 6,
-			},
-		],
-		[
-			"opencode-copy-friendly",
-			{
-				rowCount: 9,
-				cursorRow: 2,
-				borderBottom: 5,
-				minimumEditorRows: [0, 2, 5],
-				plannerRawRows: 5,
-				selectedIndex: 1,
-				itemRows: [6, 7, 8],
-				selectedRow: 7,
-			},
-		],
-		[
-			"minimalist",
-			{
-				rowCount: 7,
-				cursorRow: 1,
-				borderBottom: 6,
-				minimumEditorRows: [0, 1, 6],
-				plannerRawRows: 6,
-				selectedIndex: 2,
-				itemRows: [3, 4, 5],
-				selectedRow: 5,
-			},
-		],
-	] as const)("publishes exact cursor and autocomplete rows for %s", (style, expected) => {
-		const autocomplete = {
-			filteredItems: [{ value: "one" }, { value: "two" }, { value: "three" }],
-			selectedIndex: expected.selectedIndex,
-			maxVisible: 3,
-			render: () => ["one", "two", "three"],
-		};
-		const base = {
-			render(width: number) {
-				return [
-					nativeBorder(width, "above"),
-					`typed${CURSOR_MARKER}`,
-					nativeBorder(width, "below"),
-					...autocomplete.render(),
-				];
-			},
-			invalidate() {},
-			handleInput() {},
-			getText: () => "typed",
-			setText() {},
-			isShowingAutocomplete: () => true,
-			autocompleteList: autocomplete,
-		};
-		const editor = new WrappedPolishedEditor(
-			base as never,
-			theme(),
-			() => withEditorStyle(config(), style),
-			() => ({ modelLabel: "model", providerLabel: "provider" }),
-			() => "off",
-			() => ({ cwd: "/tmp" }),
-		);
-		const lines = editor.render(60);
-		const metadata = editor[FIXED_EDITOR_LAYOUT](lines, 60);
-		expect(metadata?.renderedRowCount).toBe(expected.rowCount);
-		expect(metadata?.editor.cursorRow).toBe(expected.cursorRow);
-		expect(metadata?.editor.borderPairs).toEqual([{ top: 0, bottom: expected.borderBottom }]);
-		expect(metadata?.autocomplete?.selection).toEqual({
-			known: true,
-			selectedIndex: expected.selectedIndex,
-			visibleWindow: { start: 0, end: 3 },
-			itemToOutputRows: [
-				{ itemIndex: 0, outputRow: expected.itemRows[0] },
-				{ itemIndex: 1, outputRow: expected.itemRows[1] },
-				{ itemIndex: 2, outputRow: expected.itemRows[2] },
-			],
-			selectedRow: expected.selectedRow,
-		});
-		if (!metadata) throw new Error("expected fixed-editor metadata");
-		expect(
-			planFixedLayout({ rawRows: expected.plannerRawRows, editorRows: lines, metadata }),
-		).toMatchObject({
-			mode: "fixed",
-			selectedEditorRows: expected.minimumEditorRows,
-			selectedAutocompleteRows: expect.arrayContaining([expected.selectedRow]),
-		});
 	});
 });
 

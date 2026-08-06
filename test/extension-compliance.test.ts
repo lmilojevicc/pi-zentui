@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -105,7 +113,6 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setExtensionStatusDefaultPlacement() {},
 	setExtensionStatusPlacement() {},
 	setExtensionStatusColorMode() {},
-	setFixedEditor() {},
 	requestRender() {},
 };
 
@@ -200,10 +207,6 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					},
 				},
 			},
-		},
-		layout: {
-			...config.layout,
-			fixedEditor: flatChanged("fixedEditor") ? config.fixedEditor : config.layout.fixedEditor,
 		},
 	};
 }
@@ -577,6 +580,111 @@ afterEach(() => {
 	}
 });
 
+function collectFiles(path: string, predicate: (path: string) => boolean): string[] {
+	const files: string[] = [];
+	for (const entry of readdirSync(path, { withFileTypes: true })) {
+		const child = join(path, entry.name);
+		if (entry.isDirectory()) files.push(...collectFiles(child, predicate));
+		else if (predicate(child)) files.push(child);
+	}
+	return files;
+}
+
+describe("fixed-editor retirement contract", () => {
+	it("contains no retired implementation, package, CI, or documentation artifacts", () => {
+		const root = join(import.meta.dirname, "..");
+		const retiredEditorPattern = /fixed[-_ ]editor/i;
+		const retiredPaths = [
+			["extensions", "zentui", ["fixed", "editor"].join("-")],
+			["test", [["fixed", "editor"].join("-"), "editor-layout.test.ts"].join("-")],
+			["test", [["fixed", "editor"].join("-"), "layout.test.ts"].join("-")],
+			["test", [["fixed", "editor"].join("-"), "test.ts"].join("-")],
+			["test", [["fixed", "editor"].join("-"), "terminal-state.test.ts"].join("-")],
+			["test", [["fixed", "editor"].join("-"), "pty.test.ts"].join("-")],
+			["test", "helpers", ["pi", "pty.ts"].join("-")],
+			["test", "helpers", ["terminal", "state.ts"].join("-")],
+		].map((parts) => join(root, ...parts));
+		for (const path of retiredPaths) expect(existsSync(path), path).toBe(false);
+
+		const productionTokens = [
+			["fixed", "Editor"].join(""),
+			["Fixed", "Editor"].join(""),
+			["fixed", "-editor"].join(""),
+			["FIXED", "_EDITOR"].join(""),
+			["mouse", "Scroll"].join(""),
+			["copy", "Notice"].join(""),
+			["TerminalSplit", "Compositor"].join(""),
+			["installFixed", "EditorProbe"].join(""),
+			["disposeFixed", "Editor"].join(""),
+			["saveLayoutFixed", "EditorPatch"].join(""),
+			["saveFixed", "EditorPatch"].join(""),
+			["zentui", "-fixed-editor-probe"].join(""),
+			["zentui", "-copy-notice"].join(""),
+			"setLayoutRoot",
+			"doRender",
+			"terminal.rows",
+			"terminal.write",
+			"tui.mode",
+			"tuiMode",
+		];
+		const production = collectFiles(join(root, "extensions", "zentui"), (path) =>
+			path.endsWith(".ts"),
+		);
+		for (const path of production) {
+			const source = readFileSync(path, "utf8");
+			expect(source, path).not.toMatch(retiredEditorPattern);
+			for (const token of productionTokens)
+				expect(source, `${path}: ${token}`).not.toContain(token);
+		}
+
+		const testApiTokens = productionTokens.slice(6, 13);
+		const tests = collectFiles(join(root, "test"), (path) => path.endsWith(".ts"));
+		for (const path of tests) {
+			const source = readFileSync(path, "utf8");
+			for (const token of testApiTokens) expect(source, `${path}: ${token}`).not.toContain(token);
+		}
+
+		const userTokens = [
+			["fixed", "-editor"].join(""),
+			["fixed", "Editor"].join(""),
+			["node", "-pty"].join(""),
+			["RUN_FIXED", "_EDITOR_PTY"].join(""),
+			["mouse", "Scroll"].join(""),
+			["copy", "Notice"].join(""),
+			["TerminalSplit", "Compositor"].join(""),
+		];
+		const userFiles = [
+			join(root, "README.md"),
+			join(root, "package.json"),
+			join(root, "package-lock.json"),
+			join(root, ".github", "workflows", "ci.yml"),
+		];
+		const docsRoot = join(root, "docs");
+		const designRecord = join(
+			root,
+			"docs",
+			"superpowers",
+			"specs",
+			"2026-08-06-pi-fullscreen-compatibility-design.md",
+		);
+		if (existsSync(docsRoot)) {
+			userFiles.push(
+				...collectFiles(docsRoot, (path) => path.endsWith(".md") && path !== designRecord),
+			);
+		}
+		for (const path of userFiles) {
+			const source = readFileSync(path, "utf8");
+			expect(source, path).not.toMatch(retiredEditorPattern);
+			for (const token of userTokens) expect(source, `${path}: ${token}`).not.toContain(token);
+		}
+		const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+		expect(manifest.scripts).not.toHaveProperty(["test", "fixed-editor"].join(":"));
+		expect(manifest.devDependencies).not.toHaveProperty(["node", "pty"].join("-"));
+		const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+		expect(lock.packages).not.toHaveProperty(["node_modules", "node-pty"].join("/"));
+	});
+});
+
 describe("Pi docs compliance", () => {
 	it("derives lazy data requirements from only the active wide and compact candidates", () => {
 		const starship = defaultConfig.components.footer.styles.starship;
@@ -698,60 +806,22 @@ describe("Pi docs compliance", () => {
 		await emit(handlers, "session_shutdown", ctx);
 	});
 
-	it("reconciles footer and fixed layout independently of all chrome surfaces", async () => {
-		writeFileSync(
-			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({
-				components: {
-					editor: { enabled: false },
-					userMessages: { enabled: false },
-					selectorBorders: { enabled: false },
-					footer: { enabled: true },
-				},
-				layout: { fixedEditor: { enabled: true } },
-			}),
-		);
-		const handlers = loadExtension();
-		const existingFactory = () => ({ render: () => ["native"] });
-		let editorFactory: unknown = existingFactory;
-		let footerFactory: unknown;
-		let probeFactory: unknown;
-		const ctx = makeContext({
-			ui: {
-				theme: makeTheme(),
-				setEditorComponent(factory: unknown) {
-					editorFactory = factory;
-				},
-				getEditorComponent: () => editorFactory,
-				setFooter(factory: unknown) {
-					footerFactory = factory;
-				},
-				setWidget(key: string, factory: unknown) {
-					if (key === "zentui-fixed-editor-probe") probeFactory = factory;
-				},
+	it("ignores stale fixed-editor config during startup without rewriting or installing widgets", async () => {
+		const path = join(isolatedAgentDir.path, "zentui.json");
+		const original = `${JSON.stringify(
+			{
+				fixedEditor: { enabled: true, mouseScroll: false },
+				layout: { fixedEditor: { enabled: "yes", copyNotice: false }, futureLayout: true },
 			},
-		});
-
-		await emit(handlers, "session_start", ctx);
-		expect(editorFactory).toBe(existingFactory);
-		expect(footerFactory).toBeTypeOf("function");
-		expect(probeFactory).toBeTypeOf("function");
-		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
-		await emit(handlers, "session_shutdown", ctx);
-		expect(probeFactory).toBeUndefined();
-	});
-
-	it("keeps every surface active when fixed-layout compatibility inspection fails", async () => {
-		writeFileSync(
-			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
-		);
+			null,
+			2,
+		)}
+`;
+		writeFileSync(path, original);
 		const handlers = loadExtension();
 		let editorFactory: unknown;
 		let footerFactory: unknown;
-		let probeFactory: ((tui: unknown) => { render(): string[] }) | undefined;
-		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const widgetCalls: Array<[string, unknown]> = [];
 		const ctx = makeContext({
 			ui: {
 				theme: makeTheme(),
@@ -763,94 +833,24 @@ describe("Pi docs compliance", () => {
 					footerFactory = factory;
 				},
 				setWidget(key: string, factory: unknown) {
-					if (key === "zentui-fixed-editor-probe") {
-						probeFactory =
-							typeof factory === "function" ? (factory as typeof probeFactory) : undefined;
-					}
+					widgetCalls.push([key, factory]);
 				},
 			},
 		});
 
 		await emit(handlers, "session_start", ctx);
-		const tui = new Proxy(
-			{
-				terminal: { columns: 80, rows: 24, write() {} },
-				render: () => [],
-				doRender() {},
-				addInputListener: () => () => {},
-				removeInputListener() {},
-			},
-			{
-				get(target, property, receiver) {
-					if (property === "children") throw new Error("private shape changed");
-					return Reflect.get(target, property, receiver);
-				},
-			},
-		);
-		probeFactory?.(tui).render();
-		await Promise.resolve();
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(warning).toHaveBeenCalledTimes(1);
 		expect(editorFactory).toBeTypeOf("function");
 		expect(footerFactory).toBeTypeOf("function");
-		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
-		expect(ModelSelectorComponent.prototype.render).not.toBe(originalModelSelectorRender);
+		const widgetKeys = widgetCalls.map(([key]) => key);
+		for (const retiredKey of [
+			["zentui", "fixed", "editor", "probe"].join("-"),
+			["zentui", "copy", "notice"].join("-"),
+		]) {
+			expect(widgetKeys).not.toContain(retiredKey);
+		}
+		expect(readFileSync(path, "utf8")).toBe(original);
 		await emit(handlers, "session_shutdown", ctx);
-	});
-
-	it("removes the fixed-layout probe and other surfaces when disposal cleanup throws", async () => {
-		writeFileSync(
-			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
-		);
-		const handlers = loadExtension();
-		const existingFactory = () => ({
-			render: () => ["native"],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "",
-			setText() {},
-		});
-		let editorFactory: unknown = existingFactory;
-		let footerFactory: unknown;
-		let throwCopyNoticeCleanup = false;
-		let probeRemovals = 0;
-		const ctx = makeContext({
-			ui: {
-				theme: makeTheme(),
-				getEditorText: () => "",
-				setEditorText() {},
-				setEditorComponent(factory: unknown) {
-					editorFactory = factory;
-				},
-				getEditorComponent: () => editorFactory,
-				setFooter(factory: unknown) {
-					footerFactory = factory;
-				},
-				setWidget(key: string, factory: unknown) {
-					if (key === "zentui-copy-notice" && factory === undefined && throwCopyNoticeCleanup) {
-						throw new Error("copy notice cleanup failed");
-					}
-					if (key === "zentui-fixed-editor-probe" && factory === undefined) probeRemovals += 1;
-				},
-			},
-		});
-
-		await emit(handlers, "session_start", ctx);
-		expect(editorFactory).not.toBe(existingFactory);
-		expect(footerFactory).toBeTypeOf("function");
-		expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
-		const removalsBeforeShutdown = probeRemovals;
-		throwCopyNoticeCleanup = true;
-
-		await expect(emit(handlers, "session_shutdown", ctx)).resolves.toBeUndefined();
-		expect(probeRemovals).toBe(removalsBeforeShutdown + 1);
-		expect(editorFactory).toBe(existingFactory);
-		expect(footerFactory).toBeUndefined();
-		expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
-		expect(ModelSelectorComponent.prototype.render).toBe(originalModelSelectorRender);
+		expect(readFileSync(path, "utf8")).toBe(original);
 	});
 
 	it("isolates footer installation failure without clearing a retained predecessor", async () => {
@@ -1892,65 +1892,7 @@ describe("Pi docs compliance", () => {
 		},
 	);
 
-	it("routes fixed-editor aliases through layout without retaking a third-party editor", async () => {
-		const commands = new Map<string, unknown>();
-		const handlers = loadExtension({ commands });
-		const notifications: string[] = [];
-		let editorFactory: unknown;
-		let setEditorCalls = 0;
-		const takeoverFactory = () => ({
-			render: () => ["takeover"],
-			invalidate() {},
-			handleInput() {},
-			getText: () => "",
-			setText() {},
-		});
-		const ctx = makeContext({
-			ui: {
-				theme: makeTheme(),
-				setFooter() {},
-				setEditorComponent(factory: unknown) {
-					setEditorCalls += 1;
-					editorFactory = factory;
-				},
-				getEditorComponent() {
-					return editorFactory;
-				},
-				setWidget() {},
-				notify(message: string) {
-					notifications.push(message);
-				},
-			},
-		});
-		await emit(handlers, "session_start", ctx);
-		expect(setEditorCalls).toBe(1);
-		editorFactory = takeoverFactory;
-		await new Promise((resolve) => setTimeout(resolve, 1));
-
-		const command = commands.get("zentui") as {
-			handler(args: string, ctx: unknown): Promise<void>;
-		};
-		for (const args of ["fixed-editor enable", "fixed_editor disable", "fixed editor toggle"])
-			await command.handler(args, ctx);
-
-		expect(editorFactory).toBe(takeoverFactory);
-		expect(setEditorCalls).toBe(1);
-		expect(notifications).toEqual([
-			"Fixed editor: enabled",
-			"Fixed editor: disabled",
-			"Fixed editor: enabled",
-		]);
-		const persisted = JSON.parse(
-			readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8"),
-		) as {
-			layout: { fixedEditor: { enabled: boolean } };
-		};
-		expect(persisted.layout.fixedEditor.enabled).toBe(true);
-		await emit(handlers, "session_shutdown", ctx);
-		expect(editorFactory).toBe(takeoverFactory);
-	});
-
-	it("routes removed copy commands through the ordinary usage warning without mutation", async () => {
+	it("routes removed commands through the ordinary usage warning without mutation", async () => {
 		const path = join(isolatedAgentDir.path, "zentui.json");
 		writeFileSync(path, JSON.stringify({ components: { editor: { style: "minimalist" } } }));
 		const before = readFileSync(path, "utf8");
@@ -1964,6 +1906,10 @@ describe("Pi docs compliance", () => {
 		};
 
 		for (const args of [
+			"fixed-editor enable",
+			"fixed_editor disable",
+			"fixed editor toggle",
+			"layout",
 			"copy-friendly disable",
 			"editor-copy-friendly enable",
 			"message-copy-friendly disable",
@@ -1971,7 +1917,7 @@ describe("Pi docs compliance", () => {
 			await command.handler(args, ctx);
 		}
 		expect(readFileSync(path, "utf8")).toBe(before);
-		expect(notifications).toHaveLength(3);
+		expect(notifications).toHaveLength(7);
 		expect(notifications.every((message) => message.startsWith("Usage: /zentui"))).toBe(true);
 		await emit(handlers, "session_shutdown", ctx);
 	});
@@ -5152,7 +5098,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5197,7 +5142,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5246,7 +5190,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {
 					renderRequests += 1;
 				},
@@ -5294,7 +5237,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5328,7 +5270,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5376,7 +5317,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5425,7 +5365,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 			},
 		);
@@ -5481,7 +5420,6 @@ describe("Pi docs compliance", () => {
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
-					setFixedEditor() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -5548,7 +5486,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -5619,7 +5556,6 @@ describe("Pi docs compliance", () => {
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
-					setFixedEditor() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -5685,7 +5621,6 @@ describe("Pi docs compliance", () => {
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
-					setFixedEditor() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -5718,7 +5653,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/8)");
+		expect(themeLines.join("\n")).toContain("(1/7)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab to switch sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5759,7 +5694,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -5817,7 +5751,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -5838,7 +5771,7 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 3; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
@@ -5849,7 +5782,7 @@ describe("Pi docs compliance", () => {
 		expect(patches).toEqual([{ responsiveFooter: false }, { compactFooterMaxLines: 3 }]);
 	});
 
-	it("cycles the separator from the Zentui layout settings", async () => {
+	it("cycles the separator from the Zentui Footer settings", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const changes: SeparatorStyle[] = [];
 		const notifications: string[] = [];
@@ -5878,7 +5811,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
 				},
@@ -5911,7 +5843,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					for (let index = 0; index < 4; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 3; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -5929,7 +5861,7 @@ describe("Pi docs compliance", () => {
 			"Separator: pipe",
 		]);
 		expect(dependencyRenderRequests).toBe(4);
-		expect(tuiRenderRequests).toBe(8);
+		expect(tuiRenderRequests).toBe(7);
 	});
 
 	it("cycles branch length presets and returns custom JSON values to full", async () => {
@@ -5960,7 +5892,6 @@ describe("Pi docs compliance", () => {
 					getActiveExtensionStatuses: () => new Map<string, string>(),
 					setExtensionStatusPlacement() {},
 					setExtensionStatusColorMode() {},
-					setFixedEditor() {},
 					requestRender() {},
 					settingsListTheme: {
 						label: (text) => text,
@@ -5981,7 +5912,7 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
+						for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -6024,7 +5955,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
 				},
@@ -6098,7 +6028,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -6140,7 +6069,6 @@ describe("Pi docs compliance", () => {
 			| "Appearance"
 			| "Editor"
 			| "User messages"
-			| "Layout"
 			| "Footer"
 			| "Segments"
 			| "Git"
@@ -6150,7 +6078,6 @@ describe("Pi docs compliance", () => {
 			"Appearance",
 			"Editor",
 			"User messages",
-			"Layout",
 			"Footer",
 			"Segments",
 			"Git",
@@ -6185,7 +6112,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>(),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -6247,7 +6173,6 @@ describe("Pi docs compliance", () => {
 					]),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -6308,7 +6233,6 @@ describe("Pi docs compliance", () => {
 					placements.push({ key, placement });
 				},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -6372,7 +6296,6 @@ describe("Pi docs compliance", () => {
 					placements.push({ key, placement });
 				},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
 				},
@@ -6412,7 +6335,7 @@ describe("Pi docs compliance", () => {
 
 		expect(placements).toEqual([{ key: "alpha", placement: "off" }]);
 		expect(dependencyRenderRequests).toBe(1);
-		expect(tuiRenderRequests).toBe(8);
+		expect(tuiRenderRequests).toBe(7);
 	});
 
 	it("does not show inactive saved placements in the extension segments tab", async () => {
@@ -6442,7 +6365,6 @@ describe("Pi docs compliance", () => {
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
 				setExtensionStatusPlacement() {},
 				setExtensionStatusColorMode() {},
-				setFixedEditor() {},
 				requestRender() {},
 				settingsListTheme: {
 					label: (text) => text,
@@ -6768,7 +6690,6 @@ describe("three-state Footer lifecycle", () => {
 		let component: ReturnType<FooterFactory> | undefined;
 		const factories: Array<FooterFactory | undefined> = [];
 		const branchSubscriptions = vi.fn(() => () => {});
-		const probeTransitions: unknown[] = [];
 		const tui = { requestRender: vi.fn() };
 		const footerData = {
 			onBranchChange: branchSubscriptions,
@@ -6786,15 +6707,11 @@ describe("three-state Footer lifecycle", () => {
 			},
 			setEditorComponent() {},
 			getEditorComponent: () => undefined,
-			setWidget(key: string, next: unknown) {
-				if (key === "zentui-fixed-editor-probe") probeTransitions.push(next);
-			},
 		};
 		return {
 			ui,
 			factories,
 			branchSubscriptions,
-			probeTransitions,
 			get factory() {
 				return factory;
 			},
@@ -6870,7 +6787,7 @@ describe("three-state Footer lifecycle", () => {
 					const settings = settingsFactory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput(data: string): void;
 					};
-					for (let index = 0; index < 4; index++) settings.handleInput("\t");
+					for (let index = 0; index < 3; index++) settings.handleInput("\t");
 					settings.handleInput(" ");
 				},
 			};
@@ -7022,12 +6939,8 @@ describe("three-state Footer lifecycle", () => {
 		expect(harness.factory).toBe(replacement);
 	});
 
-	it("rebinds Footer and reprobes fixed layout across every live style transition", async () => {
+	it("rebinds Footer across every live style transition", async () => {
 		initTheme(undefined, false);
-		writeFileSync(
-			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({ layout: { fixedEditor: { enabled: true } } }),
-		);
 		const commands = new Map<string, unknown>();
 		const harness = createFooterHarness();
 		const handlers = loadExtension({ commands });
@@ -7039,7 +6952,7 @@ describe("three-state Footer lifecycle", () => {
 			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 4; index++) settings.handleInput("\t");
+			for (let index = 0; index < 3; index++) settings.handleInput("\t");
 			settings.handleInput(" ");
 		};
 		const ctx = makeContext({ ui: harness.ui });
@@ -7050,35 +6963,14 @@ describe("three-state Footer lifecycle", () => {
 		};
 		await emit(handlers, "session_start", ctx);
 		expect(harness.component?.render(80).length).toBeGreaterThan(0);
-		expect(harness.probeTransitions.map((value) => typeof value)).toEqual([
-			"undefined",
-			"function",
-		]);
 		await chooseFooterStyle();
 		expect(harness.component?.render(80)).toEqual([]);
-		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
-			"undefined",
-			"function",
-		]);
 		await chooseFooterStyle();
 		expect(harness.factory).toBeUndefined();
-		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
-			"undefined",
-			"function",
-		]);
 		await chooseFooterStyle();
 		expect(harness.component?.render(80).length).toBeGreaterThan(0);
-		expect(harness.probeTransitions.slice(-2).map((value) => typeof value)).toEqual([
-			"undefined",
-			"function",
-		]);
-		expect(harness.probeTransitions).toHaveLength(8);
-		expect(
-			new Set(harness.probeTransitions.filter((value) => typeof value === "function")).size,
-		).toBe(4);
 		expect(harness.factories).toHaveLength(4);
 		expect(harness.branchSubscriptions).toHaveBeenCalledTimes(2);
 		await emit(handlers, "session_shutdown", ctx);
-		expect(harness.probeTransitions.at(-1)).toBeUndefined();
 	});
 });

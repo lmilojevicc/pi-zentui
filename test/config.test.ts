@@ -35,14 +35,12 @@ import {
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
 	saveExtensionStatusPlacement,
-	saveFixedEditorPatch,
 	saveFooterComponentPatch,
 	saveFooterFormatPatch,
 	saveFooterSegmentsPatch,
 	saveGitBranchPatch,
 	saveGitCommitPatch,
 	saveGitMetricsPatch,
-	saveLayoutFixedEditorPatch,
 	saveMinimalistEditorStylePatch,
 	saveMinimalistPatch,
 	savePathDisplayPatch,
@@ -152,14 +150,19 @@ describe("canonical config resolution", () => {
 				},
 			},
 		});
-		expect(config.layout).toEqual({
-			fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true },
-		});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
 		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.colors).toEqual(defaultConfig.colors);
 		expect(defaultConfig.components).toEqual(config.components);
-		expect(defaultConfig.layout).toEqual(config.layout);
+	});
+
+	it("ignores stale fixed-editor config forms without exposing runtime fields", () => {
+		const config = mergeConfig({
+			fixedEditor: { enabled: true, mouseScroll: false },
+			layout: { fixedEditor: { enabled: "yes", copyNotice: false }, futureLayout: true },
+		});
+		expect(config).not.toHaveProperty("fixedEditor");
+		expect(config).not.toHaveProperty("layout");
 	});
 
 	it("migrates every released legacy field leaf-by-leaf", () => {
@@ -191,7 +194,6 @@ describe("canonical config resolution", () => {
 				placements: { alpha: "left" },
 				colorModes: { alpha: "original" },
 			},
-			fixedEditor: { enabled: true, mouseScroll: false, copyNotice: false },
 		});
 		const { editor, userMessages, selectorBorders, footer } = config.components;
 		const starship = footer.styles.starship;
@@ -229,11 +231,6 @@ describe("canonical config resolution", () => {
 			},
 		});
 		expect(starship.segments).toMatchObject({ cwd: false, modelInfo: true });
-		expect(config.layout.fixedEditor).toEqual({
-			enabled: true,
-			mouseScroll: false,
-			copyNotice: false,
-		});
 	});
 
 	it("gives canonical leaves precedence, including false and invalid-but-present values", () => {
@@ -906,36 +903,18 @@ describe("canonical snapshot persistence", () => {
 		});
 	});
 
-	it("materializes layout.fixedEditor while preserving layout and legacy data", () => {
-		withConfig(
-			{
-				fixedEditor: { enabled: true, mouseScroll: false, legacyUnknown: true },
-				layout: { futureLayout: true, fixedEditor: { futureFixed: true } },
-			},
-			(path) => {
-				const config = saveLayoutFixedEditorPatch({ copyNotice: false }, path);
-				const raw = readRaw(path);
-				expect(raw.layout).toEqual({
-					futureLayout: true,
-					fixedEditor: {
-						futureFixed: true,
-						enabled: true,
-						mouseScroll: false,
-						copyNotice: false,
-					},
-				});
-				expect(raw.fixedEditor).toEqual({
-					enabled: true,
-					mouseScroll: false,
-					legacyUnknown: true,
-				});
-				expect(config.fixedEditor).toEqual({
-					enabled: true,
-					mouseScroll: false,
-					copyNotice: false,
-				});
-			},
-		);
+	it("preserves stale fixed-editor keys during an unrelated explicit save", () => {
+		const stale = {
+			fixedEditor: { enabled: true, legacyUnknown: true },
+			layout: { fixedEditor: { mouseScroll: false }, futureLayout: true },
+		};
+		withConfig(stale, (path) => {
+			saveFooterComponentPatch({ style: "hidden" }, path);
+			const raw = readRaw(path);
+			expect(raw.fixedEditor).toEqual(stale.fixedEditor);
+			expect(raw.layout).toEqual(stale.layout);
+			expect(raw.components.footer.style).toBe("hidden");
+		});
 	});
 });
 
@@ -1051,18 +1030,6 @@ describe("compatibility saver recipes", () => {
 			expect(raw).not.toHaveProperty("features");
 		});
 	});
-
-	it("routes saveFixedEditorPatch to canonical layout only", () => {
-		withConfig(undefined, (path) => {
-			const config = saveFixedEditorPatch({ enabled: true }, path);
-			const raw = readRaw(path);
-			expect(raw).toEqual({
-				layout: { fixedEditor: { enabled: true, mouseScroll: true, copyNotice: true } },
-			});
-			expect(config.fixedEditor.enabled).toBe(true);
-			expect(raw).not.toHaveProperty("fixedEditor");
-		});
-	});
 });
 
 describe("mergeConfig", () => {
@@ -1116,37 +1083,6 @@ describe("mergeConfig", () => {
 			defaultPlacement: "right",
 			placements: {},
 			colorModes: {},
-		});
-	});
-
-	it("defaults fixedEditor to disabled with mouse scroll on", () => {
-		expect(mergeConfig({}).fixedEditor).toEqual({
-			enabled: false,
-			mouseScroll: true,
-			copyNotice: true,
-		});
-		expect(defaultConfig.fixedEditor).toEqual({
-			enabled: false,
-			mouseScroll: true,
-			copyNotice: true,
-		});
-	});
-
-	it("accepts fixedEditor config", () => {
-		expect(mergeConfig({ fixedEditor: { enabled: true, mouseScroll: false } }).fixedEditor).toEqual(
-			{
-				enabled: true,
-				mouseScroll: false,
-				copyNotice: true,
-			},
-		);
-	});
-
-	it("normalizes invalid fixedEditor values", () => {
-		expect(mergeConfig({ fixedEditor: { enabled: "yes" } }).fixedEditor).toEqual({
-			enabled: false,
-			mouseScroll: true,
-			copyNotice: true,
 		});
 	});
 
@@ -2509,34 +2445,6 @@ describe("bounded settings persistence", () => {
 	});
 });
 
-describe("saveFixedEditorPatch", () => {
-	it("saves enabled flag and round-trips", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-cfg-"));
-		const path = join(dir, "zentui.json");
-		try {
-			const config = saveFixedEditorPatch({ enabled: true }, path);
-			expect(config.fixedEditor.enabled).toBe(true);
-
-			const raw = JSON.parse(readFileSync(path, "utf8"));
-			expect(raw.fixedEditor).toBeUndefined();
-			expect(raw.layout.fixedEditor.enabled).toBe(true);
-		} finally {
-			rmSync(dir, { recursive: true });
-		}
-	});
-
-	it("saves mouseScroll flag alongside existing enabled", () => {
-		const dir = mkdtempSync(join(tmpdir(), "zentui-cfg-"));
-		const path = join(dir, "zentui.json");
-		try {
-			saveFixedEditorPatch({ enabled: true }, path);
-			const config = saveFixedEditorPatch({ mouseScroll: true }, path);
-			expect(config.fixedEditor).toEqual({ enabled: true, mouseScroll: true, copyNotice: true });
-		} finally {
-			rmSync(dir, { recursive: true });
-		}
-	});
-});
 describe("startup and file safety", () => {
 	it("does not create, rewrite, or materialize config at startup", () => {
 		withConfig(undefined, (path) => {
@@ -2568,6 +2476,8 @@ describe("startup and file safety", () => {
 			const config = saveFooterFormatPatch("$cwd", path);
 			const raw = readRaw(path);
 			expect(raw.components.footer.styles.starship.format).toBe("$cwd");
+			expect(raw).not.toHaveProperty("fixedEditor");
+			expect(raw).not.toHaveProperty("layout.fixedEditor");
 			expect(config).toEqual(mergeConfig(raw));
 			expect(configTempFiles(dir)).toEqual([]);
 		});

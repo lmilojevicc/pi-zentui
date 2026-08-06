@@ -97,12 +97,6 @@ export type FooterSegmentsConfig = {
 	packageVersion: boolean;
 };
 
-export type FixedEditorConfig = {
-	enabled: boolean;
-	mouseScroll: boolean;
-	copyNotice: boolean;
-};
-
 export type PolishedEditorStyleConfig = {
 	metadataFormat: string;
 };
@@ -198,10 +192,6 @@ export type ComponentsConfig = {
 	footer: FooterComponentConfig;
 };
 
-export type LayoutConfig = {
-	fixedEditor: FixedEditorConfig;
-};
-
 export type ExtensionStatusPlacement = "off" | "left" | "middle" | "right";
 export type ExtensionStatusColorMode = "zentui" | "original";
 
@@ -242,7 +232,6 @@ export type ZentuiConfig = {
 	icons: ResolvedIcons;
 	colors: PolishedTuiColors;
 	components: ComponentsConfig;
-	layout: LayoutConfig;
 };
 
 export type PolishedTuiColors = {
@@ -281,7 +270,7 @@ export type PolishedTuiColors = {
 
 /**
  * Canonical configuration plus a temporary flat compatibility projection used
- * by production consumers while they migrate to `components` and `layout`.
+ * by production consumers while they migrate to `components`.
  */
 export type PolishedTuiConfig = ZentuiConfig & {
 	footerFormat: string;
@@ -304,7 +293,6 @@ export type PolishedTuiConfig = ZentuiConfig & {
 	gitCommit: GitCommitConfig;
 	gitMetrics: GitMetricsConfig;
 	extensionStatuses: ExtensionStatusesConfig;
-	fixedEditor: FixedEditorConfig;
 };
 
 /**
@@ -460,7 +448,6 @@ export const defaultConfig: PolishedTuiConfig = {
 		os: "bold white",
 	},
 	components: defaultComponents,
-	layout: { fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true } },
 	footerFormat: defaultStarshipStyle.format,
 	responsiveFooter: defaultStarshipStyle.responsive,
 	compactFooterFormat: defaultStarshipStyle.compactFormat,
@@ -485,7 +472,6 @@ export const defaultConfig: PolishedTuiConfig = {
 	gitCommit: defaultStarshipStyle.gitCommit,
 	gitMetrics: defaultStarshipStyle.gitMetrics,
 	extensionStatuses: defaultStarshipStyle.extensionStatuses,
-	fixedEditor: { enabled: false, mouseScroll: true, copyNotice: true },
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -728,21 +714,6 @@ function normalizeExtensionStatuses(record: Record<string, unknown>): ExtensionS
 		defaultPlacement,
 		placements,
 		colorModes,
-	};
-}
-
-function normalizeFixedEditorConfig(record: Record<string, unknown>): FixedEditorConfig {
-	return {
-		enabled:
-			typeof record.enabled === "boolean" ? record.enabled : defaultConfig.fixedEditor.enabled,
-		mouseScroll:
-			typeof record.mouseScroll === "boolean"
-				? record.mouseScroll
-				: defaultConfig.fixedEditor.mouseScroll,
-		copyNotice:
-			typeof record.copyNotice === "boolean"
-				? record.copyNotice
-				: defaultConfig.fixedEditor.copyNotice,
 	};
 }
 
@@ -1001,16 +972,6 @@ function resolveFooterSegments(canonical: unknown, legacy: unknown): FooterSegme
 			parseBoolean(resolvedValue(canonicalRecord, key, legacyRecord), defaultFooterSegments[key]),
 		]),
 	) as FooterSegmentsConfig;
-}
-
-function resolveFixedEditor(canonical: unknown, legacy: unknown): FixedEditorConfig {
-	const canonicalRecord = recordValue(canonical);
-	const legacyRecord = recordValue(legacy);
-	return normalizeFixedEditorConfig({
-		enabled: resolvedValue(canonicalRecord, "enabled", legacyRecord),
-		mouseScroll: resolvedValue(canonicalRecord, "mouseScroll", legacyRecord),
-		copyNotice: resolvedValue(canonicalRecord, "copyNotice", legacyRecord),
-	});
 }
 
 function legacyCopyFriendly(record: ConfigRecord): boolean {
@@ -1274,7 +1235,6 @@ function compatibilityView(config: ZentuiConfig): PolishedTuiConfig {
 			statusLine: config.components.footer.style === "starship",
 			viewportIndicators: config.components.editor.viewportIndicators,
 		},
-		fixedEditor: config.layout.fixedEditor,
 	};
 }
 
@@ -1316,7 +1276,6 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
 	const colorsRecord = recordValue(config.colors);
-	const layout = recordValue(config.layout);
 	const canonical: ZentuiConfig = {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		icons: resolveConfiguredIcons(
@@ -1325,9 +1284,6 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		),
 		colors: { ...defaultConfig.colors, ...normalizeColors(colorsRecord) },
 		components: resolveComponents(config),
-		layout: {
-			fixedEditor: resolveFixedEditor(layout.fixedEditor, config.fixedEditor),
-		},
 	};
 	const view = compatibilityView(canonical);
 	const unsupported = new Set<ComponentStyleOwner>();
@@ -1639,21 +1595,6 @@ export function saveStarshipFooterStylePatch(
 	);
 }
 
-export function saveLayoutFixedEditorPatch(
-	patch: Partial<FixedEditorConfig>,
-	path = configPath,
-): PolishedTuiConfig {
-	return mutateConfig(path, (record) => {
-		const fixedEditor = mergeConfig(record).layout.fixedEditor;
-		if (patch.enabled !== undefined) fixedEditor.enabled = patch.enabled;
-		if (patch.mouseScroll !== undefined) fixedEditor.mouseScroll = patch.mouseScroll;
-		if (patch.copyNotice !== undefined) fixedEditor.copyNotice = patch.copyNotice;
-		const normalized = normalizeFixedEditorConfig(fixedEditor as unknown as ConfigRecord);
-		const layout = recordValue(record.layout);
-		record.layout = overlayKnown(layout, { fixedEditor: normalized });
-	});
-}
-
 export function saveColorSourcesPatch(
 	patch: Partial<ColorSourcesConfig>,
 	path = configPath,
@@ -1886,11 +1827,4 @@ export function saveExtensionStatusColorMode(
 			writable: true,
 		});
 	}, path);
-}
-
-export function saveFixedEditorPatch(
-	patch: Partial<FixedEditorConfig>,
-	path = configPath,
-): PolishedTuiConfig {
-	return saveLayoutFixedEditorPatch(patch, path);
 }
