@@ -268,7 +268,6 @@ describe("pure user-message styles", () => {
 			const unrelated = structuredClone(base);
 			unrelated.components.footer.style =
 				unrelated.components.footer.style === "hidden" ? "native" : "hidden";
-			unrelated.layout.fixedEditor.enabled = !unrelated.layout.fixedEditor.enabled;
 			expect(userMessageStyleCacheKey(unrelated)).toBe(key);
 
 			const accent = structuredClone(base);

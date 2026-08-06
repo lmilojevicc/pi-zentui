@@ -33,7 +33,7 @@ jobs:
       - name: Dry-run pack
         run: npm run pack:check
 
-  fixed-editor-compatibility:
+  supported-pi-compatibility:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -75,7 +75,5 @@ jobs:
           }
           NODE
 
-      - name: Verify fixed editor
-        run: timeout --signal=TERM --kill-after=30s 15m npm run test:fixed-editor
-        env:
-          RUN_FIXED_EDITOR_PTY: "1"
+      - name: Test supported Pi version
+        run: timeout --signal=TERM --kill-after=30s 15m npm test

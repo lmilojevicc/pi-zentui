@@ -13,7 +13,6 @@ import {
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
-	type FixedEditorConfig,
 	FOOTER_FORMAT_ALIASES,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
@@ -34,7 +33,6 @@ import {
 	saveExtensionStatusPlacement,
 	saveFooterComponentPatch,
 	saveIconsModePatch,
-	saveLayoutFixedEditorPatch,
 	saveMinimalistEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
@@ -46,11 +44,6 @@ import {
 	type EditorTransferFailureReason,
 	replaceEditorComponentWithExpandedText,
 } from "./editor-transfer";
-import {
-	disposeFixedEditor,
-	installFixedEditorProbe,
-	removeFixedEditorProbe,
-} from "./fixed-editor";
 import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
@@ -197,7 +190,6 @@ export default function (pi: ExtensionAPI) {
 	let agentDurationMs: number | undefined;
 	let minimalistProjectRoot: string | undefined;
 	let projectRefreshActive = false;
-	let fixedLayoutEnabled = false;
 	let activeTuiContext: ExtensionContext | undefined;
 
 	const isOwnedEditorFactory = (factory: EditorFactory | undefined) =>
@@ -891,35 +883,6 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const cleanupFixedLayout = (ctx: ExtensionContext, reason: "live" | "shutdown" = "live") => {
-		try {
-			disposeFixedEditor(reason, ctx);
-		} catch {
-			// Best effort ordinary-layout fallback.
-		}
-		try {
-			removeFixedEditorProbe(ctx);
-		} catch {
-			// Probe cleanup is independent from compositor disposal.
-		}
-		fixedLayoutEnabled = false;
-	};
-
-	const reconcileFixedLayout = (ctx: ExtensionContext) => {
-		const enabled = currentConfig.layout.fixedEditor.enabled;
-		if (enabled === fixedLayoutEnabled) return;
-		if (!enabled) {
-			cleanupFixedLayout(ctx);
-			return;
-		}
-		try {
-			installFixedEditorProbe(ctx, getCurrentConfig, sessionLifecycle);
-			fixedLayoutEnabled = true;
-		} catch {
-			cleanupFixedLayout(ctx);
-		}
-	};
-
 	const reconcileEditor = (
 		ctx: ExtensionContext,
 		options: { allowStaleZentui?: boolean } = {},
@@ -965,7 +928,6 @@ export default function (pi: ExtensionAPI) {
 		reconcileUserMessages();
 		reconcileSelectorBorders();
 		reconcileFooter(ctx);
-		reconcileFixedLayout(ctx);
 		reconcileProjectRefresh(ctx);
 		reconcileSessionTimer();
 		reconcileAgentTimer();
@@ -983,7 +945,6 @@ export default function (pi: ExtensionAPI) {
 		syncFooterState(ctx);
 		stopProjectRefresh();
 
-		cleanupFixedLayout(ctx);
 		uninstallUserMessages();
 		uninstallSelectorBorders();
 		try {
@@ -1037,17 +998,6 @@ export default function (pi: ExtensionAPI) {
 		stopSessionTimer();
 		resetAgentTimer();
 		stopProjectRefresh();
-
-		if (isTuiContext(ctx)) cleanupFixedLayout(ctx, "shutdown");
-		else {
-			try {
-				disposeFixedEditor("shutdown", ctx);
-			} catch {
-				// Continue cleaning independent surfaces.
-			} finally {
-				fixedLayoutEnabled = false;
-			}
-		}
 
 		let retainedEditorOwnership = false;
 		if (isTuiContext(ctx)) {
@@ -1150,9 +1100,7 @@ export default function (pi: ExtensionAPI) {
 			const previousStyle = effectiveFooterStyle();
 			currentConfig = saveFooterComponentPatch(patch);
 			const styleChanged = effectiveFooterStyle() !== previousStyle;
-			if (styleChanged && fixedLayoutEnabled) cleanupFixedLayout(ctx);
 			if (patch.style !== undefined) reconcileFooter(ctx);
-			if (styleChanged && currentConfig.layout.fixedEditor.enabled) reconcileFixedLayout(ctx);
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
 			reconcileProjectRefresh(ctx, styleChanged);
 			reconcileSessionTimer();
@@ -1216,11 +1164,6 @@ export default function (pi: ExtensionAPI) {
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			currentConfig = saveExtensionStatusColorMode(key, colorMode);
-		},
-		setFixedEditor(patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) {
-			currentConfig = saveLayoutFixedEditorPatch(patch);
-			reconcileFixedLayout(ctx);
-			refresh();
 		},
 		requestRender() {
 			refresh();

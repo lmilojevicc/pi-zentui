@@ -19,7 +19,6 @@ import {
 	type EditorStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
-	type FixedEditorConfig,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
 	type FooterStyle,
@@ -90,7 +89,6 @@ const settingsSections = [
 	"appearance",
 	"editor",
 	"userMessages",
-	"layout",
 	"footer",
 	"segments",
 	"git",
@@ -143,7 +141,6 @@ type SettingsCommandDeps = {
 	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
-	setFixedEditor: (patch: Partial<FixedEditorConfig>, ctx: ExtensionContext) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
 };
@@ -152,7 +149,6 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
-	layout: "Layout",
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
@@ -212,12 +208,8 @@ const directCommandSuggestions = [
 	"viewport-indicators enable",
 	"viewport-indicators disable",
 	"viewport-indicators toggle",
-	"fixed-editor enable",
-	"fixed-editor disable",
-	"fixed-editor toggle",
 	"messages",
 	"user-messages",
-	"layout",
 	"format clear",
 	"format $cwd on $git_branch $fill $context",
 ];
@@ -313,15 +305,6 @@ function parseDirectOperation(
 	return undefined;
 }
 
-function parseFixedEditorCommand(args: string, config: PolishedTuiConfig) {
-	const words = normalizedWords(args);
-	if (!words.includes("fixededitor") && !(words.includes("fixed") && words.includes("editor"))) {
-		return undefined;
-	}
-	const action = parseAction(words);
-	return action ? { enabled: actionValue(action, config.layout.fixedEditor.enabled) } : undefined;
-}
-
 function parseFormatCommand(args: string): { value: string | undefined } | undefined {
 	const trimmed = args.trim();
 	if (!trimmed.toLowerCase().startsWith("format")) return undefined;
@@ -342,7 +325,6 @@ function directSection(args: string): SettingsSection | undefined {
 	) {
 		return "userMessages";
 	}
-	if (normalized === "layout") return "layout";
 	return undefined;
 }
 
@@ -355,7 +337,7 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators|fixed-editor] [enable|disable|toggle], /zentui [messages|user-messages|layout], or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [messages|user-messages], or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -520,37 +502,6 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			values: colorSourceValues,
 		},
 	];
-}
-function buildLayoutItems(config: PolishedTuiConfig): SettingItem[] {
-	const fixed = config.layout.fixedEditor;
-	const items: SettingItem[] = [
-		{
-			id: "fixedEditor",
-			label: "Fixed editor (experimental)",
-			description: "Pin editor + footer at bottom while transcript scrolls.",
-			currentValue: featureValue(fixed.enabled),
-			values: featureStateValues,
-		},
-	];
-	if (fixed.enabled) {
-		items.push(
-			{
-				id: "fixedEditorMouseScroll",
-				label: "Mouse scroll",
-				description: "Scroll transcript with mouse wheel.",
-				currentValue: featureValue(fixed.mouseScroll),
-				values: featureStateValues,
-			},
-			{
-				id: "fixedEditorCopyNotice",
-				label: "Copy notice",
-				description: "Show a clipboard notice after drag selection.",
-				currentValue: featureValue(fixed.copyNotice),
-				values: featureStateValues,
-			},
-		);
-	}
-	return items;
 }
 function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer;
@@ -798,8 +749,6 @@ function buildSectionItems(
 			];
 		case "userMessages":
 			return buildUserMessagesItems(config);
-		case "layout":
-			return buildLayoutItems(config);
 		case "footer":
 			return [
 				...buildFooterItems(config),
@@ -889,24 +838,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Could not update footer format: ${error instanceof Error ? error.message : String(error)}`,
-							"error",
-						);
-				}
-				return;
-			}
-
-			// Fixed-editor aliases contain the word "editor", so they must be parsed
-			// before the generic editor operation.
-			const fixed = parseFixedEditorCommand(args, deps.getConfig());
-			if (fixed) {
-				try {
-					deps.setFixedEditor({ enabled: fixed.enabled }, ctx);
-					deps.requestRender();
-					if (ctx.hasUI) ctx.ui.notify(`Fixed editor: ${featureValue(fixed.enabled)}`, "info");
-				} catch (error) {
-					if (ctx.hasUI)
-						ctx.ui.notify(
-							`Could not update fixed editor: ${error instanceof Error ? error.message : String(error)}`,
 							"error",
 						);
 				}
@@ -1137,25 +1068,6 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									setFooter({ modelLabel: newValue }, ctx);
 									settingsList.updateValue(id, newValue);
 									notifyChange("Footer model label", newValue);
-									return;
-								}
-
-								if (id === "fixedEditor" && enabled !== undefined) {
-									deps.setFixedEditor({ enabled }, ctx);
-									settingsList = makeSettingsList("fixedEditor");
-									notifyChange("Fixed editor", newValue);
-									return;
-								}
-								if (id === "fixedEditorMouseScroll" && enabled !== undefined) {
-									deps.setFixedEditor({ mouseScroll: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Mouse scroll", newValue);
-									return;
-								}
-								if (id === "fixedEditorCopyNotice" && enabled !== undefined) {
-									deps.setFixedEditor({ copyNotice: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Copy notice", newValue);
 									return;
 								}
 

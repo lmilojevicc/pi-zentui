@@ -22,7 +22,6 @@ const sectionNames = [
 	"Appearance",
 	"Editor",
 	"User messages",
-	"Layout",
 	"Footer",
 	"Segments",
 	"Git",
@@ -82,7 +81,6 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
 		footer: [] as Partial<FooterComponentConfig>[],
 		minimalist: [] as Array<Record<string, unknown>>,
-		fixed: [] as Array<Record<string, unknown>>,
 		segments: [] as Array<Record<string, boolean>>,
 		gitCommit: [] as Array<Record<string, boolean>>,
 		gitMetrics: [] as Array<Record<string, boolean>>,
@@ -139,10 +137,6 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		},
 		setExtensionStatusPlacement() {},
 		setExtensionStatusColorMode() {},
-		setFixedEditor(patch: Record<string, unknown>) {
-			calls.fixed.push(patch);
-			Object.assign(config.layout.fixedEditor, patch);
-		},
 		requestRender() {},
 		settingsListTheme: {
 			label: (text: string) => text,
@@ -195,7 +189,7 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 }
 
 describe("component-oriented /zentui settings", () => {
-	it("uses the exact eight-section order in wide and narrow navigation", async () => {
+	it("uses the exact seven-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -209,7 +203,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/8)`);
+			expect(lines[1]).toContain(`(${index + 1}/7)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -238,8 +232,6 @@ describe("component-oriented /zentui settings", () => {
 
 		component.handleInput("\t");
 		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
-		component.handleInput("\t");
-		expectFocusOrder(component, ["Fixed editor (experimental)"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Footer style",
@@ -353,12 +345,11 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.notifications).toEqual(["Could not update Zentui settings: read-only footer"]);
 	});
 
-	it("shows exact minimalist and enabled-layout rows while components are disabled", async () => {
+	it("shows exact minimalist rows while components are disabled", async () => {
 		const config = cloneConfig();
 		config.components.editor.enabled = false;
 		config.components.editor.style = "minimalist";
 		config.components.userMessages.enabled = false;
-		config.layout.fixedEditor.enabled = true;
 		const harness = createHarness(config);
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -380,8 +371,6 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		component.handleInput("\t");
 		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
-		component.handleInput("\t");
-		expectFocusOrder(component, ["Fixed editor (experimental)", "Mouse scroll", "Copy notice"]);
 	});
 
 	it("routes every minimalist, Git option, and default-placement action", async () => {
@@ -416,7 +405,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showGit: false },
 		]);
 
-		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 4; index += 1) component.handleInput("\t");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
 			["Show exact-match tag", "disabled"],
@@ -480,19 +469,6 @@ describe("component-oriented /zentui settings", () => {
 		]);
 	});
 
-	it("restores fixed-editor focus after conditional rows rebuild", async () => {
-		const harness = createHarness();
-		await harness.command().handler("layout", harness.ctx);
-		const component = harness.component();
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Fixed editor (experimental)");
-		expect(focusedRow(component)).toContain("enabled");
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Fixed editor (experimental)");
-		expect(focusedRow(component)).toContain("disabled");
-		expect(harness.calls.fixed).toEqual([{ enabled: true }, { enabled: false }]);
-	});
-
 	it("routes color and model rows to separate component dependencies", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
@@ -510,7 +486,6 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		selectLabel(component, "Message colors");
 		component.handleInput(" ");
-		component.handleInput("\t");
 		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
 		component.handleInput(" ");
@@ -562,26 +537,23 @@ describe("component-oriented /zentui settings", () => {
 				?.map((item) => item.value) ?? [];
 		expect(values).toContain("messages toggle");
 		expect(values.some((value) => value.includes("copy-friendly"))).toBe(false);
+		expect(values.join("\n")).not.toMatch(/fixed[-_ ]editor/i);
 	});
 
 	it.each([
-		["fixed-editor", "enable", true],
-		["fixed-editor", "disable", false],
-		["fixed-editor", "toggle", true],
-		["fixed_editor", "enable", true],
-		["fixed_editor", "disable", false],
-		["fixed_editor", "toggle", true],
-		["fixed editor", "enable", true],
-		["fixed editor", "disable", false],
-		["fixed editor", "toggle", true],
-	] as const)("routes %s %s only to layout", async (alias, action, enabled) => {
+		"fixed-editor enable",
+		"fixed_editor disable",
+		"fixed editor toggle",
+		"layout",
+	] as const)("treats removed route %s as ordinary usage without mutation", async (args) => {
 		const harness = createHarness();
-		await harness.command().handler(`${alias} ${action}`, harness.ctx);
-		expect(harness.calls.fixed).toEqual([{ enabled }]);
+		const before = structuredClone(harness.config);
+		await harness.command().handler(args, harness.ctx);
+		expect(harness.config).toEqual(before);
 		expect(harness.calls.editor).toEqual([]);
-		expect(harness.config.components.editor.enabled).toBe(true);
-		expect(harness.config.layout.fixedEditor.enabled).toBe(enabled);
-		expect(harness.notifications).toEqual([`Fixed editor: ${enabled ? "enabled" : "disabled"}`]);
+		expect(harness.notifications).toHaveLength(1);
+		expect(harness.notifications[0]).toMatch(/^Usage:/);
+		expect(harness.notifications[0]).not.toMatch(/fixed[-_ ]editor/i);
 	});
 
 	it("persists and reopens editor-border and model/segment controls", async () => {
@@ -593,7 +565,6 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		selectLabel(component, "Editor model label");
 		component.handleInput(" ");
-		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -611,7 +582,6 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
-		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -646,7 +616,6 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
-		component.handleInput("\t");
 		selectLabel(component, "Model info");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Model info");
@@ -662,7 +631,6 @@ describe("component-oriented /zentui settings", () => {
 	it.each([
 		["messages", "User messages"],
 		["user-messages", "User messages"],
-		["layout", "Layout"],
 	])("opens %s directly in %s", async (argument, section) => {
 		const harness = createHarness();
 		await harness.command().handler(argument, harness.ctx);
