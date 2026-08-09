@@ -186,6 +186,7 @@ export default function (pi: ExtensionAPI) {
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
+	let requestedProjectCwd: string | undefined;
 	let agentStartedAt: number | undefined;
 	let agentDurationMs: number | undefined;
 	let minimalistProjectRoot: string | undefined;
@@ -291,7 +292,13 @@ export default function (pi: ExtensionAPI) {
 				? readPackageVersionResult(cwd)
 				: Promise.resolve({ kind: "ok" as const, result: null }),
 		]);
-		if (!run.isCurrent() || !sessionLifecycle.isCurrent(generation)) return;
+		if (
+			!run.isCurrent() ||
+			!sessionLifecycle.isCurrent(generation) ||
+			requestedProjectCwd !== cwd
+		) {
+			return;
+		}
 		minimalistProjectRoot = git.kind === "ok" ? findRepositoryRoot(cwd) : undefined;
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd,
@@ -310,6 +317,7 @@ export default function (pi: ExtensionAPI) {
 		const generation = sessionLifecycle.currentGeneration();
 		if (!sessionLifecycle.isCurrent(generation)) return;
 		const cwd = ctx.cwd;
+		requestedProjectCwd = cwd;
 		projectRefreshScheduler.schedule({ cwd, generation }, options);
 	};
 
@@ -1051,6 +1059,7 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageTotalsCache();
 		resetAgentTimer();
 		lastProjectCwd = undefined;
+		requestedProjectCwd = undefined;
 		minimalistProjectRoot = undefined;
 		installUi(ctx);
 		scheduleEditorReconciliation(ctx);

@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolishedTuiConfig } from "../extensions/zentui/config";
+import { emptyGitStatus, type GitReadResult } from "../extensions/zentui/git";
 
 const mocks = vi.hoisted(() => ({
 	config: undefined as unknown as PolishedTuiConfig,
@@ -602,6 +603,83 @@ describe("responsive footer dependency reconciliation", () => {
 		expect(mocks.readGitStatus).toHaveBeenCalledOnce();
 		expect(mocks.readRuntimeInfo).not.toHaveBeenCalled();
 		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
+	});
+
+	it("keeps Git state while an obsolete cwd refresh finishes before the queued live cwd", async () => {
+		const editor = mocks.config.components.editor;
+		const footer = mocks.config.components.footer;
+		mocks.config = {
+			...mocks.config,
+			components: {
+				...mocks.config.components,
+				editor: {
+					...editor,
+					enabled: true,
+					style: "minimalist",
+					styles: {
+						...editor.styles,
+						minimalist: { ...editor.styles.minimalist, showGit: true },
+					},
+				},
+				footer: { ...footer, style: "native" },
+			},
+		};
+
+		let resolveObsoleteRead: ((result: GitReadResult) => void) | undefined;
+		let resolveLiveRead: ((result: GitReadResult) => void) | undefined;
+		mocks.readGitStatus
+			.mockResolvedValueOnce({
+				kind: "ok",
+				status: { ...emptyGitStatus(), branch: "repo-a" },
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise<GitReadResult>((resolve) => {
+						resolveObsoleteRead = resolve;
+					}),
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise<GitReadResult>((resolve) => {
+						resolveLiveRead = resolve;
+					}),
+			);
+
+		const { handlers } = loadExtension();
+		const ctx = createContext();
+		const repoCwd = "/worktrees/repo-a/nested";
+		ctx.cwd = repoCwd;
+		await emit(handlers, "session_start", ctx);
+		await settleProjectRefresh();
+
+		const state = mocks.syncState.mock.calls[0]?.[0] as { branch?: string };
+		expect(state.branch).toBe("repo-a");
+
+		ctx.cwd = "/tmp/not-a-repo";
+		await emit(handlers, "tool_execution_end", ctx);
+		vi.advanceTimersByTime(5_000);
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledTimes(2);
+
+		ctx.cwd = repoCwd;
+		await emit(handlers, "tool_execution_end", ctx);
+		resolveObsoleteRead?.({ kind: "not_a_repo" });
+		await settleProjectRefresh();
+
+		expect(state.branch).toBe("repo-a");
+		expect(mocks.readGitStatus).toHaveBeenCalledTimes(2);
+
+		vi.advanceTimersByTime(5_000);
+		await settleProjectRefresh();
+		expect(mocks.readGitStatus).toHaveBeenCalledTimes(3);
+		expect(state.branch).toBe("repo-a");
+
+		resolveLiveRead?.({
+			kind: "ok",
+			status: { ...emptyGitStatus(), branch: "repo-a-updated" },
+		});
+		await settleProjectRefresh();
+		expect(state.branch).toBe("repo-a-updated");
 	});
 
 	it("refreshes compact-only probes immediately when responsiveness is enabled", async () => {
