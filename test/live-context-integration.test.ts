@@ -291,10 +291,12 @@ describe("live streaming context event integration", () => {
 		await emit(handlers, "session_tree", harness.ctx);
 		expect(rendered(footer)).toContain("10.0%/10k");
 
+		await emit(handlers, "turn_start", harness.ctx);
 		await seedLive();
 		await emit(handlers, "message_end", harness.ctx, { message: assistant(1_100, "error") });
 		expect(rendered(footer)).toContain("10.0%/10k");
 
+		await emit(handlers, "turn_start", harness.ctx);
 		await seedLive();
 		await emit(handlers, "message_end", harness.ctx, { message: assistant(1_100, "aborted") });
 		expect(rendered(footer)).toContain("10.0%/10k");

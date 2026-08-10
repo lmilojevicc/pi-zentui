@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_COMPACT_FOOTER_FORMAT,
@@ -52,6 +53,7 @@ import {
 	saveStarshipFooterStylePatch,
 	saveUiFeaturesPatch,
 	saveUserMessagesComponentPatch,
+	saveWorkingLineComponentPatch,
 } from "../extensions/zentui/config";
 import {
 	colorize,
@@ -121,6 +123,21 @@ describe("canonical config resolution", () => {
 				style: "framed",
 				colorSource: "theme",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
+			},
+			workingLine: {
+				enabled: false,
+				turnSummary: true,
+				spinner: "star-bloom",
+				spinnerIntervalMs: 100,
+				animateSpinnerColor: false,
+				textIntervalMs: 60,
+				textAnimation: "classic",
+				colorSource: "theme",
+				messages: {
+					custom: true,
+					values: [...defaultConfig.components.workingLine.messages.values],
+				},
+				segments: { tool: true, elapsed: true, thought: true, tokens: true },
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
@@ -476,6 +493,268 @@ describe("canonical config resolution", () => {
 	});
 });
 
+describe("working-line config", () => {
+	it("defaults to cloned custom presets and migrates legacy modes without losing values", () => {
+		const first = mergeConfig({}).components.workingLine.messages;
+		const second = mergeConfig({}).components.workingLine.messages;
+		expect(first).toEqual({
+			custom: true,
+			values: defaultConfig.components.workingLine.messages.values,
+		});
+		expect(first.values).not.toBe(second.values);
+		expect(first.values).not.toBe(defaultConfig.components.workingLine.messages.values);
+		expect(
+			mergeConfig({ components: { workingLine: { messages: { mode: "native", values: [] } } } })
+				.components.workingLine.messages,
+		).toEqual({ custom: false, values: defaultConfig.components.workingLine.messages.values });
+		expect(
+			mergeConfig({ components: { workingLine: { messages: { mode: "replace", values: [] } } } })
+				.components.workingLine.messages,
+		).toEqual({ custom: true, values: defaultConfig.components.workingLine.messages.values });
+		expect(
+			mergeConfig({
+				components: { workingLine: { messages: { mode: "replace", values: [" Custom "] } } },
+			}).components.workingLine.messages,
+		).toEqual({ custom: true, values: ["Custom"] });
+		const appendValues = Array.from({ length: 32 }, (_, index) => `legacy-${index}`);
+		const append = mergeConfig({
+			components: { workingLine: { messages: { mode: "append", values: appendValues } } },
+		}).components.workingLine.messages;
+		expect(append.custom).toBe(true);
+		expect(append.values).toEqual([
+			...defaultConfig.components.workingLine.messages.values,
+			...appendValues,
+		]);
+		expect(append.values).toHaveLength(48);
+	});
+
+	it("gives canonical custom presence precedence and preserves explicit empty values", () => {
+		expect(
+			mergeConfig({
+				components: {
+					workingLine: { messages: { custom: false, mode: "append", values: [] } },
+				},
+			}).components.workingLine.messages,
+		).toEqual({ custom: false, values: [] });
+		expect(
+			mergeConfig({
+				components: { workingLine: { messages: { custom: "bad", mode: "native" } } },
+			}).components.workingLine.messages,
+		).toEqual({ custom: true, values: defaultConfig.components.workingLine.messages.values });
+		expect(
+			mergeConfig({ components: { workingLine: { messages: { values: [] } } } }).components
+				.workingLine.messages,
+		).toEqual({ custom: true, values: [] });
+	});
+
+	it.each([
+		[30, 30],
+		[1000, 1000],
+		[29, 100],
+		[1001, 100],
+		[60.5, 100],
+		["60", 100],
+		[Number.NaN, 100],
+		[Number.MAX_SAFE_INTEGER, 100],
+	] as const)(
+		"migrates legacy Working-line interval %s to spinner speed %s ms",
+		(intervalMs, expected) => {
+			expect(
+				mergeConfig({ components: { workingLine: { intervalMs } } }).components.workingLine
+					.spinnerIntervalMs,
+			).toBe(expected);
+			expect(
+				mergeConfig({ components: { workingLine: { intervalMs } } }).components.workingLine
+					.textIntervalMs,
+			).toBe(60);
+		},
+	);
+
+	it.each([
+		[30, 30],
+		[1000, 1000],
+		[29, 60],
+		[1001, 60],
+		[60.5, 60],
+		["60", 60],
+	] as const)("normalizes canonical text speed %s to %s ms", (textIntervalMs, expected) => {
+		expect(
+			mergeConfig({ components: { workingLine: { textIntervalMs } } }).components.workingLine
+				.textIntervalMs,
+		).toBe(expected);
+	});
+
+	it("gives canonical spinner speed presence precedence over legacy input", () => {
+		expect(
+			mergeConfig({
+				components: { workingLine: { intervalMs: 180, spinnerIntervalMs: 160 } },
+			}).components.workingLine.spinnerIntervalMs,
+		).toBe(160);
+		expect(
+			mergeConfig({
+				components: { workingLine: { intervalMs: 180, spinnerIntervalMs: "bad" } },
+			}).components.workingLine.spinnerIntervalMs,
+		).toBe(100);
+	});
+
+	it("defaults malformed or missing Turn summary to true and preserves explicit false", () => {
+		expect(mergeConfig({}).components.workingLine.turnSummary).toBe(true);
+		expect(
+			mergeConfig({ components: { workingLine: { turnSummary: "bad" } } }).components.workingLine
+				.turnSummary,
+		).toBe(true);
+		expect(
+			mergeConfig({ components: { workingLine: { turnSummary: false } } }).components.workingLine
+				.turnSummary,
+		).toBe(false);
+	});
+
+	it("saves Turn summary while preserving unknown config", () => {
+		withConfig(
+			{ components: { workingLine: { unknown: { keep: true } } }, topLevel: "keep" },
+			(path) => {
+				const config = saveWorkingLineComponentPatch({ turnSummary: false }, path);
+				const raw = JSON.parse(readFileSync(path, "utf8"));
+				expect(config.components.workingLine.turnSummary).toBe(false);
+				expect(raw.components.workingLine.turnSummary).toBe(false);
+				expect(raw.components.workingLine.unknown).toEqual({ keep: true });
+				expect(raw.topLevel).toBe("keep");
+			},
+		);
+	});
+
+	it("parses Pulse without changing established Working-line defaults", () => {
+		expect(mergeConfig({}).components.workingLine.spinner).toBe("star-bloom");
+		expect(
+			mergeConfig({
+				components: { workingLine: { spinner: "pulse", spinnerIntervalMs: 180 } },
+			}).components.workingLine,
+		).toMatchObject({ spinner: "pulse", spinnerIntervalMs: 180, textIntervalMs: 60 });
+	});
+
+	it("normalizes each independent field, messages, and palette override", () => {
+		const config = mergeConfig({
+			components: {
+				workingLine: {
+					enabled: true,
+					spinner: "pinwheel",
+					spinnerIntervalMs: 160,
+					animateSpinnerColor: true,
+					textIntervalMs: 40,
+					textAnimation: "kitt",
+					colorSource: "terminal",
+					messages: {
+						mode: "replace",
+						values: [" One ", "One", "\x1b[31mTwo\x1b[0m", "\n"],
+					},
+					segments: { tool: false, elapsed: true, thought: true, tokens: false },
+				},
+			},
+			colors: {
+				workingLineLow: "fg:240",
+				workingLineMid: "cyan",
+				workingLineHigh: "bold cyan",
+				editorAccent: "red",
+			},
+		});
+		expect(config.components.workingLine).toEqual({
+			enabled: true,
+			turnSummary: true,
+			spinner: "pinwheel",
+			spinnerIntervalMs: 160,
+			animateSpinnerColor: true,
+			textIntervalMs: 40,
+			textAnimation: "kitt",
+			colorSource: "terminal",
+			messages: { custom: true, values: ["One", "Two"] },
+			segments: { tool: false, elapsed: true, thought: true, tokens: false },
+		});
+		expect(config.colors).toMatchObject({
+			workingLineLow: "fg:240",
+			workingLineMid: "cyan",
+			workingLineHigh: "bold cyan",
+			editorAccent: "red",
+		});
+	});
+
+	it("falls back malformed leaves independently and enforces message caps", () => {
+		const values = Array.from({ length: 40 }, (_, index) => `${index}:${"界".repeat(30)}`);
+		const component = mergeConfig({
+			components: {
+				workingLine: {
+					enabled: "yes",
+					spinner: "future",
+					intervalMs: 29,
+					animateSpinnerColor: "yes",
+					textAnimation: "pulse",
+					colorSource: "editor",
+					messages: { mode: "rotate", values },
+				},
+			},
+			colors: { workingLineLow: "not-a-color" },
+		}).components.workingLine;
+		expect(component).toMatchObject({
+			enabled: false,
+			spinner: "star-bloom",
+			spinnerIntervalMs: 100,
+			animateSpinnerColor: false,
+			textIntervalMs: 60,
+			textAnimation: "classic",
+			colorSource: "theme",
+			messages: { custom: true },
+			segments: { tool: true, elapsed: true, thought: true, tokens: true },
+		});
+		expect(component.messages.values).toHaveLength(40);
+		expect(component.messages.values.every((value) => value.length > 0)).toBe(true);
+		expect(component.messages.values.every((value) => visibleWidth(value) <= 43)).toBe(true);
+	});
+
+	it("saves nested patches, copies arrays, and preserves unknown fields", () => {
+		withConfig(
+			{
+				unknownTop: true,
+				components: {
+					workingLine: {
+						future: { keep: true },
+						intervalMs: 180,
+						messages: { mode: "append", futureMessages: true, values: ["Old"] },
+					},
+				},
+			},
+			(path) => {
+				const values = [" New ", "New", "Other"];
+				const saved = saveWorkingLineComponentPatch(
+					{
+						spinner: "braille",
+						spinnerIntervalMs: 60,
+						animateSpinnerColor: true,
+						messages: { custom: true, values },
+						segments: { elapsed: false },
+					},
+					path,
+				);
+				values[0] = "mutated";
+				const raw = readRaw(path);
+				expect(saved.components.workingLine).toMatchObject({
+					spinner: "braille",
+					spinnerIntervalMs: 60,
+					animateSpinnerColor: true,
+					textIntervalMs: 60,
+					messages: { custom: true, values: ["New", "Other"] },
+					segments: { tool: true, elapsed: false, thought: true, tokens: true },
+				});
+				expect(raw.unknownTop).toBe(true);
+				expect(raw.components.workingLine.future).toEqual({ keep: true });
+				expect(raw.components.workingLine.messages.futureMessages).toBe(true);
+				expect(raw.components.workingLine.messages.values).toEqual(["New", "Other"]);
+				expect(raw.components.workingLine.messages.custom).toBe(true);
+				expect(raw.components.workingLine.messages).not.toHaveProperty("mode");
+				expect(raw.components.workingLine).not.toHaveProperty("intervalMs");
+			},
+		);
+	});
+});
+
 describe("Phase 4 style migration", () => {
 	it.each([
 		[true, "opencode-copy-friendly"],
@@ -817,6 +1096,7 @@ describe("canonical snapshot persistence", () => {
 					expect.arrayContaining([
 						"editor",
 						"userMessages",
+						"workingLine",
 						"selectorBorders",
 						"footer",
 						"futureDomain",
@@ -1023,6 +1303,7 @@ describe("compatibility saver recipes", () => {
 				"footer",
 				"selectorBorders",
 				"userMessages",
+				"workingLine",
 			]);
 			expect(raw.components.editor.enabled).toBe(false);
 			expect(raw.components.userMessages.enabled).toBe(false);

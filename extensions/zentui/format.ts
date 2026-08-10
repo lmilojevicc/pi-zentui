@@ -123,6 +123,17 @@ export function formatCount(value: number): string {
 	return `${Math.round(value / 1_000_000)}M`;
 }
 
+/** Human-readable whole-second duration used by settled and minimalist turn UI. */
+export function formatElapsedDuration(durationMs: number): string {
+	const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h ${minutes}m`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
+
 export function formatProviderLabel(provider: string | undefined): string {
 	if (!provider) return "Unknown";
 

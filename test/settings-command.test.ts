@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	defaultConfig,
 	type EditorComponentConfig,
@@ -9,6 +9,7 @@ import {
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type UserMessagesComponentConfig,
+	type WorkingLineComponentPatch,
 } from "../extensions/zentui/config";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
@@ -22,6 +23,7 @@ const sectionNames = [
 	"Appearance",
 	"Editor",
 	"User messages",
+	"Working line",
 	"Footer",
 	"Segments",
 	"Git",
@@ -70,14 +72,21 @@ function expectFocusOrder(component: Component, labels: readonly string[]): void
 	expect(focusedRow(component)).toBe(first);
 }
 
-function createHarness(config = cloneConfig(), overrides: Record<string, unknown> = {}) {
+function createHarness(
+	config = cloneConfig(),
+	overrides: Record<string, unknown> = {},
+	uiOverrides: Record<string, unknown> = {},
+) {
 	let command: Command | undefined;
 	let component: Component | undefined;
 	const notifications: string[] = [];
 	let doneCalls = 0;
+	const sessionLifecycle = new SessionLifecycle();
 	const calls = {
 		editor: [] as Partial<EditorComponentConfig>[],
 		messages: [] as Partial<UserMessagesComponentConfig>[],
+		workingLine: [] as WorkingLineComponentPatch[],
+		renders: { shared: 0, local: 0 },
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
 		footer: [] as Partial<FooterComponentConfig>[],
 		minimalist: [] as Array<Record<string, unknown>>,
@@ -88,7 +97,7 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		recipe: [] as boolean[],
 	};
 	const deps = {
-		sessionLifecycle: new SessionLifecycle(),
+		sessionLifecycle,
 		getConfig: () => config,
 		setEditorComponent(patch: Partial<EditorComponentConfig>) {
 			calls.editor.push(patch);
@@ -102,6 +111,14 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>) {
 			calls.messages.push(patch);
 			Object.assign(config.components.userMessages, patch);
+		},
+		setWorkingLineComponent(patch: WorkingLineComponentPatch) {
+			calls.workingLine.push(patch);
+			const { messages, segments, ...componentPatch } = patch;
+			Object.assign(config.components.workingLine, componentPatch);
+			if (messages) Object.assign(config.components.workingLine.messages, messages);
+			if (segments) Object.assign(config.components.workingLine.segments, segments);
+			return { applied: true };
 		},
 		setSelectorBordersComponent(patch: Partial<SelectorBordersComponentConfig>) {
 			calls.selectors.push(patch);
@@ -137,7 +154,9 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		},
 		setExtensionStatusPlacement() {},
 		setExtensionStatusColorMode() {},
-		requestRender() {},
+		requestRender() {
+			calls.renders.shared += 1;
+		},
 		settingsListTheme: {
 			label: (text: string) => text,
 			value: (text: string) => text,
@@ -165,10 +184,23 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 				notifications.push(message);
 			},
 			async custom(factory: (...args: unknown[]) => unknown) {
-				component = factory({ requestRender() {} }, theme(), {}, () => {
-					doneCalls += 1;
-				}) as Component;
+				component = factory(
+					{
+						requestRender() {
+							calls.renders.local += 1;
+						},
+					},
+					theme(),
+					{},
+					() => {
+						doneCalls += 1;
+					},
+				) as Component;
 			},
+			async editor() {
+				return undefined;
+			},
+			...uiOverrides,
 		},
 	};
 	return {
@@ -184,12 +216,17 @@ function createHarness(config = cloneConfig(), overrides: Record<string, unknown
 		ctx,
 		calls,
 		notifications,
+		sessionLifecycle,
 		doneCalls: () => doneCalls,
 	};
 }
 
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 describe("component-oriented /zentui settings", () => {
-	it("uses the exact seven-section order in wide and narrow navigation", async () => {
+	it("uses the exact eight-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -203,10 +240,22 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/7)`);
+			expect(lines[1]).toContain(`(${index + 1}/8)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
+	});
+
+	it("describes elapsed and tokens unequivocally as whole-interaction totals", async () => {
+		const harness = createHarness();
+		await harness.command().handler("working-line", harness.ctx);
+		const component = harness.component();
+		selectLabel(component, "Elapsed");
+		expect(component.render(100).join("\n")).toContain("Show whole-interaction elapsed time.");
+		selectLabel(component, "Tokens");
+		expect(component.render(100).join("\n")).toContain(
+			"Show whole-interaction tokens as ↑input ↓output; live output may be estimated until final usage",
+		);
 	});
 
 	it("uses exact component-owned row sets and ordering", async () => {
@@ -232,6 +281,23 @@ describe("component-oriented /zentui settings", () => {
 
 		component.handleInput("\t");
 		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
+			"Enabled",
+			"Turn summary",
+			"Spinner",
+			"Spinner speed",
+			"Animate spinner color",
+			"Text animation",
+			"Text motion speed",
+			"Color source",
+			"Custom messages",
+			"Tool",
+			"Elapsed",
+			"Thinking",
+			"Tokens",
+			"Message list",
+		]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Footer style",
@@ -405,7 +471,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showGit: false },
 		]);
 
-		for (let index = 0; index < 4; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
 			["Show exact-match tag", "disabled"],
@@ -486,6 +552,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		selectLabel(component, "Message colors");
 		component.handleInput(" ");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
 		component.handleInput(" ");
@@ -569,6 +636,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Ignore submodules");
 		component.handleInput(" ");
 		component.handleInput("\x1b[Z");
@@ -582,6 +650,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -616,6 +685,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Model info");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Model info");
@@ -628,9 +698,387 @@ describe("component-oriented /zentui settings", () => {
 		]);
 	});
 
+	it("routes all Working-line rows independently", async () => {
+		const harness = createHarness();
+		await harness.command().handler("working-line", harness.ctx);
+		const component = harness.component();
+		expectFocusOrder(component, [
+			"Enabled",
+			"Turn summary",
+			"Spinner",
+			"Spinner speed",
+			"Animate spinner color",
+			"Text animation",
+			"Text motion speed",
+			"Color source",
+			"Custom messages",
+			"Tool",
+			"Elapsed",
+			"Thinking",
+			"Tokens",
+			"Message list",
+		]);
+		for (const [label, expected] of [
+			["Enabled", "enabled"],
+			["Turn summary", "disabled"],
+			["Spinner", "ASCII Pinwheel"],
+			["Spinner speed", "Slow 160 ms"],
+			["Animate spinner color", "enabled"],
+			["Text animation", "kitt"],
+			["Text motion speed", "Slow 100 ms"],
+			["Color source", "terminal"],
+			["Custom messages", "disabled"],
+			["Tool", "disabled"],
+			["Elapsed", "disabled"],
+			["Thinking", "disabled"],
+			["Tokens", "disabled"],
+		] as const) {
+			selectLabel(component, label);
+			component.handleInput(" ");
+			expect(focusedRow(component)).toContain(expected);
+		}
+		expect(harness.calls.workingLine).toEqual([
+			{ enabled: true },
+			{ turnSummary: false },
+			{ spinner: "pinwheel" },
+			{ spinnerIntervalMs: 160 },
+			{ animateSpinnerColor: true },
+			{ textAnimation: "kitt" },
+			{ textIntervalMs: 100 },
+			{ colorSource: "terminal" },
+			{ messages: { custom: false } },
+			{ segments: { tool: false } },
+			{ segments: { elapsed: false } },
+			{ segments: { thought: false } },
+			{ segments: { tokens: false } },
+		]);
+		expect(harness.calls.renders).toEqual({ shared: 0, local: 13 });
+	});
+
+	it("displays, previews, and stores all named spinner presets with canonical IDs", async () => {
+		const current = cloneConfig();
+		current.components.workingLine.spinnerIntervalMs = 180;
+		const harness = createHarness(current);
+		await harness.command().handler("working-line", harness.ctx);
+		selectLabel(harness.component(), "Spinner");
+		for (const label of [
+			"Star Bloom",
+			"ASCII Pinwheel",
+			"Claude-inspired",
+			"Pulse",
+			"Braille Orbit",
+		]) {
+			expect(focusedRow(harness.component())).toContain(label);
+			if (label === "Pulse") {
+				expect(harness.component().render(100)[3]).toContain("⠀⠶⠀");
+				expect(current.components.workingLine.spinnerIntervalMs).toBe(180);
+			}
+			harness.component().handleInput(" ");
+		}
+		expect(harness.calls.workingLine).toEqual([
+			{ spinner: "pinwheel" },
+			{ spinner: "claude-inspired" },
+			{ spinner: "pulse" },
+			{ spinner: "braille" },
+			{ spinner: "star-bloom" },
+		]);
+		expect(current.components.workingLine.spinnerIntervalMs).toBe(180);
+	});
+
+	it("closes for Custom speed input, saves a valid integer, and reopens with Speed focused", async () => {
+		vi.useFakeTimers();
+		const current = cloneConfig();
+		current.components.workingLine.spinnerIntervalMs = 160;
+		const focusedAfterOpen: string[] = [];
+		let customCount = 0;
+		const harness = createHarness(
+			current,
+			{},
+			{
+				async custom(factory: (...args: unknown[]) => unknown) {
+					let outcome: unknown;
+					const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+						outcome = value;
+					}) as Component;
+					if (customCount++ === 0) {
+						selectLabel(component, "Spinner speed");
+						component.handleInput(" ");
+					} else {
+						focusedAfterOpen.push(focusedRow(component));
+						component.handleInput("\x1b");
+					}
+					return outcome;
+				},
+				async input(title: string, placeholder: string) {
+					expect(title).toBe("Spinner speed (30–1000 ms)");
+					expect(placeholder).toBe("160");
+					return " 77 ";
+				},
+			},
+		);
+		harness.sessionLifecycle.start();
+		await harness.command().handler("working-line", harness.ctx);
+		expect(harness.calls.workingLine).toEqual([{ spinnerIntervalMs: 77 }]);
+		expect(focusedAfterOpen).toEqual([expect.stringContaining("> Spinner speed")]);
+		expect(focusedAfterOpen[0]).toContain("Custom 77 ms");
+		expect(harness.notifications).toContain("Spinner speed: 77 ms");
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("uses a separate Custom text-speed dialog and reopens on its originating row", async () => {
+		const current = cloneConfig();
+		current.components.workingLine.textIntervalMs = 100;
+		let customCount = 0;
+		const focusedAfterOpen: string[] = [];
+		const harness = createHarness(
+			current,
+			{},
+			{
+				async custom(factory: (...args: unknown[]) => unknown) {
+					let outcome: unknown;
+					const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+						outcome = value;
+					}) as Component;
+					if (customCount++ === 0) {
+						selectLabel(component, "Text motion speed");
+						component.handleInput(" ");
+					} else {
+						focusedAfterOpen.push(focusedRow(component));
+						component.handleInput("\x1b");
+					}
+					return outcome;
+				},
+				async input(title: string, placeholder: string) {
+					expect(title).toBe("Text motion speed (30–1000 ms)");
+					expect(placeholder).toBe("100");
+					return "73";
+				},
+			},
+		);
+		await harness.command().handler("working-line", harness.ctx);
+		expect(harness.calls.workingLine).toEqual([{ textIntervalMs: 73 }]);
+		expect(focusedAfterOpen[0]).toContain("> Text motion speed");
+		expect(focusedAfterOpen[0]).toContain("Custom 73 ms");
+	});
+
+	it.each([
+		[undefined, "Spinner speed unchanged (input canceled)"],
+		["29", "Spinner speed must be a whole number from 30 to 1000 ms; unchanged."],
+		["60.5", "Spinner speed must be a whole number from 30 to 1000 ms; unchanged."],
+	] as const)(
+		"preserves Custom speed on canceled or invalid input %s",
+		async (response, notice) => {
+			const current = cloneConfig();
+			current.components.workingLine.spinnerIntervalMs = 160;
+			let customCount = 0;
+			const harness = createHarness(
+				current,
+				{},
+				{
+					async custom(factory: (...args: unknown[]) => unknown) {
+						let outcome: unknown;
+						const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+							outcome = value;
+						}) as Component;
+						if (customCount++ === 0) {
+							selectLabel(component, "Spinner speed");
+							component.handleInput(" ");
+						} else {
+							expect(focusedRow(component)).toContain("> Spinner speed");
+							component.handleInput("\x1b");
+						}
+						return outcome;
+					},
+					async input() {
+						return response;
+					},
+				},
+			);
+			await harness.command().handler("working-line", harness.ctx);
+			expect(current.components.workingLine.spinnerIntervalMs).toBe(160);
+			expect(harness.calls.workingLine).toEqual([]);
+			expect(harness.notifications).toContain(notice);
+		},
+	);
+
+	it("preserves shared rendering for settings outside Working line", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		selectLabel(harness.component(), "Selector borders");
+		harness.component().handleInput(" ");
+		expect(harness.calls.renders).toEqual({ shared: 1, local: 1 });
+	});
+
+	it("animates the preview and cleans its single timer on changes, exits, errors, and shutdown", async () => {
+		vi.useFakeTimers();
+		const harness = createHarness();
+		harness.sessionLifecycle.start();
+		await harness.command().handler("working-line", harness.ctx);
+		const component = harness.component();
+		const firstPreview = component.render(100)[3];
+		expect(firstPreview).toContain("Sautéing…");
+		expect(firstPreview).toContain("read");
+		expect(harness.calls.workingLine).toEqual([]);
+		expect(vi.getTimerCount()).toBe(1);
+		vi.advanceTimersByTime(300);
+		expect(component.render(100)[3]).not.toBe(firstPreview);
+		selectLabel(component, "Custom messages");
+		component.handleInput(" ");
+		const fallbackPreview = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "");
+		expect(fallbackPreview).toContain("Working…");
+		expect(fallbackPreview).toContain("read");
+		vi.advanceTimersByTime(1200);
+		const stablePreview = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "") ?? "";
+		expect(stablePreview).toContain("Working…");
+		expect(stablePreview).toContain("read · 1m02s · thinking 10s · ↑1234 ↓56");
+		selectLabel(component, "Tool");
+		component.handleInput(" ");
+		const withoutTool = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "") ?? "";
+		expect(withoutTool).not.toContain("read");
+		expect(withoutTool).toContain("1m02s · thinking 10s · ↑1234 ↓56");
+		selectLabel(component, "Spinner");
+		component.handleInput(" ");
+		expect(vi.getTimerCount()).toBe(1);
+		selectLabel(component, "Spinner speed");
+		component.handleInput(" ");
+		expect(vi.getTimerCount()).toBe(1);
+		component.handleInput("\t");
+		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\x1b[Z");
+		expect(vi.getTimerCount()).toBe(1);
+		component.handleInput("\x1b");
+		expect(vi.getTimerCount()).toBe(0);
+
+		const failed = createHarness(cloneConfig(), {
+			setWorkingLineComponent() {
+				throw new Error("read-only working line");
+			},
+		});
+		failed.sessionLifecycle.start();
+		await failed.command().handler("working-line", failed.ctx);
+		failed.component().handleInput(" ");
+		expect(vi.getTimerCount()).toBe(0);
+		expect(failed.notifications).toContain(
+			"Could not update Zentui settings: read-only working line",
+		);
+
+		const shutdown = createHarness();
+		shutdown.sessionLifecycle.start();
+		await shutdown.command().handler("working-line", shutdown.ctx);
+		expect(vi.getTimerCount()).toBe(1);
+		shutdown.sessionLifecycle.shutdown();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("saves an empty Message list canonically and reopens its styled fallback preview with focus restored", async () => {
+		vi.useFakeTimers();
+		let openCount = 0;
+		let reopenedPreview = "";
+		const harness = createHarness(
+			cloneConfig(),
+			{},
+			{
+				async custom(factory: (...args: unknown[]) => unknown) {
+					let outcome: unknown;
+					const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+						outcome = value;
+					}) as Component;
+					if (openCount++ === 0) {
+						selectLabel(component, "Message list");
+						component.handleInput(" ");
+					} else {
+						expect(focusedRow(component)).toContain("> Message list");
+						reopenedPreview = component.render(100)[3] ?? "";
+						component.handleInput("\x1b");
+					}
+					return outcome;
+				},
+				async editor(title: string) {
+					expect(title).toBe("Working line message list");
+					return " \n\t\r\n";
+				},
+			},
+		);
+		harness.sessionLifecycle.start();
+
+		await harness.command().handler("working-line", harness.ctx);
+
+		expect(openCount).toBe(2);
+		expect(harness.calls.workingLine).toEqual([{ messages: { values: [] } }]);
+		expect(harness.config.components.workingLine.messages.values).toEqual([]);
+		expect(harness.notifications).toContain("Message list: 0 (using styled Working…)");
+		expect(reopenedPreview.replaceAll("[", "").replaceAll("]", "")).toContain("Working…");
+		expect(reopenedPreview).toMatch(/\[[^\]]+\]/);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("closes for multiline message editing, normalizes save, preserves cancel, and reopens Working line", async () => {
+		vi.useFakeTimers();
+		const openedSections: string[] = [];
+		let customCount = 0;
+		const harness = createHarness(
+			cloneConfig(),
+			{},
+			{
+				async custom(factory: (...args: unknown[]) => unknown) {
+					let outcome: unknown;
+					const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+						outcome = value;
+					}) as Component;
+					openedSections.push(component.render(40)[1] ?? "");
+					if (customCount++ === 0) {
+						selectLabel(component, "Message list");
+						component.handleInput(" ");
+					} else component.handleInput("\x1b");
+					return outcome;
+				},
+				async editor(title: string, prefill: string) {
+					expect(title).toBe("Working line message list");
+					expect(prefill).toBe(defaultConfig.components.workingLine.messages.values.join("\n"));
+					return " One \nOne\n\x1b[31mTwo\x1b[0m\n";
+				},
+			},
+		);
+		harness.sessionLifecycle.start();
+		await harness.command().handler("working-line", harness.ctx);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(openedSections).toHaveLength(2);
+		expect(openedSections.every((line) => line.includes("Working line"))).toBe(true);
+		expect(harness.calls.workingLine).toEqual([{ messages: { values: ["One", "Two"] } }]);
+		expect(harness.calls.renders.shared).toBe(0);
+
+		let cancelCustomCount = 0;
+		const canceled = createHarness(
+			cloneConfig(),
+			{},
+			{
+				async custom(factory: (...args: unknown[]) => unknown) {
+					let outcome: unknown;
+					const component = factory({ requestRender() {} }, theme(), {}, (value: unknown) => {
+						outcome = value;
+					}) as Component;
+					if (cancelCustomCount++ === 0) {
+						selectLabel(component, "Message list");
+						component.handleInput(" ");
+					} else component.handleInput("\x1b");
+					return outcome;
+				},
+				async editor() {
+					return undefined;
+				},
+			},
+		);
+		canceled.sessionLifecycle.start();
+		await canceled.command().handler("working-line", canceled.ctx);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(cancelCustomCount).toBe(2);
+		expect(canceled.calls.workingLine).toEqual([]);
+	});
+
 	it.each([
 		["messages", "User messages"],
 		["user-messages", "User messages"],
+		["working-line", "Working line"],
 	])("opens %s directly in %s", async (argument, section) => {
 		const harness = createHarness();
 		await harness.command().handler(argument, harness.ctx);
