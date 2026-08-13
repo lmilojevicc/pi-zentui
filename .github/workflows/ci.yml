@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pi-version: ["0.80.3", "0.82.1", "0.83.0"]
+        pi-version: ["0.80.5", "0.82.1", "0.83.0"]
 
     steps:
       - name: Checkout

@@ -32,6 +32,9 @@ import {
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
 	isSeparatorStyle,
+	isValidWorkingLineIntervalMs,
+	MAX_WORKING_LINE_INTERVAL_MS,
+	MIN_WORKING_LINE_INTERVAL_MS,
 	type MinimalistConfig,
 	type ModelLabelSource,
 	type PathDisplayConfig,
@@ -40,11 +43,20 @@ import {
 	type SeparatorStyle,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
+	type WorkingLineComponentPatch,
+	type WorkingLineSpinner,
+	type WorkingLineTextAnimation,
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
 import type { SessionLifecycle } from "./session-lifecycle";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
+import {
+	buildWorkingLinePreviewFrames,
+	normalizeWorkingLineMessages,
+	remapWorkingLineTextTick,
+	type WorkingLineFrames,
+} from "./working-line";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
 const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
@@ -85,10 +97,34 @@ const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
 const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"];
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
+const workingLineSpinnerLabels: Record<WorkingLineSpinner, string> = {
+	braille: "Braille Orbit",
+	"star-bloom": "Star Bloom",
+	pinwheel: "ASCII Pinwheel",
+	"claude-inspired": "Claude-inspired",
+	pulse: "Pulse",
+};
+const workingLineSpinnerValues = Object.values(workingLineSpinnerLabels);
+const workingLineSpinnerSpeedPresets = [
+	{ label: "Fast 60 ms", intervalMs: 60 },
+	{ label: "Normal 100 ms", intervalMs: 100 },
+	{ label: "Slow 160 ms", intervalMs: 160 },
+] as const;
+const workingLineTextSpeedPresets = [
+	{ label: "Fast 40 ms", intervalMs: 40 },
+	{ label: "Normal 60 ms", intervalMs: 60 },
+	{ label: "Slow 100 ms", intervalMs: 100 },
+] as const;
+const speedValues = (presets: readonly { label: string }[]) => [
+	...presets.map(({ label }) => label),
+	"Custom…",
+];
+const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
 const settingsSections = [
 	"appearance",
 	"editor",
 	"userMessages",
+	"workingLine",
 	"footer",
 	"segments",
 	"git",
@@ -109,6 +145,11 @@ type UserMessagesPatch = Partial<
 >;
 type FooterPatch = Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>;
 type ApplyResult = { applied: boolean; reason?: string };
+type SettingsOutcome =
+	| "close"
+	| "edit-working-line-messages"
+	| "edit-working-line-spinner-speed"
+	| "edit-working-line-text-speed";
 
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
@@ -116,6 +157,7 @@ type SettingsCommandDeps = {
 	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	setWorkingLineComponent: (patch: WorkingLineComponentPatch, ctx: ExtensionContext) => ApplyResult;
 	setSelectorBordersComponent: (
 		patch: Partial<SelectorBordersComponentConfig>,
 		ctx: ExtensionContext,
@@ -149,6 +191,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
+	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
@@ -210,6 +253,7 @@ const directCommandSuggestions = [
 	"viewport-indicators toggle",
 	"messages",
 	"user-messages",
+	"working-line",
 	"format clear",
 	"format $cwd on $git_branch $fill $context",
 ];
@@ -244,6 +288,19 @@ function userMessageStyleId(label: string): UserMessageStyle | undefined {
 	return (Object.entries(userMessageStyleLabels) as Array<[UserMessageStyle, string]>).find(
 		([, value]) => value === label,
 	)?.[0];
+}
+function workingLineSpinnerId(label: string): WorkingLineSpinner | undefined {
+	return (Object.entries(workingLineSpinnerLabels) as Array<[WorkingLineSpinner, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
+function workingLineSpeedLabel(
+	intervalMs: number,
+	presets: readonly { label: string; intervalMs: number }[],
+): string {
+	return (
+		presets.find((preset) => preset.intervalMs === intervalMs)?.label ?? `Custom ${intervalMs} ms`
+	);
 }
 function isFeatureState(value: string): value is FeatureState {
 	return value === "enabled" || value === "disabled";
@@ -325,6 +382,7 @@ function directSection(args: string): SettingsSection | undefined {
 	) {
 		return "userMessages";
 	}
+	if (normalized === "working-line" || normalized === "working line") return "workingLine";
 	return undefined;
 }
 
@@ -337,7 +395,7 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [messages|user-messages], or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [messages|user-messages|working-line], or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -503,6 +561,120 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 	];
 }
+function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
+	const workingLine = config.components.workingLine;
+	const staticText = workingLine.textAnimation === "disabled";
+	const staticNote = staticText ? " Inactive in Static mode; saved for animated modes." : "";
+	return [
+		{
+			id: "workingLineEnabled",
+			label: "Enabled",
+			description: "Own and stylize Pi's complete working row.",
+			currentValue: featureValue(workingLine.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineTurnSummary",
+			label: "Turn summary",
+			description: workingLine.enabled
+				? "Append `Turn took …` after each fully settled interaction."
+				: "Append `Turn took …` after each fully settled interaction; inactive while Working line disabled.",
+			currentValue: featureValue(workingLine.turnSummary),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineSpinner",
+			label: "Spinner",
+			description: "Choose the fixed-width spinner preset; glyph motion is always active.",
+			currentValue: workingLineSpinnerLabels[workingLine.spinner],
+			values: workingLineSpinnerValues,
+		},
+		{
+			id: "workingLineSpinnerSpeed",
+			label: "Spinner speed",
+			description: `Set glyph cadence (${MIN_WORKING_LINE_INTERVAL_MS}–${MAX_WORKING_LINE_INTERVAL_MS} ms).`,
+			currentValue: workingLineSpeedLabel(
+				workingLine.spinnerIntervalMs,
+				workingLineSpinnerSpeedPresets,
+			),
+			values: speedValues(workingLineSpinnerSpeedPresets),
+		},
+		{
+			id: "workingLineAnimateSpinnerColor",
+			label: "Animate spinner color",
+			description: `Include spinner cells and separator in Classic/KITT color motion; glyph motion remains active.${staticNote}`,
+			currentValue: featureValue(workingLine.animateSpinnerColor),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineTextAnimation",
+			label: "Text animation",
+			description: "Animate the owned row or keep it uniformly static.",
+			currentValue: workingLine.textAnimation,
+			values: workingLineTextAnimationValues,
+		},
+		{
+			id: "workingLineTextSpeed",
+			label: "Text motion speed",
+			description: `Set Classic/KITT color cadence (${MIN_WORKING_LINE_INTERVAL_MS}–${MAX_WORKING_LINE_INTERVAL_MS} ms).${staticNote}`,
+			currentValue: workingLineSpeedLabel(workingLine.textIntervalMs, workingLineTextSpeedPresets),
+			values: speedValues(workingLineTextSpeedPresets),
+		},
+		{
+			id: "workingLineColorSource",
+			label: "Color source",
+			description: "Use Pi theme colors or independent terminal palette styles.",
+			currentValue: workingLine.colorSource,
+			values: colorSourceValues,
+		},
+		{
+			id: "workingLineCustomMessages",
+			label: "Custom messages",
+			description:
+				"Select from the editable list once per turn; off uses styled Working… without RNG.",
+			currentValue: featureValue(workingLine.messages.custom),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineTool",
+			label: "Tool",
+			description: "Show the latest active tool.",
+			currentValue: featureValue(workingLine.segments.tool),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineElapsed",
+			label: "Elapsed",
+			description: "Show whole-interaction elapsed time.",
+			currentValue: featureValue(workingLine.segments.elapsed),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineThought",
+			label: "Thinking",
+			description: "Show cumulative wall-clock thinking time and active updates.",
+			currentValue: featureValue(workingLine.segments.thought),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineTokens",
+			label: "Tokens",
+			description:
+				"Show whole-interaction tokens as ↑input ↓output; live output may be estimated until final usage reconciles.",
+			currentValue: featureValue(workingLine.segments.tokens),
+			values: featureStateValues,
+		},
+		{
+			id: "workingLineMessageList",
+			label: "Message list",
+			description:
+				"Edit one message per line; line order is preserved even while custom messages are off.",
+			currentValue: "Edit…",
+			values: ["Edit…"],
+		},
+	];
+}
+
 function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer;
 	const items: SettingItem[] = [
@@ -749,6 +921,8 @@ function buildSectionItems(
 			];
 		case "userMessages":
 			return buildUserMessagesItems(config);
+		case "workingLine":
+			return buildWorkingLineItems(config);
 		case "footer":
 			return [
 				...buildFooterItems(config),
@@ -891,348 +1065,634 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 			const mode = (ctx as typeof ctx & { mode?: string }).mode;
 			if (!ctx.hasUI || (mode !== undefined && mode !== "tui")) return;
 
-			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-				const listTheme = deps.settingsListTheme ?? getSettingsListTheme();
-				let activeSection = initialSection ?? "appearance";
-				let settingsList: SettingsList;
-				const notifyChange = (label: string, value: string) => {
-					deps.requestRender();
-					ctx.ui.notify(`${label}: ${value}`, "info");
-					tui.requestRender();
-				};
-				const makeSettingsList = (focusId?: string): SettingsList => {
-					const items = buildSectionItems(
-						activeSection,
-						deps.getConfig(),
-						deps.getActiveExtensionStatuses(),
-					);
-					const list = new SettingsList(
-						items,
-						8,
-						listTheme,
-						(id, newValue) => {
-							try {
-								const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
-								if (id === "editorEnabled" && enabled !== undefined) {
-									done(undefined);
-									deps.sessionLifecycle.defer(() => {
-										try {
-											const result = setEditor({ enabled }, ctx);
-											deps.requestRender();
-											ctx.ui.notify(
-												`Editor: ${newValue}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
-												"info",
-											);
-										} catch (error) {
-											ctx.ui.notify(
-												`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
-												"error",
-											);
-										}
-									});
-									return;
-								}
-								const selectedEditorStyle =
-									id === "editorStyle" ? editorStyleId(newValue) : undefined;
-								if (selectedEditorStyle) {
-									setEditor({ style: selectedEditorStyle }, ctx);
-									settingsList = makeSettingsList("editorStyle");
-									notifyChange("Editor style", newValue);
-									return;
-								}
-								if (id === "editorColorSource" && isColorSource(newValue)) {
-									setEditor({ colorSource: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Editor colors", newValue);
-									return;
-								}
-								if (id === "editorModelLabel" && (newValue === "id" || newValue === "name")) {
-									setEditor({ modelLabel: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Editor model label", newValue);
-									return;
-								}
-								if (
-									id === "editorBorderColorMode" &&
-									(newValue === "static" || newValue === "adaptive")
-								) {
-									setEditor({ borderColorMode: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Editor border color", newValue);
-									return;
-								}
-								if (id === "editorViewportIndicators" && enabled !== undefined) {
-									setEditor({ viewportIndicators: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Editor viewport indicators", newValue);
-									return;
-								}
-								if (id.startsWith("minimalist")) {
-									if (
-										id === "minimalistPathDisplay" &&
-										["compact", "project", "full"].includes(newValue)
-									)
-										deps.setMinimalist(
-											{ pathDisplay: newValue as MinimalistConfig["pathDisplay"] },
-											ctx,
-										);
-									else if (
-										id === "minimalistContextFormat" &&
-										["percent", "percent-total"].includes(newValue)
-									)
-										deps.setMinimalist(
-											{ contextFormat: newValue as MinimalistConfig["contextFormat"] },
-											ctx,
-										);
-									else if (enabled !== undefined) {
-										const key =
-											id === "minimalistContextGauge"
-												? "contextGauge"
-												: id === "minimalistShowSessionName"
-													? "showSessionName"
-													: id === "minimalistShowTimer"
-														? "showTimer"
-														: id === "minimalistShowCost"
-															? "showCost"
-															: id === "minimalistShowGit"
-																? "showGit"
-																: undefined;
-										if (!key) return;
-										deps.setMinimalist({ [key]: enabled }, ctx);
-									} else return;
-									settingsList.updateValue(id, newValue);
-									notifyChange(id, newValue);
-									return;
-								}
-
-								if (id === "userMessagesEnabled" && enabled !== undefined) {
-									setMessages({ enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("User messages", newValue);
-									return;
-								}
-								const selectedMessageStyle =
-									id === "userMessagesStyle" ? userMessageStyleId(newValue) : undefined;
-								if (selectedMessageStyle) {
-									setMessages({ style: selectedMessageStyle }, ctx);
-									settingsList = makeSettingsList("userMessagesStyle");
-									notifyChange("Message style", newValue);
-									return;
-								}
-								if (id === "userMessagesColorSource" && isColorSource(newValue)) {
-									setMessages({ colorSource: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Message colors", newValue);
-									return;
-								}
-								if (id === "selectorBordersEnabled" && enabled !== undefined) {
-									deps.setSelectorBordersComponent({ enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Selector borders", newValue);
-									return;
-								}
-								if (id === "selectorBordersStyle" && newValue === "zentui") {
-									deps.setSelectorBordersComponent({ style: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Selector border style", newValue);
-									return;
-								}
-								if (id === "selectorBordersColorSource" && isColorSource(newValue)) {
-									deps.setSelectorBordersComponent({ colorSource: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Selector border colors", newValue);
-									return;
-								}
-								if (id === "iconMode" && isIconMode(newValue)) {
-									deps.setIconMode(newValue);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Icon mode", newValue);
-									return;
-								}
-
-								const selectedFooterStyle =
-									id === "footerStyle" ? footerStyleId(newValue) : undefined;
-								if (selectedFooterStyle) {
-									setFooter({ style: selectedFooterStyle }, ctx);
-									settingsList = makeSettingsList("footerStyle");
-									notifyChange("Footer style", newValue);
-									return;
-								}
-								if (id === "footerColorSource" && isColorSource(newValue)) {
-									setFooter({ colorSource: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Footer colors", newValue);
-									return;
-								}
-								if (id === "footerModelLabel" && (newValue === "id" || newValue === "name")) {
-									setFooter({ modelLabel: newValue }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Footer model label", newValue);
-									return;
-								}
-
-								if (id === "responsiveFooter" && enabled !== undefined) {
-									deps.setResponsiveFooter({ responsiveFooter: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Responsive footer", newValue);
-									return;
-								}
-								if (
-									id === "compactFooterMaxLines" &&
-									compactFooterMaxLineValues.includes(newValue as never)
-								) {
-									const value: CompactFooterMaxLines =
-										newValue === "unlimited" ? "unlimited" : (Number(newValue) as 1 | 2 | 3);
-									deps.setResponsiveFooter({ compactFooterMaxLines: value }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Compact footer rows", newValue);
-									return;
-								}
-								if (
-									id === "contextStyle" &&
-									contextStyleValues.includes(newValue as ContextStyle)
-								) {
-									deps.setContextStyle(newValue as ContextStyle);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Context style", newValue);
-									return;
-								}
-								if (id === "separator" && isSeparatorStyle(newValue)) {
-									deps.setSeparator(newValue);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Separator", newValue);
-									return;
-								}
-								if (id === "pathDisplay" && pathDisplayModeValues.includes(newValue as never)) {
-									deps.setPathDisplay({ mode: newValue as PathDisplayConfig["mode"] });
-									settingsList.updateValue(id, newValue);
-									notifyChange("Path display", newValue);
-									return;
-								}
-								if (id === "pathDepth" && pathDepthValues.includes(newValue as never)) {
-									deps.setPathDisplay({ depth: Number(newValue) });
-									settingsList.updateValue(id, newValue);
-									notifyChange("Path depth", newValue);
-									return;
-								}
-
-								const segment = footerSegmentSettingFromId(id);
-								if (segment && enabled !== undefined) {
-									deps.setFooterSegments({ [segment]: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange(footerSegmentSettingLabels[segment], newValue);
-									return;
-								}
-								if (id === "branchLength") {
-									const value = newValue === "full" ? "full" : Number(newValue);
-									if (value !== "full" && (!Number.isInteger(value) || value <= 0)) return;
-									deps.setGitBranch({ maxLength: value });
-									settingsList.updateValue(id, newValue);
-									notifyChange("Branch length", newValue);
-									return;
-								}
-								if (id === "gitCommitOnlyDetached" && enabled !== undefined) {
-									deps.setGitCommit({ onlyDetached: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Commit only on detached HEAD", newValue);
-									return;
-								}
-								if (id === "gitCommitShowTag" && enabled !== undefined) {
-									deps.setGitCommit({ showTag: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Show exact-match tag", newValue);
-									return;
-								}
-								if (id === "gitMetricsOnlyNonzero" && enabled !== undefined) {
-									deps.setGitMetrics({ onlyNonzero: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Hide zero metrics", newValue);
-									return;
-								}
-								if (id === "gitMetricsIgnoreSubmodules" && enabled !== undefined) {
-									deps.setGitMetrics({ ignoreSubmodules: enabled }, ctx);
-									settingsList.updateValue(id, newValue);
-									notifyChange("Ignore submodules", newValue);
-									return;
-								}
-
-								if (
-									id === "extensionStatusDefaultPlacement" &&
-									isExtensionStatusPlacement(newValue)
-								) {
-									deps.setExtensionStatusDefaultPlacement(newValue);
-									settingsList = makeSettingsList("extensionStatusDefaultPlacement");
-									notifyChange("Default extension status placement", newValue);
-									return;
-								}
-								const thirdParty = thirdPartyStatusSettingFromId(id);
-								if (thirdParty?.kind === "placement" && isExtensionStatusPlacement(newValue)) {
-									deps.setExtensionStatusPlacement(thirdParty.key, newValue);
-									settingsList.updateValue(id, newValue);
-									notifyChange(`Third-party status ${thirdParty.key} placement`, newValue);
-									return;
-								}
-								if (thirdParty?.kind === "colorMode" && isExtensionStatusColorMode(newValue)) {
-									deps.setExtensionStatusColorMode(thirdParty.key, newValue);
-									settingsList.updateValue(id, newValue);
-									notifyChange(`Third-party status ${thirdParty.key} color`, newValue);
-								}
-							} catch (error) {
-								settingsList = makeSettingsList(id);
-								tui.requestRender();
-								ctx.ui.notify(
-									`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
-									"error",
+			let requestedSection = initialSection ?? "appearance";
+			let requestedFocusId: string | undefined;
+			while (true) {
+				const initialFocusId = requestedFocusId;
+				requestedFocusId = undefined;
+				const outcome = await ctx.ui.custom<SettingsOutcome>((tui, theme, _keybindings, done) => {
+					const listTheme = deps.settingsListTheme ?? getSettingsListTheme();
+					let activeSection = requestedSection;
+					let settingsList: SettingsList;
+					let preview: WorkingLineFrames | undefined;
+					let previewFrameIndex = 0;
+					let cancelPreview = () => {};
+					const stopPreview = (reset = true) => {
+						cancelPreview();
+						cancelPreview = () => {};
+						if (reset) {
+							preview = undefined;
+							previewFrameIndex = 0;
+						}
+					};
+					const startPreview = () => {
+						const previous = preview;
+						const previousState = previous?.frameStates[previewFrameIndex];
+						stopPreview(false);
+						if (activeSection !== "workingLine") return;
+						try {
+							const config = deps.getConfig();
+							const spinnerTick = previousState?.spinnerTick ?? 0;
+							let textTick = previousState?.textTick ?? 0;
+							let generated = buildWorkingLinePreviewFrames(
+								config.components.workingLine,
+								config.colors,
+								theme,
+								spinnerTick,
+								textTick,
+							);
+							if (previous && previousState) {
+								textTick = remapWorkingLineTextTick(
+									previous.textAnimation,
+									previous.textWidth,
+									previousState.textTick,
+									generated.textAnimation,
+									generated.textWidth,
+									previous.textOrigin,
+									generated.textOrigin,
+								);
+								generated = buildWorkingLinePreviewFrames(
+									config.components.workingLine,
+									config.colors,
+									theme,
+									spinnerTick,
+									textTick,
 								);
 							}
-						},
-						() => done(undefined),
-					);
-					if (focusId) {
-						const target = items.findIndex((item) => item.id === focusId);
-						for (let index = 0; index < target; index += 1) list.handleInput("\x1b[B");
-					}
-					return list;
-				};
-				settingsList = makeSettingsList();
-				return {
-					render(width: number) {
-						const border = renderChromeBorder(
-							theme,
-							deps.getConfig().components.selectorBorders.colorSource,
-							EDITOR_BORDER_STYLE,
-							"─".repeat(Math.max(0, width)),
+							preview = generated;
+							previewFrameIndex = 0;
+							const advance = () => {
+								if (activeSection !== "workingLine" || !preview || preview.frames.length === 0)
+									return;
+								previewFrameIndex = (previewFrameIndex + 1) % preview.frames.length;
+								tui.requestRender();
+								cancelPreview = deps.sessionLifecycle.defer(advance, preview.intervalMs);
+							};
+							cancelPreview = deps.sessionLifecycle.defer(advance, generated.intervalMs);
+						} catch {
+							stopPreview();
+						}
+					};
+					const finishSettings = (result: SettingsOutcome) => {
+						stopPreview();
+						done(result);
+					};
+					const notifyChange = (label: string, value: string, result?: ApplyResult) => {
+						deps.requestRender();
+						ctx.ui.notify(
+							`${label}: ${value}${result && !result.applied ? ` (${result.reason ?? "reload Pi to apply this change"})` : ""}`,
+							"info",
 						);
-						return [
-							truncateToWidth(border, width, ""),
-							truncateToWidth(formatSectionTabs(activeSection, theme, width), width, ""),
-							truncateToWidth(border, width, ""),
-							...withSectionFooter(settingsList.render(width), theme).map((line) =>
-								truncateToWidth(line, width, ""),
-							),
-							truncateToWidth(border, width, ""),
-						];
-					},
-					invalidate() {
-						settingsList.invalidate();
-					},
-					handleInput(data: string) {
-						if (matchesKey(data, Key.tab)) {
-							activeSection = nextSection(activeSection);
-							settingsList = makeSettingsList();
-							tui.requestRender();
-							return;
+						startPreview();
+						tui.requestRender();
+					};
+					const notifyWorkingLineChange = (
+						label: string,
+						value: string,
+						result: ApplyResult,
+						previewChanged = true,
+					) => {
+						ctx.ui.notify(
+							`${label}: ${value}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+							"info",
+						);
+						if (previewChanged) startPreview();
+						tui.requestRender();
+					};
+					const makeSettingsList = (focusId?: string): SettingsList => {
+						const items = buildSectionItems(
+							activeSection,
+							deps.getConfig(),
+							deps.getActiveExtensionStatuses(),
+						);
+						const list = new SettingsList(
+							items,
+							8,
+							listTheme,
+							(id, newValue) => {
+								try {
+									const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
+									if (id === "editorEnabled" && enabled !== undefined) {
+										finishSettings("close");
+										deps.sessionLifecycle.defer(() => {
+											try {
+												const result = setEditor({ enabled }, ctx);
+												deps.requestRender();
+												ctx.ui.notify(
+													`Editor: ${newValue}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+													"info",
+												);
+											} catch (error) {
+												ctx.ui.notify(
+													`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+													"error",
+												);
+											}
+										});
+										return;
+									}
+									const selectedEditorStyle =
+										id === "editorStyle" ? editorStyleId(newValue) : undefined;
+									if (selectedEditorStyle) {
+										setEditor({ style: selectedEditorStyle }, ctx);
+										settingsList = makeSettingsList("editorStyle");
+										notifyChange("Editor style", newValue);
+										return;
+									}
+									if (id === "editorColorSource" && isColorSource(newValue)) {
+										setEditor({ colorSource: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Editor colors", newValue);
+										return;
+									}
+									if (id === "editorModelLabel" && (newValue === "id" || newValue === "name")) {
+										setEditor({ modelLabel: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Editor model label", newValue);
+										return;
+									}
+									if (
+										id === "editorBorderColorMode" &&
+										(newValue === "static" || newValue === "adaptive")
+									) {
+										setEditor({ borderColorMode: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Editor border color", newValue);
+										return;
+									}
+									if (id === "editorViewportIndicators" && enabled !== undefined) {
+										setEditor({ viewportIndicators: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Editor viewport indicators", newValue);
+										return;
+									}
+									if (id.startsWith("minimalist")) {
+										if (
+											id === "minimalistPathDisplay" &&
+											["compact", "project", "full"].includes(newValue)
+										)
+											deps.setMinimalist(
+												{ pathDisplay: newValue as MinimalistConfig["pathDisplay"] },
+												ctx,
+											);
+										else if (
+											id === "minimalistContextFormat" &&
+											["percent", "percent-total"].includes(newValue)
+										)
+											deps.setMinimalist(
+												{ contextFormat: newValue as MinimalistConfig["contextFormat"] },
+												ctx,
+											);
+										else if (enabled !== undefined) {
+											const key =
+												id === "minimalistContextGauge"
+													? "contextGauge"
+													: id === "minimalistShowSessionName"
+														? "showSessionName"
+														: id === "minimalistShowTimer"
+															? "showTimer"
+															: id === "minimalistShowCost"
+																? "showCost"
+																: id === "minimalistShowGit"
+																	? "showGit"
+																	: undefined;
+											if (!key) return;
+											deps.setMinimalist({ [key]: enabled }, ctx);
+										} else return;
+										settingsList.updateValue(id, newValue);
+										notifyChange(id, newValue);
+										return;
+									}
+
+									if (id === "userMessagesEnabled" && enabled !== undefined) {
+										setMessages({ enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("User messages", newValue);
+										return;
+									}
+									const selectedMessageStyle =
+										id === "userMessagesStyle" ? userMessageStyleId(newValue) : undefined;
+									if (selectedMessageStyle) {
+										setMessages({ style: selectedMessageStyle }, ctx);
+										settingsList = makeSettingsList("userMessagesStyle");
+										notifyChange("Message style", newValue);
+										return;
+									}
+									if (id === "userMessagesColorSource" && isColorSource(newValue)) {
+										setMessages({ colorSource: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Message colors", newValue);
+										return;
+									}
+									if (id === "workingLineEnabled" && enabled !== undefined) {
+										const result = deps.setWorkingLineComponent({ enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Working line", newValue, result);
+										return;
+									}
+									if (id === "workingLineTurnSummary" && enabled !== undefined) {
+										const result = deps.setWorkingLineComponent({ turnSummary: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Turn summary", newValue, result, false);
+										return;
+									}
+									const selectedWorkingLineSpinner =
+										id === "workingLineSpinner" ? workingLineSpinnerId(newValue) : undefined;
+									if (selectedWorkingLineSpinner) {
+										const result = deps.setWorkingLineComponent(
+											{ spinner: selectedWorkingLineSpinner },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Spinner", newValue, result);
+										return;
+									}
+									if (id === "workingLineSpinnerSpeed" || id === "workingLineTextSpeed") {
+										const spinnerSpeed = id === "workingLineSpinnerSpeed";
+										if (newValue === "Custom…") {
+											finishSettings(
+												spinnerSpeed
+													? "edit-working-line-spinner-speed"
+													: "edit-working-line-text-speed",
+											);
+											return;
+										}
+										const presets = spinnerSpeed
+											? workingLineSpinnerSpeedPresets
+											: workingLineTextSpeedPresets;
+										const intervalMs = presets.find(
+											(preset) => preset.label === newValue,
+										)?.intervalMs;
+										if (intervalMs !== undefined) {
+											const result = deps.setWorkingLineComponent(
+												spinnerSpeed
+													? { spinnerIntervalMs: intervalMs }
+													: { textIntervalMs: intervalMs },
+												ctx,
+											);
+											settingsList.updateValue(id, newValue);
+											notifyWorkingLineChange(
+												spinnerSpeed ? "Spinner speed" : "Text motion speed",
+												`${intervalMs} ms`,
+												result,
+											);
+										}
+										return;
+									}
+									if (
+										id === "workingLineTextAnimation" &&
+										workingLineTextAnimationValues.includes(newValue as WorkingLineTextAnimation)
+									) {
+										const result = deps.setWorkingLineComponent(
+											{ textAnimation: newValue as WorkingLineTextAnimation },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Text animation", newValue, result);
+										return;
+									}
+									if (id === "workingLineColorSource" && isColorSource(newValue)) {
+										const result = deps.setWorkingLineComponent({ colorSource: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Color source", newValue, result);
+										return;
+									}
+									if (id === "workingLineAnimateSpinnerColor" && enabled !== undefined) {
+										const result = deps.setWorkingLineComponent(
+											{ animateSpinnerColor: enabled },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Animate spinner color", newValue, result);
+										return;
+									}
+									if (id === "workingLineCustomMessages" && enabled !== undefined) {
+										const result = deps.setWorkingLineComponent(
+											{ messages: { custom: enabled } },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange("Custom messages", newValue, result);
+										return;
+									}
+									if (
+										(id === "workingLineTool" ||
+											id === "workingLineElapsed" ||
+											id === "workingLineThought" ||
+											id === "workingLineTokens") &&
+										enabled !== undefined
+									) {
+										const key =
+											id === "workingLineTool"
+												? "tool"
+												: id === "workingLineElapsed"
+													? "elapsed"
+													: id === "workingLineThought"
+														? "thought"
+														: "tokens";
+										const result = deps.setWorkingLineComponent(
+											{ segments: { [key]: enabled } },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyWorkingLineChange(id.slice("workingLine".length), newValue, result);
+										return;
+									}
+									if (id === "workingLineMessageList") {
+										finishSettings("edit-working-line-messages");
+										return;
+									}
+									if (id === "selectorBordersEnabled" && enabled !== undefined) {
+										deps.setSelectorBordersComponent({ enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Selector borders", newValue);
+										return;
+									}
+									if (id === "selectorBordersStyle" && newValue === "zentui") {
+										deps.setSelectorBordersComponent({ style: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Selector border style", newValue);
+										return;
+									}
+									if (id === "selectorBordersColorSource" && isColorSource(newValue)) {
+										deps.setSelectorBordersComponent({ colorSource: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Selector border colors", newValue);
+										return;
+									}
+									if (id === "iconMode" && isIconMode(newValue)) {
+										deps.setIconMode(newValue);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Icon mode", newValue);
+										return;
+									}
+
+									const selectedFooterStyle =
+										id === "footerStyle" ? footerStyleId(newValue) : undefined;
+									if (selectedFooterStyle) {
+										setFooter({ style: selectedFooterStyle }, ctx);
+										settingsList = makeSettingsList("footerStyle");
+										notifyChange("Footer style", newValue);
+										return;
+									}
+									if (id === "footerColorSource" && isColorSource(newValue)) {
+										setFooter({ colorSource: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Footer colors", newValue);
+										return;
+									}
+									if (id === "footerModelLabel" && (newValue === "id" || newValue === "name")) {
+										setFooter({ modelLabel: newValue }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Footer model label", newValue);
+										return;
+									}
+
+									if (id === "responsiveFooter" && enabled !== undefined) {
+										deps.setResponsiveFooter({ responsiveFooter: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Responsive footer", newValue);
+										return;
+									}
+									if (
+										id === "compactFooterMaxLines" &&
+										compactFooterMaxLineValues.includes(newValue as never)
+									) {
+										const value: CompactFooterMaxLines =
+											newValue === "unlimited" ? "unlimited" : (Number(newValue) as 1 | 2 | 3);
+										deps.setResponsiveFooter({ compactFooterMaxLines: value }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Compact footer rows", newValue);
+										return;
+									}
+									if (
+										id === "contextStyle" &&
+										contextStyleValues.includes(newValue as ContextStyle)
+									) {
+										deps.setContextStyle(newValue as ContextStyle);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Context style", newValue);
+										return;
+									}
+									if (id === "separator" && isSeparatorStyle(newValue)) {
+										deps.setSeparator(newValue);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Separator", newValue);
+										return;
+									}
+									if (id === "pathDisplay" && pathDisplayModeValues.includes(newValue as never)) {
+										deps.setPathDisplay({ mode: newValue as PathDisplayConfig["mode"] });
+										settingsList.updateValue(id, newValue);
+										notifyChange("Path display", newValue);
+										return;
+									}
+									if (id === "pathDepth" && pathDepthValues.includes(newValue as never)) {
+										deps.setPathDisplay({ depth: Number(newValue) });
+										settingsList.updateValue(id, newValue);
+										notifyChange("Path depth", newValue);
+										return;
+									}
+
+									const segment = footerSegmentSettingFromId(id);
+									if (segment && enabled !== undefined) {
+										deps.setFooterSegments({ [segment]: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange(footerSegmentSettingLabels[segment], newValue);
+										return;
+									}
+									if (id === "branchLength") {
+										const value = newValue === "full" ? "full" : Number(newValue);
+										if (value !== "full" && (!Number.isInteger(value) || value <= 0)) return;
+										deps.setGitBranch({ maxLength: value });
+										settingsList.updateValue(id, newValue);
+										notifyChange("Branch length", newValue);
+										return;
+									}
+									if (id === "gitCommitOnlyDetached" && enabled !== undefined) {
+										deps.setGitCommit({ onlyDetached: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Commit only on detached HEAD", newValue);
+										return;
+									}
+									if (id === "gitCommitShowTag" && enabled !== undefined) {
+										deps.setGitCommit({ showTag: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Show exact-match tag", newValue);
+										return;
+									}
+									if (id === "gitMetricsOnlyNonzero" && enabled !== undefined) {
+										deps.setGitMetrics({ onlyNonzero: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Hide zero metrics", newValue);
+										return;
+									}
+									if (id === "gitMetricsIgnoreSubmodules" && enabled !== undefined) {
+										deps.setGitMetrics({ ignoreSubmodules: enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Ignore submodules", newValue);
+										return;
+									}
+
+									if (
+										id === "extensionStatusDefaultPlacement" &&
+										isExtensionStatusPlacement(newValue)
+									) {
+										deps.setExtensionStatusDefaultPlacement(newValue);
+										settingsList = makeSettingsList("extensionStatusDefaultPlacement");
+										notifyChange("Default extension status placement", newValue);
+										return;
+									}
+									const thirdParty = thirdPartyStatusSettingFromId(id);
+									if (thirdParty?.kind === "placement" && isExtensionStatusPlacement(newValue)) {
+										deps.setExtensionStatusPlacement(thirdParty.key, newValue);
+										settingsList.updateValue(id, newValue);
+										notifyChange(`Third-party status ${thirdParty.key} placement`, newValue);
+										return;
+									}
+									if (thirdParty?.kind === "colorMode" && isExtensionStatusColorMode(newValue)) {
+										deps.setExtensionStatusColorMode(thirdParty.key, newValue);
+										settingsList.updateValue(id, newValue);
+										notifyChange(`Third-party status ${thirdParty.key} color`, newValue);
+									}
+								} catch (error) {
+									stopPreview();
+									settingsList = makeSettingsList(id);
+									tui.requestRender();
+									ctx.ui.notify(
+										`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+										"error",
+									);
+								}
+							},
+							() => finishSettings("close"),
+						);
+						if (focusId) {
+							const target = items.findIndex((item) => item.id === focusId);
+							for (let index = 0; index < target; index += 1) list.handleInput("\x1b[B");
 						}
-						if (matchesKey(data, Key.shift("tab"))) {
-							activeSection = previousSection(activeSection);
-							settingsList = makeSettingsList();
-							tui.requestRender();
-							return;
+						return list;
+					};
+					settingsList = makeSettingsList(initialFocusId);
+					startPreview();
+					return {
+						render(width: number) {
+							const border = renderChromeBorder(
+								theme,
+								deps.getConfig().components.selectorBorders.colorSource,
+								EDITOR_BORDER_STYLE,
+								"─".repeat(Math.max(0, width)),
+							);
+							return [
+								truncateToWidth(border, width, ""),
+								truncateToWidth(formatSectionTabs(activeSection, theme, width), width, ""),
+								truncateToWidth(border, width, ""),
+								...(activeSection === "workingLine" && preview && preview.frames.length > 0
+									? [
+											truncateToWidth(
+												`  ${preview.frames[previewFrameIndex] ?? preview.frames[0]}`,
+												width,
+												"",
+											),
+										]
+									: []),
+								...withSectionFooter(settingsList.render(width), theme).map((line) =>
+									truncateToWidth(line, width, ""),
+								),
+								truncateToWidth(border, width, ""),
+							];
+						},
+						invalidate() {
+							settingsList.invalidate();
+						},
+						handleInput(data: string) {
+							if (matchesKey(data, Key.tab)) {
+								stopPreview();
+								activeSection = nextSection(activeSection);
+								settingsList = makeSettingsList();
+								startPreview();
+								tui.requestRender();
+								return;
+							}
+							if (matchesKey(data, Key.shift("tab"))) {
+								stopPreview();
+								activeSection = previousSection(activeSection);
+								settingsList = makeSettingsList();
+								startPreview();
+								tui.requestRender();
+								return;
+							}
+							settingsList.handleInput(data);
+						},
+						dispose() {
+							stopPreview();
+						},
+					};
+				});
+				if (outcome === "close" || outcome === undefined) return;
+				if (
+					outcome === "edit-working-line-spinner-speed" ||
+					outcome === "edit-working-line-text-speed"
+				) {
+					const spinnerSpeed = outcome === "edit-working-line-spinner-speed";
+					const workingLine = deps.getConfig().components.workingLine;
+					const before = spinnerSpeed ? workingLine.spinnerIntervalMs : workingLine.textIntervalMs;
+					const label = spinnerSpeed ? "Spinner speed" : "Text motion speed";
+					try {
+						const edited = await ctx.ui.input(
+							`${label} (${MIN_WORKING_LINE_INTERVAL_MS}–${MAX_WORKING_LINE_INTERVAL_MS} ms)`,
+							String(before),
+						);
+						if (edited === undefined) {
+							ctx.ui.notify(`${label} unchanged (input canceled)`, "info");
+						} else {
+							const trimmed = edited.trim();
+							const intervalMs = /^[+-]?\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+							if (!isValidWorkingLineIntervalMs(intervalMs)) {
+								ctx.ui.notify(
+									`${label} must be a whole number from ${MIN_WORKING_LINE_INTERVAL_MS} to ${MAX_WORKING_LINE_INTERVAL_MS} ms; unchanged.`,
+									"warning",
+								);
+							} else {
+								const result = deps.setWorkingLineComponent(
+									spinnerSpeed ? { spinnerIntervalMs: intervalMs } : { textIntervalMs: intervalMs },
+									ctx,
+								);
+								ctx.ui.notify(
+									`${label}: ${intervalMs} ms${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+									"info",
+								);
+							}
 						}
-						settingsList.handleInput(data);
-					},
-				};
-			});
+					} catch (error) {
+						ctx.ui.notify(
+							`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
+					}
+					requestedSection = "workingLine";
+					requestedFocusId = spinnerSpeed ? "workingLineSpinnerSpeed" : "workingLineTextSpeed";
+					continue;
+				}
+				try {
+					const before = deps.getConfig().components.workingLine.messages.values.join("\n");
+					const edited = await ctx.ui.editor("Working line message list", before);
+					if (edited !== undefined) {
+						const values = normalizeWorkingLineMessages(edited.split(/\r?\n/));
+						const result = deps.setWorkingLineComponent({ messages: { values } }, ctx);
+						ctx.ui.notify(
+							`Message list: ${values.length}${values.length === 0 ? " (using styled Working…)" : ""}${result.applied ? "" : ` (${result.reason ?? "reload Pi to apply this change"})`}`,
+							"info",
+						);
+					}
+				} catch (error) {
+					ctx.ui.notify(
+						`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+				}
+				requestedSection = "workingLine";
+				requestedFocusId = "workingLineMessageList";
+			}
 		},
 	});
 }

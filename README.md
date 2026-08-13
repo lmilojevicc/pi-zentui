@@ -8,13 +8,14 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 
 ## What is this?
 
-Zentui styles three major Pi surfaces independently:
+Zentui styles four major Pi surfaces independently:
 
 - **Editor** — selectable opencode, low-rail opencode, and minimalist input frames inspired by [Opencode](https://github.com/opencode-ai/opencode)
 - **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
+- **Working line** — optional ownership and styling of Pi's complete in-progress row
 - **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
 
-Editor, User messages, and selector borders use an `enabled` field. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** contains selector-border and icon settings.
+Editor, User messages, Working line, and selector borders use independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. **Appearance** contains selector-border and icon settings.
 
 ## Features
 
@@ -80,6 +81,21 @@ User-message previews:
 <h4 align="center"><code>labeled</code></h4>
 
 ![Zentui Labeled user-message style in a rounded frame with the label User.](./assets/screenshots/user-message-labeled.png)
+
+### Working line
+
+When enabled, the optional Working line always owns and stylizes Pi's complete working-row message and indicator. It provides five fixed-width spinner presets: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse. **Custom messages** defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays styled, animated `Working…` without random selection. An empty or invalid custom list safely uses the same fallback. The row can show the latest active **Tool**, interaction-wide **Elapsed** time, cumulative wall-clock **Thinking** time, and whole-interaction **Tokens**. Committed totals stay exact and provider-reported across tool loops, automatic retries, compaction retries, and queued continuations. During the current response, live output uses the native `↓N` convention whether it comes from provider usage or an estimate used while provider usage is unavailable or stale. Authoritative final usage always reconciles the response atomically; input is never estimated. Messages and tool labels are sanitized and width-bounded.
+
+When Pi has fully settled and will not continue automatically, the default-on **Turn summary** appends a persistent, context-free transcript row such as ` Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlapping blocks count once and zero is omitted. Output usage already includes reasoning tokens, so reasoning is not added separately. The summary always includes both token totals—even when live Tokens or Thinking is hidden or both totals are zero—and can be opted out of without affecting historical summaries. Turn summaries use the fixed Working-line high style and are inactive while the overall Working line is disabled.
+
+Spinner glyph motion is always active. Classic and KITT move color across the message and segments by default; **Animate spinner color** optionally includes spinner cells and their separator in that sweep. Static colors the complete row uniformly and ignores text speed and spinner-color participation without changing their saved values. Content fits the 77-cell indicator payload while reserving the complete Tokens label first, then Message, Thought, Elapsed, and Tool allocation, and preserves the visual **Message · Tool · Elapsed · Thought · Tokens** order and complete 80-column Loader-row contract. Active thought appears immediately as `thinking 0s` and updates once per second; completed positive thought appears as `thought for Ns`. Rebuilds preserve the displayed spinner and visible color-sweep position. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
+
+| Setting | Default | Presets | Applies to |
+| --- | ---: | --- | --- |
+| `spinnerIntervalMs` | 100 ms | Fast 60 / Normal 100 / Slow 160 / Custom | Spinner glyph motion |
+| `textIntervalMs` | 60 ms | Fast 40 / Normal 60 / Slow 100 / Custom | Classic/KITT color motion |
+
+Both speeds accept safe integers from `30` through `1000` ms. Static ignores text speed without changing it. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within the 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule: cycle totals round by at most half a spinner glyph cycle and half a text step, spinner wrap remains continuous, and text phase may reset once per bounded fallback array cycle. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
 ### Git Status Icons
 
@@ -174,19 +190,20 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 User config lives at `~/.pi/agent/zentui.json`. The file is optional: missing or invalid known values fall back to Zentui defaults, unknown keys are ignored at runtime, and `/zentui` can patch color-source settings, UI feature toggles, built-in footer segment visibility, and active third-party status placements.
 
-The interactive `/zentui` menu is split into exactly seven component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
+The interactive `/zentui` menu is split into exactly eight component-oriented sections, in this order. Use `Tab` and `Shift+Tab` to switch sections:
 
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — editor enablement, style, colors, model label, border behavior, viewport indicators, and settings for the selected editor style.
 3. **User messages** — message enablement, `framed | framed-copy-friendly | compact | labeled` style selection (including **Framed (copy-friendly)**), and colors.
-4. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
-5. **Segments** — visibility toggles for non-Git Starship segments.
-6. **Git** — Starship Git segment and probe controls.
-7. **Extensions** — Starship extension-status placement and color controls for active keys.
+4. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom-message toggle and editable list, Tool/Elapsed/Thinking/Tokens toggles, and preview.
+5. **Footer** — `Native | Starship | Hidden` style selection. Starship additionally shows colors, model label, responsive layout, separator, context style, and path display.
+6. **Segments** — visibility toggles for non-Git Starship segments.
+7. **Git** — Starship Git segment and probe controls.
+8. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-Editor and User messages retain independent enablement and style configuration. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
+Editor, User messages, and Working line retain independent configuration. Footer's single style selects Pi's built-in Footer (`Native`), Zentui's Starship Footer, or an owned zero-row Footer (`Hidden`). Color and model-label rows update only their owning component.
 
-Starship-specific Footer rows are shown only while Starship is selected. The **Segments**, **Git**, and **Extensions** sections remain available for preconfiguration under every Footer style. Free-form values such as custom formats, Opencode metadata format, raw colors/styles, numeric values outside the shown presets, and inactive extension keys remain JSON-only.
+Starship-specific Footer rows are shown only while Starship is selected. The **Segments**, **Git**, and **Extensions** sections remain available for preconfiguration under every Footer style. Free-form values such as custom formats, Opencode metadata format, raw colors/styles, and inactive extension keys remain JSON-only; Working-line speed accepts validated custom milliseconds in `/zentui`.
 
 Useful slash-command shortcuts:
 
@@ -202,6 +219,7 @@ Useful slash-command shortcuts:
 /zentui statusline toggle
 /zentui messages
 /zentui user-messages
+/zentui working-line
 /zentui viewport-indicators enable
 /zentui viewport-indicators disable
 /zentui viewport-indicators toggle
@@ -255,6 +273,31 @@ Default config values — copy this and change any value you want:
 				"framed-copy-friendly": {},
 				"compact": {},
 				"labeled": {}
+			}
+		},
+		"workingLine": {
+			"enabled": false,
+			"turnSummary": true,
+			"spinner": "star-bloom",
+			"spinnerIntervalMs": 100,
+			"animateSpinnerColor": false,
+			"textIntervalMs": 60,
+			"textAnimation": "classic",
+			"colorSource": "theme",
+			"messages": {
+				"custom": true,
+				"values": [
+					"Sautéing…", "Cooking…", "Ionizing…", "Zigzagging…",
+					"Razzle-dazzling…", "Photosynthesizing…", "Nucleating…", "Brewing…",
+					"Combobulating…", "Boogieing…", "Befuddling…", "Alchemizing…",
+					"Conjuring…", "Baking…", "Simmering…", "Blanching…"
+				]
+			},
+			"segments": {
+				"tool": true,
+				"elapsed": true,
+				"thought": true,
+				"tokens": true
 			}
 		},
 		"selectorBorders": {
@@ -384,6 +427,8 @@ Default config values — copy this and change any value you want:
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
 - `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | minimalist` style selection, color source, border mode, model label, viewport indicators, and all three editor-style configurations.
 - `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
+- `components.workingLine`: `enabled` is the sole ownership switch. While enabled, Zentui owns both the Working-row message and indicator and renders the full row. It configures `braille | star-bloom | pinwheel | claude-inspired | pulse`, independent spinner/text speeds, optional Classic/KITT spinner-color participation, `classic | kitt | disabled` text animation, color source, the default-on `messages.custom` toggle and editable 16-value list, plus Tool/Elapsed/Thinking/Tokens segments. Thinking only controls the live row; measurement and final summaries continue while it is hidden. Custom-off and empty-list fallback both render owned `Working…`; Static keeps glyph motion but ignores text speed and spinner-color participation.
+- Optional `colors.workingLineLow`, `colors.workingLineMid`, and `colors.workingLineHigh` override its palette. Without overrides, theme mode uses `dim`, `muted`, and `bold accent`; terminal mode uses `bright-black`, `cyan`, and `bold cyan`.
 - `components.selectorBorders`: owns selector-border enablement, the fixed `zentui` style, and its color source.
 - `components.footer`: owns `native | starship | hidden` style selection, Footer color source, Footer model label, and every Starship option under `styles.starship` (formats, segments, context thresholds, path, Git, and extension statuses). Native restores Pi's built-in Footer; Hidden installs an empty component with zero rows.
 - Editor and Footer `modelLabel` values are independent and have separate controls in the **Editor** and **Footer** sections.
@@ -546,7 +591,7 @@ Pi 0.84 introduces a native fullscreen TUI with a sticky editor and Footer plus 
 }
 ```
 
-You can also select fullscreen from Pi's `/settings` UI or start Pi with `--tui-mode fullscreen`. Zentui does not enable fullscreen automatically: Pi owns terminal layout, scrolling, and sticky placement, while Zentui supplies the configured editor and Footer components. Pi 0.80.3–0.83 remain supported for Zentui styling, without native sticky placement.
+You can also select fullscreen from Pi's `/settings` UI or start Pi with `--tui-mode fullscreen`. Zentui does not enable fullscreen automatically: Pi owns terminal layout, scrolling, and sticky placement, while Zentui supplies the configured editor and Footer components. Pi 0.80.5–0.83 remain supported for Zentui styling, without native sticky placement.
 
 ## Acknowledgments
 
@@ -554,7 +599,7 @@ The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-cust
 
 ## Requirements
 
-- [Pi](https://pi.dev) coding agent 0.80.3 or newer
+- [Pi](https://pi.dev) coding agent 0.80.5 or newer
 - A [Nerd Font](https://www.nerdfonts.com/) for icons (or set `icons.mode` to `"ascii"`)
 
 ## Development

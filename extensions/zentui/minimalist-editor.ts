@@ -3,7 +3,16 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { buildContextGauge, contextColorTier, formatCount, formatCwdLabel } from "./format";
+import {
+	buildContextGauge,
+	contextColorTier,
+	formatCount,
+	formatCwdLabel,
+	formatElapsedDuration,
+} from "./format";
+
+export { formatElapsedDuration } from "./format";
+
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -43,16 +52,6 @@ export type MinimalistFrameOptions = {
 	config: ZentuiConfig;
 	borderColor?: (text: string) => string;
 };
-
-export function formatElapsedDuration(durationMs: number): string {
-	const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-	const hours = Math.floor(totalSeconds / 3600);
-	const minutes = Math.floor((totalSeconds % 3600) / 60);
-	const seconds = totalSeconds % 60;
-	if (hours > 0) return `${hours}h ${minutes}m`;
-	if (minutes > 0) return `${minutes}m ${seconds}s`;
-	return `${seconds}s`;
-}
 
 function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");

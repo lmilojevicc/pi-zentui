@@ -229,7 +229,9 @@ describe("telemetry lifecycle integration", () => {
 		capabilities.throwAutoCompaction = false;
 		capabilities.subscription = true;
 		capabilities.autoCompaction = true;
-		await emit(handlers, "message_end", harness.ctx, { message: { role: "assistant" } });
+		await emit(handlers, "message_end", harness.ctx, {
+			message: { role: "assistant", usage: { input: 5, output: 3 } },
+		});
 		harness.entries.push(
 			usageEntry("persisted-final", { input: 5, output: 3, read: 1_200, write: 300 }),
 		);

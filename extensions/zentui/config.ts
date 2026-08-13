@@ -25,6 +25,8 @@ import {
 	resolveConfiguredIcons,
 } from "./icons";
 import { isSupportedColorSpec } from "./style";
+import { normalizeWorkingLineMessages } from "./working-line";
+import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
 
 export type ColorSpec = string;
 export type ColorSource = "theme" | "terminal";
@@ -37,6 +39,13 @@ export type EditorStyle = "opencode" | "opencode-copy-friendly" | "minimalist";
 export type UserMessageStyle = "framed" | "framed-copy-friendly" | "compact" | "labeled";
 export type SelectorBorderStyle = "zentui";
 export type FooterStyle = "native" | "starship" | "hidden";
+export type WorkingLineSpinner =
+	| "braille"
+	| "star-bloom"
+	| "pinwheel"
+	| "claude-inspired"
+	| "pulse";
+export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
@@ -185,9 +194,56 @@ export type FooterComponentConfig = {
 	};
 };
 
+export type WorkingLineMessagesConfig = {
+	custom: boolean;
+	values: string[];
+};
+
+export type WorkingLineSegmentsConfig = {
+	tool: boolean;
+	elapsed: boolean;
+	thought: boolean;
+	tokens: boolean;
+};
+
+export const DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS = 100;
+export const DEFAULT_WORKING_LINE_TEXT_INTERVAL_MS = 60;
+export const MIN_WORKING_LINE_INTERVAL_MS = 30;
+export const MAX_WORKING_LINE_INTERVAL_MS = 1000;
+
+export function isValidWorkingLineIntervalMs(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isSafeInteger(value) &&
+		value >= MIN_WORKING_LINE_INTERVAL_MS &&
+		value <= MAX_WORKING_LINE_INTERVAL_MS
+	);
+}
+
+export type WorkingLineComponentConfig = {
+	enabled: boolean;
+	turnSummary: boolean;
+	spinner: WorkingLineSpinner;
+	spinnerIntervalMs: number;
+	animateSpinnerColor: boolean;
+	textIntervalMs: number;
+	textAnimation: WorkingLineTextAnimation;
+	colorSource: ColorSource;
+	messages: WorkingLineMessagesConfig;
+	segments: WorkingLineSegmentsConfig;
+};
+
+export type WorkingLineComponentPatch = Partial<
+	Omit<WorkingLineComponentConfig, "messages" | "segments">
+> & {
+	messages?: Partial<WorkingLineMessagesConfig>;
+	segments?: Partial<WorkingLineSegmentsConfig>;
+};
+
 export type ComponentsConfig = {
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
+	workingLine: WorkingLineComponentConfig;
 	selectorBorders: SelectorBordersComponentConfig;
 	footer: FooterComponentConfig;
 };
@@ -266,6 +322,9 @@ export type PolishedTuiColors = {
 	editorThinkingMedium?: ColorSpec;
 	editorThinkingHigh?: ColorSpec;
 	editorThinkingXhigh?: ColorSpec;
+	workingLineLow?: ColorSpec;
+	workingLineMid?: ColorSpec;
+	workingLineHigh?: ColorSpec;
 };
 
 /**
@@ -412,6 +471,18 @@ const defaultComponents: ComponentsConfig = {
 		style: "framed",
 		colorSource: "theme",
 		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
+	},
+	workingLine: {
+		enabled: false,
+		turnSummary: true,
+		spinner: "star-bloom",
+		spinnerIntervalMs: DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS,
+		animateSpinnerColor: false,
+		textIntervalMs: DEFAULT_WORKING_LINE_TEXT_INTERVAL_MS,
+		textAnimation: "classic",
+		colorSource: "theme",
+		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
+		segments: { tool: true, elapsed: true, thought: true, tokens: true },
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
@@ -646,6 +717,9 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		editorThinkingMedium: colorValue(record, "editorThinkingMedium"),
 		editorThinkingHigh: colorValue(record, "editorThinkingHigh"),
 		editorThinkingXhigh: colorValue(record, "editorThinkingXhigh"),
+		workingLineLow: colorValue(record, "workingLineLow"),
+		workingLineMid: colorValue(record, "workingLineMid"),
+		workingLineHigh: colorValue(record, "workingLineHigh"),
 	});
 }
 
@@ -1038,6 +1112,28 @@ function resolveUserMessagesSelection(
 	};
 }
 
+function resolveWorkingLineMessages(messages: ConfigRecord): WorkingLineMessagesConfig {
+	const preset = () => [...PI_WORKING_LINE_MESSAGES];
+	const hasCanonicalCustom = hasOwn(messages, "custom");
+	const custom = hasCanonicalCustom
+		? parseBoolean(messages.custom, true)
+		: messages.mode !== "native";
+	if (hasCanonicalCustom) {
+		return {
+			custom,
+			values: hasOwn(messages, "values") ? normalizeWorkingLineMessages(messages.values) : preset(),
+		};
+	}
+	const legacyValues = normalizeWorkingLineMessages(messages.values);
+	if (messages.mode === "append") {
+		return { custom, values: normalizeWorkingLineMessages([...preset(), ...legacyValues]) };
+	}
+	if (messages.mode === "replace" || messages.mode === "native") {
+		return { custom, values: legacyValues.length > 0 ? legacyValues : preset() };
+	}
+	return { custom, values: hasOwn(messages, "values") ? legacyValues : preset() };
+}
+
 function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
@@ -1050,6 +1146,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessages = recordValue(components.userMessages);
 	const userMessageStyles = recordValue(userMessages.styles);
 	const framed = recordValue(userMessageStyles.framed);
+	const workingLine = recordValue(components.workingLine);
+	const workingLineMessages = recordValue(workingLine.messages);
+	const workingLineSegments = recordValue(workingLine.segments);
 	const selectorBorders = recordValue(components.selectorBorders);
 	const footer = recordValue(components.footer);
 	const footerStyles = recordValue(footer.styles);
@@ -1145,6 +1244,56 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				"framed-copy-friendly": {},
 				compact: {},
 				labeled: {},
+			},
+		},
+		workingLine: {
+			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
+			turnSummary: parseBoolean(workingLine.turnSummary, defaultComponents.workingLine.turnSummary),
+			spinner:
+				workingLine.spinner === "braille" ||
+				workingLine.spinner === "star-bloom" ||
+				workingLine.spinner === "pinwheel" ||
+				workingLine.spinner === "claude-inspired" ||
+				workingLine.spinner === "pulse"
+					? workingLine.spinner
+					: defaultComponents.workingLine.spinner,
+			spinnerIntervalMs: isValidWorkingLineIntervalMs(
+				resolvedValue(workingLine, "spinnerIntervalMs", workingLine, "intervalMs"),
+			)
+				? (resolvedValue(workingLine, "spinnerIntervalMs", workingLine, "intervalMs") as number)
+				: defaultComponents.workingLine.spinnerIntervalMs,
+			animateSpinnerColor: parseBoolean(
+				workingLine.animateSpinnerColor,
+				defaultComponents.workingLine.animateSpinnerColor,
+			),
+			textIntervalMs: isValidWorkingLineIntervalMs(workingLine.textIntervalMs)
+				? workingLine.textIntervalMs
+				: defaultComponents.workingLine.textIntervalMs,
+			textAnimation:
+				workingLine.textAnimation === "classic" ||
+				workingLine.textAnimation === "kitt" ||
+				workingLine.textAnimation === "disabled"
+					? workingLine.textAnimation
+					: defaultComponents.workingLine.textAnimation,
+			colorSource: parseColorSource(
+				workingLine.colorSource,
+				defaultComponents.workingLine.colorSource,
+			),
+			messages: resolveWorkingLineMessages(workingLineMessages),
+			segments: {
+				tool: parseBoolean(workingLineSegments.tool, defaultComponents.workingLine.segments.tool),
+				elapsed: parseBoolean(
+					workingLineSegments.elapsed,
+					defaultComponents.workingLine.segments.elapsed,
+				),
+				thought: parseBoolean(
+					workingLineSegments.thought,
+					defaultComponents.workingLine.segments.thought,
+				),
+				tokens: parseBoolean(
+					workingLineSegments.tokens,
+					defaultComponents.workingLine.segments.tokens,
+				),
 			},
 		},
 		selectorBorders: {
@@ -1511,6 +1660,44 @@ export function saveUserMessagesComponentPatch(
 		path,
 		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,
 		patch.style !== undefined ? "userMessages" : undefined,
+	);
+}
+
+export function saveWorkingLineComponentPatch(
+	patch: WorkingLineComponentPatch,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		(components) => {
+			const component = components.workingLine;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.turnSummary !== undefined) component.turnSummary = patch.turnSummary;
+			if (patch.spinner !== undefined) component.spinner = patch.spinner;
+			if (patch.spinnerIntervalMs !== undefined)
+				component.spinnerIntervalMs = patch.spinnerIntervalMs;
+			if (patch.animateSpinnerColor !== undefined)
+				component.animateSpinnerColor = patch.animateSpinnerColor;
+			if (patch.textIntervalMs !== undefined) component.textIntervalMs = patch.textIntervalMs;
+			if (patch.textAnimation !== undefined) component.textAnimation = patch.textAnimation;
+			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.messages?.custom !== undefined) component.messages.custom = patch.messages.custom;
+			if (patch.messages?.values !== undefined) {
+				component.messages.values = normalizeWorkingLineMessages([...patch.messages.values]);
+			}
+			if (patch.segments?.tool !== undefined) component.segments.tool = patch.segments.tool;
+			if (patch.segments?.elapsed !== undefined)
+				component.segments.elapsed = patch.segments.elapsed;
+			if (patch.segments?.thought !== undefined)
+				component.segments.thought = patch.segments.thought;
+			if (patch.segments?.tokens !== undefined) component.segments.tokens = patch.segments.tokens;
+		},
+		path,
+		(record) => {
+			const workingLine = recordValue(recordValue(record.components).workingLine);
+			delete workingLine.intervalMs;
+			const messages = recordValue(workingLine.messages);
+			delete messages.mode;
+		},
 	);
 }
 

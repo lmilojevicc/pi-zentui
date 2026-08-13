@@ -12,6 +12,8 @@ export type { ThemeLike };
 
 export const EDITOR_ACCENT_STYLE = "blue";
 export const EDITOR_BORDER_STYLE = "bright-black";
+export const MAX_SAFE_SGR_PREFIX_CODE_UNITS = 96;
+export const MAX_SAFE_SGR_PREFIX_SEQUENCES = 4;
 
 export type SourceStyleFallback = {
 	theme: ColorSpec;
@@ -239,6 +241,66 @@ export function colorize(theme: ThemeLike, color: ColorSpec, text: string): stri
  * Render text with Starship-style terminal styling strings (e.g. "bold red", "fg:202",
  * "bg:blue", "underline bg:#bf5700").
  */
+function isSafeSgrParameters(parameters: string): boolean {
+	const tokens = parameters.split(";");
+	if (tokens.some((token) => !/^\d+$/.test(token))) return false;
+	const values = tokens.map(Number);
+	for (let index = 0; index < values.length; index += 1) {
+		const value = values[index];
+		if (
+			value === 1 ||
+			value === 2 ||
+			value === 3 ||
+			value === 4 ||
+			(value !== undefined && value >= 30 && value <= 37) ||
+			(value !== undefined && value >= 40 && value <= 47) ||
+			(value !== undefined && value >= 90 && value <= 97) ||
+			(value !== undefined && value >= 100 && value <= 107)
+		) {
+			continue;
+		}
+		if (value !== 38 && value !== 48) return false;
+		const mode = values[index + 1];
+		if (mode === 5) {
+			const color = values[index + 2];
+			if (color === undefined || color < 0 || color > 255) return false;
+			index += 2;
+			continue;
+		}
+		if (mode === 2) {
+			const channels = values.slice(index + 2, index + 5);
+			if (channels.length !== 3 || channels.some((channel) => channel < 0 || channel > 255)) {
+				return false;
+			}
+			index += 4;
+			continue;
+		}
+		return false;
+	}
+	return true;
+}
+
+/** Accept only the bounded SGR subset emitted by Zentui's supported style tokens. */
+export function isSafeSgrStylePrefix(value: unknown): value is string {
+	if (
+		typeof value !== "string" ||
+		value.length === 0 ||
+		value.length > MAX_SAFE_SGR_PREFIX_CODE_UNITS
+	) {
+		return false;
+	}
+	const sequence = /\x1b\[([0-9]+(?:;[0-9]+)*)m/g;
+	let offset = 0;
+	let count = 0;
+	for (const match of value.matchAll(sequence)) {
+		if (match.index !== offset || !isSafeSgrParameters(match[1] ?? "")) return false;
+		offset = match.index + match[0].length;
+		count += 1;
+		if (count > MAX_SAFE_SGR_PREFIX_SEQUENCES) return false;
+	}
+	return count > 0 && offset === value.length;
+}
+
 export function renderTerminalStyle(style: string, text: string): string {
 	const codes: string[] = [];
 	for (const token of style.trim().split(/\s+/)) {
