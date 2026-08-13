@@ -1,4 +1,5 @@
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { stripVTControlCharacters } from "node:util";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type {
 	ColorSpec,
 	PolishedTuiColors,
@@ -198,7 +199,7 @@ function stripC1TerminalSequences(value: string): string {
 export function normalizeWorkingLineMessage(value: unknown): string {
 	if (typeof value !== "string") return "";
 	const bounded = boundRawWorkingLineInput(value);
-	const withoutTerminalSequences = stripTerminalSequences(stripC1TerminalSequences(bounded));
+	const withoutTerminalSequences = stripVTControlCharacters(stripC1TerminalSequences(bounded));
 	const withoutControls = withoutTerminalSequences
 		.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
 		.replaceAll(/[\u034f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u206f]/g, "");

@@ -1,7 +1,10 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, type Text } from "@earendil-works/pi-tui";
+import type { Text } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TURN_SUMMARY_ENTRY_TYPE } from "../extensions/zentui/interaction-summary";
+
+const stripTerminalSequences = stripVTControlCharacters;
 
 const runtime = vi.hoisted(() => ({
 	enabled: true,

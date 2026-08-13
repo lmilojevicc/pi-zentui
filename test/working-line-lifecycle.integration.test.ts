@@ -1,6 +1,9 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Loader, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { Loader, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const stripTerminalSequences = stripVTControlCharacters;
 
 const runtime = vi.hoisted(() => ({
 	enabled: true,

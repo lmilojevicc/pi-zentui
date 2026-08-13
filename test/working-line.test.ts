@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Loader, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { Loader, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import {
@@ -50,6 +51,8 @@ function theme(): Theme {
 function config(): PolishedTuiConfig {
 	return structuredClone(defaultConfig);
 }
+
+const stripTerminalSequences = stripVTControlCharacters;
 
 function strippedFrames(frames: string[]): string[] {
 	return frames.map((frame) => stripTerminalSequences(frame));
@@ -939,7 +942,11 @@ describe("working-line row composition", () => {
 	it("sanitizes tools and applies bounded wording, tool, elapsed, token priority", () => {
 		const component = config().components.workingLine;
 		component.messages.custom = true;
-		expect(normalizeWorkingLineToolLabel("\x1b[31mread\nsecret\x1b[0m")).toBe("read secret");
+		expect(
+			normalizeWorkingLineToolLabel(
+				"\x1b[31mread\x1b[0m \x1b]2;title\x07safe \u009b32mtool\u009b0m \u009dsecret\u009c",
+			),
+		).toBe("read safe tool");
 		expect(normalizeWorkingLineToolLabel("a".repeat(30))).toBe(`${"a".repeat(17)}…`);
 		const all = composeWorkingLineRow(component, "Working…", {
 			tool: "read",
