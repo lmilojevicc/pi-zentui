@@ -62,6 +62,30 @@ function row(component: Component, label: string): string {
 function focusedRow(component: Component): string {
 	return component.render(200).find((line) => line.includes("> ")) ?? "";
 }
+function previewRow(rows: string[], text: string): number {
+	const index = rows.findIndex((line) => line.includes(text));
+	if (index < 0) throw new Error(`Could not find preview row containing ${text}`);
+	return index;
+}
+function expectStackedPreview(rows: string[], previewText: string): void {
+	const previewIndex = previewRow(rows, previewText);
+	const settingsIndex = rows.findIndex(
+		(line, index) => index > previewIndex && line.includes("> "),
+	);
+	if (settingsIndex < 0) throw new Error("Could not find settings below preview");
+	expect(rows[3]).toBe("");
+	expect(rows[4]).not.toBe("");
+	expect(rows[settingsIndex - 1]).toBe("");
+	expect(rows[settingsIndex - 2]).not.toBe("");
+}
+function leadingEmptyRowCount(rows: string[]): number {
+	let count = 0;
+	for (const row of rows.slice(3)) {
+		if (row !== "") break;
+		count += 1;
+	}
+	return count;
+}
 function expectFocusOrder(component: Component, labels: readonly string[]): void {
 	const first = focusedRow(component);
 	for (const [index, label] of labels.entries()) {
@@ -253,9 +277,10 @@ describe("component-oriented /zentui settings", () => {
 		selectLabel(component, "Elapsed");
 		expect(component.render(100).join("\n")).toContain("Show whole-interaction elapsed time.");
 		selectLabel(component, "Tokens");
-		expect(component.render(100).join("\n")).toContain(
-			"Show whole-interaction tokens as ↑input ↓output; live output may be estimated until final usage",
-		);
+		const tokenRows = component.render(100).join("\n");
+		expect(tokenRows).toContain("Show whole-interaction tokens as ↑input");
+		expect(tokenRows).toContain("until final usage");
+		expect(tokenRows).toContain("reconciles.");
 	});
 
 	it("uses exact component-owned row sets and ordering", async () => {
@@ -770,7 +795,8 @@ describe("component-oriented /zentui settings", () => {
 		]) {
 			expect(focusedRow(harness.component())).toContain(label);
 			if (label === "Pulse") {
-				expect(harness.component().render(100)[3]).toContain("⠀⠶⠀");
+				const rows = harness.component().render(100);
+				expect(rows[previewRow(rows, "⠀⠶⠀")]).toContain("⠀⠶⠀");
 				expect(current.components.workingLine.spinnerIntervalMs).toBe(180);
 			}
 			harness.component().handleInput(" ");
@@ -909,31 +935,181 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.calls.renders).toEqual({ shared: 1, local: 1 });
 	});
 
+	it.each([
+		["Editor", "Explain"],
+		["User messages", "Please review"],
+		["Working line", "Sautéing…"],
+	] as const)(
+		"stacks the %s preview above settings at every width",
+		async (section, previewText) => {
+			vi.useFakeTimers();
+			const harness = createHarness();
+			harness.sessionLifecycle.start();
+			await harness.command().handler("", harness.ctx);
+			const component = harness.component();
+			goToSection(component, section);
+			const zeroWidthRows = component.render(0);
+			const oneCellRows = component.render(1);
+			expect(zeroWidthRows).toHaveLength(oneCellRows.length);
+			for (const width of [0, 1, 4]) {
+				const rows = component.render(width);
+				expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
+				expect(rows.join("")).not.toContain(previewText);
+			}
+			for (const width of [24, 80, 99, 100, 118, 140, 160, 200]) {
+				const rows = component.render(width);
+				expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
+				expectStackedPreview(rows, previewText);
+				expect(rows.some((line) => line.includes("> "))).toBe(true);
+			}
+			component.handleInput("\x1b");
+			expect(vi.getTimerCount()).toBe(0);
+		},
+	);
+
+	it.each(["Appearance", "Footer", "Segments", "Git", "Extensions"] as const)(
+		"does not add preview spacer rows in %s",
+		async (section) => {
+			const harness = createHarness();
+			await harness.command().handler("", harness.ctx);
+			const component = harness.component();
+			goToSection(component, section);
+			for (const width of [24, 80, 99, 100, 118, 140, 160, 200]) {
+				const rows = component.render(width);
+				expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
+				expect(leadingEmptyRowCount(rows)).toBe(0);
+			}
+		},
+	);
+
+	it("shows static previews only in their owning sections without timers or extra setters", async () => {
+		vi.useFakeTimers();
+		const harness = createHarness();
+		harness.sessionLifecycle.start();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		const appearanceRows = component.render(100);
+		expect(appearanceRows.join("\n")).not.toContain("Explain this change safely.");
+		expect(leadingEmptyRowCount(appearanceRows)).toBe(0);
+		component.handleInput("\t");
+		const editorRows = component.render(100);
+		expectStackedPreview(editorRows, "Explain this change safely.");
+		const editor = editorRows.join("\n");
+		expect(editor).toContain("Explain this change safely.");
+		expect(editor).not.toContain("Editor preview");
+		expect(vi.getTimerCount()).toBe(0);
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		const copyFriendly = component.render(100).join("\n");
+		expect(copyFriendly).not.toBe(editor);
+		expect(harness.calls.editor).toEqual([{ style: "opencode-copy-friendly" }]);
+		selectLabel(component, "Editor colors");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toBe(copyFriendly);
+		selectLabel(component, "Editor viewport indicators");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toContain("↑ 2 more");
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		const minimalist = component.render(100).join("\n");
+		selectLabel(component, "Timer");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toBe(minimalist);
+		expect(harness.calls.minimalist).toEqual([{ showTimer: false }]);
+		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\t");
+		const messageRows = component.render(100);
+		expectStackedPreview(messageRows, "Please review");
+		const messages = messageRows.join("\n");
+		expect(messages).toContain("Please review [this change] safely.");
+		expect(messages).not.toContain("User message preview");
+		expect(harness.calls.messages).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+		selectLabel(component, "Message style");
+		component.handleInput(" ");
+		const copyFriendlyMessage = component.render(100).join("\n");
+		expect(copyFriendlyMessage).not.toBe(messages);
+		selectLabel(component, "Message colors");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toBe(copyFriendlyMessage);
+		expect(harness.calls.messages).toEqual([
+			{ style: "framed-copy-friendly" },
+			{ colorSource: "terminal" },
+		]);
+		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\t");
+		const workingRows = component.render(100);
+		expectStackedPreview(workingRows, "Sautéing…");
+		component.handleInput("\t");
+		for (const section of ["Footer", "Segments", "Git", "Extensions"] as const) {
+			expect(leadingEmptyRowCount(component.render(100)), section).toBe(0);
+			if (section !== "Extensions") component.handleInput("\t");
+		}
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("keeps disabled Editor and User-message previews visual, bounded, and focus-neutral", async () => {
+		const current = cloneConfig();
+		current.components.editor.enabled = false;
+		current.components.userMessages.enabled = false;
+		const harness = createHarness(current);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		expect(component.render(80).join("\n")).toContain("Explain this change safely.");
+		expect(component.render(80).join("\n")).not.toContain("Editor preview");
+		expect(component.render(4).every((line) => visibleWidth(line) <= 4)).toBe(true);
+		expect(focusedRow(component)).toContain("> Editor");
+		component.handleInput("\t");
+		expect(component.render(24).join("\n")).toContain("Please review");
+		expect(component.render(80).join("\n")).not.toContain("User message preview");
+		expect(focusedRow(component)).toContain("> User messages");
+		expect(harness.calls.editor).toEqual([]);
+		expect(harness.calls.messages).toEqual([]);
+	});
+
 	it("animates the preview and cleans its single timer on changes, exits, errors, and shutdown", async () => {
 		vi.useFakeTimers();
 		const harness = createHarness();
 		harness.sessionLifecycle.start();
 		await harness.command().handler("working-line", harness.ctx);
 		const component = harness.component();
-		const firstPreview = component.render(100)[3];
+		const animationWidth = 160;
+		const initialRows = component.render(animationWidth);
+		expectStackedPreview(initialRows, "Sautéing…");
+		expect(leadingEmptyRowCount(component.render(1))).toBe(0);
+		expect(component.render(1).every((line) => visibleWidth(line) <= 1)).toBe(true);
+		const firstPreviewIndex = previewRow(initialRows, "Sautéing…");
+		const firstPreview = initialRows[firstPreviewIndex];
 		expect(firstPreview).toContain("Sautéing…");
 		expect(firstPreview).toContain("read");
 		expect(harness.calls.workingLine).toEqual([]);
 		expect(vi.getTimerCount()).toBe(1);
 		vi.advanceTimersByTime(300);
-		expect(component.render(100)[3]).not.toBe(firstPreview);
+		expect(component.render(animationWidth)[firstPreviewIndex]).not.toBe(firstPreview);
 		selectLabel(component, "Custom messages");
 		component.handleInput(" ");
-		const fallbackPreview = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "");
+		const fallbackPreview = component
+			.render(animationWidth)
+			[firstPreviewIndex]?.replaceAll("[", "")
+			.replaceAll("]", "");
 		expect(fallbackPreview).toContain("Working…");
 		expect(fallbackPreview).toContain("read");
 		vi.advanceTimersByTime(1200);
-		const stablePreview = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "") ?? "";
+		const stablePreview =
+			component
+				.render(animationWidth)
+				[firstPreviewIndex]?.replaceAll("[", "")
+				.replaceAll("]", "") ?? "";
 		expect(stablePreview).toContain("Working…");
 		expect(stablePreview).toContain("read · 1m02s · thinking 10s · ↑1234 ↓56");
 		selectLabel(component, "Tool");
 		component.handleInput(" ");
-		const withoutTool = component.render(100)[3]?.replaceAll("[", "").replaceAll("]", "") ?? "";
+		const withoutTool =
+			component
+				.render(animationWidth)
+				[firstPreviewIndex]?.replaceAll("[", "")
+				.replaceAll("]", "") ?? "";
 		expect(withoutTool).not.toContain("read");
 		expect(withoutTool).toContain("1m02s · thinking 10s · ↑1234 ↓56");
 		selectLabel(component, "Spinner");
@@ -958,6 +1134,7 @@ describe("component-oriented /zentui settings", () => {
 		await failed.command().handler("working-line", failed.ctx);
 		failed.component().handleInput(" ");
 		expect(vi.getTimerCount()).toBe(0);
+		expect(leadingEmptyRowCount(failed.component().render(100))).toBe(0);
 		expect(failed.notifications).toContain(
 			"Could not update Zentui settings: read-only working line",
 		);
@@ -988,7 +1165,8 @@ describe("component-oriented /zentui settings", () => {
 						component.handleInput(" ");
 					} else {
 						expect(focusedRow(component)).toContain("> Message list");
-						reopenedPreview = component.render(100)[3] ?? "";
+						const rows = component.render(100);
+						reopenedPreview = rows[previewRow(rows, "Working…")] ?? "";
 						component.handleInput("\x1b");
 					}
 					return outcome;

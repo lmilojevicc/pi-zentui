@@ -20,7 +20,7 @@ import {
 
 const LEGACY_SPLIT_POLISHED_FRAME = Symbol.for("pi-zentui.polished-frame");
 
-type ViewportCounts = {
+export type ViewportCounts = {
 	above?: string;
 	below?: string;
 };
@@ -75,12 +75,25 @@ type WrappedEditor = EditorComponent &
 		setAutocompleteMaxVisible?: (maxVisible: number) => void;
 	};
 
-type EditorMeta = {
+export type EditorMeta = {
 	modelLabel: string;
 	modelId?: string;
 	modelName?: string;
 	providerLabel: string;
 	sessionName?: string;
+};
+
+export type PolishedEditorFrameOptions = {
+	width: number;
+	editorLines: string[];
+	autocompleteLines?: string[];
+	viewport?: ViewportCounts;
+	uiTheme: Theme;
+	config: ZentuiConfig;
+	modelMeta: EditorMeta;
+	thinkingLevel?: string;
+	rightStatus?: string;
+	borderColor?: (text: string) => string;
 };
 
 type PolishedFrameOptions = {
@@ -542,12 +555,6 @@ function renderPolishedFrame({
 }: PolishedFrameOptions): PolishedFrameResult {
 	if (width <= 2) return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 
-	const reset = "\x1b[0m";
-	const colorSource = config.components.editor.colorSource;
-	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
-	const innerWidth = Math.max(0, width - railWidth);
-	const lowRailContinuation = " ".repeat(promptWidth);
-
 	if (baseRendered.length < 2) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -584,6 +591,48 @@ function renderPolishedFrame({
 		above: parsedTop?.count,
 		below: parsedBottom?.count,
 	};
+	const lines = renderPolishedEditorFrame({
+		width,
+		editorLines,
+		autocompleteLines,
+		viewport,
+		uiTheme,
+		config,
+		modelMeta,
+		thinkingLevel,
+		rightStatus,
+		borderColor,
+	});
+	POLISHED_FRAME_SPLITS.set(lines, {
+		rows: Object.freeze([...lines]),
+		split: {
+			editorLines,
+			trailingLines: autocompleteLines,
+			viewport,
+		},
+	});
+	return { lines, decorated: true };
+}
+
+/** Pure Opencode frame composition shared by the live editor and settings preview. */
+export function renderPolishedEditorFrame({
+	width,
+	editorLines,
+	autocompleteLines = [],
+	viewport = {},
+	uiTheme,
+	config,
+	modelMeta,
+	thinkingLevel,
+	rightStatus,
+	borderColor,
+}: PolishedEditorFrameOptions): string[] {
+	if (width <= 2) return clampRenderedLines(editorLines, width);
+	const reset = "\x1b[0m";
+	const colorSource = config.components.editor.colorSource;
+	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
+	const innerWidth = Math.max(0, width - railWidth);
+	const lowRailContinuation = " ".repeat(promptWidth);
 	const meta = renderEditorMetadataFormat(
 		selectedPolishedConfig(config)?.metadataFormat ??
 			config.components.editor.styles.opencode.metadataFormat,
@@ -658,19 +707,7 @@ function renderPolishedFrame({
 				...autocompleteLines,
 			];
 
-	const clamped = clampRenderedLines(renderedLines, width);
-	POLISHED_FRAME_SPLITS.set(clamped, {
-		rows: Object.freeze([...clamped]),
-		split: {
-			editorLines,
-			trailingLines: autocompleteLines,
-			viewport,
-		},
-	});
-	return {
-		lines: clamped,
-		decorated: true,
-	};
+	return clampRenderedLines(renderedLines, width);
 }
 
 export class PolishedEditor extends CustomEditor {

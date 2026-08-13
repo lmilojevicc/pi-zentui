@@ -1,0 +1,110 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { PolishedTuiConfig } from "./config";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import { renderMinimalistFrame } from "./minimalist-editor";
+import { safeThemeFg } from "./style";
+import { renderPolishedEditorFrame } from "./ui";
+import { renderUserMessageStyle } from "./user-message-styles";
+
+export const SETTINGS_PREVIEW_MAX_WIDTH = 72;
+export const SETTINGS_PREVIEW_MAX_ROWS = 8;
+export const EDITOR_PREVIEW_INPUT = "Explain this change safely.";
+export const USER_MESSAGE_PREVIEW_MARKDOWN = "Please review **this change** safely.";
+
+function boundedRows(rows: string[], width: number): string[] {
+	const safeWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
+	if (safeWidth <= 0) return [];
+	const bounded = rows
+		.slice(0, SETTINGS_PREVIEW_MAX_ROWS)
+		.map((line) => truncateToWidth(line, safeWidth, ""));
+	while (bounded.length > 0 && visibleWidth(bounded.at(-1) ?? "") === 0) bounded.pop();
+	return bounded;
+}
+
+function previewConfig(config: PolishedTuiConfig): PolishedTuiConfig {
+	const derived = structuredClone(config);
+	derived.icons = Object.fromEntries(
+		Object.entries(derived.icons).map(([key, value]) => [
+			key,
+			typeof value === "string" ? sanitizeEditorMetadataText(value) : value,
+		]),
+	) as typeof derived.icons;
+	return derived;
+}
+
+function adaptiveBorder(theme: Theme): (text: string) => string {
+	return (text) => safeThemeFg(theme, "thinkingHigh", text);
+}
+
+export function renderEditorSettingsPreview(
+	config: PolishedTuiConfig,
+	theme: Theme,
+	width: number,
+): string[] {
+	const previewWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
+	if (previewWidth <= 0) return [];
+	const safeConfig = previewConfig(config);
+	const editor = safeConfig.components.editor;
+	const borderColor = adaptiveBorder(theme);
+	const modelLabel = editor.modelLabel === "name" ? "Sonnet 4" : "sonnet-4";
+	const editorLines = [EDITOR_PREVIEW_INPUT];
+	const viewport = editor.viewportIndicators ? { above: "2", below: "3" } : undefined;
+	const frame =
+		editor.style === "minimalist"
+			? renderMinimalistFrame({
+					width: previewWidth,
+					editorLines,
+					viewport,
+					inputText: EDITOR_PREVIEW_INPUT,
+					metadata: {
+						cwd: "/workspace/zentui/src",
+						projectRoot: "/workspace/zentui",
+						branch: "feat/settings-previews",
+						dirty: true,
+						ahead: 2,
+						behind: 1,
+						costLabel: "$.12",
+						modelLabel,
+						thinkingLevel: "high",
+						contextPercent: 75,
+						contextWindow: 372_000,
+						sessionName: "Preview",
+						agentDurationMs: 12_000,
+						agentActive: true,
+					},
+					uiTheme: theme,
+					config: safeConfig,
+					borderColor,
+				})
+			: renderPolishedEditorFrame({
+					width: previewWidth,
+					editorLines,
+					viewport,
+					uiTheme: theme,
+					config: safeConfig,
+					modelMeta: {
+						modelLabel,
+						modelId: "sonnet-4",
+						modelName: "Sonnet 4",
+						providerLabel: "Anthropic",
+						sessionName: "Preview",
+					},
+					thinkingLevel: "high",
+					borderColor,
+				});
+	return boundedRows(frame, previewWidth);
+}
+
+export function renderUserMessageSettingsPreview(
+	config: PolishedTuiConfig,
+	theme: Theme,
+	width: number,
+	text = USER_MESSAGE_PREVIEW_MARKDOWN,
+): string[] {
+	const previewWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
+	if (previewWidth <= 0) return [];
+	const safeConfig = previewConfig(config);
+	const frame = renderUserMessageStyle({ text, width: previewWidth, theme, config: safeConfig });
+	return boundedRows(frame, previewWidth);
+}
