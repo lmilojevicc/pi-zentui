@@ -1,5 +1,5 @@
+import { stripVTControlCharacters } from "node:util";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
 	formatTurnSummary,
@@ -10,6 +10,8 @@ import {
 	subtractThoughtIntervalsWithinCap,
 	TURN_SUMMARY_ENTRY_TYPE,
 } from "../extensions/zentui/interaction-summary";
+
+const stripTerminalSequences = stripVTControlCharacters;
 
 type AssistantOptions = {
 	responseId?: string;
