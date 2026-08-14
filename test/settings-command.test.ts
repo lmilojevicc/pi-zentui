@@ -1102,7 +1102,7 @@ describe("component-oriented /zentui settings", () => {
 				[firstPreviewIndex]?.replaceAll("[", "")
 				.replaceAll("]", "") ?? "";
 		expect(stablePreview).toContain("Working…");
-		expect(stablePreview).toContain("read · 1m02s · thinking 10s · ↑1234 ↓56");
+		expect(stablePreview).toContain("read · 1m02s · thinking 10s · ↑1.2k ↓56");
 		selectLabel(component, "Tool");
 		component.handleInput(" ");
 		const withoutTool =
@@ -1111,7 +1111,7 @@ describe("component-oriented /zentui settings", () => {
 				[firstPreviewIndex]?.replaceAll("[", "")
 				.replaceAll("]", "") ?? "";
 		expect(withoutTool).not.toContain("read");
-		expect(withoutTool).toContain("1m02s · thinking 10s · ↑1234 ↓56");
+		expect(withoutTool).toContain("1m02s · thinking 10s · ↑1.2k ↓56");
 		selectLabel(component, "Spinner");
 		component.handleInput(" ");
 		expect(vi.getTimerCount()).toBe(1);

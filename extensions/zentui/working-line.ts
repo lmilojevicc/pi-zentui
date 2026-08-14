@@ -7,6 +7,7 @@ import type {
 	WorkingLineTextAnimation,
 	ZentuiConfig,
 } from "./config";
+import { formatCount } from "./format";
 import {
 	isSafeSgrStylePrefix,
 	isSupportedColorSpec,
@@ -561,7 +562,7 @@ export function formatWorkingLineTokens(
 	) {
 		return undefined;
 	}
-	return `↑${tokens.input} ↓${tokens.output}`;
+	return `↑${formatCount(tokens.input)} ↓${formatCount(tokens.output)}`;
 }
 
 function truncateWithEllipsis(value: string, capacity: number): string {
