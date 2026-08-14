@@ -228,7 +228,63 @@ describe("working-line extension lifecycle integration", () => {
 		expect(current.forbidden).not.toHaveBeenCalled();
 	});
 
-	it("shows exact whole-interaction usage when the aggregate widens the row", async () => {
+	it("compacts live provider usage", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		const row = () => {
+			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+		};
+		const message = (input: number, output: number) => ({
+			role: "assistant",
+			usage: { input, output },
+			content: [],
+			responseId: "reported",
+		});
+
+		await emit(handlers, "session_start", current.ctx);
+		await emit(handlers, "agent_start", current.ctx);
+		await emit(handlers, "turn_start", current.ctx);
+		await emit(handlers, "message_update", current.ctx, { message: message(27_000, 1_400) });
+		expect(row()).toContain("↑27k ↓1.4k");
+		await emit(handlers, "message_end", current.ctx, { message: message(27_000, 1_400) });
+		expect(row()).toContain("↑27k ↓1.4k");
+	});
+
+	it("visibly reconciles an estimated 1.0k output to exact 999", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		const row = () => {
+			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+		};
+		const message = (output: number) => ({
+			role: "assistant",
+			usage: { input: 0, output },
+			content: [],
+			responseId: "estimated-boundary",
+		});
+
+		await emit(handlers, "session_start", current.ctx);
+		await emit(handlers, "agent_start", current.ctx);
+		await emit(handlers, "turn_start", current.ctx);
+		const partial = message(998);
+		await emit(handlers, "message_update", current.ctx, { message: partial });
+		await emit(handlers, "message_update", current.ctx, {
+			message: partial,
+			assistantMessageEvent: {
+				type: "text_delta",
+				contentIndex: 0,
+				delta: "abcdefgh",
+				partial: { content: [{ type: "text", text: "abcdefgh" }] },
+			},
+		});
+		expect(row()).toContain("↑0 ↓1.0k");
+		await emit(handlers, "message_end", current.ctx, { message: message(999) });
+		expect(row()).toContain("↑0 ↓999");
+	});
+
+	it("keeps cumulative billion-scale totals compact across continuations", async () => {
 		runtime.message = "Response usage stays visible here";
 		const handlers = loadExtension();
 		const current = harness();
@@ -254,10 +310,10 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "message_end", current.ctx, {
 			message: assistant(1_000_000_000, 1_000_000_000, "first"),
 		});
-		expect(row()).toContain("↑1000000000 ↓1000000000");
+		expect(row()).toContain("↑1000M ↓1000M");
 
 		await emit(handlers, "turn_start", current.ctx);
-		expect(row()).toContain("↑1000000000 ↓1000000000");
+		expect(row()).toContain("↑1000M ↓1000M");
 		await emit(handlers, "tool_execution_start", current.ctx, {
 			toolCallId: "wide",
 			toolName: "123456789012345678",
@@ -266,14 +322,20 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "message_update", current.ctx, {
 			message: assistant(12, 3, "second"),
 		});
-		expect(row()).toContain("↑1000000012 ↓1000000003");
-		expect(current.calls).toHaveLength(writesBeforeLiveUsage + 1);
+		expect(row()).toContain("↑1000M ↓1000M");
+		expect(current.calls).toHaveLength(writesBeforeLiveUsage);
 
 		await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "wide" });
 		await emit(handlers, "message_end", current.ctx, {
 			message: assistant(14, 5, "second"),
 		});
-		expect(row()).toContain("↑1000000014 ↓1000000005");
+		expect(row()).toContain("↑1000M ↓1000M");
+
+		await emit(handlers, "turn_start", current.ctx);
+		await emit(handlers, "message_end", current.ctx, {
+			message: assistant(499_986, 499_995, "third"),
+		});
+		expect(row()).toContain("↑1001M ↓1001M");
 	});
 
 	it("keeps committed tokens through retry lifecycle and initial zero usage, then accumulates final usage", async () => {

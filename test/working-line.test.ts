@@ -93,18 +93,18 @@ function gcdForTest(left: number, right: number): number {
 
 describe("working-line token formatting", () => {
 	it("formats approximate and exact output identically while validating metadata", () => {
-		expect(formatWorkingLineTokens({ input: 123, output: 45, outputApproximate: false })).toBe(
-			"↑123 ↓45",
-		);
-		expect(formatWorkingLineTokens({ input: 123, output: 45, outputApproximate: true })).toBe(
-			"↑123 ↓45",
+		expect(
+			formatWorkingLineTokens({ input: 27_000, output: 1_400, outputApproximate: false }),
+		).toBe("↑27k ↓1.4k");
+		expect(formatWorkingLineTokens({ input: 27_000, output: 1_400, outputApproximate: true })).toBe(
+			"↑27k ↓1.4k",
 		);
 		expect(
 			formatWorkingLineTokens({ input: 1, output: 2, outputApproximate: "yes" } as never),
 		).toBeUndefined();
 	});
 
-	it("reserves the maximum-safe token label within the complete 80-cell row", () => {
+	it("reserves compact maximum-safe tokens within the complete 80-cell row", () => {
 		const current = config();
 		const composed = composeWorkingLineRow(current.components.workingLine, "x".repeat(43), {
 			tokens: {
@@ -113,7 +113,7 @@ describe("working-line token formatting", () => {
 				outputApproximate: true,
 			},
 		});
-		expect(composed.row).toContain(`↑${Number.MAX_SAFE_INTEGER} ↓${Number.MAX_SAFE_INTEGER}`);
+		expect(composed.row).toContain("↑9007199255M ↓9007199255M");
 		expect(visibleWidth(composed.row)).toBeLessThanOrEqual(MAX_WORKING_LINE_FRAME_CELLS - 2);
 	});
 });
@@ -809,14 +809,14 @@ describe("working-line presets and frame generation", () => {
 			theme(),
 		);
 		for (const frame of strippedFrames(generated.frames)) {
-			expect(frame).toMatch(/^[·✦✧✶] Configured · read · ↑1234 ↓56$/);
+			expect(frame).toMatch(/^[·✦✧✶] Configured · read · ↑1.2k ↓56$/);
 			expect(frame).not.toContain("1m02s");
 		}
 		current.components.workingLine.messages.custom = false;
 		const fallback = strippedFrames(
 			buildWorkingLinePreviewFrames(current.components.workingLine, current.colors, theme()).frames,
 		);
-		expect(fallback.every((frame) => frame.includes(" Working… · read · ↑1234 ↓56"))).toBe(true);
+		expect(fallback.every((frame) => frame.includes(" Working… · read · ↑1.2k ↓56"))).toBe(true);
 	});
 });
 
@@ -953,7 +953,7 @@ describe("working-line row composition", () => {
 			elapsedMs: 62_000,
 			tokens: { input: 1234, output: 56 },
 		});
-		expect(all.row).toBe("Working… · read · 1m02s · ↑1234 ↓56");
+		expect(all.row).toBe("Working… · read · 1m02s · ↑1.2k ↓56");
 		expect(2 + visibleWidth(all.row) + 1 + 2).toBeLessThanOrEqual(MAX_WORKING_LINE_ROW_CELLS);
 		component.spinner = "pulse";
 		const constrained = composeWorkingLineRow(component, "x".repeat(43), {
@@ -961,10 +961,8 @@ describe("working-line row composition", () => {
 			elapsedMs: 360_000_000,
 			tokens: { input: Number.MAX_SAFE_INTEGER, output: Number.MAX_SAFE_INTEGER },
 		});
-		expect(constrained.row).toBe(
-			`${"x".repeat(34)}… · ↑${Number.MAX_SAFE_INTEGER} ↓${Number.MAX_SAFE_INTEGER}`,
-		);
-		expect(workingLineSpinnerWidth("pulse") + 1 + visibleWidth(constrained.row)).toBe(
+		expect(constrained.row).toBe(`${"x".repeat(43)} · ↑9007199255M ↓9007199255M`);
+		expect(workingLineSpinnerWidth("pulse") + 1 + visibleWidth(constrained.row)).toBeLessThan(
 			MAX_WORKING_LINE_FRAME_CELLS,
 		);
 		expect(constrained.row).not.toContain("parallel");
@@ -1012,7 +1010,7 @@ describe("working-line thought segment", () => {
 			thought: { durationMs: 10_000, active: true },
 			tokens: { input: Number.MAX_SAFE_INTEGER, output: Number.MAX_SAFE_INTEGER },
 		});
-		expect(composed.row).toContain(`↑${Number.MAX_SAFE_INTEGER} ↓${Number.MAX_SAFE_INTEGER}`);
+		expect(composed.row).toContain("↑9007199255M ↓9007199255M");
 		expect(composed.row).toContain("thinking");
 		expect(composed.row).not.toContain("parallel-tool-label");
 		expect(

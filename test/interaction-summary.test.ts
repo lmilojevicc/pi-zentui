@@ -1295,16 +1295,16 @@ describe("thought duration tracking", () => {
 
 describe("turn summary entry", () => {
 	it("validates versioned numeric data and formats exact persistent text", () => {
-		const data = { version: 1 as const, durationMs: 42_999, input: 1234, output: 380 };
+		const data = { version: 1 as const, durationMs: 42_999, input: 27_000, output: 1_400 };
 		expect(isTurnSummaryData(data)).toBe(true);
-		expect(formatTurnSummary(data)).toBe(" Turn took 42s · ↑1.2k ↓380");
+		expect(formatTurnSummary(data)).toBe(" Turn took 42s · ↑27k ↓1.4k");
 		const rendered = renderTurnSummaryEntry(
 			{ data },
 			{},
 			{ fg: (_color: string, text: string) => `\x1b[2m${text}\x1b[0m` },
 		);
 		expect(stripTerminalSequences(rendered?.render(100).join("\n") ?? "").trimEnd()).toBe(
-			" Turn took 42s · ↑1.2k ↓380",
+			" Turn took 42s · ↑27k ↓1.4k",
 		);
 	});
 

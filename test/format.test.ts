@@ -79,12 +79,20 @@ function makeSessionContext(entries: unknown[], branch = entries) {
 }
 
 describe("usage formatting", () => {
-	it("formats large counts with compact M suffixes", () => {
+	it("formats counts at compact decimal boundaries", () => {
+		expect(formatCount(0)).toBe("0");
 		expect(formatCount(999)).toBe("999");
-		expect(formatCount(1_500)).toBe("1.5k");
+		expect(formatCount(1_000)).toBe("1.0k");
+		expect(formatCount(1_100)).toBe("1.1k");
+		expect(formatCount(9_999)).toBe("10.0k");
+		expect(formatCount(10_000)).toBe("10k");
+		expect(formatCount(27_000)).toBe("27k");
 		expect(formatCount(123_456)).toBe("123k");
+		expect(formatCount(999_999)).toBe("1000k");
+		expect(formatCount(1_000_000)).toBe("1.0M");
 		expect(formatCount(3_100_000)).toBe("3.1M");
 		expect(formatCount(44_000_000)).toBe("44M");
+		expect(formatCount(Number.MAX_SAFE_INTEGER)).toBe("9007199255M");
 	});
 
 	it("uses all session entries for totals instead of only the active branch", () => {
@@ -301,7 +309,7 @@ describe("usage formatting", () => {
 		expect(totals.latestCacheHitRate).toBeCloseTo(100 / 3);
 		expect(Number.isFinite(totals.latestCacheHitRate ?? Number.NaN)).toBe(true);
 		expect(buildTokenLabel(totals, cacheHitIcon)).toBe(
-			`↑${formatCount(Number.MAX_VALUE)} ↓${formatCount(Number.MAX_VALUE)} ${cacheHitIcon} 33.3%`,
+			`↑1.797693134862316e+302M ↓1.797693134862316e+302M ${cacheHitIcon} 33.3%`,
 		);
 		expect(buildCostLabel(totals)).toBe(`$${Number.MAX_VALUE.toFixed(3)}`);
 		expect(buildTokenLabel(totals, cacheHitIcon)).not.toMatch(/Infinity|NaN/);
