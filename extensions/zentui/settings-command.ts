@@ -50,6 +50,11 @@ import {
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
 import type { SessionLifecycle } from "./session-lifecycle";
+import {
+	renderEditorSettingsPreview,
+	renderUserMessageSettingsPreview,
+	SETTINGS_PREVIEW_MAX_WIDTH,
+} from "./settings-previews";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
 import {
 	buildWorkingLinePreviewFrames,
@@ -120,6 +125,7 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
+
 const settingsSections = [
 	"appearance",
 	"editor",
@@ -1574,6 +1580,22 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					};
 					settingsList = makeSettingsList(initialFocusId);
 					startPreview();
+					const renderPreviewRows = (previewWidth: number): string[] => {
+						if (previewWidth <= 0) return [];
+						if (activeSection === "editor")
+							return renderEditorSettingsPreview(deps.getConfig(), theme, previewWidth);
+						if (activeSection === "userMessages")
+							return renderUserMessageSettingsPreview(deps.getConfig(), theme, previewWidth);
+						if (activeSection === "workingLine" && preview && preview.frames.length > 0)
+							return [
+								truncateToWidth(
+									preview.frames[previewFrameIndex] ?? preview.frames[0],
+									Math.min(SETTINGS_PREVIEW_MAX_WIDTH, previewWidth),
+									"",
+								),
+							];
+						return [];
+					};
 					return {
 						render(width: number) {
 							const border = renderChromeBorder(
@@ -1582,22 +1604,23 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								EDITOR_BORDER_STYLE,
 								"─".repeat(Math.max(0, width)),
 							);
+							const settingsRows = withSectionFooter(settingsList.render(width), theme).map(
+								(line) => truncateToWidth(line, width, ""),
+							);
+							const previewRows = renderPreviewRows(Math.max(0, width - 4));
+							while (previewRows.length > 0 && visibleWidth(previewRows.at(-1) ?? "") === 0)
+								previewRows.pop();
+							const indentedPreviewRows = previewRows.map((line) =>
+								truncateToWidth(`  ${line}`, width, ""),
+							);
+							const bodyRows = indentedPreviewRows.some((line) => visibleWidth(line) > 0)
+								? ["", ...indentedPreviewRows, "", ...settingsRows]
+								: settingsRows;
 							return [
 								truncateToWidth(border, width, ""),
 								truncateToWidth(formatSectionTabs(activeSection, theme, width), width, ""),
 								truncateToWidth(border, width, ""),
-								...(activeSection === "workingLine" && preview && preview.frames.length > 0
-									? [
-											truncateToWidth(
-												`  ${preview.frames[previewFrameIndex] ?? preview.frames[0]}`,
-												width,
-												"",
-											),
-										]
-									: []),
-								...withSectionFooter(settingsList.render(width), theme).map((line) =>
-									truncateToWidth(line, width, ""),
-								),
+								...bodyRows,
 								truncateToWidth(border, width, ""),
 							];
 						},
