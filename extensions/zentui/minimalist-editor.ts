@@ -21,6 +21,21 @@ import {
 	safeThemeFg,
 } from "./style";
 
+const MINIMALIST_MODEL_FALLBACK = {
+	theme: "syntaxKeyword",
+	terminal: "bold purple",
+};
+const MINIMALIST_THINKING_FALLBACK = { theme: "warning", terminal: "bold yellow" };
+const MINIMALIST_ADAPTIVE_TERMINAL_THINKING_FALLBACKS: Record<string, string> = {
+	minimal: "bright-black",
+	low: "blue",
+	medium: "cyan",
+	high: "yellow",
+	xhigh: "red",
+	max: "bright-red",
+};
+const MINIMALIST_BRANCH_FALLBACK = { theme: "bold syntaxKeyword", terminal: "bold blue" };
+
 export type MinimalistEditorMetadata = {
 	cwd: string;
 	projectRoot?: string;
@@ -100,6 +115,12 @@ function thinkingStyle(config: ZentuiConfig, level: string): string | undefined 
 			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
 		case "xhigh":
 			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+		case "max":
+			return (
+				config.colors.editorThinkingMax ??
+				config.colors.editorThinkingXhigh ??
+				config.colors.editorThinking
+			);
 		default:
 			return config.colors.editorThinking;
 	}
@@ -155,6 +176,7 @@ function renderTopRight(
 	config: ZentuiConfig,
 	availableWidth: number,
 	renderBorder: (text: string) => string,
+	renderThinking: (text: string) => string,
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
@@ -173,22 +195,14 @@ function renderTopRight(
 				uiTheme,
 				source,
 				config.colors.editorModel,
-				EDITOR_ACCENT_FALLBACK,
+				MINIMALIST_MODEL_FALLBACK,
 				model,
 			),
 		);
 	}
 	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
 	if (thinking && thinking.toLowerCase() !== "off") {
-		parts.push(
-			renderStyleForSourceOrFallback(
-				uiTheme,
-				source,
-				thinkingStyle(config, thinking),
-				"muted",
-				thinking,
-			),
-		);
+		parts.push(renderThinking(thinking));
 	}
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
@@ -236,7 +250,15 @@ function renderBottomLeft(
 	const source = config.components.editor.colorSource;
 	const branch = sanitizeEditorMetadataText(metadata.branch ?? "");
 	const parts = branch
-		? [renderStyleForSource(uiTheme, source, config.colors.gitBranch, branch)]
+		? [
+				renderStyleForSourceOrFallback(
+					uiTheme,
+					source,
+					config.colors.editorGitBranch,
+					MINIMALIST_BRANCH_FALLBACK,
+					branch,
+				),
+			]
 		: [];
 	if (metadata.dirty) {
 		parts.push(renderStyleForSource(uiTheme, source, config.colors.gitStatus, "*"));
@@ -354,18 +376,31 @@ export function renderMinimalistFrame({
 }: MinimalistFrameOptions): string[] {
 	if (width <= 4) return clampLines(editorLines, width);
 	const contentWidth = Math.max(0, width - 4);
+	const source = config.components.editor.colorSource;
+	const adaptive = config.components.editor.borderColorMode === "adaptive";
+	const thinking = sanitizeEditorMetadataText(metadata.thinkingLevel ?? "");
+	const activeThinking = thinking && thinking.toLowerCase() !== "off" ? thinking : "";
 	const renderStaticBorder = (text: string) =>
 		renderStyleForSourceOrFallback(
 			uiTheme,
-			config.components.editor.colorSource,
+			source,
 			config.colors.editorBorder,
 			EDITOR_BORDER_FALLBACK,
 			text,
 		);
+	const terminalAdaptiveThinkingStyle = activeThinking
+		? (thinkingStyle(config, activeThinking) ??
+			MINIMALIST_ADAPTIVE_TERMINAL_THINKING_FALLBACKS[activeThinking.toLowerCase()] ??
+			MINIMALIST_THINKING_FALLBACK.terminal)
+		: undefined;
 	const renderBorder = (text: string) => {
-		if (config.components.editor.borderColorMode !== "adaptive" || !borderColor) {
-			return renderStaticBorder(text);
+		if (!adaptive) return renderStaticBorder(text);
+		if (source === "terminal") {
+			return terminalAdaptiveThinkingStyle
+				? renderStyleForSource(uiTheme, source, terminalAdaptiveThinkingStyle, text)
+				: renderStaticBorder(text);
 		}
+		if (!borderColor) return renderStaticBorder(text);
 		try {
 			const rendered = borderColor(text);
 			return typeof rendered === "string" ? rendered : renderStaticBorder(text);
@@ -373,6 +408,15 @@ export function renderMinimalistFrame({
 			return renderStaticBorder(text);
 		}
 	};
+	const renderStaticThinking = (text: string) =>
+		renderStyleForSourceOrFallback(
+			uiTheme,
+			source,
+			thinkingStyle(config, text),
+			MINIMALIST_THINKING_FALLBACK,
+			text,
+		);
+	const renderThinking = adaptive ? renderBorder : renderStaticThinking;
 	const separator = safeThemeFg(uiTheme, "muted", " · ");
 	const viewportLabel = (direction: "above" | "below", count: string | undefined) => {
 		if (!count || !/^[1-9]\d*$/.test(count)) return "";
@@ -391,7 +435,7 @@ export function renderMinimalistFrame({
 		width,
 		left: topLeft,
 		leftFallbacks: topFallbacks,
-		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder),
+		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder, renderThinking),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,

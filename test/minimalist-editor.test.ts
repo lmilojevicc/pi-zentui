@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import { defaultConfig, mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import {
@@ -22,6 +22,16 @@ function theme(): Theme {
 		underline: (text: string) => text,
 		strikethrough: (text: string) => text,
 		inverse: (text: string) => text,
+	} as Theme;
+}
+
+function recordingTheme(calls: Array<{ color: string; text: string }>): Theme {
+	return {
+		...theme(),
+		fg(color: string, text: string) {
+			calls.push({ color, text });
+			return text;
+		},
 	} as Theme;
 }
 
@@ -87,6 +97,203 @@ describe("minimalist editor frame", () => {
 		expect(lines.at(-1)).toContain("feature/minimalist * ↑2 ↓1");
 		expect(lines.at(-1)).toContain("project");
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("uses distinct theme roles for default minimalist metadata", () => {
+		const calls: Array<{ color: string; text: string }> = [];
+		const lines = renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
+			uiTheme: recordingTheme(calls),
+			config: config(),
+		});
+
+		expect(lines.join("\n")).toContain("main");
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				{ color: "success", text: "$0.123" },
+				{ color: "syntaxKeyword", text: "model-x" },
+				{ color: "warning", text: "high" },
+				{ color: "muted", text: "42%" },
+				{ color: "syntaxKeyword", text: "main" },
+				{ color: "syntaxFunction", text: "project" },
+			]),
+		);
+		const branchColor = calls.find(({ text }) => text === "main")?.color;
+		const cwdColor = calls.find(({ text }) => text === "project")?.color;
+		expect(branchColor).toBe("syntaxKeyword");
+		expect(branchColor).not.toBe(cwdColor);
+		const chromeCalls = calls.filter(({ text }) => /^[╭╮╰╯─│ –]+$/.test(text));
+		expect(chromeCalls.length).toBeGreaterThan(0);
+		expect(new Set(chromeCalls.map(({ color }) => color))).toEqual(new Set(["borderMuted"]));
+	});
+
+	it.each([
+		["bold purple", "syntaxKeyword"],
+		["success", "success"],
+	] as const)("preserves an explicit legacy gitBranch color %s", (gitBranch, expectedColor) => {
+		const calls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", branch: "main" },
+			uiTheme: recordingTheme(calls),
+			config: config({ colors: mergeConfig({ colors: { gitBranch } }).colors }),
+		});
+		expect(calls).toContainEqual({ color: expectedColor, text: "main" });
+	});
+
+	it.each([
+		[70, "warning"],
+		[90, "error"],
+	] as const)("keeps %i%% context on the %s semantic tier", (contextPercent, color) => {
+		const calls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", contextPercent },
+			uiTheme: recordingTheme(calls),
+			config: config(),
+		});
+		expect(calls).toContainEqual({ color, text: `${contextPercent}%` });
+	});
+
+	it("preserves custom theme roles", () => {
+		const calls: Array<{ color: string; text: string }> = [];
+		const colors = {
+			...defaultConfig.colors,
+			cwd: "accent",
+			gitBranch: "bold purple",
+			editorGitBranch: "success",
+			cost: "warning",
+			contextNormal: "dim",
+			editorModel: "text",
+			editorThinkingHigh: "thinkingHigh",
+		};
+		renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
+			uiTheme: recordingTheme(calls),
+			config: config({ colors }),
+		});
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				{ color: "warning", text: "$0.123" },
+				{ color: "text", text: "model-x" },
+				{ color: "thinkingHigh", text: "high" },
+				{ color: "muted", text: "42%" },
+				{ color: "success", text: "main" },
+				{ color: "accent", text: "project" },
+			]),
+		);
+	});
+
+	it("uses the complete default terminal palette", () => {
+		const terminalConfig = config({
+			colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+		});
+		const output = renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
+			uiTheme: theme(),
+			config: terminalConfig,
+		}).join("\n");
+
+		expect(output).toContain("\x1b[1;32m$0.123\x1b[0m");
+		expect(output).toContain("\x1b[1;35mmodel-x\x1b[0m");
+		expect(output).toContain("\x1b[1;33mhigh\x1b[0m");
+		expect(output).toContain("\x1b[90m42%\x1b[0m");
+		expect(output).toContain("\x1b[1;34mmain\x1b[0m");
+		expect(output).toContain("\x1b[1;36mproject\x1b[0m");
+		expect(output).toContain("\x1b[90m╭\x1b[0m");
+
+		for (const [contextPercent, expected] of [
+			[70, "\x1b[1;33m70%\x1b[0m"],
+			[90, "\x1b[1;31m90%\x1b[0m"],
+		] as const) {
+			const contextOutput = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", contextPercent },
+				uiTheme: theme(),
+				config: terminalConfig,
+			}).join("\n");
+			expect(contextOutput).toContain(expected);
+		}
+	});
+
+	it("preserves custom terminal colors and legacy branch provenance", () => {
+		const legacyColors = mergeConfig({
+			colors: {
+				gitBranch: "cyan",
+				editorModel: "bright-purple",
+				editorThinkingHigh: "yellow",
+			},
+		}).colors;
+		const legacyOutput = renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "",
+				branch: "main",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+			},
+			uiTheme: theme(),
+			config: config({
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				colors: legacyColors,
+			}),
+		}).join("\n");
+		expect(legacyOutput).toContain("\x1b[95mmodel-x\x1b[0m");
+		expect(legacyOutput).toContain("\x1b[33mhigh\x1b[0m");
+		expect(legacyOutput).toContain("\x1b[36mmain\x1b[0m");
+
+		const canonicalOutput = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", branch: "main" },
+			uiTheme: theme(),
+			config: config({
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				colors: mergeConfig({
+					colors: { gitBranch: "cyan", editorGitBranch: "bright-green" },
+				}).colors,
+			}),
+		}).join("\n");
+		expect(canonicalOutput).toContain("\x1b[92mmain\x1b[0m");
 	});
 
 	it("puts complete viewport counts first on their matching borders", () => {
@@ -415,6 +622,126 @@ describe("minimalist editor frame", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
 	});
 
+	it("keeps adaptive theme borders and thinking labels on the same renderer", () => {
+		const colors = {
+			...defaultConfig.colors,
+			editorBorder: "error",
+			editorThinkingHigh: "success",
+		};
+		const adaptiveConfig = config({ colors, editorBorderColorMode: "adaptive" });
+		const renderWith = (uiTheme: Theme, borderColor?: (text: string) => string) =>
+			renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel: "high" },
+				uiTheme,
+				config: adaptiveConfig,
+				borderColor,
+			}).join("\n");
+
+		const adaptive = renderWith(theme(), (text) => `\x1b[36m${text}\x1b[0m`);
+		expect(adaptive).toContain("\x1b[36m╭\x1b[0m");
+		expect(adaptive).toContain("\x1b[36mhigh\x1b[0m");
+
+		for (const failedBorderColor of [
+			undefined,
+			() => {
+				throw new Error("adaptive color failed");
+			},
+			(() => 42) as unknown as (text: string) => string,
+		]) {
+			const calls: Array<{ color: string; text: string }> = [];
+			renderWith(recordingTheme(calls), failedBorderColor);
+			expect(calls).toContainEqual({ color: "error", text: "╭" });
+			expect(calls).toContainEqual({ color: "error", text: "high" });
+			expect(calls).not.toContainEqual({ color: "success", text: "high" });
+		}
+
+		const staticCalls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", thinkingLevel: "high" },
+			uiTheme: recordingTheme(staticCalls),
+			config: config({ colors, editorBorderColorMode: "static" }),
+			borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+		});
+		expect(staticCalls).toContainEqual({ color: "error", text: "╭" });
+		expect(staticCalls).toContainEqual({ color: "success", text: "high" });
+	});
+
+	it.each([
+		["minimal", "\x1b[90m"],
+		["low", "\x1b[34m"],
+		["medium", "\x1b[36m"],
+		["high", "\x1b[33m"],
+		["xhigh", "\x1b[31m"],
+		["max", "\x1b[91m"],
+	] as const)("uses the terminal adaptive color for %s borders and labels", (level, ansi) => {
+		const output = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", thinkingLevel: level },
+			uiTheme: theme(),
+			config: config({
+				editorBorderColorMode: "adaptive",
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+			}),
+			borderColor: (text) => `[theme]${text}`,
+		}).join("\n");
+		expect(output).toContain(`${ansi}╭\x1b[0m`);
+		expect(output).toContain(`${ansi}${level}\x1b[0m`);
+		expect(output).not.toContain("[theme]");
+	});
+
+	it.each([
+		[{ editorThinkingMax: "bright-purple" }, "max", "\x1b[95m"],
+		[{ editorThinkingXhigh: "bright-cyan" }, "max", "\x1b[96m"],
+		[{ editorThinking: "bright-green" }, "low", "\x1b[92m"],
+	] as const)(
+		"uses configured terminal adaptive thinking colors for both border and %s label",
+		(colors, level, ansi) => {
+			const output = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel: level },
+				uiTheme: theme(),
+				config: config({
+					colors: { ...defaultConfig.colors, ...colors },
+					editorBorderColorMode: "adaptive",
+					colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				}),
+			}).join("\n");
+			expect(output).toContain(`${ansi}╭\x1b[0m`);
+			expect(output).toContain(`${ansi}${level}\x1b[0m`);
+		},
+	);
+
+	it.each([undefined, "", "off"])(
+		"keeps terminal adaptive borders static and omits an inactive thinking level %s",
+		(thinkingLevel) => {
+			const output = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel },
+				uiTheme: theme(),
+				config: config({
+					editorBorderColorMode: "adaptive",
+					colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				}),
+				borderColor: (text) => `[theme]${text}`,
+			}).join("\n");
+			expect(output).toContain("\x1b[90m╭\x1b[0m");
+			expect(output).not.toContain("[theme]");
+			expect(output).not.toContain("off");
+		},
+	);
+
 	it("colors every separator in the full top-right sequence with the resolved border color", () => {
 		const top = renderMinimalistFrame({
 			width: 100,
@@ -433,7 +760,7 @@ describe("minimalist editor frame", () => {
 		})[0];
 
 		expect(top).toContain(
-			"$0.000\x1b[36m – \x1b[0mgpt-5.6-terra\x1b[36m – \x1b[0mminimal\x1b[36m – \x1b[0m0%",
+			"$0.000\x1b[36m – \x1b[0mgpt-5.6-terra\x1b[36m – \x1b[0m\x1b[36mminimal\x1b[0m\x1b[36m – \x1b[0m0%",
 		);
 		expect(top.match(/\x1b\[36m – \x1b\[0m/g)).toHaveLength(3);
 		expect(top).not.toContain("\x1b[36m$0.000");
@@ -444,12 +771,12 @@ describe("minimalist editor frame", () => {
 		[
 			"without cost",
 			{ cwd: "", modelLabel: "model", thinkingLevel: "low", contextPercent: 12 },
-			"model\x1b[36m – \x1b[0mlow\x1b[36m – \x1b[0m12%",
+			"model\x1b[36m – \x1b[0m\x1b[36mlow\x1b[0m\x1b[36m – \x1b[0m12%",
 		],
 		[
 			"without model",
 			{ cwd: "", costLabel: "$1", thinkingLevel: "high", contextPercent: 25 },
-			"$1\x1b[36m – \x1b[0mhigh\x1b[36m – \x1b[0m25%",
+			"$1\x1b[36m – \x1b[0m\x1b[36mhigh\x1b[0m\x1b[36m – \x1b[0m25%",
 		],
 		[
 			"without thinking",
@@ -459,7 +786,7 @@ describe("minimalist editor frame", () => {
 		[
 			"without context",
 			{ cwd: "", costLabel: "$3", modelLabel: "model", thinkingLevel: "xhigh" },
-			"$3\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0mxhigh",
+			"$3\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0m\x1b[36mxhigh\x1b[0m",
 		],
 	] satisfies Array<[string, MinimalistEditorMetadata, string]>)(
 		"uses the resolved border separator %s",

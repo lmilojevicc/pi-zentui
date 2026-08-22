@@ -107,6 +107,27 @@ describe("renderEditorMetadataFormat", () => {
 		).toBe("[thinkingText]low");
 	});
 
+	it.each([
+		[
+			{
+				editorThinking: "thinkingText",
+				editorThinkingXhigh: "thinkingXhigh",
+				editorThinkingMax: "thinkingMax",
+			},
+			"thinkingMax",
+		],
+		[{ editorThinking: "thinkingText", editorThinkingXhigh: "thinkingXhigh" }, "thinkingXhigh"],
+		[{ editorThinking: "thinkingText" }, "thinkingText"],
+	] as const)("resolves max thinking through its compatibility chain", (colors, expected) => {
+		const config = {
+			...defaultConfig,
+			colors: { ...defaultConfig.colors, ...colors },
+		};
+		expect(
+			renderEditorMetadataFormat("$thinking", { ...values, thinking: "max" }, makeTheme(), config),
+		).toBe(`[${expected}]max`);
+	});
+
 	it("sanitizes literals and values without collapsing ordinary spaces", () => {
 		const rendered = render(
 			"\u001b]8;;https://example.com/$provider\u0007lit\u001b]8;;\u0007  x\n\ty:$model",

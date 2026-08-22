@@ -173,6 +173,24 @@ describe("canonical config resolution", () => {
 		expect(defaultConfig.components).toEqual(config.components);
 	});
 
+	it("bridges explicit legacy branch colors into the independent Editor branch role", () => {
+		expect(mergeConfig({}).colors.editorGitBranch).toBeUndefined();
+
+		const legacyDefault = mergeConfig({ colors: { gitBranch: "bold purple" } }).colors;
+		expect(legacyDefault.gitBranch).toBe("bold purple");
+		expect(legacyDefault.editorGitBranch).toBe("bold purple");
+
+		const legacyCustom = mergeConfig({ colors: { gitBranch: "success" } }).colors;
+		expect(legacyCustom.gitBranch).toBe("success");
+		expect(legacyCustom.editorGitBranch).toBe("success");
+
+		const independent = mergeConfig({
+			colors: { gitBranch: "success", editorGitBranch: "accent" },
+		}).colors;
+		expect(independent.gitBranch).toBe("success");
+		expect(independent.editorGitBranch).toBe("accent");
+	});
+
 	it("ignores stale fixed-editor config forms without exposing runtime fields", () => {
 		const config = mergeConfig({
 			fixedEditor: { enabled: true, mouseScroll: false },
@@ -1862,6 +1880,7 @@ describe("mergeConfig", () => {
 				editorThinkingMedium: "thinkingMedium",
 				editorThinkingHigh: "thinkingHigh",
 				editorThinkingXhigh: "thinkingXhigh",
+				editorThinkingMax: "thinkingMax",
 			},
 		});
 
@@ -1875,6 +1894,7 @@ describe("mergeConfig", () => {
 		expect(config.colors.editorThinkingMedium).toBe("thinkingMedium");
 		expect(config.colors.editorThinkingHigh).toBe("thinkingHigh");
 		expect(config.colors.editorThinkingXhigh).toBe("thinkingXhigh");
+		expect(config.colors.editorThinkingMax).toBe("thinkingMax");
 	});
 
 	it("ignores invalid known values at runtime instead of trusting zentui.json", () => {
