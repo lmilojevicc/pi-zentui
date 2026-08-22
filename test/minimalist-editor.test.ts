@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import { defaultConfig, mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import { installFooter } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import {
@@ -22,6 +22,16 @@ function theme(): Theme {
 		underline: (text: string) => text,
 		strikethrough: (text: string) => text,
 		inverse: (text: string) => text,
+	} as Theme;
+}
+
+function recordingTheme(calls: Array<{ color: string; text: string }>): Theme {
+	return {
+		...theme(),
+		fg(color: string, text: string) {
+			calls.push({ color, text });
+			return text;
+		},
 	} as Theme;
 }
 
@@ -87,6 +97,148 @@ describe("minimalist editor frame", () => {
 		expect(lines.at(-1)).toContain("feature/minimalist * ↑2 ↓1");
 		expect(lines.at(-1)).toContain("project");
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
+	});
+
+	it("uses distinct theme roles for default minimalist metadata", () => {
+		const calls: Array<{ color: string; text: string }> = [];
+		const lines = renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
+			uiTheme: recordingTheme(calls),
+			config: config(),
+		});
+
+		expect(lines.join("\n")).toContain("main");
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				{ color: "success", text: "$0.123" },
+				{ color: "syntaxKeyword", text: "model-x" },
+				{ color: "warning", text: "high" },
+				{ color: "muted", text: "42%" },
+				{ color: "accent", text: "main" },
+				{ color: "syntaxFunction", text: "project" },
+			]),
+		);
+		const chromeCalls = calls.filter(({ text }) => /^[╭╮╰╯─│ –]+$/.test(text));
+		expect(chromeCalls.length).toBeGreaterThan(0);
+		expect(new Set(chromeCalls.map(({ color }) => color))).toEqual(new Set(["borderMuted"]));
+	});
+
+	it.each([
+		["bold purple", "syntaxKeyword"],
+		["success", "success"],
+	] as const)("preserves an explicit legacy gitBranch color %s", (gitBranch, expectedColor) => {
+		const calls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", branch: "main" },
+			uiTheme: recordingTheme(calls),
+			config: config({ colors: mergeConfig({ colors: { gitBranch } }).colors }),
+		});
+		expect(calls).toContainEqual({ color: expectedColor, text: "main" });
+	});
+
+	it.each([
+		[70, "warning"],
+		[90, "error"],
+	] as const)("keeps %i%% context on the %s semantic tier", (contextPercent, color) => {
+		const calls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", contextPercent },
+			uiTheme: recordingTheme(calls),
+			config: config(),
+		});
+		expect(calls).toContainEqual({ color, text: `${contextPercent}%` });
+	});
+
+	it("preserves custom theme roles and terminal-source colors", () => {
+		const calls: Array<{ color: string; text: string }> = [];
+		const colors = {
+			...defaultConfig.colors,
+			cwd: "accent",
+			gitBranch: "bold purple",
+			editorGitBranch: "success",
+			cost: "warning",
+			contextNormal: "dim",
+			editorModel: "text",
+			editorThinkingHigh: "thinkingHigh",
+		};
+		renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
+			uiTheme: recordingTheme(calls),
+			config: config({ colors }),
+		});
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				{ color: "warning", text: "$0.123" },
+				{ color: "text", text: "model-x" },
+				{ color: "thinkingHigh", text: "high" },
+				{ color: "muted", text: "42%" },
+				{ color: "success", text: "main" },
+				{ color: "accent", text: "project" },
+			]),
+		);
+
+		const defaultTerminal = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", branch: "main" },
+			uiTheme: theme(),
+			config: config({
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+			}),
+		}).join("\n");
+		expect(defaultTerminal).toContain("\x1b[1;35mmain\x1b[0m");
+
+		const terminal = renderMinimalistFrame({
+			width: 120,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: {
+				cwd: "",
+				branch: "main",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+			},
+			uiTheme: theme(),
+			config: config({
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				colors: {
+					...defaultConfig.colors,
+					gitBranch: "cyan",
+					editorModel: "bold purple",
+					editorThinkingHigh: "yellow",
+				},
+			}),
+		}).join("\n");
+		expect(terminal).toContain("\x1b[1;35mmodel-x\x1b[0m");
+		expect(terminal).toContain("\x1b[33mhigh\x1b[0m");
+		expect(terminal).toContain("\x1b[36mmain\x1b[0m");
 	});
 
 	it("puts complete viewport counts first on their matching borders", () => {

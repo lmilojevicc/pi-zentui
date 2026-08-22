@@ -21,6 +21,13 @@ import {
 	safeThemeFg,
 } from "./style";
 
+const MINIMALIST_MODEL_FALLBACK = {
+	theme: "syntaxKeyword",
+	terminal: EDITOR_ACCENT_FALLBACK.terminal,
+};
+const MINIMALIST_THINKING_FALLBACK = { theme: "warning", terminal: "muted" };
+const MINIMALIST_BRANCH_THEME_FALLBACK = "bold accent";
+
 export type MinimalistEditorMetadata = {
 	cwd: string;
 	projectRoot?: string;
@@ -173,7 +180,7 @@ function renderTopRight(
 				uiTheme,
 				source,
 				config.colors.editorModel,
-				EDITOR_ACCENT_FALLBACK,
+				MINIMALIST_MODEL_FALLBACK,
 				model,
 			),
 		);
@@ -185,7 +192,7 @@ function renderTopRight(
 				uiTheme,
 				source,
 				thinkingStyle(config, thinking),
-				"muted",
+				MINIMALIST_THINKING_FALLBACK,
 				thinking,
 			),
 		);
@@ -236,7 +243,15 @@ function renderBottomLeft(
 	const source = config.components.editor.colorSource;
 	const branch = sanitizeEditorMetadataText(metadata.branch ?? "");
 	const parts = branch
-		? [renderStyleForSource(uiTheme, source, config.colors.gitBranch, branch)]
+		? [
+				renderStyleForSourceOrFallback(
+					uiTheme,
+					source,
+					config.colors.editorGitBranch,
+					{ theme: MINIMALIST_BRANCH_THEME_FALLBACK, terminal: config.colors.gitBranch },
+					branch,
+				),
+			]
 		: [];
 	if (metadata.dirty) {
 		parts.push(renderStyleForSource(uiTheme, source, config.colors.gitStatus, "*"));

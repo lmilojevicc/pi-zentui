@@ -314,6 +314,7 @@ export type PolishedTuiColors = {
 	editorAccent?: ColorSpec;
 	editorPrompt?: ColorSpec;
 	editorBorder?: ColorSpec;
+	editorGitBranch?: ColorSpec;
 	editorModel?: ColorSpec;
 	editorProvider?: ColorSpec;
 	editorThinking?: ColorSpec;
@@ -709,6 +710,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		editorAccent: colorValue(record, "editorAccent"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),
+		editorGitBranch: colorValue(record, "editorGitBranch"),
 		editorModel: colorValue(record, "editorModel"),
 		editorProvider: colorValue(record, "editorProvider"),
 		editorThinking: colorValue(record, "editorThinking"),
@@ -1425,13 +1427,20 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
 	const colorsRecord = recordValue(config.colors);
+	const colors = normalizeColors(colorsRecord);
 	const canonical: ZentuiConfig = {
 		projectRefreshIntervalMs: parseProjectRefreshIntervalMs(config.projectRefreshIntervalMs),
 		icons: resolveConfiguredIcons(
 			normalizeIconMode(iconsRecord.mode),
 			normalizeIconOverrides(iconsRecord),
 		),
-		colors: { ...defaultConfig.colors, ...normalizeColors(colorsRecord) },
+		colors: {
+			...defaultConfig.colors,
+			...colors,
+			...(colors.editorGitBranch === undefined && colors.gitBranch !== undefined
+				? { editorGitBranch: colors.gitBranch }
+				: {}),
+		},
 		components: resolveComponents(config),
 	};
 	const view = compatibilityView(canonical);
