@@ -124,10 +124,14 @@ describe("minimalist editor frame", () => {
 				{ color: "syntaxKeyword", text: "model-x" },
 				{ color: "warning", text: "high" },
 				{ color: "muted", text: "42%" },
-				{ color: "accent", text: "main" },
+				{ color: "syntaxKeyword", text: "main" },
 				{ color: "syntaxFunction", text: "project" },
 			]),
 		);
+		const branchColor = calls.find(({ text }) => text === "main")?.color;
+		const cwdColor = calls.find(({ text }) => text === "project")?.color;
+		expect(branchColor).toBe("syntaxKeyword");
+		expect(branchColor).not.toBe(cwdColor);
 		const chromeCalls = calls.filter(({ text }) => /^[╭╮╰╯─│ –]+$/.test(text));
 		expect(chromeCalls.length).toBeGreaterThan(0);
 		expect(new Set(chromeCalls.map(({ color }) => color))).toEqual(new Set(["borderMuted"]));
@@ -165,7 +169,7 @@ describe("minimalist editor frame", () => {
 		expect(calls).toContainEqual({ color, text: `${contextPercent}%` });
 	});
 
-	it("preserves custom theme roles and terminal-source colors", () => {
+	it("preserves custom theme roles", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const colors = {
 			...defaultConfig.colors,
@@ -202,20 +206,61 @@ describe("minimalist editor frame", () => {
 				{ color: "accent", text: "project" },
 			]),
 		);
+	});
 
-		const defaultTerminal = renderMinimalistFrame({
-			width: 80,
+	it("uses the complete default terminal palette", () => {
+		const terminalConfig = config({
+			colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+		});
+		const output = renderMinimalistFrame({
+			width: 120,
 			editorLines: ["draft"],
 			inputText: "draft",
-			metadata: { cwd: "", branch: "main" },
+			metadata: {
+				cwd: "/tmp/project",
+				branch: "main",
+				costLabel: "$0.123",
+				modelLabel: "model-x",
+				thinkingLevel: "high",
+				contextPercent: 42,
+			},
 			uiTheme: theme(),
-			config: config({
-				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
-			}),
+			config: terminalConfig,
 		}).join("\n");
-		expect(defaultTerminal).toContain("\x1b[1;35mmain\x1b[0m");
 
-		const terminal = renderMinimalistFrame({
+		expect(output).toContain("\x1b[1;32m$0.123\x1b[0m");
+		expect(output).toContain("\x1b[1;35mmodel-x\x1b[0m");
+		expect(output).toContain("\x1b[1;33mhigh\x1b[0m");
+		expect(output).toContain("\x1b[90m42%\x1b[0m");
+		expect(output).toContain("\x1b[1;34mmain\x1b[0m");
+		expect(output).toContain("\x1b[1;36mproject\x1b[0m");
+		expect(output).toContain("\x1b[90m╭\x1b[0m");
+
+		for (const [contextPercent, expected] of [
+			[70, "\x1b[1;33m70%\x1b[0m"],
+			[90, "\x1b[1;31m90%\x1b[0m"],
+		] as const) {
+			const contextOutput = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", contextPercent },
+				uiTheme: theme(),
+				config: terminalConfig,
+			}).join("\n");
+			expect(contextOutput).toContain(expected);
+		}
+	});
+
+	it("preserves custom terminal colors and legacy branch provenance", () => {
+		const legacyColors = mergeConfig({
+			colors: {
+				gitBranch: "cyan",
+				editorModel: "bright-purple",
+				editorThinkingHigh: "yellow",
+			},
+		}).colors;
+		const legacyOutput = renderMinimalistFrame({
 			width: 120,
 			editorLines: ["draft"],
 			inputText: "draft",
@@ -228,17 +273,27 @@ describe("minimalist editor frame", () => {
 			uiTheme: theme(),
 			config: config({
 				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
-				colors: {
-					...defaultConfig.colors,
-					gitBranch: "cyan",
-					editorModel: "bold purple",
-					editorThinkingHigh: "yellow",
-				},
+				colors: legacyColors,
 			}),
 		}).join("\n");
-		expect(terminal).toContain("\x1b[1;35mmodel-x\x1b[0m");
-		expect(terminal).toContain("\x1b[33mhigh\x1b[0m");
-		expect(terminal).toContain("\x1b[36mmain\x1b[0m");
+		expect(legacyOutput).toContain("\x1b[95mmodel-x\x1b[0m");
+		expect(legacyOutput).toContain("\x1b[33mhigh\x1b[0m");
+		expect(legacyOutput).toContain("\x1b[36mmain\x1b[0m");
+
+		const canonicalOutput = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", branch: "main" },
+			uiTheme: theme(),
+			config: config({
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				colors: mergeConfig({
+					colors: { gitBranch: "cyan", editorGitBranch: "bright-green" },
+				}).colors,
+			}),
+		}).join("\n");
+		expect(canonicalOutput).toContain("\x1b[92mmain\x1b[0m");
 	});
 
 	it("puts complete viewport counts first on their matching borders", () => {

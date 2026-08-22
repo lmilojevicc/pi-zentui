@@ -23,10 +23,10 @@ import {
 
 const MINIMALIST_MODEL_FALLBACK = {
 	theme: "syntaxKeyword",
-	terminal: EDITOR_ACCENT_FALLBACK.terminal,
+	terminal: "bold purple",
 };
-const MINIMALIST_THINKING_FALLBACK = { theme: "warning", terminal: "muted" };
-const MINIMALIST_BRANCH_THEME_FALLBACK = "bold accent";
+const MINIMALIST_THINKING_FALLBACK = { theme: "warning", terminal: "bold yellow" };
+const MINIMALIST_BRANCH_FALLBACK = { theme: "bold syntaxKeyword", terminal: "bold blue" };
 
 export type MinimalistEditorMetadata = {
 	cwd: string;
@@ -248,7 +248,7 @@ function renderBottomLeft(
 					uiTheme,
 					source,
 					config.colors.editorGitBranch,
-					{ theme: MINIMALIST_BRANCH_THEME_FALLBACK, terminal: config.colors.gitBranch },
+					MINIMALIST_BRANCH_FALLBACK,
 					branch,
 				),
 			]
