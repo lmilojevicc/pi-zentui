@@ -323,6 +323,7 @@ export type PolishedTuiColors = {
 	editorThinkingMedium?: ColorSpec;
 	editorThinkingHigh?: ColorSpec;
 	editorThinkingXhigh?: ColorSpec;
+	editorThinkingMax?: ColorSpec;
 	workingLineLow?: ColorSpec;
 	workingLineMid?: ColorSpec;
 	workingLineHigh?: ColorSpec;
@@ -719,6 +720,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		editorThinkingMedium: colorValue(record, "editorThinkingMedium"),
 		editorThinkingHigh: colorValue(record, "editorThinkingHigh"),
 		editorThinkingXhigh: colorValue(record, "editorThinkingXhigh"),
+		editorThinkingMax: colorValue(record, "editorThinkingMax"),
 		workingLineLow: colorValue(record, "workingLineLow"),
 		workingLineMid: colorValue(record, "workingLineMid"),
 		workingLineHigh: colorValue(record, "workingLineHigh"),

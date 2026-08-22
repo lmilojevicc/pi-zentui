@@ -141,7 +141,7 @@ function standalone(style: EditorStyle = "opencode"): PolishedEditor {
 	return editor;
 }
 
-const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type SemanticBorderState = (typeof thinkingLevels)[number] | "shell";
 
 const semanticBorderCodes: Record<SemanticBorderState, number> = {
@@ -151,6 +151,7 @@ const semanticBorderCodes: Record<SemanticBorderState, number> = {
 	medium: 33,
 	high: 34,
 	xhigh: 35,
+	max: 37,
 	shell: 36,
 };
 

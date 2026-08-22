@@ -622,6 +622,126 @@ describe("minimalist editor frame", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
 	});
 
+	it("keeps adaptive theme borders and thinking labels on the same renderer", () => {
+		const colors = {
+			...defaultConfig.colors,
+			editorBorder: "error",
+			editorThinkingHigh: "success",
+		};
+		const adaptiveConfig = config({ colors, editorBorderColorMode: "adaptive" });
+		const renderWith = (uiTheme: Theme, borderColor?: (text: string) => string) =>
+			renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel: "high" },
+				uiTheme,
+				config: adaptiveConfig,
+				borderColor,
+			}).join("\n");
+
+		const adaptive = renderWith(theme(), (text) => `\x1b[36m${text}\x1b[0m`);
+		expect(adaptive).toContain("\x1b[36m╭\x1b[0m");
+		expect(adaptive).toContain("\x1b[36mhigh\x1b[0m");
+
+		for (const failedBorderColor of [
+			undefined,
+			() => {
+				throw new Error("adaptive color failed");
+			},
+			(() => 42) as unknown as (text: string) => string,
+		]) {
+			const calls: Array<{ color: string; text: string }> = [];
+			renderWith(recordingTheme(calls), failedBorderColor);
+			expect(calls).toContainEqual({ color: "error", text: "╭" });
+			expect(calls).toContainEqual({ color: "error", text: "high" });
+			expect(calls).not.toContainEqual({ color: "success", text: "high" });
+		}
+
+		const staticCalls: Array<{ color: string; text: string }> = [];
+		renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", thinkingLevel: "high" },
+			uiTheme: recordingTheme(staticCalls),
+			config: config({ colors, editorBorderColorMode: "static" }),
+			borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+		});
+		expect(staticCalls).toContainEqual({ color: "error", text: "╭" });
+		expect(staticCalls).toContainEqual({ color: "success", text: "high" });
+	});
+
+	it.each([
+		["minimal", "\x1b[90m"],
+		["low", "\x1b[34m"],
+		["medium", "\x1b[36m"],
+		["high", "\x1b[33m"],
+		["xhigh", "\x1b[31m"],
+		["max", "\x1b[91m"],
+	] as const)("uses the terminal adaptive color for %s borders and labels", (level, ansi) => {
+		const output = renderMinimalistFrame({
+			width: 80,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", thinkingLevel: level },
+			uiTheme: theme(),
+			config: config({
+				editorBorderColorMode: "adaptive",
+				colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+			}),
+			borderColor: (text) => `[theme]${text}`,
+		}).join("\n");
+		expect(output).toContain(`${ansi}╭\x1b[0m`);
+		expect(output).toContain(`${ansi}${level}\x1b[0m`);
+		expect(output).not.toContain("[theme]");
+	});
+
+	it.each([
+		[{ editorThinkingMax: "bright-purple" }, "max", "\x1b[95m"],
+		[{ editorThinkingXhigh: "bright-cyan" }, "max", "\x1b[96m"],
+		[{ editorThinking: "bright-green" }, "low", "\x1b[92m"],
+	] as const)(
+		"uses configured terminal adaptive thinking colors for both border and %s label",
+		(colors, level, ansi) => {
+			const output = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel: level },
+				uiTheme: theme(),
+				config: config({
+					colors: { ...defaultConfig.colors, ...colors },
+					editorBorderColorMode: "adaptive",
+					colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				}),
+			}).join("\n");
+			expect(output).toContain(`${ansi}╭\x1b[0m`);
+			expect(output).toContain(`${ansi}${level}\x1b[0m`);
+		},
+	);
+
+	it.each([undefined, "", "off"])(
+		"keeps terminal adaptive borders static and omits an inactive thinking level %s",
+		(thinkingLevel) => {
+			const output = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: { cwd: "", thinkingLevel },
+				uiTheme: theme(),
+				config: config({
+					editorBorderColorMode: "adaptive",
+					colorSources: { ...defaultConfig.colorSources, editor: "terminal" },
+				}),
+				borderColor: (text) => `[theme]${text}`,
+			}).join("\n");
+			expect(output).toContain("\x1b[90m╭\x1b[0m");
+			expect(output).not.toContain("[theme]");
+			expect(output).not.toContain("off");
+		},
+	);
+
 	it("colors every separator in the full top-right sequence with the resolved border color", () => {
 		const top = renderMinimalistFrame({
 			width: 100,
@@ -640,7 +760,7 @@ describe("minimalist editor frame", () => {
 		})[0];
 
 		expect(top).toContain(
-			"$0.000\x1b[36m – \x1b[0mgpt-5.6-terra\x1b[36m – \x1b[0mminimal\x1b[36m – \x1b[0m0%",
+			"$0.000\x1b[36m – \x1b[0mgpt-5.6-terra\x1b[36m – \x1b[0m\x1b[36mminimal\x1b[0m\x1b[36m – \x1b[0m0%",
 		);
 		expect(top.match(/\x1b\[36m – \x1b\[0m/g)).toHaveLength(3);
 		expect(top).not.toContain("\x1b[36m$0.000");
@@ -651,12 +771,12 @@ describe("minimalist editor frame", () => {
 		[
 			"without cost",
 			{ cwd: "", modelLabel: "model", thinkingLevel: "low", contextPercent: 12 },
-			"model\x1b[36m – \x1b[0mlow\x1b[36m – \x1b[0m12%",
+			"model\x1b[36m – \x1b[0m\x1b[36mlow\x1b[0m\x1b[36m – \x1b[0m12%",
 		],
 		[
 			"without model",
 			{ cwd: "", costLabel: "$1", thinkingLevel: "high", contextPercent: 25 },
-			"$1\x1b[36m – \x1b[0mhigh\x1b[36m – \x1b[0m25%",
+			"$1\x1b[36m – \x1b[0m\x1b[36mhigh\x1b[0m\x1b[36m – \x1b[0m25%",
 		],
 		[
 			"without thinking",
@@ -666,7 +786,7 @@ describe("minimalist editor frame", () => {
 		[
 			"without context",
 			{ cwd: "", costLabel: "$3", modelLabel: "model", thinkingLevel: "xhigh" },
-			"$3\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0mxhigh",
+			"$3\x1b[36m – \x1b[0mmodel\x1b[36m – \x1b[0m\x1b[36mxhigh\x1b[0m",
 		],
 	] satisfies Array<[string, MinimalistEditorMetadata, string]>)(
 		"uses the resolved border separator %s",

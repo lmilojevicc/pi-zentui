@@ -132,6 +132,12 @@ function editorThinkingStyle(config: ZentuiConfig, level: string): string | unde
 			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
 		case "xhigh":
 			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+		case "max":
+			return (
+				config.colors.editorThinkingMax ??
+				config.colors.editorThinkingXhigh ??
+				config.colors.editorThinking
+			);
 		default:
 			return config.colors.editorThinking;
 	}

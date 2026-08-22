@@ -441,6 +441,7 @@ Default config values — copy this and change any value you want:
 - `editorAccent` styles Editor and User-message accent rails and the labeled message label.
 - `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
 - `editorBorder` styles the `framed` and `framed-copy-friendly` previous-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
+- `editorGitBranch` and `editorThinkingMax` are optional editor-owned overrides, omitted above so source-specific and adaptive defaults remain active. `editorGitBranch` owns the minimalist Editor branch color independently from Footer `gitBranch`; where Zentui resolves configured thinking colors, `max` falls back through `editorThinkingXhigh` and then `editorThinking`.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
