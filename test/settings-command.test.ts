@@ -108,6 +108,9 @@ function createHarness(
 	const sessionLifecycle = new SessionLifecycle();
 	const calls = {
 		editor: [] as Partial<EditorComponentConfig>[],
+		polished: [] as Array<Record<string, unknown>>,
+		polishedCopyFriendly: [] as Array<Record<string, unknown>>,
+		accentRail: [] as Array<Record<string, unknown>>,
 		messages: [] as Partial<UserMessagesComponentConfig>[],
 		workingLine: [] as WorkingLineComponentPatch[],
 		renders: { shared: 0, local: 0 },
@@ -127,6 +130,18 @@ function createHarness(
 			calls.editor.push(patch);
 			Object.assign(config.components.editor, patch);
 			return { applied: true };
+		},
+		setPolished(patch: Record<string, unknown>) {
+			calls.polished.push(patch);
+			Object.assign(config.components.editor.styles.opencode, patch);
+		},
+		setPolishedCopyFriendly(patch: Record<string, unknown>) {
+			calls.polishedCopyFriendly.push(patch);
+			Object.assign(config.components.editor.styles["opencode-copy-friendly"], patch);
+		},
+		setAccentRail(patch: Record<string, unknown>) {
+			calls.accentRail.push(patch);
+			Object.assign(config.components.editor.styles["accent-rail"], patch);
 		},
 		setMinimalist(patch: Record<string, unknown>) {
 			calls.minimalist.push(patch);
@@ -302,6 +317,7 @@ describe("component-oriented /zentui settings", () => {
 			"Editor model label",
 			"Editor border color",
 			"Editor viewport indicators",
+			"Completion menu",
 		]);
 
 		component.handleInput("\t");
@@ -531,11 +547,66 @@ describe("component-oriented /zentui settings", () => {
 		expect(focusedRow(component)).toContain("Opencode (copy-friendly)");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor style");
+		expect(focusedRow(component)).toContain("Accent Rail");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("> Editor style");
 		expect(focusedRow(component)).toContain("Minimalist");
 		expect(harness.calls.editor).toEqual([
 			{ style: "opencode-copy-friendly" },
+			{ style: "accent-rail" },
 			{ style: "minimalist" },
 		]);
+	});
+
+	it("configures Opencode completion menus independently", async () => {
+		const current = cloneConfig();
+		const harness = createHarness(current);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Completion menu");
+		expect(focusedRow(component)).toContain("palette");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("native");
+		expect(harness.calls.polished).toEqual([{ completionMenu: "native" }]);
+		expect(harness.calls.polishedCopyFriendly).toEqual([]);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		selectLabel(component, "Completion menu");
+		expect(focusedRow(component)).toContain("palette");
+		component.handleInput(" ");
+		expect(harness.calls.polishedCopyFriendly).toEqual([{ completionMenu: "native" }]);
+		expect(current.components.editor.styles.opencode.completionMenu).toBe("native");
+		expect(current.components.editor.styles["opencode-copy-friendly"].completionMenu).toBe(
+			"native",
+		);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		expect(component.render(100).join("\n")).not.toContain("Completion menu");
+	});
+
+	it("shows and persists the Accent Rail surface control only for that style", async () => {
+		const current = cloneConfig();
+		current.components.editor.style = "accent-rail";
+		const harness = createHarness(current);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Accent Rail surface");
+		expect(focusedRow(component)).toContain("filled");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("transparent");
+		expect(harness.calls.accentRail).toEqual([{ transparent: true }]);
+		expect(harness.calls.editor).toEqual([]);
+		expect(current.components.editor.styles.minimalist).toEqual(
+			defaultConfig.components.editor.styles.minimalist,
+		);
+
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		expect(component.render(80).join("\n")).not.toContain("Accent Rail surface");
 	});
 
 	it("shows friendly message style labels and restores focus after rebuild", async () => {
@@ -1009,6 +1080,10 @@ describe("component-oriented /zentui settings", () => {
 		selectLabel(component, "Editor viewport indicators");
 		component.handleInput(" ");
 		expect(component.render(100).join("\n")).not.toContain("↑ 2 more");
+		selectLabel(component, "Editor style");
+		component.handleInput(" ");
+		const accentRail = component.render(100).join("\n");
+		expect(accentRail).not.toBe(copyFriendly);
 		selectLabel(component, "Editor style");
 		component.handleInput(" ");
 		const minimalist = component.render(100).join("\n");

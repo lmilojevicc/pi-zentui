@@ -95,6 +95,9 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	sessionLifecycle: inactiveSessionLifecycle,
 	getConfig: () => defaultConfig,
 	setEditorComponent: () => ({ applied: true }),
+	setPolished() {},
+	setPolishedCopyFriendly() {},
+	setAccentRail() {},
 	setMinimalist() {},
 	setUserMessagesComponent() {},
 	setWorkingLineComponent: () => ({ applied: true }),
@@ -1345,6 +1348,7 @@ describe("Pi docs compliance", () => {
 					settings.handleInput("\x1b[B");
 					settings.handleInput(" ");
 					settings.handleInput(" ");
+					settings.handleInput(" ");
 				},
 			},
 		});
@@ -1463,7 +1467,7 @@ describe("Pi docs compliance", () => {
 				keybindings as never,
 			);
 			const activeRender = activeEditor.render(80);
-			expect(activeRender).toContain("third-party:80");
+			expect(activeRender).toContain("third-party:78");
 			expect(zentuiLayers(activeRender)).toBe(1);
 			expect(zentuiLayers(opaqueEditor.render(80))).toBe(1);
 			activeEditor.handleInput("x");
@@ -2029,6 +2033,10 @@ describe("Pi docs compliance", () => {
 		["opencode-copy-friendly", "framed-copy-friendly"],
 		["opencode-copy-friendly", "compact"],
 		["opencode-copy-friendly", "labeled"],
+		["accent-rail", "framed"],
+		["accent-rail", "framed-copy-friendly"],
+		["accent-rail", "compact"],
+		["accent-rail", "labeled"],
 		["minimalist", "framed"],
 		["minimalist", "framed-copy-friendly"],
 		["minimalist", "compact"],
@@ -2058,6 +2066,7 @@ describe("Pi docs compliance", () => {
 
 		if (editorStyle === "opencode") expect(editorRendered).toContain("│");
 		else if (editorStyle === "opencode-copy-friendly") expect(editorRendered).not.toContain("│");
+		else if (editorStyle === "accent-rail") expect(editorRendered).toContain("▎ draft");
 		else expect(editorRendered).toContain("╭");
 		const plainMessage = stripPromptMarks(messageRendered);
 		if (messageStyle === "framed") expect(plainMessage).toContain("────");
@@ -3291,7 +3300,7 @@ describe("Pi docs compliance", () => {
 			getExtensionStatuses: () => new Map<string, string>(),
 		});
 
-		expect(editor.render(80)).toEqual(["third-party-80", "draft", "help"]);
+		expect(editor.render(80)).toEqual(["third-party-76", "draft", "help"]);
 		expect(footer?.render(80).length).toBeGreaterThan(0);
 
 		footer?.dispose?.();
@@ -4949,8 +4958,11 @@ describe("Pi docs compliance", () => {
 		assertSingleFrame(third);
 	});
 
-	it("preserves every autocomplete row outside multiply wrapped branded frames", () => {
-		const config = { ...defaultConfig, editorMetadataFormat: "autocomplete-meta" };
+	it("preserves every native autocomplete row outside multiply wrapped branded frames", () => {
+		const config = structuredClone(defaultConfig);
+		config.editorMetadataFormat = "autocomplete-meta";
+		config.components.editor.styles.opencode.metadataFormat = "autocomplete-meta";
+		config.components.editor.styles.opencode.completionMenu = "native";
 		const base = new PolishedEditor(
 			{ requestRender() {}, terminal: { rows: 24, cols: 120 } } as never,
 			{ borderColor: (text: string) => text, selectList: {} } as never,

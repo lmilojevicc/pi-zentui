@@ -8,6 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
+	type AccentRailEditorStyleConfig,
 	type ContextStyle,
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
@@ -24,9 +25,12 @@ import {
 	loadConfig,
 	type MinimalistConfig,
 	type PathDisplayConfig,
+	type PolishedCopyFriendlyEditorStyleConfig,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
+	saveAccentRailEditorStylePatch,
 	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
@@ -34,6 +38,8 @@ import {
 	saveFooterComponentPatch,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
+	savePolishedCopyFriendlyEditorStylePatch,
+	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
 	saveUserMessagesComponentPatch,
@@ -1124,6 +1130,21 @@ export default function (pi: ExtensionAPI) {
 				applied: !result || result.ok,
 				reason: result && !result.ok ? result.reason : undefined,
 			};
+		},
+		setPolished(patch: Partial<PolishedEditorStyleConfig>, _ctx: ExtensionContext) {
+			currentConfig = savePolishedEditorStylePatch(patch);
+			refresh();
+		},
+		setPolishedCopyFriendly(
+			patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = savePolishedCopyFriendlyEditorStylePatch(patch);
+			refresh();
+		},
+		setAccentRail(patch: Partial<AccentRailEditorStyleConfig>, _ctx: ExtensionContext) {
+			currentConfig = saveAccentRailEditorStylePatch(patch);
+			refresh();
 		},
 		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
 			currentConfig = saveMinimalistEditorStylePatch(patch);

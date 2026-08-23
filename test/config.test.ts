@@ -26,6 +26,7 @@ import {
 	getExtensionStatusPlacement,
 	hasUnsupportedComponentStyle,
 	mergeConfig,
+	saveAccentRailEditorStylePatch,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
 	saveContextThresholdsPatch,
@@ -102,9 +103,16 @@ describe("canonical config resolution", () => {
 				styles: {
 					opencode: {
 						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+						completionMenu: "palette",
 					},
 					"opencode-copy-friendly": {
 						metadataFormat: DEFAULT_EDITOR_METADATA_FORMAT,
+						completionMenu: "palette",
+					},
+					"accent-rail": {
+						rail: "▎",
+						asciiRail: "|",
+						transparent: false,
 					},
 					minimalist: {
 						pathDisplay: "compact",
@@ -171,6 +179,56 @@ describe("canonical config resolution", () => {
 		expect(config.icons.cacheHit).toBe("󰆼");
 		expect(config.colors).toEqual(defaultConfig.colors);
 		expect(defaultConfig.components).toEqual(config.components);
+	});
+
+	it("normalizes Opencode completion menus independently", () => {
+		const config = mergeConfig({
+			components: {
+				editor: {
+					styles: {
+						opencode: { completionMenu: "native" },
+						"opencode-copy-friendly": { completionMenu: "invalid" },
+					},
+				},
+			},
+		});
+		expect(config.components.editor.styles.opencode.completionMenu).toBe("native");
+		expect(config.components.editor.styles["opencode-copy-friendly"].completionMenu).toBe(
+			"palette",
+		);
+	});
+
+	it("normalizes the canonical accent-rail style and its editor-owned roles", () => {
+		const config = mergeConfig({
+			colors: { editorRail: "bright-green", editorAccent: "error" },
+			components: {
+				editor: {
+					style: "accent-rail",
+					styles: { "accent-rail": { rail: "!", asciiRail: ":", transparent: true } },
+				},
+			},
+		});
+		expect(config.components.editor.style).toBe("accent-rail");
+		expect(config.components.editor.styles["accent-rail"]).toEqual({
+			rail: "!",
+			asciiRail: ":",
+			transparent: true,
+		});
+		expect(config.colors.editorRail).toBe("bright-green");
+		expect(config.colors.editorAccent).toBe("error");
+
+		const invalid = mergeConfig({
+			components: {
+				editor: {
+					styles: { "accent-rail": { rail: "", asciiRail: 1, transparent: "yes" } },
+				},
+			},
+		});
+		expect(invalid.components.editor.styles["accent-rail"]).toEqual({
+			rail: "▎",
+			asciiRail: "|",
+			transparent: false,
+		});
 	});
 
 	it("bridges explicit legacy branch colors into the independent Editor branch role", () => {
@@ -1164,8 +1222,12 @@ describe("canonical snapshot persistence", () => {
 
 	it("supports every typed component saver without discarding inactive styles", () => {
 		withConfig(undefined, (path) => {
-			savePolishedEditorStylePatch({ metadataFormat: "$provider" }, path);
-			savePolishedCopyFriendlyEditorStylePatch({ metadataFormat: "$model" }, path);
+			savePolishedEditorStylePatch({ metadataFormat: "$provider", completionMenu: "native" }, path);
+			savePolishedCopyFriendlyEditorStylePatch(
+				{ metadataFormat: "$model", completionMenu: "palette" },
+				path,
+			);
+			saveAccentRailEditorStylePatch({ transparent: true }, path);
 			saveMinimalistEditorStylePatch({ showGit: false, contextGauge: true }, path);
 			saveUserMessagesComponentPatch({ enabled: false, colorSource: "terminal" }, path);
 			saveSelectorBordersComponentPatch({ enabled: false, colorSource: "terminal" }, path);
@@ -1177,9 +1239,14 @@ describe("canonical snapshot persistence", () => {
 			const config = mergeConfig(readRaw(path));
 			expect(config.components.editor.styles.opencode).toEqual({
 				metadataFormat: "$provider",
+				completionMenu: "native",
 			});
 			expect(config.components.editor.styles["opencode-copy-friendly"]).toEqual({
 				metadataFormat: "$model",
+				completionMenu: "palette",
+			});
+			expect(config.components.editor.styles["accent-rail"]).toMatchObject({
+				transparent: true,
 			});
 			expect(config.components.editor.styles.minimalist).toMatchObject({
 				showGit: false,
@@ -1347,6 +1414,7 @@ describe("mergeConfig", () => {
 		expect(config.colors.tokens).toBe("bright-black");
 		expect(config.colors.extensionStatus).toBe("bright-black");
 		expect(config.colors.editorAccent).toBeUndefined();
+		expect(config.colors.editorRail).toBeUndefined();
 		expect(config.colors.editorPrompt).toBeUndefined();
 		expect(config.colors.editorBorder).toBeUndefined();
 		expect(config.colorSources).toEqual({
@@ -1615,6 +1683,16 @@ describe("mergeConfig", () => {
 			expect(raw.editorStyle).toBeUndefined();
 			expect(raw.components.editor.style).toBe("minimalist");
 			expect(minimalist.editorStyle).toBe("minimalist");
+
+			const accentRail = saveEditorStyle("accent-rail", path);
+			raw = JSON.parse(readFileSync(path, "utf8"));
+			expect(accentRail.editorStyle).toBe("accent-rail");
+			expect(raw.components.editor.style).toBe("accent-rail");
+			expect(raw.components.editor.styles["accent-rail"]).toEqual({
+				rail: "▎",
+				asciiRail: "|",
+				transparent: false,
+			});
 
 			const polished = saveEditorStyle("opencode", path);
 			raw = JSON.parse(readFileSync(path, "utf8"));
