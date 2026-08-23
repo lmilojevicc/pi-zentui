@@ -25,7 +25,10 @@ function theme(): Theme {
 	} as Theme;
 }
 
-type EditorOptions = Partial<PolishedTuiConfig["features"]> & { style?: EditorStyle };
+type EditorOptions = Partial<PolishedTuiConfig["features"]> & {
+	style?: EditorStyle;
+	completionMenu?: "native" | "palette";
+};
 
 function config(
 	options: EditorOptions = {},
@@ -41,6 +44,17 @@ function config(
 				borderColorMode: editorBorderColorMode,
 				viewportIndicators:
 					options.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
+				styles: {
+					...defaultConfig.components.editor.styles,
+					opencode: {
+						...defaultConfig.components.editor.styles.opencode,
+						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
+					},
+					"opencode-copy-friendly": {
+						...defaultConfig.components.editor.styles["opencode-copy-friendly"],
+						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
+					},
+				},
 			},
 		},
 		features: {
@@ -317,17 +331,150 @@ describe("editor viewport indicators", () => {
 	});
 
 	it.each(["opencode", "opencode-copy-friendly"] as const)(
-		"keeps ANSI and Unicode autocomplete rows raw after the terminal bottom border in %s",
+		"renders one completion palette through nested %s wrappers",
 		(style) => {
-			const suggestions = ["\x1b[31msuggestion-one\x1b[0m", "emoji 😀 e\u0301 界"];
-			const lines = wrapped(baseEditor({ below: 5, autocomplete: suggestions }), { style }).render(
-				80,
-			);
+			const base = baseEditor({ autocomplete: ["→ suggestion-one", "  suggestion-two"] });
+			const renderAutocomplete = base.autocompleteList.render;
+			let calls = 0;
+			base.autocompleteList.render = (width) => {
+				calls += 1;
+				return renderAutocomplete(width);
+			};
+			const inner = wrapped(base, { style });
+			const lines = wrapped(inner, { style }).render(50);
+			const rendered = lines.join("\n");
+			expect(calls).toBe(1);
+			expect(rendered.match(/suggestion-one/g)).toHaveLength(1);
+			expect(rendered.match(/suggestion-two/g)).toHaveLength(1);
+			expect(rendered.match(/↑↓ Navigate/g)).toHaveLength(1);
+			expect(rendered).not.toContain("→ suggestion-one");
+		},
+	);
+
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"keeps ANSI, Unicode, and native count autocomplete rows raw after the terminal bottom border in %s",
+		(style) => {
+			const suggestions = [
+				"\x1b[31msuggestion-one\x1b[0m",
+				"emoji 😀 e\u0301 界",
+				"\x1b[90m (1/47) \x1b[0m",
+			];
+			const lines = wrapped(baseEditor({ below: 5, autocomplete: suggestions }), {
+				style,
+				completionMenu: "native",
+			}).render(80);
 			const bottom = lines.findIndex((line) => line.includes("↓ 5 more"));
 			expect(lines.some((line) => line.includes("├") || line.includes("┤"))).toBe(false);
 			expect(bottom).toBe(lines.length - suggestions.length - 1);
 			expect(lines.slice(bottom + 1)).toEqual(suggestions);
 			expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+		},
+	);
+
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"renders the default completion palette once without the native count row in %s",
+		(style) => {
+			const suggestions = ["\x1b[1m→ settings\x1b[0m", "  files", "\x1b[90m (1/47) \x1b[0m"];
+			const lines = wrapped(baseEditor({ autocomplete: suggestions }), { style }).render(40);
+			const plain = lines.map((line) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""));
+			expect(plain).toContain("  settings".padEnd(40));
+			expect(plain).toContain("  files".padEnd(40));
+			expect(plain.some((line) => line.includes("→"))).toBe(false);
+			expect(plain.some((line) => line.includes("(1/47)"))).toBe(false);
+			expect(plain.at(-1)).toContain("↑↓ Navigate");
+			expect(plain.filter((line) => /^─+$/.test(line.trim()))).toHaveLength(3);
+			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+		},
+	);
+
+	it.each(["opencode", "accent-rail"] as const)(
+		"fails open from the same render when a third-party %s editor rewrites captured autocomplete rows",
+		(style) => {
+			for (const mutation of ["replace", "reorder"] as const) {
+				const suggestions = ["→ original-one", "  original-two"];
+				const base = baseEditor({ autocomplete: suggestions });
+				const nativeRender = base.render.bind(base);
+				const widths: number[] = [];
+				let lastOutput: string[] = [];
+				base.render = (width: number) => {
+					widths.push(width);
+					const rendered = nativeRender(width);
+					const editorRows = rendered.slice(0, -suggestions.length);
+					const autocompleteRows = rendered.slice(-suggestions.length);
+					const mutatedRows =
+						mutation === "replace"
+							? ["replacement-one", "replacement-two"]
+							: [...autocompleteRows].reverse();
+					lastOutput = [...editorRows, ...mutatedRows];
+					return lastOutput;
+				};
+
+				const lines = wrapped(base, { style }).render(40);
+				expect(lines).toEqual(lastOutput);
+				expect(widths).toHaveLength(1);
+				expect(widths[0]).toBeLessThan(40);
+				expect(lines.join("\n")).not.toContain("↑↓ Navigate");
+				expect(lines.some((line) => line.startsWith("▎"))).toBe(false);
+			}
+		},
+	);
+
+	it.each([
+		["ASCII spaces", "   ", true],
+		["a tab", "\t", false],
+		["a newline", "\n", false],
+		["a non-breaking space", "\u00a0", false],
+		["a Unicode em space", "\u2003", false],
+	] as const)("treats trailing %s as %s autocomplete padding", (_label, trailing, accepted) => {
+		const suggestions = ["→ original-one", "  original-two"];
+		const base = baseEditor({ autocomplete: suggestions });
+		const nativeRender = base.render.bind(base);
+		const widths: number[] = [];
+		let sameRenderRows: string[] = [];
+		base.render = (width: number) => {
+			widths.push(width);
+			const rendered = nativeRender(width);
+			const editorRows = rendered.slice(0, -suggestions.length);
+			sameRenderRows = [
+				...editorRows,
+				...rendered.slice(-suggestions.length).map((line) => `${line}${trailing}`),
+			];
+			return sameRenderRows;
+		};
+
+		const lines = wrapped(base, { style: "opencode" }).render(40);
+		expect(widths).toHaveLength(1);
+		if (accepted) {
+			expect(lines.join("\n")).toContain("↑↓ Navigate");
+		} else {
+			expect(lines).toEqual(sameRenderRows);
+			expect(lines.join("\n")).not.toContain("↑↓ Navigate");
+		}
+	});
+
+	it.each(["opencode", "accent-rail"] as const)(
+		"preserves same-render %s rows when autocomplete ownership changes during rendering",
+		(style) => {
+			const suggestions = ["→ original-one", "  original-two"];
+			const base = baseEditor({ autocomplete: suggestions });
+			const nativeRender = base.render.bind(base);
+			const replacement = vi.fn(() => ["replacement"]);
+			const widths: number[] = [];
+			let sameRenderRows: string[] = [];
+			base.render = (width: number) => {
+				widths.push(width);
+				sameRenderRows = nativeRender(width);
+				base.autocompleteList.render = replacement;
+				return sameRenderRows;
+			};
+
+			const lines = wrapped(base, { style }).render(40);
+			expect(lines).toEqual(sameRenderRows);
+			expect(widths).toHaveLength(1);
+			expect(replacement).not.toHaveBeenCalled();
+			expect(base.autocompleteList.render).toBe(replacement);
+			expect(lines.join("\n")).not.toContain("↑↓ Navigate");
+			expect(lines.some((line) => line.startsWith("▎"))).toBe(false);
 		},
 	);
 
@@ -349,9 +496,10 @@ describe("editor viewport indicators", () => {
 		"keeps raw trailing autocomplete width-safe at widths 5 and 4 in %s",
 		(style) => {
 			for (const width of [5, 4]) {
-				const lines = wrapped(baseEditor({ autocomplete: ["界😀e\u0301"] }), { style }).render(
-					width,
-				);
+				const lines = wrapped(baseEditor({ autocomplete: ["界😀e\u0301"] }), {
+					style,
+					completionMenu: "native",
+				}).render(width);
 				expect(lines.some((line) => line.includes("├") || line.includes("┤"))).toBe(false);
 				expect(lines.at(-2)).toMatch(/^─+$/);
 				expect(visibleWidth(lines.at(-1) ?? "")).toBeLessThanOrEqual(width);
@@ -398,6 +546,37 @@ describe("editor viewport indicators", () => {
 		expect(lines.some((line) => line.includes("caller-width-suggestion"))).toBe(true);
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
+
+	it.each(["opencode", "accent-rail"] as const)(
+		"keeps standalone %s autocomplete to one render when ownership changes",
+		(style) => {
+			const editor = standalone(style);
+			const replacement = vi.fn(() => ["replacement"]);
+			let calls = 0;
+			const autocompleteList = {
+				filteredItems: [{ value: "original" }],
+				selectedIndex: 0,
+				maxVisible: 1,
+				render() {
+					calls += 1;
+					autocompleteList.render = replacement;
+					return ["→ original"];
+				},
+			};
+			Object.assign(editor as unknown as Record<string, unknown>, {
+				autocompleteState: {},
+				autocompleteList,
+			});
+
+			const lines = editor.render(80);
+			expect(calls).toBe(1);
+			expect(replacement).not.toHaveBeenCalled();
+			expect(autocompleteList.render).toBe(replacement);
+			expect(lines.some((line) => line.includes("→ original"))).toBe(true);
+			expect(lines.join("\n")).not.toContain("↑↓ Navigate");
+			expect(lines.some((line) => line.startsWith("▎"))).toBe(false);
+		},
+	);
 
 	it.each([
 		"── ↑ 7 more ─────────",
@@ -512,11 +691,11 @@ describe("editor viewport indicators", () => {
 			[Symbol.for("pi-zentui.polished-frame")]: spoofedSplit,
 		};
 		expect(wrapped(base as never).render(80)).toEqual([
-			nativeBorder(80, "above"),
+			nativeBorder(78, "above"),
 			"typed text",
-			nativeBorder(80, "below"),
+			nativeBorder(78, "below"),
 		]);
-		expect(widths).toEqual([78, 80]);
+		expect(widths).toEqual([78]);
 		expect(spoofedSplit).not.toHaveBeenCalled();
 	});
 
@@ -575,7 +754,7 @@ describe("editor viewport indicators", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
-	it("re-renders unknown third-party output at the caller width before failing open", () => {
+	it("returns unknown third-party output from the completed same-width probe", () => {
 		const widths: number[] = [];
 		const base = {
 			render(width: number) {
@@ -589,9 +768,9 @@ describe("editor viewport indicators", () => {
 		};
 
 		const lines = wrapped(base as never).render(80);
-		expect(widths).toEqual([78, 80]);
-		expect(lines[0]).toBe("header-80");
-		expect(lines.at(-1)).toBe("help-80");
+		expect(widths).toEqual([78]);
+		expect(lines[0]).toBe("header-78");
+		expect(lines.at(-1)).toBe("help-78");
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
@@ -719,6 +898,57 @@ describe("same-render autocomplete capture", () => {
 		expect(predecessor).toHaveBeenCalledTimes(1);
 	});
 
+	it.each(["opencode", "accent-rail"] as const)(
+		"fails open from one %s render when inherited-renderer cleanup is rejected",
+		(style) => {
+			const predecessor = vi.fn((_width: number) => ["→ original"]);
+			const target = Object.assign(
+				Object.create({ render: predecessor }) as {
+					render: (width: number) => string[];
+					filteredItems: Array<{ value: string }>;
+					selectedIndex: number;
+					maxVisible: number;
+				},
+				{
+					filteredItems: [{ value: "original" }],
+					selectedIndex: 0,
+					maxVisible: 1,
+				},
+			);
+			const autocompleteList = new Proxy(target, {
+				deleteProperty: () => false,
+			});
+			let renderCalls = 0;
+			let sameRenderRows: string[] = [];
+			const base = {
+				render(width: number) {
+					renderCalls++;
+					sameRenderRows = [
+						nativeBorder(width, "above"),
+						"typed text",
+						nativeBorder(width, "below"),
+						...autocompleteList.render(width),
+					];
+					return sameRenderRows;
+				},
+				invalidate() {},
+				handleInput() {},
+				getText: () => "typed text",
+				setText() {},
+				isShowingAutocomplete: () => true,
+				autocompleteList,
+			};
+
+			const lines = wrapped(base as never, { style }).render(40);
+			expect(lines).toEqual(sameRenderRows);
+			expect(renderCalls).toBe(1);
+			expect(predecessor).toHaveBeenCalledTimes(1);
+			expect(Object.hasOwn(target, "render")).toBe(true);
+			expect(lines.join("\n")).not.toContain("↑↓ Navigate");
+			expect(lines.some((line) => line.startsWith("▎"))).toBe(false);
+		},
+	);
+
 	it("restores after throwing and supports nested capture without extra renders", () => {
 		const predecessor = vi.fn(() => ["one"]);
 		const autocomplete = source(predecessor);
@@ -741,6 +971,33 @@ describe("same-render autocomplete capture", () => {
 		expect(outer.capture).toMatchObject({ compatible: true, called: 1 });
 		expect(outer.value.capture).toMatchObject({ compatible: true, called: 1 });
 		expect(autocomplete.autocompleteList.render).toBe(original);
+	});
+});
+
+describe("accent rail editor integration", () => {
+	it("decorates trusted wrapped input and autocomplete rows", () => {
+		const editor = wrapped(baseEditor({ autocomplete: ["one", "two"] }), {
+			style: "accent-rail",
+		});
+		const lines = editor.render(24);
+		expect(lines).toHaveLength(3);
+		expect(lines[0]).toMatch(/^▎ typed text/);
+		expect(lines.every((line) => visibleWidth(line) === 24)).toBe(true);
+		expect(lines.slice(1).map((line) => line.trimEnd())).toEqual(["one", "two"]);
+	});
+
+	it("fails open from the reduced same-render rows for untrusted third-party output", () => {
+		const base = baseEditor({ malformedTop: "third-party header" });
+		const editor = wrapped(base, { style: "accent-rail" });
+		const lines = editor.render(24);
+		expect(lines).toEqual(base.render(22));
+		expect(lines.join("\n")).not.toContain("▎");
+	});
+
+	it("renders the standalone editor with the same accent rail", () => {
+		const lines = standalone("accent-rail").render(24);
+		expect(lines.some((line) => line.startsWith("▎ "))).toBe(true);
+		expect(lines.every((line) => visibleWidth(line) <= 24)).toBe(true);
 	});
 });
 
@@ -795,19 +1052,29 @@ describe("minimalist editor integration", () => {
 		const polished = editor.render(40);
 		current = withEditorStyle(current, "opencode-copy-friendly");
 		const lowRail = editor.render(40);
+		current = withEditorStyle(current, "accent-rail");
+		const accentRail = editor.render(40);
 		current = withEditorStyle(current, "minimalist");
 		const minimalist = editor.render(40);
 		current = withEditorStyle(current, "opencode");
 		const polishedAgain = editor.render(40);
 
-		expect(rawWidths).toEqual([36, 38, 34, 36]);
+		expect(rawWidths).toEqual([36, 38, 36, 34, 36]);
 		expect(polished.join("\n").match(/provider/g)).toHaveLength(1);
 		expect(lowRail.join("\n").match(/provider/g)).toHaveLength(1);
+		expect(accentRail[0]).toMatch(/^▎ typed text/);
+		expect(accentRail.join("\n")).not.toContain("provider");
 		expect(minimalist[0]).toMatch(/^╭.*╮$/);
 		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
 		expect(polishedAgain.join("\n").match(/provider/g)).toHaveLength(1);
 		expect(polishedAgain.join("\n")).not.toContain("╭");
-		expect(decoration.mock.calls.map(([active]) => active)).toEqual([false, false, true, false]);
+		expect(decoration.mock.calls.map(([active]) => active)).toEqual([
+			false,
+			false,
+			false,
+			true,
+			false,
+		]);
 	});
 
 	it("places native viewport counts at the far left before minimalist metadata", () => {
@@ -864,7 +1131,7 @@ describe("minimalist editor integration", () => {
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
 	});
 
-	it("fails open at caller width for unknown third-party output", () => {
+	it("fails open from the reduced same-render rows for unknown third-party output", () => {
 		const widths: number[] = [];
 		const decoration = vi.fn();
 		const base = {
@@ -886,8 +1153,8 @@ describe("minimalist editor integration", () => {
 			() => ({ cwd: "/tmp" }),
 			decoration,
 		);
-		expect(editor.render(40)).toEqual(["header-40", "body", "help-40"]);
-		expect(widths).toEqual([36, 40]);
+		expect(editor.render(40)).toEqual(["header-36", "body", "help-36"]);
+		expect(widths).toEqual([36]);
 		expect(decoration).toHaveBeenLastCalledWith(false);
 	});
 

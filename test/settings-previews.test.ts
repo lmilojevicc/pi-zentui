@@ -23,11 +23,13 @@ function theme(offset = 0): Theme {
 				200;
 			return `\x1b[38;5;${index}m${text}\x1b[0m`;
 		},
+		bg: (_color: string, text: string) => `\x1b[48;5;234m${text}\x1b[49m`,
+		getBgAnsi: () => "\x1b[48;5;234m",
 		bold: (text: string) => `\x1b[1m${text}\x1b[0m`,
 		italic: (text: string) => text,
 		underline: (text: string) => text,
 		strikethrough: (text: string) => text,
-	} as Theme;
+	} as unknown as Theme;
 }
 
 function config(): PolishedTuiConfig {
@@ -85,15 +87,17 @@ describe("settings previews", () => {
 			expect(visibleWidth(row)).toBeLessThanOrEqual(Math.min(width, SETTINGS_PREVIEW_MAX_WIDTH));
 	});
 
-	it("renders the defining structure of all three Editor styles without status cues", () => {
+	it("renders the defining structure of all four Editor styles without status cues", () => {
 		const outputs = Object.fromEntries(
-			(["opencode", "opencode-copy-friendly", "minimalist"] as EditorStyle[]).map((style) => {
-				const current = config();
-				current.components.editor.style = style;
-				return [style, plain(renderEditorSettingsPreview(current, theme(), 72))];
-			}),
+			(["opencode", "opencode-copy-friendly", "accent-rail", "minimalist"] as EditorStyle[]).map(
+				(style) => {
+					const current = config();
+					current.components.editor.style = style;
+					return [style, plain(renderEditorSettingsPreview(current, theme(), 72))];
+				},
+			),
 		) as Record<EditorStyle, string>;
-		expect(new Set(Object.values(outputs)).size).toBe(3);
+		expect(new Set(Object.values(outputs)).size).toBe(4);
 		for (const output of Object.values(outputs)) {
 			expect(output).not.toContain("Editor preview");
 			expect(output).not.toContain("preview enabled");
@@ -101,9 +105,16 @@ describe("settings previews", () => {
 		}
 		expect(outputs.opencode).toContain("│ Explain this change safely.");
 		expect(outputs.opencode).toContain("─── ↑ 2 more");
+		expect(outputs.opencode).toContain("↑↓ Navigate");
+		expect(outputs.opencode).not.toContain("→ settings");
 		expect(outputs["opencode-copy-friendly"]).toContain("\nExplain this change safely.");
+		expect(outputs["opencode-copy-friendly"]).toContain("↑↓ Navigate");
 		expect(outputs["opencode-copy-friendly"]).toContain("\n sonnet-4");
 		expect(outputs["opencode-copy-friendly"]).not.toContain("│ Explain this change safely.");
+		expect(outputs["accent-rail"]).toContain("▎ Explain this change safely.");
+		expect(outputs["accent-rail"]).toContain("▎ settings     Open settings");
+		expect(outputs["accent-rail"]).toContain("  files        Search files");
+		expect(outputs["accent-rail"]).not.toContain("sonnet-4");
 		expect(outputs.minimalist).toContain("╭─ ↑ 2 more");
 		expect(outputs.minimalist).toContain("╰─ ↓ 3 more");
 		expect(outputs.minimalist).toContain("feat/settings-previews");
@@ -112,6 +123,61 @@ describe("settings previews", () => {
 		const disabledOutput = plain(renderEditorSettingsPreview(disabled, theme(), 72));
 		expect(disabledOutput).toContain("Explain this change safely.");
 		expect(disabledOutput).not.toContain("preview");
+	});
+
+	it("previews transparent palette and native completion menus independently for both Opencode styles", () => {
+		const current = config();
+		const renderRows = () => renderEditorSettingsPreview(current, theme(), 72);
+		const render = () => plain(renderRows());
+		expect(render()).toContain("↑↓ Navigate");
+		expect(render()).not.toContain("→ settings");
+		expect(render()).not.toContain("(1/47)");
+		expect(renderRows().join("\n")).not.toContain("\x1b[48;5;234m");
+
+		current.components.editor.styles.opencode.completionMenu = "native";
+		expect(render()).not.toContain("↑↓ Navigate");
+		expect(render()).toContain("→ settings");
+		expect(render()).toContain("(1/47)");
+		expect(current.components.editor.styles["opencode-copy-friendly"].completionMenu).toBe(
+			"palette",
+		);
+
+		current.components.editor.style = "opencode-copy-friendly";
+		expect(render()).toContain("↑↓ Navigate");
+		expect(render()).not.toContain("(1/47)");
+		current.components.editor.styles["opencode-copy-friendly"].completionMenu = "native";
+		expect(render()).not.toContain("↑↓ Navigate");
+		expect(render()).toContain("→ settings");
+		expect(render()).toContain("(1/47)");
+	});
+
+	it("passes enabled and disabled viewport indicators through the Accent Rail preview", () => {
+		const current = config();
+		current.components.editor.style = "accent-rail";
+		const render = () => plain(renderEditorSettingsPreview(current, theme(), 72));
+
+		current.components.editor.viewportIndicators = true;
+		expect(render()).toContain("▎ ↑ 2 more");
+		expect(render()).toContain("▎ ↓ 3 more");
+
+		current.components.editor.viewportIndicators = false;
+		expect(render()).not.toContain("↑ 2 more");
+		expect(render()).not.toContain("↓ 3 more");
+		expect(render()).toContain("▎ Explain this change safely.");
+	});
+
+	it("previews filled and transparent Accent Rail surfaces", () => {
+		const current = config();
+		current.components.editor.style = "accent-rail";
+		const render = () => renderEditorSettingsPreview(current, theme(), 72).join("\n");
+		const filled = render();
+		expect(filled).toContain("\x1b[48;5;234m");
+		expect(plain(filled.split("\n"))).toContain("▎ settings     Open settings");
+
+		current.components.editor.styles["accent-rail"].transparent = true;
+		const transparent = render();
+		expect(transparent).not.toContain("\x1b[48;5;234m");
+		expect(plain(transparent.split("\n"))).toContain("▎ settings     Open settings");
 	});
 
 	it("responds to Editor visible settings and selected metadata format", () => {
@@ -209,7 +275,15 @@ describe("settings previews", () => {
 		current.icons.ahead = "↑\x1bP$qARROW-DCS\x1b\\";
 		current.icons.behind = "↓\u009dARROW-C1\u009c";
 
-		for (const style of ["opencode", "opencode-copy-friendly", "minimalist"] as EditorStyle[]) {
+		current.components.editor.styles["accent-rail"].rail =
+			"▎\x1b]2;ACCENT-RAIL-OSC\x07\u009b31m\u009dACCENT-RAIL-C1\u009c\u009b0m";
+
+		for (const style of [
+			"opencode",
+			"opencode-copy-friendly",
+			"accent-rail",
+			"minimalist",
+		] as EditorStyle[]) {
 			current.components.editor.style = style;
 			expectOnlyTrustedSgr(renderEditorSettingsPreview(current, theme(), 72), [
 				"RAIL-OSC",
@@ -219,6 +293,8 @@ describe("settings previews", () => {
 				"ARROW-C1",
 				"evil.invalid",
 				"TRUNCATED-OSC",
+				"ACCENT-RAIL-OSC",
+				"ACCENT-RAIL-C1",
 			]);
 		}
 		current.components.editor.style = "opencode";

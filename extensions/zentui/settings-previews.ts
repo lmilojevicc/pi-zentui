@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { renderAccentRailEditorFrame } from "./accent-rail-editor";
 import type { PolishedTuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { renderMinimalistFrame } from "./minimalist-editor";
@@ -8,7 +9,7 @@ import { renderPolishedEditorFrame } from "./ui";
 import { renderUserMessageStyle } from "./user-message-styles";
 
 export const SETTINGS_PREVIEW_MAX_WIDTH = 72;
-export const SETTINGS_PREVIEW_MAX_ROWS = 8;
+export const SETTINGS_PREVIEW_MAX_ROWS = 10;
 export const EDITOR_PREVIEW_INPUT = "Explain this change safely.";
 export const USER_MESSAGE_PREVIEW_MARKDOWN = "Please review **this change** safely.";
 
@@ -49,50 +50,67 @@ export function renderEditorSettingsPreview(
 	const borderColor = adaptiveBorder(theme);
 	const modelLabel = editor.modelLabel === "name" ? "Sonnet 4" : "sonnet-4";
 	const editorLines = [EDITOR_PREVIEW_INPUT];
+	const autocompleteLines = [
+		safeThemeFg(theme, "accent", "→ settings     Open settings"),
+		"  files        Search files",
+		safeThemeFg(theme, "muted", "  (1/47)"),
+	];
 	const viewport = editor.viewportIndicators ? { above: "2", below: "3" } : undefined;
-	const frame =
-		editor.style === "minimalist"
-			? renderMinimalistFrame({
-					width: previewWidth,
-					editorLines,
-					viewport,
-					inputText: EDITOR_PREVIEW_INPUT,
-					metadata: {
-						cwd: "/workspace/zentui/src",
-						projectRoot: "/workspace/zentui",
-						branch: "feat/settings-previews",
-						dirty: true,
-						ahead: 2,
-						behind: 1,
-						costLabel: "$.12",
-						modelLabel,
-						thinkingLevel: "high",
-						contextPercent: 75,
-						contextWindow: 372_000,
-						sessionName: "Preview",
-						agentDurationMs: 12_000,
-						agentActive: true,
-					},
-					uiTheme: theme,
-					config: safeConfig,
-					borderColor,
-				})
-			: renderPolishedEditorFrame({
-					width: previewWidth,
-					editorLines,
-					viewport,
-					uiTheme: theme,
-					config: safeConfig,
-					modelMeta: {
-						modelLabel,
-						modelId: "sonnet-4",
-						modelName: "Sonnet 4",
-						providerLabel: "Anthropic",
-						sessionName: "Preview",
-					},
-					thinkingLevel: "high",
-					borderColor,
-				});
+	let frame: string[];
+	if (editor.style === "accent-rail") {
+		frame = renderAccentRailEditorFrame({
+			width: previewWidth,
+			editorLines,
+			autocompleteLines,
+			viewport,
+			uiTheme: theme,
+			config: safeConfig,
+		});
+	} else if (editor.style === "minimalist") {
+		frame = renderMinimalistFrame({
+			width: previewWidth,
+			editorLines,
+			viewport,
+			inputText: EDITOR_PREVIEW_INPUT,
+			metadata: {
+				cwd: "/workspace/zentui/src",
+				projectRoot: "/workspace/zentui",
+				branch: "feat/settings-previews",
+				dirty: true,
+				ahead: 2,
+				behind: 1,
+				costLabel: "$.12",
+				modelLabel,
+				thinkingLevel: "high",
+				contextPercent: 75,
+				contextWindow: 372_000,
+				sessionName: "Preview",
+				agentDurationMs: 12_000,
+				agentActive: true,
+			},
+			uiTheme: theme,
+			config: safeConfig,
+			borderColor,
+		});
+	} else {
+		frame = renderPolishedEditorFrame({
+			width: previewWidth,
+			editorLines,
+			autocompleteLines,
+			viewport,
+			uiTheme: theme,
+			config: safeConfig,
+			modelMeta: {
+				modelLabel,
+				modelId: "sonnet-4",
+				modelName: "Sonnet 4",
+				providerLabel: "Anthropic",
+				sessionName: "Preview",
+			},
+			thinkingLevel: "high",
+			borderColor,
+		});
+	}
 	return boundedRows(frame, previewWidth);
 }
 

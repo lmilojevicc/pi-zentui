@@ -10,7 +10,7 @@ A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
 
 Zentui styles four major Pi surfaces independently:
 
-- **Editor** — selectable opencode, low-rail opencode, and minimalist input frames inspired by [Opencode](https://github.com/opencode-ai/opencode)
+- **Editor** — selectable Opencode, Accent Rail, and Minimalist input treatments inspired by [Opencode](https://github.com/opencode-ai/opencode), Oh My Pi, and pi-custom-input
 - **User messages** — selectable framed, framed copy-friendly, compact, and labeled transcript messages
 - **Working line** — optional ownership and styling of Pi's complete in-progress row
 - **[Starship](https://starship.rs/) footer** — current directory, Git, runtime, context, tokens, cost, and other configurable segments
@@ -32,14 +32,15 @@ Editor, User messages, Working line, and selector borders use independent `enabl
 - Third-party Pi extension statuses from `ctx.ui.setStatus()` can be shown on the left,
   middle, or right side, or hidden per status key from `/zentui`
 
-### Editor (Opencode-inspired)
+### Editor
 
 - `opencode` (default) keeps an accent rail on every interior row
 - `opencode-copy-friendly` (**Opencode (copy-friendly)** in `/zentui`) preserves the low-rail rendering for clean terminal selection
+- `accent-rail` (**Accent Rail** in `/zentui`) uses a filled compact input surface, one editor-owned rail on every input row, and no frame or metadata
 - `minimalist` moves session name, cost, model, thinking, context, Git, configurable path, Bash state, and turn duration into a rounded frame
 - The selected model label and provider appear inside both Opencode editor variants; the model ID is used by default, while `components.editor.modelLabel: "name"` uses the display name with ID fallback.
-- Opencode autocomplete rows retain Pi's original unframed trailing layout; Minimalist keeps autocomplete inside its rounded frame
-- Configurable model, provider, thinking-level, accent, and border colors
+- Accent Rail autocomplete keeps Pi's native menu content on the same filled surface, replacing only the selected `→` with the configured rail; transparent mode removes its owned input and menu backgrounds. Both Opencode variants default to a transparent full-width completion palette and can independently restore Pi's native trailing list; Minimalist keeps autocomplete inside its rounded frame
+- Configurable model, provider, thinking-level, accent, rail, and border colors
 
 Editor styles:
 
@@ -50,6 +51,14 @@ Editor styles:
 <h4 align="center"><code>opencode-copy-friendly</code></h4>
 
 ![Zentui copy-friendly Opencode editor with model metadata, Nerd Font Git branch, and Starship footer.](./assets/screenshots/editor-opencode-copy-friendly.png)
+
+<h4 align="center"><code>accent-rail</code></h4>
+
+```text
+▎ Ask anything, edit files, run tools
+▎ settings     Open settings
+  files        Search files
+```
 
 <h4 align="center"><code>minimalist</code></h4>
 
@@ -244,10 +253,17 @@ Default config values — copy this and change any value you want:
 			"viewportIndicators": true,
 			"styles": {
 				"opencode": {
-					"metadataFormat": "$model  $provider(  $thinking)"
+					"metadataFormat": "$model  $provider(  $thinking)",
+					"completionMenu": "palette"
 				},
 				"opencode-copy-friendly": {
-					"metadataFormat": "$model  $provider(  $thinking)"
+					"metadataFormat": "$model  $provider(  $thinking)",
+					"completionMenu": "palette"
+				},
+				"accent-rail": {
+					"rail": "▎",
+					"asciiRail": "|",
+					"transparent": false
 				},
 				"minimalist": {
 					"pathDisplay": "compact",
@@ -425,7 +441,7 @@ Default config values — copy this and change any value you want:
 
 - Style values can be Starship/terminal strings (`bold purple`, `fg:202`, `#89b` / `#89b4fa`, `bg:blue fg:bright-green`) or Pi theme tokens (`accent`, `borderMuted`, `thinkingHigh`). Short `#rgb` hex values expand to `#rrggbb`.
 - `projectRefreshIntervalMs`: project status polling interval; `0` disables polling. Values `1..4999` clamp up to `5000` (minimum 5s); invalid/non-finite values fall back to `30000`.
-- `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | minimalist` style selection, color source, border mode, model label, viewport indicators, and all three editor-style configurations.
+- `components.editor`: owns editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four editor-style configurations.
 - `components.userMessages`: owns message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. `framed-copy-friendly` remains Zentui-rendered; disabling the component delegates to Pi's native renderer.
 - `components.workingLine`: `enabled` is the sole ownership switch. While enabled, Zentui owns both the Working-row message and indicator and renders the full row. It configures `braille | star-bloom | pinwheel | claude-inspired | pulse`, independent spinner/text speeds, optional Classic/KITT spinner-color participation, `classic | kitt | disabled` text animation, color source, the default-on `messages.custom` toggle and editable 16-value list, plus Tool/Elapsed/Thinking/Tokens segments. Thinking only controls the live row; measurement and final summaries continue while it is hidden. Custom-off and empty-list fallback both render owned `Working…`; Static keeps glyph motion but ignores text speed and spinner-color participation.
 - Optional `colors.workingLineLow`, `colors.workingLineMid`, and `colors.workingLineHigh` override its palette. Without overrides, theme mode uses `dim`, `muted`, and `bold accent`; terminal mode uses `bright-black`, `cyan`, and `bold cyan`.
@@ -438,13 +454,20 @@ Default config values — copy this and change any value you want:
 - The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output and will remain available until at least the next major release. This output deprecation is separate from accepted legacy flat JSON input.
 - `polished` and `polished-copy-friendly` remain read-only migration aliases for `opencode` and `opencode-copy-friendly`. Legacy `features.copyFriendly` and the old nested Editor/message `copyFriendly` fields are read-only migration inputs: message copy-friendly `true` selects `framed-copy-friendly` rather than disabling custom rendering. Explicit Editor or User-message style saves remove only the corresponding obsolete nested flag; raw released feature keys, unknown fields, and unknown style data remain preserved as user-owned migration data.
 - The shown `editor*` values match the default `theme` source. Omit those keys to keep Zentui's source-aware defaults when switching between `theme` and `terminal`.
-- `editorAccent` styles Editor and User-message accent rails and the labeled message label.
+- `editorAccent` styles Opencode Editor and User-message accent rails plus the labeled message label.
+- Optional `editorRail` styles only the Accent Rail editor. When omitted, theme mode uses warm `syntaxNumber` and terminal mode uses portable color 215; it never inherits `editorAccent`.
 - `editorPrompt` styles the `opencode-copy-friendly` Editor prompt glyph. Omit it to use `editorAccent`, then the default accent fallback.
 - `editorBorder` styles the `framed` and `framed-copy-friendly` previous-message top/bottom borders and the active editor in static border color mode; the border glyph stays `─`.
 - `editorGitBranch` and `editorThinkingMax` are optional editor-owned overrides, omitted above so source-specific and adaptive defaults remain active. `editorGitBranch` owns the minimalist Editor branch color independently from Footer `gitBranch`; where Zentui resolves configured thinking colors, `max` falls back through `editorThinkingXhigh` and then `editorThinking`.
 - `editorModel`, `editorProvider`, and `editorThinking*` style the editor metadata. `editorThinking` applies to every non-`off` thinking level unless a level-specific key is set.
 
 Tip: with `opencode-copy-friendly`, setting Pi's `editorPaddingX` to `1` in `~/.pi/agent/settings.json` keeps a small left gutter without copying a rail glyph.
+
+## Accent Rail editor style
+
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** from the `/zentui` **Editor** tab. Each rendered input row uses the style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII icon mode), one blank cell before text, and Pi's neutral filled surface. It intentionally has no prompt glyph, metadata, enclosing border, or blank chrome row. Viewport counts appear only while content is clipped. Known autocomplete rows keep Pi's native text, descriptions, and scrolling on the same full-width surface; the selected native `→` becomes the configured rail marker without replacing Pi's selected-text color. Unknown third-party editor layouts fail open without decoration using the already-rendered native rows.
+
+`components.editor.styles["accent-rail"].transparent` defaults to `false`. Set it to `true`, or choose **Transparent** from the Accent Rail surface control in `/zentui`, to remove only Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native autocomplete backgrounds. The rail and gap are rendered decoration, not part of the underlying prompt text. Terminal drag or rectangular selection can still include visible decoration; choose `opencode-copy-friendly` when selection must avoid a rail entirely.
 
 ## Minimalist editor style
 
@@ -455,6 +478,12 @@ The Minimalist editor is inspired by [pi-custom-input](https://github.com/VinhLe
 While `minimalist` is selected, the `/zentui` **Editor** area shows its focused controls without repeating the style name on every row. Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or—with the gauge enabled and enough room—`[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
 
 Footer visibility is controlled by `components.footer.style`: use `starship`, `native`, or `hidden`. Minimalist editor decoration and the Starship Footer may be shown together, including at narrow widths or after decoration fallback. Minimalist style does not remove Pi's header.
+
+## Opencode completion menu
+
+Both Opencode variants default to `completionMenu: "palette"`, configurable independently in JSON or through the active style's **Completion menu** control in `/zentui`. The transparent palette keeps Pi's captured native result rows and any native embedded backgrounds, removes only a recognized selected `→` while preserving native selected-text emphasis, omits a narrowly recognized trailing native count row such as `(1/47)`, fills the available width without adding a menu background, and adds a bottom separator plus `↑↓ Navigate   Enter Use   Esc Close`. It intentionally has no results header, range, category column, selected background, or side borders because Pi does not expose that structured data through a stable public completion API.
+
+Set one variant to `"native"` to preserve Pi's trailing rows byte-for-byte. Palette mode adds full-width padding and help text to visible terminal output, so `opencode-copy-friendly` users who prioritize clean rectangular selection may prefer its independent Native setting. If autocomplete capture or frame provenance is ambiguous after rendering, Zentui returns those same native rows unchanged rather than rendering the editor again; Accent Rail and framed styles may therefore retain their reduced probe width on this rare fail-open path. Once compatible string rows are captured, Palette applies its surface to them; selected prefixes and trailing count rows are rewritten only when they match the narrow native patterns, while unrecognized forms remain visible.
 
 ## Editor Metadata Format
 
@@ -596,7 +625,7 @@ You can also select fullscreen from Pi's `/settings` UI or start Pi with `--tui-
 
 ## Acknowledgments
 
-The minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-custom-input](https://github.com/VinhLe1410/pi-custom-input) and is integrated with Zentui's existing editor, state, configuration, and compatibility layers.
+The Accent Rail editor is inspired by Oh My Pi, with an independent implementation in Zentui. The Minimalist frame's information hierarchy was inspired by [VinhLe1410/pi-custom-input](https://github.com/VinhLe1410/pi-custom-input) and is integrated with Zentui's existing editor, state, configuration, and compatibility layers.
 
 ## Requirements
 

@@ -11,8 +11,10 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import {
+	type AccentRailEditorStyleConfig,
 	type ColorSource,
 	type CompactFooterMaxLines,
+	type CompletionMenuStyle,
 	type ContextStyle,
 	type EditorBorderColorMode,
 	type EditorComponentConfig,
@@ -38,6 +40,8 @@ import {
 	type MinimalistConfig,
 	type ModelLabelSource,
 	type PathDisplayConfig,
+	type PolishedCopyFriendlyEditorStyleConfig,
+	type PolishedEditorStyleConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
@@ -81,6 +85,7 @@ const modelLabelValues: ModelLabelSource[] = ["id", "name"];
 const editorStyleLabels: Record<EditorStyle, string> = {
 	opencode: "Opencode",
 	"opencode-copy-friendly": "Opencode (copy-friendly)",
+	"accent-rail": "Accent Rail",
 	minimalist: "Minimalist",
 };
 const editorStyleValues = Object.values(editorStyleLabels);
@@ -97,6 +102,8 @@ const footerStyleLabels: Record<FooterStyle, string> = {
 	hidden: "Hidden",
 };
 const footerStyleValues = Object.values(footerStyleLabels);
+const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
+const accentRailSurfaceValues = ["filled", "transparent"];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
@@ -161,6 +168,12 @@ type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
+	setPolished: (patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) => void;
+	setPolishedCopyFriendly: (
+		patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+		ctx: ExtensionContext,
+	) => void;
+	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
 	setWorkingLineComponent: (patch: WorkingLineComponentPatch, ctx: ExtensionContext) => ApplyResult;
@@ -451,7 +464,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 		{
 			id: "editorStyle",
 			label: "Editor style",
-			description: "Use Opencode rails or a compact minimalist frame.",
+			description: "Use Opencode, Accent Rail, or a compact Minimalist frame.",
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
@@ -482,6 +495,36 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Show Pi's native wrapped-row counts in editor borders.",
 			currentValue: featureValue(editor.viewportIndicators),
 			values: featureStateValues,
+		},
+	];
+}
+
+function buildPolishedEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const editor = config.components.editor;
+	const style =
+		editor.style === "opencode-copy-friendly"
+			? editor.styles["opencode-copy-friendly"]
+			: editor.styles.opencode;
+	return [
+		{
+			id: "opencodeCompletionMenu",
+			label: "Completion menu",
+			description: "Use Pi's native list or the full-width Opencode palette shell.",
+			currentValue: style.completionMenu,
+			values: completionMenuValues,
+		},
+	];
+}
+
+function buildAccentRailEditorStyleItems(config: PolishedTuiConfig): SettingItem[] {
+	const accentRail = config.components.editor.styles["accent-rail"];
+	return [
+		{
+			id: "accentRailSurface",
+			label: "Accent Rail surface",
+			description: "Fill input and autocomplete surfaces or keep them transparent.",
+			currentValue: accentRail.transparent ? "transparent" : "filled",
+			values: accentRailSurfaceValues,
 		},
 	];
 }
@@ -921,6 +964,13 @@ function buildSectionItems(
 		case "editor":
 			return [
 				...buildEditorItems(config),
+				...(config.components.editor.style === "opencode" ||
+				config.components.editor.style === "opencode-copy-friendly"
+					? buildPolishedEditorStyleItems(config)
+					: []),
+				...(config.components.editor.style === "accent-rail"
+					? buildAccentRailEditorStyleItems(config)
+					: []),
 				...(config.components.editor.style === "minimalist"
 					? buildMinimalistEditorStyleItems(config)
 					: []),
@@ -1230,6 +1280,28 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										setEditor({ viewportIndicators: enabled }, ctx);
 										settingsList.updateValue(id, newValue);
 										notifyChange("Editor viewport indicators", newValue);
+										return;
+									}
+									if (
+										id === "opencodeCompletionMenu" &&
+										(newValue === "native" || newValue === "palette")
+									) {
+										const style = deps.getConfig().components.editor.style;
+										if (style === "opencode") deps.setPolished({ completionMenu: newValue }, ctx);
+										else if (style === "opencode-copy-friendly")
+											deps.setPolishedCopyFriendly({ completionMenu: newValue }, ctx);
+										else return;
+										settingsList.updateValue(id, newValue);
+										notifyChange("Completion menu", newValue);
+										return;
+									}
+									if (
+										id === "accentRailSurface" &&
+										(newValue === "filled" || newValue === "transparent")
+									) {
+										deps.setAccentRail({ transparent: newValue === "transparent" }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Accent Rail surface", newValue);
 										return;
 									}
 									if (id.startsWith("minimalist")) {
