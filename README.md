@@ -1,8 +1,14 @@
-# Zentui
+<h1 align="center">Zentui</h1>
 
-A Starship-inspired statusline and Opencode-style TUI for [Pi](https://pi.dev).
+<p align="center">A Starship-inspired statusline and Opencode-style TUI for <a href="https://pi.dev">Pi</a>.</p>
 
-## Screenshots
+<p align="center">
+  <a href="https://www.npmjs.com/package/pi-zentui"><img alt="npm version" src="https://shieldcn.dev/npm/pi-zentui.svg?variant=outline" /></a>
+  <a href="https://www.npmjs.com/package/pi-zentui"><img alt="npm monthly downloads" src="https://shieldcn.dev/npm/dm/pi-zentui.svg?variant=outline" /></a>
+  <a href="https://github.com/lmilojevicc/pi-zentui/actions/workflows/ci.yml"><img alt="CI status" src="https://shieldcn.dev/github/ci/lmilojevicc/pi-zentui.svg?workflow=ci.yml&amp;branch=main&amp;variant=outline" /></a>
+  <a href="https://github.com/lmilojevicc/pi-zentui/graphs/contributors"><img alt="GitHub contributors" src="https://shieldcn.dev/github/contributors/lmilojevicc/pi-zentui.svg?variant=outline" /></a>
+  <a href="https://github.com/lmilojevicc/pi-zentui/blob/main/LICENSE"><img alt="MIT license" src="https://shieldcn.dev/github/license/lmilojevicc/pi-zentui.svg?variant=outline" /></a>
+</p>
 
 ![Screenshot of Zentui with a framed user message, spacious Opencode Editor, model metadata, and Starship Footer.](./assets/main-cover.png)
 
@@ -95,7 +101,7 @@ User-message previews:
 
 When enabled, the optional Working line always owns and stylizes Pi's complete working-row message and indicator. It provides five fixed-width spinner presets: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse. **Custom messages** defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays styled, animated `Working…` without random selection. An empty or invalid custom list safely uses the same fallback. The row can show the latest active **Tool**, interaction-wide **Elapsed** time, cumulative wall-clock **Thinking** time, and whole-interaction **Tokens**. Committed totals stay exact and provider-reported across tool loops, automatic retries, compaction retries, and queued continuations. During the current response, live output uses the native `↓N` convention whether it comes from provider usage or an estimate used while provider usage is unavailable or stale. Authoritative final usage always reconciles the response atomically; input is never estimated. Messages and tool labels are sanitized and width-bounded.
 
-When Pi has fully settled and will not continue automatically, the default-on **Turn summary** appends a persistent, context-free transcript row such as ` Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlapping blocks count once and zero is omitted. Output usage already includes reasoning tokens, so reasoning is not added separately. The summary always includes both token totals—even when live Tokens or Thinking is hidden or both totals are zero—and can be opted out of without affecting historical summaries. Turn summaries use the fixed Working-line high style and are inactive while the overall Working line is disabled.
+When Pi has fully settled and will not continue automatically, the default-on **Turn summary** appends a persistent, context-free transcript row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlapping blocks count once and zero is omitted. Output usage already includes reasoning tokens, so reasoning is not added separately. The summary always includes both token totals—even when live Tokens or Thinking is hidden or both totals are zero—and can be opted out of without affecting historical summaries. Turn summaries use the fixed Working-line high style and are inactive while the overall Working line is disabled.
 
 Spinner glyph motion is always active. Classic and KITT move color across the message and segments by default; **Animate spinner color** optionally includes spinner cells and their separator in that sweep. Static colors the complete row uniformly and ignores text speed and spinner-color participation without changing their saved values. Content fits the 77-cell indicator payload while reserving the complete Tokens label first, then Message, Thought, Elapsed, and Tool allocation, and preserves the visual **Message · Tool · Elapsed · Thought · Tokens** order and complete 80-column Loader-row contract. Active thought appears immediately as `thinking 0s` and updates once per second; completed positive thought appears as `thought for Ns`. Rebuilds preserve the displayed spinner and visible color-sweep position. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
 
