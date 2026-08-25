@@ -293,6 +293,10 @@ Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/ze
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
+In fullscreen Pi 0.84.x, Zentui applies a private, shape-checked layout workaround only to the active owned one-row Accent Rail editor. Pi's dock currently reserves a three-row minimum for its bordered native editor; the workaround preserves that minimum but positions a one-row rail as `[blank, rail]`, leaving Pi's final padding row before the independent Footer. Other editor styles, regular mode, multiline input, viewport indicators, and autocomplete fail open unchanged. Unsupported Pi versions or changed internal shapes skip the workaround. Remove this compatibility path when [upstream Pi's fullscreen dock](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/interactive/interactive-mode.ts) exposes composer minimum-size control or no longer hard-codes a three-row editor minimum. This link identifies the upstream source seam; it does not imply an upstream issue exists.
+
+Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without adding normal UI noise. Maintainers can probe an explicitly installed compatible host with `ZENTUI_TEST_GLOBAL_PI=/path/to/pi npx vitest run test/accent-rail-layout-patch.test.ts -t "explicitly selected"`.
+
 `transparent` defaults to `false`. Set it to `true` or select **Transparent** in `/zentui` to remove only Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native autocomplete backgrounds. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
 
 ### Minimalist

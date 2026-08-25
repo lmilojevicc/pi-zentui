@@ -51,11 +51,7 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 
 <h4 align="center"><code>accent-rail</code></h4>
 
-```text
-▎ Ask anything, edit files, run tools
-▎ settings     Open settings
-  files        Search files
-```
+![Zentui Accent Rail editor with a filled single-left-rail input and Starship footer.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/editor-accent-rail.png)
 
 <h4 align="center"><code>minimalist</code></h4>
 
