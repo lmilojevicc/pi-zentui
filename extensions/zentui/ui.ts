@@ -83,6 +83,11 @@ export type EditorMeta = {
 	modelName?: string;
 	providerLabel: string;
 	sessionName?: string;
+	contextPercent?: number;
+	contextWindow?: number;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheHitRate?: number;
 };
 
 export type PolishedEditorFrameOptions = {
@@ -731,6 +736,11 @@ export function renderPolishedEditorFrame({
 			provider: modelMeta.providerLabel,
 			thinking: thinkingLevel ?? "",
 			sessionName: modelMeta.sessionName ?? "",
+			contextPercent: modelMeta.contextPercent,
+			contextWindow: modelMeta.contextWindow,
+			inputTokens: modelMeta.inputTokens,
+			outputTokens: modelMeta.outputTokens,
+			cacheHitRate: modelMeta.cacheHitRate,
 		},
 		uiTheme,
 		config,

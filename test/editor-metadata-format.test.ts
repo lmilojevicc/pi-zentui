@@ -6,6 +6,7 @@ import {
 	renderEditorMetadataFormat,
 	sanitizeEditorMetadataText,
 } from "../extensions/zentui/editor-metadata-format";
+import { renderPolishedEditorFrame } from "../extensions/zentui/ui";
 
 function makeTheme(): Theme {
 	return {
@@ -31,6 +32,11 @@ const values: EditorMetadataValues = {
 	provider: "Provider",
 	thinking: "high",
 	sessionName: "Session",
+	contextPercent: 26.8,
+	contextWindow: 272_000,
+	inputTokens: 76_000,
+	outputTokens: 1_600,
+	cacheHitRate: 73.4,
 };
 
 function render(format: string, overrides: Partial<EditorMetadataValues> = {}): string {
@@ -46,6 +52,26 @@ describe("renderEditorMetadataFormat", () => {
 	it("renders all supported variables in both syntaxes", () => {
 		expect(render(`$model|\${model_id}|$model_name|\${provider}|$thinking|\${session_name}`)).toBe(
 			"[accent]Model Label[border]|[accent]model-id[border]|[accent]Model Name[border]|[text]Provider[border]|[muted]high[border]|[border]Session",
+		);
+	});
+
+	it("renders usage variables in both syntaxes without duplicating cache metadata", () => {
+		expect(render(`$context | \${tokens} | $cache_hit`)).toBe(
+			"[border]26.8%/272k[border] | [border]↑76k ↓1.6k[border] | [border]73.4%",
+		);
+		expect(render(`\${context} | $tokens | \${cache_hit}`)).toBe(
+			"[border]26.8%/272k[border] | [border]↑76k ↓1.6k[border] | [border]73.4%",
+		);
+		expect(render("$tokens")).not.toContain("73.4%");
+		expect(render("$cache_hit")).not.toMatch(/[↑↓]/);
+		expect(render("($context)( · $tokens)( · $cache_hit)")).toBe(
+			"[border]26.8%/272k[border] · [border]↑76k ↓1.6k[border] · [border]73.4%",
+		);
+	});
+
+	it("renders unavailable cache-hit metadata as zero", () => {
+		expect(render("before( · $cache_hit)", { cacheHitRate: undefined })).toBe(
+			"[border]before[border] · [border]0.0%",
 		);
 	});
 
@@ -127,6 +153,34 @@ describe("renderEditorMetadataFormat", () => {
 			renderEditorMetadataFormat("$thinking", { ...values, thinking: "max" }, makeTheme(), config),
 		).toBe(`[${expected}]max`);
 	});
+
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"plumbs usage metadata through the %s frame",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.editor.style = style;
+			config.components.editor.styles[style].metadataFormat = "$context $tokens $cache_hit";
+			const frame = renderPolishedEditorFrame({
+				width: 120,
+				editorLines: ["typed text"],
+				uiTheme: makeTheme(),
+				config,
+				modelMeta: {
+					modelLabel: values.model,
+					providerLabel: values.provider,
+					contextPercent: values.contextPercent,
+					contextWindow: values.contextWindow,
+					inputTokens: values.inputTokens,
+					outputTokens: values.outputTokens,
+					cacheHitRate: values.cacheHitRate,
+				},
+			});
+			const rendered = frame.join("\n");
+			expect(rendered).toContain("26.8%/272k");
+			expect(rendered).toContain("↑76k ↓1.6k");
+			expect(rendered).toContain("73.4%");
+		},
+	);
 
 	it("sanitizes literals and values without collapsing ordinary spaces", () => {
 		const rendered = render(

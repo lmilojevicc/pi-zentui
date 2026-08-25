@@ -9,6 +9,19 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		loadConfig: () => ({
 			...actual.defaultConfig,
 			projectRefreshIntervalMs: 0,
+			components: {
+				...actual.defaultConfig.components,
+				editor: {
+					...actual.defaultConfig.components.editor,
+					styles: {
+						...actual.defaultConfig.components.editor.styles,
+						opencode: {
+							...actual.defaultConfig.components.editor.styles.opencode,
+							metadataFormat: "$context $tokens $cache_hit",
+						},
+					},
+				},
+			},
 			features: { ...actual.defaultConfig.features, editor: false, statusLine: true },
 		}),
 	};
@@ -40,6 +53,8 @@ import zentui from "../extensions/zentui/index";
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
 type Footer = { render(width: number): string[]; dispose?: () => void };
 type FooterFactory = (...args: unknown[]) => Footer;
+type Editor = { render(width: number): string[]; setText(text: string): void };
+type EditorFactory = (...args: unknown[]) => Editor;
 
 function makeTheme(): Theme {
 	return {
@@ -72,10 +87,10 @@ function assistant(totalTokens: number, stopReason = "stop") {
 		provider: "anthropic",
 		model: "test",
 		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
+			input: totalTokens === 0 ? 0 : 101,
+			output: totalTokens === 0 ? 0 : 202,
+			cacheRead: totalTokens === 0 ? 0 : 303,
+			cacheWrite: totalTokens === 0 ? 0 : 404,
 			totalTokens,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
@@ -84,7 +99,14 @@ function assistant(totalTokens: number, stopReason = "stop") {
 	};
 }
 
-function persistedEntry(id: string, input: number, output: number, cost: number) {
+function persistedEntry(
+	id: string,
+	input: number,
+	output: number,
+	cost: number,
+	cacheRead = 0,
+	cacheWrite = 0,
+) {
 	return {
 		type: "message",
 		id,
@@ -93,8 +115,8 @@ function persistedEntry(id: string, input: number, output: number, cost: number)
 			usage: {
 				input,
 				output,
-				cacheRead: 0,
-				cacheWrite: 0,
+				cacheRead,
+				cacheWrite,
 				totalTokens: input + output,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
 			},
@@ -132,8 +154,10 @@ function createHarness(
 	} = {},
 ) {
 	let footerFactory: FooterFactory | undefined;
-	let editorFactory: unknown;
+	let editorFactory: EditorFactory | undefined;
+	let editorText = "";
 	const requestRender = vi.fn();
+	const editorRequestRender = vi.fn();
 	const entries = [persistedEntry("old", 5, 6, 0.123)];
 	const state = {
 		model:
@@ -161,10 +185,16 @@ function createHarness(
 		getContextUsage: () => state.contextUsage,
 		ui: {
 			theme,
+			getEditorText() {
+				return editorText;
+			},
+			setEditorText(text: string) {
+				editorText = text;
+			},
 			setFooter(factory: FooterFactory | undefined) {
 				footerFactory = factory;
 			},
-			setEditorComponent(factory: unknown) {
+			setEditorComponent(factory: EditorFactory | undefined) {
 				editorFactory = factory;
 			},
 			getEditorComponent() {
@@ -177,6 +207,7 @@ function createHarness(
 		entries,
 		state,
 		requestRender,
+		editorRequestRender,
 		createFooter() {
 			if (!footerFactory) throw new Error("footer was not installed");
 			return footerFactory({ requestRender }, theme, {
@@ -184,11 +215,25 @@ function createHarness(
 				getExtensionStatuses: () => new Map<string, string>(),
 			});
 		},
+		createEditor() {
+			if (!editorFactory) throw new Error("editor was not installed");
+			const editor = editorFactory(
+				{ requestRender: editorRequestRender, terminal: { rows: 24, cols: 160 } },
+				{ borderColor: (text: string) => text, selectList: {} },
+				{},
+			);
+			editor.setText("typed text");
+			return editor;
+		},
 	};
 }
 
 function rendered(footer: Footer): string {
 	return footer.render(160).join("\n");
+}
+
+function renderedEditor(editor: Editor): string {
+	return editor.render(160).join("\n");
 }
 
 async function settleProjectRefresh(): Promise<void> {
@@ -210,7 +255,10 @@ describe("live streaming context event integration", () => {
 		await emit(handlers, "session_start", harness.ctx);
 		await settleProjectRefresh();
 		const footer = harness.createFooter();
+		const editor = harness.createEditor();
+		expect(renderedEditor(editor)).toContain("10.0%/10k ↑5 ↓6 0.0%");
 		harness.requestRender.mockClear();
+		harness.editorRequestRender.mockClear();
 
 		await emit(handlers, "message_update", harness.ctx, { message: assistant(1_000) });
 		await emit(handlers, "message_update", harness.ctx, { message: assistant(1_100) });
@@ -218,22 +266,28 @@ describe("live streaming context event integration", () => {
 		expect(harness.requestRender).not.toHaveBeenCalled();
 		vi.advanceTimersByTime(1);
 		expect(harness.requestRender).toHaveBeenCalledTimes(1);
+		expect(harness.editorRequestRender).toHaveBeenCalledTimes(1);
 		expect(rendered(footer)).toContain("11.0%/10k");
 		expect(rendered(footer)).toContain("↑5 ↓6");
 		expect(rendered(footer)).toContain("$0.123");
+		expect(renderedEditor(editor)).toContain("11.0%/10k ↑5 ↓6 0.0%");
 
 		await emit(handlers, "message_end", harness.ctx, { message: assistant(1_100) });
 		expect(rendered(footer)).toContain("11.0%/10k");
 		expect(rendered(footer)).toContain("↑5 ↓6");
 		expect(rendered(footer)).toContain("$0.123");
+		expect(renderedEditor(editor)).toContain("11.0%/10k ↑5 ↓6 0.0%");
 
 		harness.state.contextUsage = { tokens: 1_200, contextWindow: 10_000, percent: 12 };
-		harness.entries.push(persistedEntry("new", 7, 8, 0.2));
+		harness.entries.push(persistedEntry("new", 7, 8, 0.2, 21, 2));
 		await emit(handlers, "agent_end", harness.ctx);
 		const finalized = rendered(footer);
 		expect(finalized).toContain("12.0%/10k");
 		expect(finalized).toContain("↑12 ↓14");
 		expect(finalized).toContain("$0.323");
+		const finalizedEditor = renderedEditor(editor);
+		expect(finalizedEditor).toContain("12.0%/10k ↑12 ↓14 70.0%");
+		expect(finalizedEditor.match(/70\.0%/g)).toHaveLength(1);
 
 		footer.dispose?.();
 		await emit(handlers, "session_shutdown", harness.ctx);

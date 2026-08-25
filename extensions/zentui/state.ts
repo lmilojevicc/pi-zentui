@@ -8,6 +8,7 @@ import {
 	buildTokenLabel,
 	formatProviderLabel,
 	getUsageTotals,
+	type UsageTotals,
 } from "./format";
 import type { GitStatusSummary } from "./git";
 import type { PackageVersionResult } from "./package-version";
@@ -24,6 +25,7 @@ export type FooterState = GitStatusSummary & {
 	cacheReadLabel: string;
 	cacheWriteLabel: string;
 	costLabel: string;
+	usageTotals: UsageTotals;
 	subscription: boolean;
 	autoCompaction: boolean;
 	runtime?: RuntimeInfo;
@@ -42,6 +44,14 @@ export function createInitialState(gitDefaults: GitStatusSummary): FooterState {
 		cacheReadLabel: "",
 		cacheWriteLabel: "",
 		costLabel: "$0.000",
+		usageTotals: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			latestCacheHitRate: undefined,
+			cost: 0,
+		},
 		subscription: false,
 		autoCompaction: false,
 		runtime: undefined,
@@ -78,6 +88,7 @@ export function syncState(
 	state.cacheReadLabel = buildCacheReadLabel(totals.cacheRead);
 	state.cacheWriteLabel = buildCacheWriteLabel(totals.cacheWrite);
 	state.costLabel = buildCostLabel(totals);
+	state.usageTotals = totals;
 	state.subscription = telemetry.subscription === true;
 	state.autoCompaction = telemetry.autoCompaction === true;
 }
