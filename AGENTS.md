@@ -37,6 +37,16 @@ On `session_start`, Zentui installs:
 
 Most updates happen by syncing shared footer state and asking the TUI to re-render after Pi events like model changes, message completion, tool completion, and compaction.
 
+## Product decision: TUI composability
+
+Zentui is a set of independently selectable TUI components, not a bundled UI mode. Users can adopt User messages, Editor, Working line, selector borders, Footer, or future surfaces individually while leaving every other surface native or controlled by another extension.
+
+- Enabling or configuring one component must never require, toggle, restyle, or silently rewrite another. Each feature needs its own canonical config choice (`enabled` and/or `style` as appropriate), settings control, install/reconcile/dispose lifecycle, and ownership boundary.
+- Disabled or native must leave that surface alone. Shared infrastructure must remain behavior-neutral.
+- Prefer public Pi APIs. Safely decorate, aggregate, or delegate where possible; clean up only owned state; and fail open to native or predecessor UI.
+- Treat the unkeyed Working line as controlled exclusivity with best-effort release, not true aggregation.
+- Keep `index.ts` orchestration-only.
+
 ## Important files
 
 - `extensions/zentui/index.ts` — extension orchestration and Pi event wiring.
