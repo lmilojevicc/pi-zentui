@@ -8,6 +8,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import {
+	type AccentRailLayoutPatchDiagnostic,
+	installHostAccentRailLayoutPatch,
+	markAccentRailLayoutEditor,
+	retainAccentRailLayoutPatchInstallation,
+} from "./accent-rail-layout-patch";
+import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
 	type EditorComponentConfig,
@@ -225,6 +231,19 @@ export default function (pi: ExtensionAPI) {
 	let minimalistProjectRoot: string | undefined;
 	let projectRefreshActive = false;
 	let activeTuiContext: ExtensionContext | undefined;
+	let cleanupAccentRailLayoutPatch: () => void = () => {};
+	let accentRailLayoutPatchInstallSerial = 0;
+
+	const recordAccentRailLayoutPatchDiagnostic = (
+		diagnostic: AccentRailLayoutPatchDiagnostic,
+		version?: string,
+	) => {
+		if (process.env.ZENTUI_DEBUG === "1") {
+			console.error(
+				`[zentui] Accent Rail fullscreen layout patch: ${diagnostic}${version ? ` (Pi TUI ${version})` : ""}`,
+			);
+		}
+	};
 
 	const isOwnedEditorFactory = (factory: EditorFactory | undefined) =>
 		(factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_OWNER] === editorOwnerToken;
@@ -648,41 +667,54 @@ export default function (pi: ExtensionAPI) {
 		return observed;
 	};
 
+	const accentRailLayoutActive = () =>
+		sessionLifecycle.isCurrent() &&
+		ownsInstalledEditorFactory() &&
+		effectiveEditorEnabled() &&
+		currentConfig.components.editor.style === "accent-rail";
+
+	const markOwnedAccentRailEditor = <T extends object>(editor: T): T => {
+		markAccentRailLayoutEditor(editor, editorOwnerToken, accentRailLayoutActive);
+		return editor;
+	};
+
 	const makeEditorFactory = (ctx: ExtensionContext): ZentuiEditorFactory => {
 		const sessionTheme = ctx.ui.theme;
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
 			requestEditorRender = () => tui.requestRender();
-			return new PolishedEditor(
-				tui,
-				theme,
-				keybindings,
-				sessionTheme,
-				getCurrentConfig,
-				() => ({
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					modelId: state.modelId,
-					modelName: state.modelName,
-					providerLabel: state.providerLabel,
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-				}),
-				getThinkingLevel,
-				() => ({
-					cwd: ctx.cwd,
-					projectRoot: minimalistProjectRoot,
-					branch: state.branch,
-					dirty: state.dirty,
-					ahead: state.ahead,
-					behind: state.behind,
-					costLabel: state.costLabel,
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					thinkingLevel: getThinkingLevel(),
-					contextPercent: getContextPercent(ctx),
-					contextWindow: getContextWindow(ctx),
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-					agentDurationMs: getAgentDurationMs(),
-					agentActive: agentRunActive,
-				}),
-				setMinimalistDecorationActive,
+			return markOwnedAccentRailEditor(
+				new PolishedEditor(
+					tui,
+					theme,
+					keybindings,
+					sessionTheme,
+					getCurrentConfig,
+					() => ({
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						modelId: state.modelId,
+						modelName: state.modelName,
+						providerLabel: state.providerLabel,
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+					}),
+					getThinkingLevel,
+					() => ({
+						cwd: ctx.cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						contextPercent: getContextPercent(ctx),
+						contextWindow: getContextWindow(ctx),
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+					}),
+					setMinimalistDecorationActive,
+				),
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -697,35 +729,37 @@ export default function (pi: ExtensionAPI) {
 		const sessionTheme = ctx.ui.theme;
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
 			requestEditorRender = () => tui.requestRender();
-			return new WrappedPolishedEditor(
-				baseFactory(tui, theme, keybindings),
-				sessionTheme,
-				getCurrentConfig,
-				() => ({
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					modelId: state.modelId,
-					modelName: state.modelName,
-					providerLabel: state.providerLabel,
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-				}),
-				getThinkingLevel,
-				() => ({
-					cwd: ctx.cwd,
-					projectRoot: minimalistProjectRoot,
-					branch: state.branch,
-					dirty: state.dirty,
-					ahead: state.ahead,
-					behind: state.behind,
-					costLabel: state.costLabel,
-					modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-					thinkingLevel: getThinkingLevel(),
-					contextPercent: getContextPercent(ctx),
-					contextWindow: getContextWindow(ctx),
-					sessionName: ctx.sessionManager.getSessionName() ?? "",
-					agentDurationMs: getAgentDurationMs(),
-					agentActive: agentRunActive,
-				}),
-				setMinimalistDecorationActive,
+			return markOwnedAccentRailEditor(
+				new WrappedPolishedEditor(
+					baseFactory(tui, theme, keybindings),
+					sessionTheme,
+					getCurrentConfig,
+					() => ({
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						modelId: state.modelId,
+						modelName: state.modelName,
+						providerLabel: state.providerLabel,
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+					}),
+					getThinkingLevel,
+					() => ({
+						cwd: ctx.cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						contextPercent: getContextPercent(ctx),
+						contextWindow: getContextWindow(ctx),
+						sessionName: ctx.sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+					}),
+					setMinimalistDecorationActive,
+				),
 			);
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
@@ -1077,6 +1111,9 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!retainedEditorOwnership) clearEditorOwnership();
+		accentRailLayoutPatchInstallSerial += 1;
+		cleanupAccentRailLayoutPatch();
+		cleanupAccentRailLayoutPatch = () => {};
 		uninstallUserMessages();
 		uninstallSelectorBorders();
 		installedFooterKind = undefined;
@@ -1096,7 +1133,27 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		sessionLifecycle.start();
+		const lifecycleGeneration = sessionLifecycle.start();
+		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
+		cleanupAccentRailLayoutPatch();
+		cleanupAccentRailLayoutPatch = () => {};
+		if (isTuiContext(ctx)) {
+			const layoutPatchRetention = await retainAccentRailLayoutPatchInstallation(
+				() => installHostAccentRailLayoutPatch(editorOwnerToken),
+				() =>
+					sessionLifecycle.isCurrent(lifecycleGeneration) &&
+					layoutInstallSerial === accentRailLayoutPatchInstallSerial,
+				(layoutPatch) => {
+					cleanupAccentRailLayoutPatch = layoutPatch.cleanup;
+					recordAccentRailLayoutPatchDiagnostic(layoutPatch.diagnostic, layoutPatch.version);
+				},
+			);
+			if (layoutPatchRetention === "stale") return;
+			if (layoutPatchRetention === "failed") {
+				recordAccentRailLayoutPatchDiagnostic("host-module-unavailable");
+			}
+		}
+		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		state.sessionStartEpoch = Date.now();
