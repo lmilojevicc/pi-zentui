@@ -11,7 +11,10 @@ import {
 import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
 import { renderCompletionPalette } from "./completion-menu";
 import type { EditorStyle, ZentuiConfig } from "./config";
-import { renderEditorMetadataFormat } from "./editor-metadata-format";
+import {
+	type EditorMetadataZones,
+	renderEditorMetadataFormatSplit,
+} from "./editor-metadata-format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -361,16 +364,60 @@ function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: stri
 	};
 }
 
-function composeMetadataLine(left: string, right: string | undefined, width: number): string {
-	if (!right) return left;
+export function composeEditorMetadataLine(
+	{ left, middle, right }: EditorMetadataZones,
+	rightStatus: string | undefined,
+	width: number,
+): string {
 	const maxWidth = Math.max(0, width);
-	const rightWidth = visibleWidth(right);
-	if (rightWidth >= maxWidth) return truncateToWidth(right, maxWidth, "");
 
-	const leftWidth = Math.max(0, maxWidth - rightWidth - 1);
-	const leftText = truncateToWidth(left, leftWidth, "");
-	const gap = " ".repeat(Math.max(1, maxWidth - visibleWidth(leftText) - rightWidth));
-	return `${leftText}${gap}${right}`;
+	// Preserve the legacy no-fill path exactly, including deferring left-only
+	// truncation to the style-specific frame clamp below.
+	if (!middle && !right) {
+		if (!rightStatus) return left;
+		const rightStatusWidth = visibleWidth(rightStatus);
+		if (rightStatusWidth >= maxWidth) return truncateToWidth(rightStatus, maxWidth, "");
+
+		const leftBudget = Math.max(0, maxWidth - rightStatusWidth - 1);
+		const leftText = truncateToWidth(left, leftBudget, "");
+		const gap = " ".repeat(Math.max(1, maxWidth - visibleWidth(leftText) - rightStatusWidth));
+		return `${leftText}${gap}${rightStatus}`;
+	}
+
+	const statusText = rightStatus ? truncateToWidth(rightStatus, maxWidth, "") : "";
+	const statusWidth = visibleWidth(statusText);
+	const leftBudget = Math.max(0, maxWidth - statusWidth - (statusText && left ? 1 : 0));
+	const leftText = truncateToWidth(left, leftBudget, "");
+	const leftWidth = visibleWidth(leftText);
+
+	const rightBudget = Math.max(
+		0,
+		maxWidth - leftWidth - statusWidth - (leftText ? 1 : 0) - (statusText ? 1 : 0),
+	);
+	const configuredRight = truncateToWidth(right, rightBudget, "");
+	const rightText =
+		configuredRight && statusText
+			? `${configuredRight} ${statusText}`
+			: configuredRight || statusText;
+	const rightWidth = visibleWidth(rightText);
+	const gapWidth = Math.max(0, maxWidth - leftWidth - rightWidth);
+	const middleWidth = visibleWidth(middle);
+	const minimumMiddleGap = (leftText ? 1 : 0) + (rightText ? 1 : 0);
+
+	if (!middle || middleWidth + minimumMiddleGap > gapWidth) {
+		return `${leftText}${" ".repeat(gapWidth)}${rightText}`;
+	}
+
+	const availablePadding = gapWidth - middleWidth;
+	const minimumLeftPadding = leftText ? 1 : 0;
+	const maximumLeftPadding = availablePadding - (rightText ? 1 : 0);
+	const leftPadding = Math.min(
+		maximumLeftPadding,
+		Math.max(minimumLeftPadding, Math.floor(availablePadding / 2)),
+	);
+	return `${leftText}${" ".repeat(leftPadding)}${middle}${" ".repeat(
+		availablePadding - leftPadding,
+	)}${rightText}`;
 }
 
 function ansiStrippedText(line: string): string {
@@ -726,7 +773,7 @@ export function renderPolishedEditorFrame({
 	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
-	const meta = renderEditorMetadataFormat(
+	const metadataZones = renderEditorMetadataFormatSplit(
 		selectedPolishedConfig(config)?.metadataFormat ??
 			config.components.editor.styles.opencode.metadataFormat,
 		{
@@ -745,8 +792,8 @@ export function renderPolishedEditorFrame({
 		uiTheme,
 		config,
 	);
-	const lowRailMeta = composeMetadataLine(meta, rightStatus, Math.max(0, width - 1));
-	const railedMeta = composeMetadataLine(meta, rightStatus, innerWidth);
+	const lowRailMeta = composeEditorMetadataLine(metadataZones, rightStatus, Math.max(0, width - 1));
+	const railedMeta = composeEditorMetadataLine(metadataZones, rightStatus, innerWidth);
 
 	const renderStaticBorder = (text: string) =>
 		renderStyleForSourceOrFallback(

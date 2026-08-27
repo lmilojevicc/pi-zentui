@@ -1,17 +1,37 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { defaultConfig } from "../extensions/zentui/config";
 import {
 	type EditorMetadataValues,
 	renderEditorMetadataFormat,
+	renderEditorMetadataFormatSplit,
 	sanitizeEditorMetadataText,
 } from "../extensions/zentui/editor-metadata-format";
-import { renderPolishedEditorFrame } from "../extensions/zentui/ui";
+import { composeEditorMetadataLine, renderPolishedEditorFrame } from "../extensions/zentui/ui";
 
 function makeTheme(): Theme {
 	return {
 		fg(color: string, text: string) {
 			return `[${color}]${text}`;
+		},
+		bold(text: string) {
+			return text;
+		},
+		italic(text: string) {
+			return text;
+		},
+		underline(text: string) {
+			return text;
+		},
+	} as unknown as Theme;
+}
+
+function makeAnsiTheme(): Theme {
+	return {
+		fg(_color: string, text: string) {
+			return `\x1b[31m${text}\x1b[39m`;
 		},
 		bold(text: string) {
 			return text;
@@ -192,6 +212,148 @@ describe("renderEditorMetadataFormat", () => {
 		expect(rendered).toBe("[border]lit  x y:[accent]bad   model");
 		expect(rendered).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
 	});
+});
+
+describe("editor metadata zones", () => {
+	it("keeps no-fill rendering byte-for-byte equivalent", () => {
+		const format = "$model( · $provider)(nested $fill)";
+		const legacy = renderEditorMetadataFormat(format, values, makeTheme(), defaultConfig);
+		const zones = renderEditorMetadataFormatSplit(format, values, makeTheme(), defaultConfig);
+		expect(zones).toEqual({ left: legacy, middle: "", right: "" });
+		expect(composeEditorMetadataLine(zones, undefined, 5)).toBe(legacy);
+	});
+
+	it("keeps nested fill non-structural when a top-level fill creates zones", () => {
+		expect(
+			renderEditorMetadataFormatSplit(
+				"$model$fill(nested $fill)",
+				values,
+				makeTheme(),
+				defaultConfig,
+			),
+		).toEqual({ left: "[accent]Model Label", middle: "", right: "" });
+	});
+
+	it("aligns one-fill left and right zones", () => {
+		expect(
+			composeEditorMetadataLine({ left: "left", middle: "", right: "right" }, undefined, 12),
+		).toBe("left   right");
+	});
+
+	it("centers the middle within the available gap", () => {
+		expect(
+			composeEditorMetadataLine({ left: "LLLLLLLLLL", middle: "MMM", right: "R" }, undefined, 20),
+		).toBe("LLLLLLLLLL   MMM   R");
+	});
+
+	it("drops conditional empty zones and keeps content after extra fills on the right", () => {
+		const conditional = renderEditorMetadataFormatSplit(
+			"$model$fill( · $session_name)$fill($context)",
+			{ ...values, sessionName: "" },
+			makeTheme(),
+			defaultConfig,
+		);
+		expect(conditional).toEqual({
+			left: "[accent]Model Label",
+			middle: "",
+			right: "[border]26.8%/272k",
+		});
+
+		const extra = renderEditorMetadataFormatSplit(
+			"$model$fill$provider$fill$thinking$fill$session_name",
+			values,
+			makeTheme(),
+			defaultConfig,
+		);
+		expect(extra).toEqual({
+			left: "[accent]Model Label",
+			middle: "[text]Provider",
+			right: "[muted]high[border]Session",
+		});
+	});
+
+	it("omits an unfittable middle instead of truncating it", () => {
+		const line = composeEditorMetadataLine(
+			{ left: "left", middle: "middle", right: "right" },
+			undefined,
+			11,
+		);
+		expect(line).toBe("left  right");
+		expect(line).not.toContain("middle");
+	});
+
+	it("reserves operational right status, then configured left, then configured right", () => {
+		const wide = composeEditorMetadataLine(
+			{ left: "left", middle: "", right: "right" },
+			"INSERT",
+			24,
+		);
+		expect(visibleWidth(wide)).toBe(24);
+		expect(wide.endsWith("right INSERT")).toBe(true);
+
+		expect(
+			stripVTControlCharacters(
+				composeEditorMetadataLine(
+					{ left: "left-long", middle: "middle", right: "configured-right" },
+					"INSERT",
+					12,
+				),
+			),
+		).toBe("left- INSERT");
+		expect(
+			stripVTControlCharacters(
+				composeEditorMetadataLine({ left: "left", middle: "", right: "right" }, "INSERT", 4),
+			),
+		).toBe("INSE");
+	});
+
+	it("keeps ANSI, CJK, combining marks, and emoji within the cell budget", () => {
+		const line = composeEditorMetadataLine(
+			{
+				left: "\x1b[31m界e\u0301👩‍💻abcdef\x1b[0m",
+				middle: "中🙂",
+				right: "右🙂tail",
+			},
+			"INSERT",
+			22,
+		);
+		expect(visibleWidth(line)).toBeLessThanOrEqual(22);
+		const plain = stripVTControlCharacters(line);
+		expect(plain).toContain("界e\u0301👩‍💻");
+		expect(plain).toContain("INSERT");
+		expect(plain).not.toContain("�");
+	});
+
+	it.each([
+		["opencode", 2, "regular-left", "regular-right"],
+		["opencode-copy-friendly", 1, "copy-left", "copy-right"],
+	] as const)(
+		"uses the %s metadata format and its chrome budget",
+		(style, chromeWidth, expectedLeft, expectedRight) => {
+			const config = structuredClone(defaultConfig);
+			config.components.editor.style = style;
+			config.components.editor.styles.opencode.metadataFormat =
+				"regular-left$" + "{fill}regular-right";
+			config.components.editor.styles["opencode-copy-friendly"].metadataFormat =
+				"copy-left$" + "{fill}copy-right";
+			const width = 40;
+			const frame = renderPolishedEditorFrame({
+				width,
+				editorLines: ["draft"],
+				uiTheme: makeAnsiTheme(),
+				config,
+				modelMeta: { modelLabel: "model", providerLabel: "provider" },
+			});
+			const metadata = frame.find(
+				(line) => line.includes(expectedLeft) && line.includes(expectedRight),
+			);
+			expect(metadata).toBeDefined();
+			expect(visibleWidth(metadata ?? "")).toBe(width);
+			const plain = stripVTControlCharacters(metadata ?? "");
+			expect(plain.indexOf(expectedLeft)).toBe(chromeWidth);
+			expect(plain.endsWith(expectedRight)).toBe(true);
+		},
+	);
 });
 
 describe("sanitizeEditorMetadataText", () => {
