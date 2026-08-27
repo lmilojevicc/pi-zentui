@@ -459,6 +459,51 @@ describe("formatCwdLabel", () => {
 			}),
 		).toBe("󰝰 …/zentui");
 	});
+
+	it("renders safe repository-relative paths and falls back to unlimited full paths", () => {
+		const repositoryRoot = "/Users/me/Projects/zentui";
+		expect(
+			formatCwdLabel(`${repositoryRoot}/extensions/zentui`, "", {
+				mode: "repository",
+				repositoryRoot,
+				home,
+				depth: 0,
+			}),
+		).toBe("extensions/zentui");
+		expect(
+			formatCwdLabel(repositoryRoot, "", { mode: "repository", repositoryRoot, home, depth: 2 }),
+		).toBe(".");
+		expect(
+			formatCwdLabel(`${repositoryRoot}/packages/core/src`, "", {
+				mode: "repository",
+				repositoryRoot,
+				home,
+				depth: 2,
+			}),
+		).toBe("…/core/src");
+		expect(
+			formatCwdLabel("C:\\repo\\extensions\\zentui\\", "", {
+				mode: "repository",
+				repositoryRoot: "C:\\repo\\",
+				depth: 0,
+			}),
+		).toBe("extensions/zentui");
+		expect(
+			formatCwdLabel("/Users/me/Projects/other/src", "", {
+				mode: "repository",
+				repositoryRoot,
+				home,
+				depth: 1,
+			}),
+		).toBe("~/Projects/other/src");
+		expect(
+			formatCwdLabel(`${repositoryRoot}/extensions`, "", {
+				mode: "repository",
+				home,
+				depth: 1,
+			}),
+		).toBe("~/Projects/zentui/extensions");
+	});
 });
 
 describe("formatGitBranchText", () => {

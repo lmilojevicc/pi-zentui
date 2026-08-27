@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -81,6 +79,7 @@ import {
 	startProjectRefreshInterval,
 } from "./project-refresh";
 import { applyProjectRefreshToState } from "./project-state";
+import { RepositoryRootController, type RepositoryRootRequest } from "./repository-root";
 import { readRuntimeInfo } from "./runtime";
 import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selector-border";
 import { SessionLifecycle } from "./session-lifecycle";
@@ -167,16 +166,6 @@ export function activeFooterReferences(config: ZentuiConfig): Set<string> {
 	return references;
 }
 
-function findRepositoryRoot(cwd: string): string | undefined {
-	let current = resolve(cwd);
-	while (true) {
-		if (existsSync(join(current, ".git"))) return current;
-		const parent = dirname(current);
-		if (parent === current) return undefined;
-		current = parent;
-	}
-}
-
 function isTuiContext(ctx: ExtensionContext): boolean {
 	try {
 		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
@@ -228,11 +217,11 @@ export default function (pi: ExtensionAPI) {
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
-	let requestedProjectCwd: string | undefined;
 	const agentDurationClock = new AgentDurationClock();
 	const interactionMetrics = new InteractionMetricsTracker();
 	let agentRunActive = false;
 	let minimalistProjectRoot: string | undefined;
+	const repositoryRoots = new RepositoryRootController();
 	let projectRefreshActive = false;
 	let activeTuiContext: ExtensionContext | undefined;
 	let cleanupAccentRailLayoutPatch: () => void = () => {};
@@ -336,12 +325,22 @@ export default function (pi: ExtensionAPI) {
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
 
-	type ProjectRefreshTarget = { cwd: string; generation: number };
+	type ProjectRefreshTarget = {
+		repository: RepositoryRootRequest;
+		sessionGeneration: number;
+	};
 	const refreshProjectState = async (
-		{ cwd, generation }: ProjectRefreshTarget,
+		{ repository, sessionGeneration }: ProjectRefreshTarget,
 		run: ProjectRefreshRun,
 	) => {
-		if (!run.isCurrent() || !sessionLifecycle.isCurrent(generation)) return;
+		const { cwd } = repository;
+		if (
+			!run.isCurrent() ||
+			!sessionLifecycle.isCurrent(sessionGeneration) ||
+			!repositoryRoots.isCurrent(repository)
+		) {
+			return;
+		}
 		const starship = currentConfig.components.footer.styles.starship;
 		const gitCommitConfig = starship.gitCommit;
 		const gitMetricsConfig = starship.gitMetrics;
@@ -367,12 +366,12 @@ export default function (pi: ExtensionAPI) {
 		]);
 		if (
 			!run.isCurrent() ||
-			!sessionLifecycle.isCurrent(generation) ||
-			requestedProjectCwd !== cwd
+			!sessionLifecycle.isCurrent(sessionGeneration) ||
+			!repositoryRoots.isCurrent(repository)
 		) {
 			return;
 		}
-		minimalistProjectRoot = git.kind === "ok" ? findRepositoryRoot(cwd) : undefined;
+		minimalistProjectRoot = repositoryRoots.update(repository, git.kind === "ok");
 		lastProjectCwd = applyProjectRefreshToState(state, {
 			cwd,
 			previousCwd: lastProjectCwd,
@@ -387,11 +386,11 @@ export default function (pi: ExtensionAPI) {
 		ctx: ExtensionContext,
 		options?: ScheduleProjectRefreshOptions,
 	) => {
-		const generation = sessionLifecycle.currentGeneration();
-		if (!sessionLifecycle.isCurrent(generation)) return;
-		const cwd = ctx.cwd;
-		requestedProjectCwd = cwd;
-		projectRefreshScheduler.schedule({ cwd, generation }, options);
+		const sessionGeneration = sessionLifecycle.currentGeneration();
+		if (!sessionLifecycle.isCurrent(sessionGeneration)) return;
+		const repository = repositoryRoots.request(ctx.cwd);
+		minimalistProjectRoot = repositoryRoots.cachedRootForCwd(ctx.cwd);
+		projectRefreshScheduler.schedule({ repository, sessionGeneration }, options);
 	};
 
 	const minimalistProjectRequired = () => {
@@ -911,6 +910,7 @@ export default function (pi: ExtensionAPI) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getLiveContext: () => liveContext.get(),
+				getRepositoryRoot: (cwd) => repositoryRoots.rootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
 			});
 			installedFooterKind = "starship";
@@ -1162,8 +1162,8 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageTotalsCache();
 		resetAgentTimer();
 		lastProjectCwd = undefined;
-		requestedProjectCwd = undefined;
 		minimalistProjectRoot = undefined;
+		repositoryRoots.reset();
 		installUi(ctx);
 		workingLine.startSession(ctx);
 		scheduleEditorReconciliation(ctx);

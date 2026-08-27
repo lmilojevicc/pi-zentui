@@ -77,7 +77,7 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
-const pathDisplayModeValues = ["basename", "full"];
+const pathDisplayModeValues: PathDisplayConfig["mode"][] = ["basename", "repository", "full"];
 const pathDepthValues = ["0", "1", "2", "3", "4", "5"];
 const branchLengthPresetValues = ["full", "10", "20", "30", "40", "50"];
 const iconModeValues: IconMode[] = ["auto", "nerd", "ascii"];
@@ -789,14 +789,14 @@ function buildStarshipFooterStyleItems(config: PolishedTuiConfig): SettingItem[]
 		{
 			id: "pathDisplay",
 			label: "Path display",
-			description: "Show cwd as basename or full path.",
+			description: "Show cwd as basename, repository-relative, or full path.",
 			currentValue: footer.pathDisplay.mode,
 			values: pathDisplayModeValues,
 		},
 		{
 			id: "pathDepth",
 			label: "Path depth",
-			description: "Trailing directories in full mode (0 = all).",
+			description: "Final component count for Full and Repository (0 = unlimited).",
 			currentValue: String(footer.pathDisplay.depth),
 			values: pathDepthValues,
 		},
@@ -1558,7 +1558,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										notifyChange("Separator", newValue);
 										return;
 									}
-									if (id === "pathDisplay" && pathDisplayModeValues.includes(newValue as never)) {
+									if (
+										id === "pathDisplay" &&
+										pathDisplayModeValues.includes(newValue as PathDisplayConfig["mode"])
+									) {
 										deps.setPathDisplay({ mode: newValue as PathDisplayConfig["mode"] });
 										settingsList.updateValue(id, newValue);
 										notifyChange("Path display", newValue);

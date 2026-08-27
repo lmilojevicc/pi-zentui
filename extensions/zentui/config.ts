@@ -61,11 +61,11 @@ export type ContextThresholds = {
 	error: number;
 };
 
-export type PathDisplayMode = "basename" | "full";
+export type PathDisplayMode = "basename" | "full" | "repository";
 
 export type PathDisplayConfig = {
 	mode: PathDisplayMode;
-	/** Trailing directories to show in full mode. 0 = unlimited; clamped to 0..5. */
+	/** Final components to show in full/repository mode. 0 = unlimited; clamped to 0..5. */
 	depth: number;
 };
 
@@ -665,7 +665,10 @@ function parseContextThresholds(
 function parsePathDisplay(value: unknown): PathDisplayConfig {
 	const defaults = defaultConfig.pathDisplay;
 	if (!isRecord(value)) return { ...defaults };
-	const mode = value.mode === "full" || value.mode === "basename" ? value.mode : defaults.mode;
+	const mode =
+		value.mode === "full" || value.mode === "basename" || value.mode === "repository"
+			? value.mode
+			: defaults.mode;
 	const rawDepth = value.depth;
 	const depth =
 		typeof rawDepth === "number" && Number.isFinite(rawDepth) && rawDepth >= 0

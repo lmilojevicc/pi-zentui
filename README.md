@@ -124,6 +124,8 @@ Detailed reference:
 - [Configuration, component styles, defaults, runtime detection, and compatibility](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md)
 - [Footer format template and variables](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/footer-format.md)
 
+The Starship Footer path defaults to `basename`. Opt into `components.footer.styles.starship.pathDisplay.mode: "repository"` to omit the repository directory itself: the repository root renders `.`, while `/repo/extensions/zentui` renders `extensions/zentui`. `depth` keeps the final N components in `full` and `repository` modes; `0` is unlimited. Until a current, safely contained repository root is available, repository mode silently uses the unlimited `full` path with `~` home abbreviation.
+
 Useful shortcuts:
 
 ```text
