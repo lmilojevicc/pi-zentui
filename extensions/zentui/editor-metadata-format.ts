@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
+import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
 import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 
 export type EditorMetadataValues = {
@@ -10,6 +11,11 @@ export type EditorMetadataValues = {
 	provider: string;
 	thinking: string;
 	sessionName: string;
+	contextPercent?: number;
+	contextWindow?: number;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheHitRate?: number;
 };
 
 type RenderedTokens = {
@@ -164,7 +170,16 @@ function renderVariable(
 							? thinking
 							: name === "session_name"
 								? values.sessionName
-								: "";
+								: name === "context"
+									? formatContextPercentLabel(values.contextPercent, values.contextWindow)
+									: name === "tokens"
+										? buildSessionTokenLabel({
+												input: values.inputTokens ?? 0,
+												output: values.outputTokens ?? 0,
+											})
+										: name === "cache_hit"
+											? formatCacheHitRate(values.cacheHitRate)
+											: "";
 	const plain = sanitizeEditorMetadataText(raw);
 	if (!plain) return { plain: "", styled: "" };
 
@@ -204,7 +219,7 @@ function renderVariable(
 			),
 		};
 	}
-	if (name === "session_name") {
+	if (name === "session_name" || name === "context" || name === "tokens" || name === "cache_hit") {
 		return { plain, styled: safeThemeFg(uiTheme, "border", plain) };
 	}
 	return { plain: "", styled: "" };

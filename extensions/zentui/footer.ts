@@ -35,6 +35,7 @@ import {
 	formatRuntimeSegment,
 	formatTimeLabel,
 	formatUsernameHostLabel,
+	resolveContextUsage,
 } from "./format";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
@@ -282,14 +283,10 @@ export function installFooter(
 							config.components.footer.styles.starship.gitBranch.maxLength,
 						)
 					: undefined;
-				const contextUsage = ctx.getContextUsage();
-				const liveContext = hooks.getLiveContext?.();
-				const contextWindow = ctx.model?.contextWindow ?? contextUsage?.contextWindow;
-				const useLiveContext =
-					liveContext !== undefined && contextWindow !== undefined && contextWindow > 0;
-				const contextPercent = useLiveContext
-					? (liveContext.tokens / contextWindow) * 100
-					: contextUsage?.percent;
+				const { percent: contextPercent, contextWindow } = resolveContextUsage(
+					ctx,
+					hooks.getLiveContext?.(),
+				);
 				const contextLabel = buildContextDisplayLabel({
 					percent: contextPercent,
 					contextWindow,

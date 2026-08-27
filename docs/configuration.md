@@ -348,8 +348,13 @@ The syntax supports `$variable`, `${variable}`, literal text, spaces, and condit
 | `$provider` | formatted provider label |
 | `$thinking` | current level; empty when `off` |
 | `$session_name` | current Pi session name; empty when unnamed |
+| `$context` | compact current context usage and window, for example `26.8%/272k` |
+| `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
+| `$cache_hit` | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable |
 
-Model variables use `editorModel`, provider uses `editorProvider`, and thinking uses the matching level style. Literal text and session name use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
+`$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
+
+Model variables use `editorModel`, provider uses `editorProvider`, and thinking uses the matching level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
 Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
 

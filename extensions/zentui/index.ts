@@ -60,7 +60,11 @@ import {
 } from "./editor-transfer";
 import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
-import { buildSessionDurationLabel, invalidateUsageTotalsCache } from "./format";
+import {
+	buildSessionDurationLabel,
+	invalidateUsageTotalsCache,
+	resolveContextUsage,
+} from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
 import {
 	InteractionMetricsTracker,
@@ -296,15 +300,25 @@ export default function (pi: ExtensionAPI) {
 		Date.now,
 		() => interactionMetrics.currentThought(),
 	);
+	const getContextSnapshot = (ctx: ExtensionContext) => resolveContextUsage(ctx, liveContext.get());
 	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
-		ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow;
-	const getContextPercent = (ctx: ExtensionContext): number | undefined => {
-		const usage = ctx.getContextUsage();
-		const contextWindow = getContextWindow(ctx);
-		const live = liveContext.get();
-		return live && contextWindow && contextWindow > 0
-			? (live.tokens / contextWindow) * 100
-			: (usage?.percent ?? undefined);
+		getContextSnapshot(ctx).contextWindow;
+	const getContextPercent = (ctx: ExtensionContext): number | undefined =>
+		getContextSnapshot(ctx).percent;
+	const getEditorMeta = (ctx: ExtensionContext) => {
+		const context = getContextSnapshot(ctx);
+		return {
+			modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+			modelId: state.modelId,
+			modelName: state.modelName,
+			providerLabel: state.providerLabel,
+			sessionName: ctx.sessionManager.getSessionName() ?? "",
+			contextPercent: context.percent,
+			contextWindow: context.contextWindow,
+			inputTokens: state.usageTotals.input,
+			outputTokens: state.usageTotals.output,
+			cacheHitRate: state.usageTotals.latestCacheHitRate,
+		};
 	};
 	const getAgentDurationMs = () => agentDurationClock.elapsedMs();
 	const getThinkingLevel = () =>
@@ -689,13 +703,7 @@ export default function (pi: ExtensionAPI) {
 					keybindings,
 					sessionTheme,
 					getCurrentConfig,
-					() => ({
-						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-						modelId: state.modelId,
-						modelName: state.modelName,
-						providerLabel: state.providerLabel,
-						sessionName: ctx.sessionManager.getSessionName() ?? "",
-					}),
+					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
 						cwd: ctx.cwd,
@@ -734,13 +742,7 @@ export default function (pi: ExtensionAPI) {
 					baseFactory(tui, theme, keybindings),
 					sessionTheme,
 					getCurrentConfig,
-					() => ({
-						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-						modelId: state.modelId,
-						modelName: state.modelName,
-						providerLabel: state.providerLabel,
-						sessionName: ctx.sessionManager.getSessionName() ?? "",
-					}),
+					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
 						cwd: ctx.cwd,
