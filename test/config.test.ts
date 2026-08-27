@@ -1750,6 +1750,15 @@ describe("mergeConfig", () => {
 			mode: "full",
 			depth: 3,
 		});
+		expect(mergeConfig({ pathDisplay: { mode: "repository", depth: 2 } }).pathDisplay).toEqual({
+			mode: "repository",
+			depth: 2,
+		});
+		expect(
+			mergeConfig({
+				components: { footer: { styles: { starship: { pathDisplay: { mode: "repository" } } } } },
+			}).components.footer.styles.starship.pathDisplay,
+		).toEqual({ mode: "repository", depth: 0 });
 		expect(mergeConfig({ pathDisplay: { mode: "fish", depth: -3 } }).pathDisplay).toEqual({
 			mode: "basename",
 			depth: 0,

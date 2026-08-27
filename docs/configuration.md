@@ -274,6 +274,14 @@ Copy this example and change only the values you need. Optional editor source-aw
 - Active third-party statuses from `ctx.ui.setStatus()` can be placed left, middle, or right, hidden per key, and assigned independent color modes.
 - The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
 
+### Footer path display
+
+`components.footer.styles.starship.pathDisplay.mode` accepts `basename`, `full`, or the opt-in `repository`; the unchanged default is `basename`. Repository mode removes the repository directory name: at `/repo` it renders `.`, and at `/repo/extensions/zentui` it renders `extensions/zentui`. Zentui finds the nearest ancestor with a `.git` directory or worktree `.git` file without starting an extra Git process.
+
+For `full` and `repository`, `depth` is the number of final components to retain. `0` is unlimited. Repository mode first creates the path relative to the repository root, then applies depth, so `/repo/packages/core/src` with `depth: 2` renders `…/core/src`; repository root remains `.` at every depth. `/zentui` exposes **Repository** as a separate Footer path-display choice and keeps the depth control for both modes.
+
+Repository roots are associated with the cwd that produced them. While the current root is missing, stale, outside the cwd, still being refreshed, or unavailable after a lookup failure or Git-to-non-Git transition, Zentui silently renders the unlimited `full` path, including `~` home abbreviation. Built-in and custom `$cwd` layouts use the same result at wide and compact widths. These options belong only to the Starship Footer; Minimalist Editor path semantics are unchanged.
+
 ### Color ownership
 
 - `editorAccent` styles Opencode Editor and User-message accent rails plus the Labeled message label.

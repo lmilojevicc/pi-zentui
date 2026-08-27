@@ -89,6 +89,18 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
 
+### `$cwd` path modes
+
+`$cwd`, the built-in wide directory segment, and responsive compact/final fallback all use `components.footer.styles.starship.pathDisplay`. Its unchanged default is `{ "mode": "basename", "depth": 0 }`.
+
+- `basename` renders only the current directory name.
+- `full` renders the full path with `~` home abbreviation.
+- Opt-in `repository` excludes the repository directory name: repository root renders `.`, while `/repo/extensions/zentui` renders `extensions/zentui`.
+
+For `full` and `repository`, `depth` keeps the final N components and `0` is unlimited. Repository mode forms the repository-relative path first and then applies depth; for example, `/repo/packages/core/src` at depth `2` renders `…/core/src`. Root always remains `.`. Separator normalization matches the existing cwd formatter.
+
+Repository mode recognizes normal repositories and `.git` file worktrees. If the root is missing, stale, unsafe for the current cwd, or unavailable during a cwd/repository transition or failed lookup, `$cwd` silently uses the unlimited `full` path until current root state is safe. This fallback retains `~` abbreviation and never emits a relative path from a stale root.
+
 ### Compact-only structural tokens
 
 `components.footer.styles.starship.compactFormat` also supports:

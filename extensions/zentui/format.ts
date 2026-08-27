@@ -443,9 +443,10 @@ export function formatPackageVersionSegment(
 
 export type FormatCwdOptions = {
 	mode?: PathDisplayMode;
-	/** Trailing directory components to keep in full mode. 0 = unlimited. */
+	/** Final path components to keep in full/repository mode. 0 = unlimited. */
 	depth?: number;
 	home?: string;
+	repositoryRoot?: string;
 };
 
 function normalizeDisplayPath(cwd: string): string {
@@ -488,8 +489,7 @@ function applyPathDepth(path: string, depth: number): string {
 export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwdOptions): string {
 	const mode = options?.mode ?? "basename";
 	const normalized = normalizeDisplayPath(cwd);
-	let pathText: string;
-	if (mode === "full") {
+	const fullPath = (depth = options?.depth ?? 0) => {
 		const home =
 			options?.home ??
 			(() => {
@@ -499,7 +499,25 @@ export function formatCwdLabel(cwd: string, cwdIcon: string, options?: FormatCwd
 					return "";
 				}
 			})();
-		pathText = applyPathDepth(toHomePath(normalized, home), options?.depth ?? 0);
+		return applyPathDepth(toHomePath(normalized, home), depth);
+	};
+	let pathText: string;
+	if (mode === "full") {
+		pathText = fullPath();
+	} else if (mode === "repository") {
+		const root = options?.repositoryRoot ? normalizeDisplayPath(options.repositoryRoot) : undefined;
+		if (!root) {
+			pathText = fullPath(0);
+		} else {
+			const rootPrefix = root === "/" ? "/" : `${root}/`;
+			if (normalized !== root && !normalized.startsWith(rootPrefix)) {
+				// Unsafe roots fail open to the existing unlimited full path.
+				pathText = fullPath(0);
+			} else {
+				const relative = normalized === root ? "." : normalized.slice(rootPrefix.length);
+				pathText = relative === "." ? relative : applyPathDepth(relative, options?.depth ?? 0);
+			}
+		}
 	} else if (normalized === "/") {
 		pathText = "/";
 	} else {

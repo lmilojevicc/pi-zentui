@@ -117,6 +117,7 @@ function createHarness(
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
 		footer: [] as Partial<FooterComponentConfig>[],
 		minimalist: [] as Array<Record<string, unknown>>,
+		pathDisplay: [] as Array<Record<string, unknown>>,
 		segments: [] as Array<Record<string, boolean>>,
 		gitCommit: [] as Array<Record<string, boolean>>,
 		gitMetrics: [] as Array<Record<string, boolean>>,
@@ -176,7 +177,10 @@ function createHarness(
 		setIconMode() {},
 		setContextStyle() {},
 		setSeparator() {},
-		setPathDisplay() {},
+		setPathDisplay(patch: Record<string, unknown>) {
+			calls.pathDisplay.push(patch);
+			Object.assign(config.components.footer.styles.starship.pathDisplay, patch);
+		},
 		setGitBranch() {},
 		setGitCommit(patch: Record<string, boolean>) {
 			calls.gitCommit.push(patch);
@@ -629,6 +633,25 @@ describe("component-oriented /zentui settings", () => {
 			{ style: "compact" },
 			{ style: "labeled" },
 		]);
+	});
+
+	it("offers and routes repository Footer paths with clarified depth semantics", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		selectLabel(component, "Path display");
+		expect(focusedRow(component)).toContain("basename");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("repository");
+		expect(component.render(160).join("\n")).toContain("repository-relative");
+		selectLabel(component, "Path depth");
+		const depthRows = component.render(160).join("\n");
+		expect(depthRows).toContain("Final component count for Full and Repository");
+		expect(depthRows).toContain("0 = unlimited");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("1");
+		expect(harness.calls.pathDisplay).toEqual([{ mode: "repository" }, { depth: 1 }]);
 	});
 
 	it("routes color and model rows to separate component dependencies", async () => {
