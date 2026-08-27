@@ -24,6 +24,12 @@ type RenderedTokens = {
 	hasNonEmptyDynamic: boolean;
 };
 
+export type EditorMetadataZones = {
+	left: string;
+	middle: string;
+	right: string;
+};
+
 const ESC = 0x1b;
 const BEL = 0x07;
 const CAN = 0x18;
@@ -263,6 +269,41 @@ function renderTokens(
 	}
 
 	return { styled, hasDynamic, hasNonEmptyDynamic };
+}
+
+export function renderEditorMetadataFormatSplit(
+	format: string,
+	values: EditorMetadataValues,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+): EditorMetadataZones {
+	const tokens = parseFooterFormat(sanitizeEditorMetadataText(format));
+	const fillIndices: number[] = [];
+	for (let index = 0; index < tokens.length; index++) {
+		if (tokens[index]?.kind === "fill") fillIndices.push(index);
+	}
+
+	const first = fillIndices[0];
+	const second = fillIndices[1];
+	if (first === undefined) {
+		return {
+			left: renderTokens(tokens, values, uiTheme, config).styled,
+			middle: "",
+			right: "",
+		};
+	}
+	if (second === undefined) {
+		return {
+			left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+			middle: "",
+			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config).styled,
+		};
+	}
+	return {
+		left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config).styled,
+		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config).styled,
+	};
 }
 
 export function renderEditorMetadataFormat(

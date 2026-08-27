@@ -338,7 +338,13 @@ Each Opencode variant owns an independent `metadataFormat`:
 }
 ```
 
-The syntax supports `$variable`, `${variable}`, literal text, spaces, and conditional groups `( ... )` that disappear when every variable inside is empty. Unknown variables and `$fill` render empty; `$fill` never creates an Editor layout zone because the right side remains reserved for structural Vim status.
+The syntax supports `$variable`, `${variable}`, literal text, spaces, conditional groups `( ... )` that disappear when every variable inside is empty, and the Footer's top-level `$fill` grammar. With no fill, metadata keeps its existing left-aligned layout. One fill creates left/right zones; two fills create left/middle/right zones; additional fills are ignored. For example:
+
+```text
+$model( · $provider)$fill($session_name)$fill($context · $tokens · $cache_hit)
+```
+
+The configured right zone and Pi's operational right status are right-aligned together, with the operational status kept first when space is limited. Configured left content is kept next, then configured right content. The middle zone is centered within the remaining gap between those sides, not at the terminal's absolute center, and is omitted completely if it cannot fit with one-cell separation. Narrow layouts truncate configured left/right content without an ellipsis. `$fill` inside a conditional group remains non-structural and renders empty.
 
 | Token | Renders |
 | --- | --- |
