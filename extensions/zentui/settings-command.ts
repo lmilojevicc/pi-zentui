@@ -45,6 +45,8 @@ import {
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
+	type ThinkingStepsComponentConfig,
+	type ThinkingStepsMode,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
@@ -132,11 +134,13 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
+const thinkingStepsModeValues: ThinkingStepsMode[] = ["collapsed", "summary", "expanded"];
 
 const settingsSections = [
 	"appearance",
 	"editor",
 	"userMessages",
+	"thinkingSteps",
 	"workingLine",
 	"footer",
 	"segments",
@@ -176,6 +180,11 @@ type SettingsCommandDeps = {
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	thinkingStepsCapability: Readonly<{ available: boolean }>;
+	setThinkingStepsComponent: (
+		patch: Partial<ThinkingStepsComponentConfig>,
+		ctx: ExtensionContext,
+	) => ApplyResult;
 	setWorkingLineComponent: (patch: WorkingLineComponentPatch, ctx: ExtensionContext) => ApplyResult;
 	setSelectorBordersComponent: (
 		patch: Partial<SelectorBordersComponentConfig>,
@@ -210,6 +219,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
+	thinkingSteps: "Thinking steps",
 	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
@@ -610,6 +620,29 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 	];
 }
+function buildThinkingStepsItems(config: PolishedTuiConfig, available: boolean): SettingItem[] {
+	const thinkingSteps = config.components.thinkingSteps;
+	return [
+		{
+			id: "thinkingStepsEnabled",
+			label: "Enabled",
+			description: available
+				? "Applies to new, streaming, restored, resized, or otherwise rebuilt thinking; settled same-width history changes only when Pi rebuilds it."
+				: "Using native thinking — requires Pi 0.84 or newer. The enabled preference is saved until the public API is available.",
+			currentValue: featureValue(thinkingSteps.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "thinkingStepsMode",
+			label: "Mode",
+			description:
+				"Collapsed shows the latest step, Summary the latest five, and Expanded every finalized step and body.",
+			currentValue: thinkingSteps.mode,
+			values: thinkingStepsModeValues,
+		},
+	];
+}
+
 function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 	const workingLine = config.components.workingLine;
 	const staticText = workingLine.textAnimation === "disabled";
@@ -957,6 +990,7 @@ function buildSectionItems(
 	section: SettingsSection,
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
+	thinkingStepsAvailable: boolean,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -977,6 +1011,8 @@ function buildSectionItems(
 			];
 		case "userMessages":
 			return buildUserMessagesItems(config);
+		case "thinkingSteps":
+			return buildThinkingStepsItems(config, thinkingStepsAvailable);
 		case "workingLine":
 			return buildWorkingLineItems(config);
 		case "footer":
@@ -1220,6 +1256,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							activeSection,
 							deps.getConfig(),
 							deps.getActiveExtensionStatuses(),
+							deps.thinkingStepsCapability.available,
 						);
 						const list = new SettingsList(
 							items,
@@ -1360,6 +1397,24 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										setMessages({ colorSource: newValue }, ctx);
 										settingsList.updateValue(id, newValue);
 										notifyChange("Message colors", newValue);
+										return;
+									}
+									if (id === "thinkingStepsEnabled" && enabled !== undefined) {
+										const result = deps.setThinkingStepsComponent({ enabled }, ctx);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Thinking steps", newValue, result);
+										return;
+									}
+									if (
+										id === "thinkingStepsMode" &&
+										thinkingStepsModeValues.includes(newValue as ThinkingStepsMode)
+									) {
+										const result = deps.setThinkingStepsComponent(
+											{ mode: newValue as ThinkingStepsMode },
+											ctx,
+										);
+										settingsList.updateValue(id, newValue);
+										notifyChange("Thinking steps mode", newValue, result);
 										return;
 									}
 									if (id === "workingLineEnabled" && enabled !== undefined) {

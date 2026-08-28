@@ -46,8 +46,10 @@ import {
 	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
+	type ThinkingStepsComponentConfig,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
@@ -86,6 +88,7 @@ import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
 import { resolveFooterTelemetry } from "./telemetry";
+import { registerThinkingStepsTransformer } from "./thinking-steps";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
 import {
@@ -181,6 +184,10 @@ export default function (pi: ExtensionAPI) {
 	const editorOwnerToken = Symbol("zentui-editor-owner");
 
 	let currentConfig: PolishedTuiConfig = loadConfig();
+	const thinkingStepsCapability = registerThinkingStepsTransformer(
+		pi,
+		() => currentConfig.components.thinkingSteps,
+	);
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
 	if (typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
@@ -1215,6 +1222,16 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
+		},
+		thinkingStepsCapability,
+		setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+			currentConfig = saveThinkingStepsComponentPatch(patch);
+			const unavailable =
+				currentConfig.components.thinkingSteps.enabled && !thinkingStepsCapability.available;
+			return {
+				applied: !unavailable,
+				reason: unavailable ? "Using native thinking — requires Pi 0.84 or newer" : undefined,
+			};
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);

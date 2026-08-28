@@ -6,18 +6,19 @@ Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing
 
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into eight component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections:
+The interactive `/zentui` menu is split into nine component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections:
 
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
-4. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking/Tokens segments, and animated preview.
-5. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
-6. **Segments** — visibility toggles for non-Git Starship segments.
-7. **Git** — Starship Git segment and probe controls.
-8. **Extensions** — Starship extension-status placement and color controls for active keys.
+4. **Thinking steps** — independent enablement and Collapsed, Summary, or Expanded structural thinking display.
+5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking/Tokens segments, and animated preview.
+6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
+7. **Segments** — visibility toggles for non-Git Starship segments.
+8. **Git** — Starship Git segment and probe controls.
+9. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-Editor, User messages, and Working line retain independent configuration. Editor and User-message previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
+Editor, User messages, Thinking steps, and Working line retain independent configuration. Editor and User-message previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
 
 Free-form values such as custom formats, Opencode metadata formats, raw colors/styles, and inactive extension keys remain JSON-only. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
@@ -98,6 +99,10 @@ Copy this example and change only the values you need. Optional editor source-aw
         "compact": {},
         "labeled": {}
       }
+    },
+    "thinkingSteps": {
+      "enabled": false,
+      "mode": "summary"
     },
     "workingLine": {
       "enabled": false,
@@ -267,7 +272,8 @@ Copy this example and change only the values you need. Optional editor source-aw
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
-- `components.workingLine.enabled` is the sole Working-line ownership switch.
+- `components.thinkingSteps` independently owns opt-in structural thinking display. It defaults to `{ "enabled": false, "mode": "summary" }`; modes are `collapsed | summary | expanded`.
+- `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking steps never enable, configure, or own the Working line.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden installs an empty component with zero rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
@@ -380,6 +386,14 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non
 - `labeled` uses a rounded box with fixed label `User`.
 - Disabling styling delegates to Pi's native renderer; native is not a style ID.
 - Zentui intentionally provides no custom `plain` style.
+
+## Thinking steps
+
+Thinking steps use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. **Collapsed** shows the latest structural label, **Summary** shows the latest five in chronological order, and **Expanded** shows every label plus its original Markdown body after thinking is finalized. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
+
+The component is opt-in and does not own the Working line, hidden-thinking label, transcript lifecycle, Footer, Editor, widgets, or statuses. Pi 0.84 or newer provides the required public API. On Pi 0.80.5–0.83, `/zentui` preserves the enabled preference, shows `Using native thinking — requires Pi 0.84 or newer`, and leaves native thinking byte-for-byte unchanged.
+
+Markdown transforms run for new and streaming content, restored messages, width changes, and other public rebuilds. Expanded intentionally stays native while streaming. Pi has no public invalidation API for already settled same-width transcript entries, so settings changes appear there only when Pi otherwise rebuilds that thinking content.
 
 ## Working line
 

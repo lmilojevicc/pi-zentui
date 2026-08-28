@@ -52,6 +52,7 @@ import {
 	saveSelectorBordersComponentPatch,
 	saveSeparatorPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUiFeaturesPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
@@ -132,6 +133,7 @@ describe("canonical config resolution", () => {
 				colorSource: "theme",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
+			thinkingSteps: { enabled: false, mode: "summary" },
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
@@ -566,6 +568,54 @@ describe("canonical config resolution", () => {
 		expect(FOOTER_FORMAT_VARIABLES).toEqual(
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
 		);
+	});
+});
+
+describe("thinking-steps config", () => {
+	it("defaults independently and normalizes invalid canonical leaves", () => {
+		const first = mergeConfig({});
+		const second = mergeConfig({});
+		expect(first.components.thinkingSteps).toEqual({ enabled: false, mode: "summary" });
+		expect(first.components.thinkingSteps).not.toBe(second.components.thinkingSteps);
+		expect(
+			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "expanded" } } }).components
+				.thinkingSteps,
+		).toEqual({ enabled: true, mode: "expanded" });
+		expect(
+			mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode: "native" } } }).components
+				.thinkingSteps,
+		).toEqual({ enabled: false, mode: "summary" });
+	});
+
+	it("persists atomic component patches and preserves unknown keys", () => {
+		withConfig(
+			{
+				futureTop: { keep: true },
+				components: { thinkingSteps: { future: { keep: true } } },
+			},
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true, mode: "collapsed" }, path);
+				const raw = readRaw(path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "collapsed" });
+				expect(raw.components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "collapsed",
+					future: { keep: true },
+				});
+				expect(raw.futureTop).toEqual({ keep: true });
+				expect(configTempFiles(join(path, ".."))).toEqual([]);
+			},
+		);
+	});
+
+	it("refuses to overwrite corrupt files", () => {
+		withConfig(undefined, (path) => {
+			writeFileSync(path, "{broken");
+			expect(() => saveThinkingStepsComponentPatch({ enabled: true }, path)).toThrow(
+				/Refusing to save Zentui config/,
+			);
+			expect(readFileSync(path, "utf8")).toBe("{broken");
+		});
 	});
 });
 
@@ -1387,6 +1437,7 @@ describe("compatibility saver recipes", () => {
 				"editor",
 				"footer",
 				"selectorBorders",
+				"thinkingSteps",
 				"userMessages",
 				"workingLine",
 			]);

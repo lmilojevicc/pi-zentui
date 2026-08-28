@@ -8,6 +8,7 @@ import {
 	type FooterComponentConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
+	type ThinkingStepsComponentConfig,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 } from "../extensions/zentui/config";
@@ -23,6 +24,7 @@ const sectionNames = [
 	"Appearance",
 	"Editor",
 	"User messages",
+	"Thinking steps",
 	"Working line",
 	"Footer",
 	"Segments",
@@ -112,6 +114,7 @@ function createHarness(
 		polishedCopyFriendly: [] as Array<Record<string, unknown>>,
 		accentRail: [] as Array<Record<string, unknown>>,
 		messages: [] as Partial<UserMessagesComponentConfig>[],
+		thinkingSteps: [] as Partial<ThinkingStepsComponentConfig>[],
 		workingLine: [] as WorkingLineComponentPatch[],
 		renders: { shared: 0, local: 0 },
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
@@ -151,6 +154,12 @@ function createHarness(
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>) {
 			calls.messages.push(patch);
 			Object.assign(config.components.userMessages, patch);
+		},
+		thinkingStepsCapability: { available: true },
+		setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+			calls.thinkingSteps.push(patch);
+			Object.assign(config.components.thinkingSteps, patch);
+			return { applied: true };
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch) {
 			calls.workingLine.push(patch);
@@ -283,7 +292,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/8)`);
+			expect(lines[1]).toContain(`(${index + 1}/9)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -326,6 +335,8 @@ describe("component-oriented /zentui settings", () => {
 
 		component.handleInput("\t");
 		expectFocusOrder(component, ["User messages", "Message style", "Message colors"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Enabled",
@@ -516,7 +527,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showGit: false },
 		]);
 
-		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 6; index += 1) component.handleInput("\t");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
 			["Show exact-match tag", "disabled"],
@@ -673,6 +684,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
 		component.handleInput(" ");
 		selectLabel(component, "Footer model label");
@@ -756,6 +768,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Ignore submodules");
 		component.handleInput(" ");
 		component.handleInput("\x1b[Z");
@@ -769,6 +782,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -805,6 +819,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Model info");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Model info");
@@ -815,6 +830,81 @@ describe("component-oriented /zentui settings", () => {
 			"Could not update Zentui settings: read-only editor",
 			"Could not update Zentui settings: read-only segments",
 		]);
+	});
+
+	it("routes Thinking-step enablement and mode independently", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking steps");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(harness.calls.thinkingSteps).toEqual([{ enabled: true }, { mode: "expanded" }]);
+		expect(harness.config.components.thinkingSteps).toEqual({
+			enabled: true,
+			mode: "expanded",
+		});
+	});
+
+	it("keeps only Enabled and Mode focusable and reports native fallback after every enabled patch", async () => {
+		const config = cloneConfig();
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { available: false },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				const unavailable = config.components.thinkingSteps.enabled;
+				return {
+					applied: !unavailable,
+					reason: unavailable ? "Using native thinking — requires Pi 0.84 or newer" : undefined,
+				};
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking steps");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+		expect(component.render(200).join("\n")).toContain(
+			"Using native thinking — requires Pi 0.84 or newer",
+		);
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		expect(config.components.thinkingSteps.enabled).toBe(true);
+		expect(harness.notifications.at(-1)).toContain(
+			"Using native thinking — requires Pi 0.84 or newer",
+		);
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(config.components.thinkingSteps.mode).toBe("expanded");
+		expect(harness.notifications.at(-1)).toContain(
+			"Using native thinking — requires Pi 0.84 or newer",
+		);
+	});
+
+	it("restores Thinking-step rows after persistence failure and exposes no direct route", async () => {
+		const harness = createHarness(cloneConfig(), {
+			setThinkingStepsComponent() {
+				throw new Error("read-only thinking");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking steps");
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		expect(focusedRow(component)).toContain("disabled");
+		expect(harness.notifications).toContain("Could not update Zentui settings: read-only thinking");
+		await harness.command().handler("thinking-steps", harness.ctx);
+		expect(harness.notifications.at(-1)).toMatch(/^Usage:/);
+		expect(
+			harness
+				.command()
+				.getArgumentCompletions("")
+				?.map((item) => item.value)
+				.join("\n"),
+		).not.toMatch(/thinking.steps/i);
 	});
 
 	it("routes all Working-line rows independently", async () => {
@@ -1135,6 +1225,8 @@ describe("component-oriented /zentui settings", () => {
 			{ colorSource: "terminal" },
 		]);
 		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\t");
+		expect(component.render(100).join("\n")).toContain("Thinking steps");
 		component.handleInput("\t");
 		const workingRows = component.render(100);
 		expectStackedPreview(workingRows, "Sautéing…");

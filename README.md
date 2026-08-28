@@ -14,14 +14,15 @@
 
 ## What is this?
 
-Zentui gives four Pi surfaces independent ownership and styling:
+Zentui gives Pi surfaces independent, opt-in treatments:
 
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
+- **Thinking steps** — optional structural labels for assistant thinking, without owning the Working line
 - **Working line** — optional ownership of Pi's complete in-progress row and settled turn summary
 - **Footer** — Pi's native Footer, a Starship-style statusline, or a hidden zero-row Footer
 
-Editor, User messages, Working line, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
+Editor, User messages, Thinking steps, Working line, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
 ## Highlights
 
@@ -29,6 +30,7 @@ Editor, User messages, Working line, and selector borders have independent `enab
 | --- | --- | --- |
 | Editor | `opencode` | Opencode, copy-friendly, Accent Rail, Minimalist |
 | User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
+| Thinking steps | disabled (`summary`) | Collapsed latest step, latest-five Summary, finalized Expanded bodies |
 | Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
@@ -87,7 +89,7 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections. Changes are applied live and saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking steps, Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections. Changes are applied live and saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -105,6 +107,10 @@ A small starter config:
     "userMessages": {
       "enabled": true,
       "style": "framed"
+    },
+    "thinkingSteps": {
+      "enabled": false,
+      "mode": "summary"
     },
     "workingLine": {
       "enabled": false
@@ -137,6 +143,8 @@ Useful shortcuts:
 /zentui format "$cwd on branch $git_branch$git_status using $runtime $fill $context"
 /zentui format clear
 ```
+
+Thinking steps use Pi's public Markdown-transformer API on Pi 0.84 or newer. On Pi 0.80.5–0.83, an enabled preference is preserved but native thinking remains byte-for-byte unchanged. Mode changes affect new, streaming, restored, resized, or otherwise rebuilt thinking; already settled same-width transcript entries cannot be publicly invalidated.
 
 Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Zentui does not enable it automatically; select fullscreen from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 

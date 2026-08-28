@@ -46,6 +46,7 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
+export type ThinkingStepsMode = "collapsed" | "summary" | "expanded";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
@@ -250,9 +251,15 @@ export type WorkingLineComponentPatch = Partial<
 	segments?: Partial<WorkingLineSegmentsConfig>;
 };
 
+export type ThinkingStepsComponentConfig = {
+	enabled: boolean;
+	mode: ThinkingStepsMode;
+};
+
 export type ComponentsConfig = {
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
+	thinkingSteps: ThinkingStepsComponentConfig;
 	workingLine: WorkingLineComponentConfig;
 	selectorBorders: SelectorBordersComponentConfig;
 	footer: FooterComponentConfig;
@@ -500,6 +507,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "theme",
 		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 	},
+	thinkingSteps: { enabled: false, mode: "summary" },
 	workingLine: {
 		enabled: false,
 		turnSummary: true,
@@ -1191,6 +1199,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessages = recordValue(components.userMessages);
 	const userMessageStyles = recordValue(userMessages.styles);
 	const framed = recordValue(userMessageStyles.framed);
+	const thinkingSteps = recordValue(components.thinkingSteps);
 	const workingLine = recordValue(components.workingLine);
 	const workingLineMessages = recordValue(workingLine.messages);
 	const workingLineSegments = recordValue(workingLine.segments);
@@ -1297,6 +1306,15 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				compact: {},
 				labeled: {},
 			},
+		},
+		thinkingSteps: {
+			enabled: parseBoolean(thinkingSteps.enabled, defaultComponents.thinkingSteps.enabled),
+			mode:
+				thinkingSteps.mode === "collapsed" ||
+				thinkingSteps.mode === "summary" ||
+				thinkingSteps.mode === "expanded"
+					? thinkingSteps.mode
+					: defaultComponents.thinkingSteps.mode,
 		},
 		workingLine: {
 			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
@@ -1735,6 +1753,17 @@ export function saveUserMessagesComponentPatch(
 		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,
 		patch.style !== undefined ? "userMessages" : undefined,
 	);
+}
+
+export function saveThinkingStepsComponentPatch(
+	patch: Partial<ThinkingStepsComponentConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation((components) => {
+		const component = components.thinkingSteps;
+		if (patch.enabled !== undefined) component.enabled = patch.enabled;
+		if (patch.mode !== undefined) component.mode = patch.mode;
+	}, path);
 }
 
 export function saveWorkingLineComponentPatch(
