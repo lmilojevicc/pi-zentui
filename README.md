@@ -144,7 +144,7 @@ Useful shortcuts:
 /zentui format clear
 ```
 
-Thinking steps use Pi's public Markdown-transformer API on Pi 0.84 or newer. On Pi 0.80.5–0.83, an enabled preference is preserved but native thinking remains byte-for-byte unchanged. Mode changes affect new, streaming, restored, resized, or otherwise rebuilt thinking; already settled same-width transcript entries cannot be publicly invalidated.
+Thinking steps use Pi's public Markdown-transformer API on Pi 0.84 or newer. Their upstream-inspired, theme-native layout uses neutral `·` marks for settled steps and `•` only for the latest streaming step, with ordinary Unicode connectors. On Pi 0.80.5–0.83, an enabled preference is preserved but native thinking remains byte-for-byte unchanged. Mode changes affect new, streaming, restored, resized, or otherwise rebuilt thinking; already settled same-width transcript entries cannot be publicly invalidated.
 
 Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Zentui does not enable it automatically; select fullscreen from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 

@@ -389,7 +389,7 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non
 
 ## Thinking steps
 
-Thinking steps use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. **Collapsed** shows the latest structural label, **Summary** shows the latest five in chronological order, and **Expanded** shows every label plus its original Markdown body after thinking is finalized. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
+Thinking steps use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. **Collapsed** shows the latest structural label, **Summary** shows the latest five in chronological order, and **Expanded** shows every label plus its original Markdown body after thinking is finalized. The upstream-inspired, theme-native symbol language uses ordinary Unicode connectors, neutral `·` marks for settled steps, and `•` only for the latest streaming step. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
 
 The component is opt-in and does not own the Working line, hidden-thinking label, transcript lifecycle, Footer, Editor, widgets, or statuses. Pi 0.84 or newer provides the required public API. On Pi 0.80.5–0.83, `/zentui` preserves the enabled preference, shows `Using native thinking — requires Pi 0.84 or newer`, and leaves native thinking byte-for-byte unchanged.
 

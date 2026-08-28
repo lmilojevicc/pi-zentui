@@ -220,6 +220,38 @@ function boundedOutput(output: string, input: string): string {
 	return output.length <= THINKING_STEPS_MAX_OUTPUT_LENGTH ? output : input;
 }
 
+/*
+ * The visual title/connector language below is adapted from pi-thinking-steps d0a59a4.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2026 Marc Mironescu / FluxGear
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+const SUMMARY_TITLE = "┆ Thinking Steps · Summary";
+const EXPANDED_TITLE = "┆ Thinking Steps · Expanded";
+
+function widthCanFit(text: string, availableWidth: number): boolean {
+	return visibleWidth(text) <= Math.floor(availableWidth);
+}
+
 /** Transform parsed thinking into ordinary Markdown without changing the source/session content. */
 export function transformThinkingSteps(
 	markdown: string,
@@ -241,32 +273,42 @@ export function transformThinkingSteps(
 	if (config.mode === "collapsed") {
 		const step = steps.at(-1);
 		if (!step) return markdown;
-		const prefix = `Step ${step.number}: `;
+		const marker = context.isStreaming ? "•" : "·";
+		const prefix = `│ Thinking ${marker} Step ${step.number}: `;
 		const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
-		return label ? boundedOutput(`**Step ${step.number}:** ${label}`, markdown) : markdown;
+		return label ? boundedOutput(`${prefix}${label}`, markdown) : markdown;
 	}
 
 	if (config.mode === "summary") {
+		if (!widthCanFit(SUMMARY_TITLE, context.availableWidth)) return markdown;
 		const selected = steps.slice(-5);
-		const lines: string[] = [];
-		for (const step of selected) {
-			const prefix = `- Step ${step.number}: `;
+		const lines: string[] = [SUMMARY_TITLE];
+		for (const [index, step] of selected.entries()) {
+			const final = index === selected.length - 1;
+			const connector = final ? "└─" : "├─";
+			const marker = context.isStreaming && final ? "•" : "·";
+			const prefix = `${connector} ${marker} Step ${step.number}: `;
 			const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
 			if (!label) return markdown;
-			lines.push(`- **Step ${step.number}:** ${label}`);
+			lines.push(`${prefix}${label}`);
 		}
-		return boundedOutput(lines.join("\n"), markdown);
+		return boundedOutput(
+			lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n"),
+			markdown,
+		);
 	}
 
 	if (config.mode !== "expanded") return markdown;
+	if (!widthCanFit(EXPANDED_TITLE, context.availableWidth)) return markdown;
 	const sections: string[] = [];
-	for (const step of steps) {
-		const prefix = `Step ${step.number}: `;
+	for (const [index, step] of steps.entries()) {
+		const connector = index === steps.length - 1 ? "└─" : "├─";
+		const prefix = `${connector} · Step ${step.number}: `;
 		const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
 		if (!label) return markdown;
-		sections.push(`### Step ${step.number}: ${label}${step.body ? `\n\n${step.body}` : ""}`);
+		sections.push(`${prefix}${label}${step.body ? `\n\n${step.body}` : ""}`);
 	}
-	return boundedOutput(sections.join("\n\n"), markdown);
+	return boundedOutput(`${EXPANDED_TITLE}\n\n${sections.join("\n\n")}`, markdown);
 }
 
 /** Register Zentui's single internal Markdown-dispatch slot when the public Pi API is present. */

@@ -18,6 +18,7 @@ const checkSource = `
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
+import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 
 const version = process.argv[2];
 const expected = process.argv[3] === "present";
@@ -27,7 +28,7 @@ mkdirSync(agentDir, { recursive: true });
 process.env.PI_CODING_AGENT_DIR = agentDir;
 writeFileSync(
 	join(agentDir, "zentui.json"),
-	JSON.stringify({ components: { thinkingSteps: { enabled: true, mode: "collapsed" } } }),
+	JSON.stringify({ components: { thinkingSteps: { enabled: true, mode: "summary" } } }),
 );
 
 const loaded = await discoverAndLoadExtensions(
@@ -60,9 +61,40 @@ const transformed = typeof transformer === "function"
 			availableWidth: 80,
 		})
 	: input;
-const expectedOutput = expected ? "**Step 2:** Latest" : input;
+const expectedOutput = expected
+	? "┆ Thinking Steps · Summary  \\n├─ · Step 1: First  \\n└─ • Step 2: Latest"
+	: input;
 if (transformed !== expectedOutput) {
 	throw new Error("Pi " + version + " unexpected transform: " + JSON.stringify(transformed));
+}
+if (expected) {
+	let structuralMarkdownCalls = 0;
+	const identity = (text) => text;
+	const theme = Object.fromEntries(
+		[
+			"heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "hr",
+			"bold", "italic", "strikethrough", "underline",
+		].map((key) => [key, identity]),
+	);
+	theme.listBullet = (text) => { structuralMarkdownCalls += 1; return text; };
+	theme.quote = (text) => { structuralMarkdownCalls += 1; return text; };
+	theme.quoteBorder = (text) => { structuralMarkdownCalls += 1; return text; };
+	const rendered = new Markdown(transformed, 0, 0, theme, undefined, {
+		preserveBackslashEscapes: false,
+		renderLatex: false,
+	}).render(80);
+	const visible = rendered.map((line) => line.trimEnd());
+	const expectedVisible = [
+		"┆ Thinking Steps · Summary",
+		"├─ · Step 1: First",
+		"└─ • Step 2: Latest",
+	];
+	if (JSON.stringify(visible) !== JSON.stringify(expectedVisible)) {
+		throw new Error("Pi " + version + " unexpected Markdown render: " + JSON.stringify(visible));
+	}
+	if (structuralMarkdownCalls !== 0 || rendered.some((line) => visibleWidth(line) > 80)) {
+		throw new Error("Pi " + version + " Markdown render added structure or exceeded width");
+	}
 }
 console.log(
 	version +
