@@ -130,13 +130,13 @@ describe("Thinking-step parser", () => {
 		["---", "no meaningful label"],
 	] as const)("fails open for %s (%s)", (source, _description) => {
 		expect(parseThinkingSteps(source)).toBeUndefined();
-		expect(transformThinkingSteps(source, enabled("summary"), context())).toBe(source);
+		expect(transformThinkingSteps(source, enabled("tree"), context())).toBe(source);
 	});
 
 	it("fails open to exact input when terminal sanitization would change it", () => {
 		const source = "# Safe\x1b]0;title\x07 label\nBody\x1b[31m red";
 		expect(parseThinkingSteps(source)).toBeUndefined();
-		expect(transformThinkingSteps(source, enabled("expanded"), context())).toBe(source);
+		expect(transformThinkingSteps(source, enabled("rail"), context())).toBe(source);
 	});
 
 	it("enforces inclusive input, label, and step limits", () => {
@@ -161,247 +161,201 @@ describe("Thinking-step parser", () => {
 describe("Thinking-step Markdown transform", () => {
 	const seven = Array.from({ length: 7 }, (_, index) => `# Label ${index + 1}`).join("\n");
 
-	it("renders collapsed and latest-five Summary with settled and streaming markers", () => {
-		expect(transformThinkingSteps(seven, enabled("collapsed"), context())).toBe(
-			"│ Thinking · Step 7: Label 7",
-		);
-		expect(
-			transformThinkingSteps(seven, enabled("collapsed"), context({ isStreaming: true })),
-		).toBe("│ Thinking • Step 7: Label 7");
-
-		const settled = [
-			"┆ Thinking Steps · Summary  ",
-			"├─ · Step 3: Label 3  ",
-			"├─ · Step 4: Label 4  ",
-			"├─ · Step 5: Label 5  ",
-			"├─ · Step 6: Label 6  ",
-			"└─ · Step 7: Label 7",
-		].join("\n");
-		const streaming = settled.replace("└─ · Step 7", "└─ • Step 7");
-		expect(transformThinkingSteps(seven, enabled("summary"), context())).toBe(settled);
-		expect(transformThinkingSteps(seven, enabled("summary"), context({ isStreaming: true }))).toBe(
-			streaming,
-		);
+	it.each([
+		[
+			"rail",
+			"## │ Thinking · Rail\n│ · Label 1  \n│ · Label 2  \n│ · Label 3  \n│ · Label 4  \n│ · Label 5  \n│ · Label 6  \n│ • **Label 7**",
+		],
+		[
+			"tree",
+			"## ┆ Thinking · Tree\n├─ · Label 1  \n├─ · Label 2  \n├─ · Label 3  \n├─ · Label 4  \n├─ · Label 5  \n├─ · Label 6  \n└─ • **Label 7**",
+		],
+	] as const)("renders all labels without ordinals in streaming %s mode", (mode, expected) => {
+		const output = transformThinkingSteps(seven, enabled(mode), context({ isStreaming: true }));
+		expect(output).toBe(expected);
+		expect(output).not.toMatch(/Step \d|Label 3.*Label 7$/);
 	});
 
-	it("renders every label and unchanged original body only for finalized/restored Expanded content", () => {
-		const firstBody = "Original **Markdown**.\n```\n# opaque\n```";
-		const secondBody = "$$\nx\n$$";
-		const source = `# First\n${firstBody}\n# Second\n${secondBody}`;
-		const expected = [
-			"┆ Thinking Steps · Expanded",
-			"├─ · Step 1: First",
-			firstBody,
-			"└─ · Step 2: Second",
-			secondBody,
-		].join("\n\n");
-		const restored = transformThinkingSteps(source, enabled("expanded"), context());
-		expect(restored).toBe(expected);
-		expect(restored).toContain(firstBody);
-		expect(restored).toContain(secondBody);
-		expect(
-			transformThinkingSteps(source, enabled("expanded"), context({ isStreaming: true })),
-		).toBe(source);
-		for (const mode of ["collapsed", "summary"] as const) {
-			expect(
-				transformThinkingSteps(source, enabled(mode), context({ isStreaming: true })),
-			).not.toBe(source);
-		}
+	it.each([
+		["rail", "## │ Thinking · Rail\n│ · First  \n│ · Latest"],
+		["tree", "## ┆ Thinking · Tree\n├─ · First  \n└─ · Latest"],
+	] as const)("settles every %s label and omits bodies", (mode, expected) => {
+		const source = "# First\nOriginal **Markdown** body.\n# Latest\n$$\nx\n$$";
+		const output = transformThinkingSteps(source, enabled(mode), context());
+		expect(output).toBe(expected);
+		expect(output).not.toContain("Original");
+		expect(output).not.toContain("**Latest**");
+		expect(output).not.toContain("•");
 	});
 
-	it("returns exact chain input for disabled, non-thinking, invalid context, and failure paths", () => {
+	it("returns exact chain input for disabled, non-thinking, invalid context, and parser failures", () => {
 		const input = "# Chain output\nbody";
-		expect(transformThinkingSteps(input, { enabled: false, mode: "summary" }, context())).toBe(
-			input,
-		);
+		expect(transformThinkingSteps(input, { enabled: false, mode: "tree" }, context())).toBe(input);
 		expect(
-			transformThinkingSteps(input, enabled("summary"), context({ messageType: "assistant" })),
+			transformThinkingSteps(input, enabled("tree"), context({ messageType: "assistant" })),
 		).toBe(input);
 		for (const availableWidth of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-			expect(transformThinkingSteps(input, enabled("summary"), context({ availableWidth }))).toBe(
+			expect(transformThinkingSteps(input, enabled("tree"), context({ availableWidth }))).toBe(
 				input,
 			);
 		}
 	});
 
-	it.each([0, 1, 2, 3, 8] as const)(
-		"fails open when width %i cannot hold a safe label",
+	it.each([0, 1, 2, 3, 8, 16] as const)(
+		"fails open when width %i cannot hold the title",
 		(width) => {
 			const input = "# Width label";
-			expect(
-				transformThinkingSteps(input, enabled("summary"), context({ availableWidth: width })),
-			).toBe(input);
+			for (const mode of ["rail", "tree"] as const) {
+				expect(
+					transformThinkingSteps(input, enabled(mode), context({ availableWidth: width })),
+				).toBe(input);
+			}
 		},
 	);
 
 	it.each([
-		["collapsed", 22, "│ Thinking · Step 1: A"],
-		["summary", 26, "┆ Thinking Steps · Summary  \n└─ · Step 1: A"],
-		["expanded", 27, "┆ Thinking Steps · Expanded\n\n└─ · Step 1: A"],
-	] as const)(
-		"renders %s at its minimum width and fails open one cell below",
-		(mode, width, output) => {
-			const input = "# A";
-			expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: width }))).toBe(
-				output,
-			);
-			expect(
-				transformThinkingSteps(input, enabled(mode), context({ availableWidth: width - 1 })),
-			).toBe(input);
+		["rail", "## │ Thinking · Rail\n│ · A"],
+		["tree", "## ┆ Thinking · Tree\n└─ · A"],
+	] as const)("renders %s at its 17-cell minimum and fails open below", (mode, output) => {
+		const input = "# A";
+		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 17 }))).toBe(
+			output,
+		);
+		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 16 }))).toBe(
+			input,
+		);
+	});
+
+	it.each(["rail", "tree"] as const)(
+		"sizes %s labels at narrow and wide widths without splitting graphemes or Markdown",
+		(mode) => {
+			const input = "# Family 👨‍👩‍👧‍👦 and *Markdown* label";
+			const narrow = transformThinkingSteps(input, enabled(mode), context({ availableWidth: 18 }));
+			expect(narrow).toMatch(/Family 👨‍👩‍👧‍👦 and?…/);
+			expect(narrow).not.toContain("�");
+			expect(narrow.includes("👨‍👩‍👧‍👦") || !narrow.includes("\u200d")).toBe(true);
+			const wide = transformThinkingSteps(input, enabled(mode), context({ availableWidth: 200 }));
+			expect(wide).toContain("👨‍👩‍👧‍👦");
+			expect(wide).toContain("\\*Markdown\\*");
 		},
 	);
 
-	it("sizes labels at narrow and wide widths without splitting graphemes or Markdown", () => {
-		const input = "# Family 👨‍👩‍👧‍👦 and *Markdown* label";
-		const narrow = transformThinkingSteps(
-			input,
-			enabled("collapsed"),
-			context({ availableWidth: 34 }),
-		);
-		expect(narrow).toBe("│ Thinking · Step 1: Family 👨‍👩‍👧‍👦 an…");
-		expect(narrow).not.toContain("�");
-		expect(narrow.includes("👨‍👩‍👧‍👦") || !narrow.includes("\u200d")).toBe(true);
-		const wide = transformThinkingSteps(
-			input,
-			enabled("collapsed"),
-			context({ availableWidth: 200 }),
-		);
-		expect(wide).toContain("👨‍👩‍👧‍👦");
-		expect(wide).toContain("\\*Markdown\\*");
-	});
-
-	it("renders hard-break rows through Pi Markdown at narrow and wide widths", () => {
-		const source = "# First\n# Latest";
-		const listBullet = vi.fn((text: string) => text);
-		const quote = vi.fn((text: string) => text);
-		const quoteBorder = vi.fn((text: string) => text);
-		const markdownTheme = {
-			...identityMarkdownTheme,
-			listBullet,
-			quote,
-			quoteBorder,
-		} as MarkdownTheme;
-		const cases = [
-			{
-				width: 26,
-				streaming: false,
-				expected: ["┆ Thinking Steps · Summary", "├─ · Step 1: First", "└─ · Step 2: Latest"],
-			},
-			{
-				width: 80,
-				streaming: true,
-				expected: ["┆ Thinking Steps · Summary", "├─ · Step 1: First", "└─ • Step 2: Latest"],
-			},
-		] as const;
-
-		for (const { width, streaming, expected } of cases) {
+	it.each(["rail", "tree"] as const)(
+		"uses honest H2 title styling, latest-only streaming bold, and structural-safe hard breaks for %s",
+		(mode) => {
+			const source = "# First\n# Latest";
+			const heading = vi.fn((text: string) => `H(${text})`);
+			const bold = vi.fn((text: string) => `B(${text})`);
+			const listBullet = vi.fn((text: string) => text);
+			const quote = vi.fn((text: string) => text);
+			const quoteBorder = vi.fn((text: string) => text);
+			const code = vi.fn((text: string) => text);
+			const codeBlock = vi.fn((text: string) => text);
+			const markdownTheme = {
+				...identityMarkdownTheme,
+				heading,
+				bold,
+				listBullet,
+				quote,
+				quoteBorder,
+				code,
+				codeBlock,
+			} as MarkdownTheme;
 			const transformed = transformThinkingSteps(
 				source,
-				enabled("summary"),
-				context({ availableWidth: width, isStreaming: streaming }),
+				enabled(mode),
+				context({ availableWidth: 80, isStreaming: true }),
 			);
+			expect(transformed.split("\n")[1]).toMatch(/ {2}$/);
 			const rendered = new Markdown(transformed, 0, 0, markdownTheme, undefined, {
 				preserveBackslashEscapes: false,
 				renderLatex: false,
-			}).render(width);
-			expect(rendered.map((line) => line.trimEnd())).toEqual(expected);
-			for (const line of rendered) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-		}
-		expect(listBullet).not.toHaveBeenCalled();
-		expect(quote).not.toHaveBeenCalled();
-		expect(quoteBorder).not.toHaveBeenCalled();
-	});
+			}).render(80);
+			const visible = rendered.map((line) => line.trimEnd()).filter(Boolean);
+			expect(visible).toEqual(
+				mode === "rail"
+					? ["H(B(│ Thinking · Rail))", "│ · First", "│ • B(Latest)"]
+					: ["H(B(┆ Thinking · Tree))", "├─ · First", "└─ • B(Latest)"],
+			);
+			expect(heading).toHaveBeenCalled();
+			expect(
+				heading.mock.calls.some(([value]) =>
+					String(value).includes(mode === "rail" ? "│ Thinking · Rail" : "┆ Thinking · Tree"),
+				),
+			).toBe(true);
+			expect(bold).toHaveBeenCalledWith("Latest");
+			for (const callback of [listBullet, quote, quoteBorder, code, codeBlock]) {
+				expect(callback).not.toHaveBeenCalled();
+			}
+			for (const line of rendered) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
 
-	it("accounts for multi-digit step prefixes within the output width", () => {
-		const source = Array.from({ length: 128 }, (_, index) => `# Label ${index + 1}`).join("\n");
-		const collapsed = transformThinkingSteps(
-			source,
-			enabled("collapsed"),
-			context({ availableWidth: 24 }),
-		);
-		expect(collapsed).toBe("│ Thinking · Step 128: L");
-		expect(visibleWidth(collapsed)).toBe(24);
-		expect(
-			transformThinkingSteps(source, enabled("collapsed"), context({ availableWidth: 23 })),
-		).toBe(source);
+			bold.mockClear();
+			new Markdown(
+				transformThinkingSteps(source, enabled(mode), context()),
+				0,
+				0,
+				markdownTheme,
+			).render(80);
+			expect(bold).not.toHaveBeenCalledWith("Latest");
+		},
+	);
 
-		const summary = transformThinkingSteps(
-			source,
-			enabled("summary"),
-			context({ availableWidth: 26 }),
-		);
-		expect(summary).toContain("├─ · Step 124: Label 124");
-		expect(summary).toContain("└─ · Step 128: Label 128");
-		const rendered = new Markdown(summary, 0, 0, identityMarkdownTheme, undefined, {
-			preserveBackslashEscapes: false,
-			renderLatex: false,
-		}).render(26);
-		for (const line of rendered) expect(visibleWidth(line)).toBeLessThanOrEqual(26);
-	});
-
-	it("escapes all CommonMark ASCII punctuation so labels render as literal wording", () => {
-		const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
-		const aggregateLabel = `Literal ${punctuation} and &amp;`;
-		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+	it.each(["rail", "tree"] as const)(
+		"escapes CommonMark punctuation so %s labels render as literal wording",
+		(mode) => {
+			const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+			const aggregateLabel = `Literal ${punctuation} and &amp;`;
 			const aggregateOutput = transformThinkingSteps(
 				`# ${aggregateLabel}`,
 				enabled(mode),
 				context({ availableWidth: 500 }),
 			);
-			for (const character of punctuation) {
-				expect(aggregateOutput).toContain(`\\${character}`);
-			}
+			for (const character of punctuation) expect(aggregateOutput).toContain(`\\${character}`);
 			expect(aggregateOutput).toContain("\\&amp\\;");
 
 			const renderedLabel = 'Literal # ~ $ &amp; and "quotes"';
-			const renderedOutput = transformThinkingSteps(
-				`# ${renderedLabel}`,
-				enabled(mode),
-				context({ availableWidth: 500 }),
-			);
-			const rendered = new Markdown(renderedOutput, 0, 0, identityMarkdownTheme, undefined, {
-				preserveBackslashEscapes: false,
-				renderLatex: false,
-			})
+			const rendered = new Markdown(
+				transformThinkingSteps(
+					`# ${renderedLabel}`,
+					enabled(mode),
+					context({ availableWidth: 500 }),
+				),
+				0,
+				0,
+				identityMarkdownTheme,
+				undefined,
+				{ preserveBackslashEscapes: false, renderLatex: false },
+			)
 				.render(500)
 				.join("\n");
 			expect(rendered).toContain(renderedLabel);
-		}
-	});
+		},
+	);
 
 	it("caps labels by display width independently of source length", () => {
 		const output = transformThinkingSteps(
 			`# ${"界".repeat(100)}`,
-			enabled("collapsed"),
+			enabled("rail"),
 			context({ availableWidth: 1_000 }),
 		);
-		const renderedLabel = output.replace(/^│ Thinking · Step 1: /, "");
+		const renderedLabel = output.split("\n")[1]?.replace(/^│ · /, "") ?? "";
 		expect(visibleWidth(renderedLabel)).toBeLessThanOrEqual(THINKING_STEPS_MAX_LABEL_WIDTH);
 		expect(renderedLabel.endsWith("…")).toBe(true);
 	});
 
-	it("accepts the output limit inclusively and fails open at limit plus one", () => {
-		const prefix = "┆ Thinking Steps · Expanded\n\n└─ · Step 1: A\n\n";
-		const exactSource = `# A\n${"b".repeat(THINKING_STEPS_MAX_OUTPUT_LENGTH - prefix.length)}`;
-		const overSource = `${exactSource}b`;
-		const exactOutput = transformThinkingSteps(
-			exactSource,
-			enabled("expanded"),
-			context({ availableWidth: 200 }),
+	it("keeps the maximum all-label rendering within the generated-output boundary", () => {
+		const source = Array.from(
+			{ length: THINKING_STEPS_MAX_STEPS },
+			() => `# A${"*".repeat(507)}`,
+		).join("\n");
+		const output = transformThinkingSteps(
+			source,
+			enabled("tree"),
+			context({ availableWidth: 1_000 }),
 		);
-		expect(exactOutput).toHaveLength(THINKING_STEPS_MAX_OUTPUT_LENGTH);
-		expect(exactOutput).not.toBe(exactSource);
-		expect(
-			transformThinkingSteps(overSource, enabled("expanded"), context({ availableWidth: 200 })),
-		).toBe(overSource);
-	});
-
-	it("fails open when expanded generated Markdown exceeds the output bound", () => {
-		const source = `# Intro\n${"b".repeat(THINKING_STEPS_MAX_INPUT_LENGTH - 8)}`;
-		expect(source.length).toBeLessThanOrEqual(THINKING_STEPS_MAX_INPUT_LENGTH);
-		expect(
-			transformThinkingSteps(source, enabled("expanded"), context({ availableWidth: 200 })),
-		).toBe(source);
+		expect(output).not.toBe(source);
+		expect(output.split("\n")).toHaveLength(THINKING_STEPS_MAX_STEPS + 1);
+		expect(output.length).toBeLessThanOrEqual(THINKING_STEPS_MAX_OUTPUT_LENGTH);
 	});
 });
 
@@ -440,8 +394,8 @@ describe("Thinking-step source composability", () => {
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-const SUMMARY_TITLE = "┆ Thinking Steps · Summary";
-const EXPANDED_TITLE = "┆ Thinking Steps · Expanded";`;
+const RAIL_TITLE = "│ Thinking · Rail";
+const TREE_TITLE = "┆ Thinking · Tree";`;
 		expect(source).toContain(adaptedVisualLayoutAttribution);
 		const index = readFileSync(join(import.meta.dirname, "../extensions/zentui/index.ts"), "utf8");
 		expect(index.indexOf("registerThinkingStepsTransformer(")).toBeLessThan(
@@ -454,7 +408,7 @@ const EXPANDED_TITLE = "┆ Thinking Steps · Expanded";`;
 
 describe("Thinking-step public capability registration", () => {
 	it("detects absent APIs without registering or changing native input", () => {
-		const capability = registerThinkingStepsTransformer({}, () => enabled("summary"));
+		const capability = registerThinkingStepsTransformer({}, () => enabled("tree"));
 		expect(capability).toEqual({ available: false });
 		expect(Object.isFrozen(capability)).toBe(true);
 	});
@@ -466,7 +420,7 @@ describe("Thinking-step public capability registration", () => {
 		const register = vi.fn((value) => {
 			callback = value;
 		});
-		let config = enabled("collapsed");
+		let config = enabled("rail");
 		const capability = registerThinkingStepsTransformer(
 			{ registerMarkdownTransformer: register },
 			() => config,
@@ -474,10 +428,10 @@ describe("Thinking-step public capability registration", () => {
 		expect(capability).toEqual({ available: true });
 		expect(Object.isFrozen(capability)).toBe(true);
 		expect(register).toHaveBeenCalledTimes(1);
-		expect(callback?.("# One\n# Two", context())).toBe("│ Thinking · Step 2: Two");
-		config = enabled("summary");
+		expect(callback?.("# One\n# Two", context())).toBe("## │ Thinking · Rail\n│ · One  \n│ · Two");
+		config = enabled("tree");
 		expect(callback?.("# One\n# Two", context())).toBe(
-			"┆ Thinking Steps · Summary  \n├─ · Step 1: One  \n└─ · Step 2: Two",
+			"## ┆ Thinking · Tree\n├─ · One  \n└─ · Two",
 		);
 	});
 
@@ -489,7 +443,7 @@ describe("Thinking-step public capability registration", () => {
 						throw new Error("unsupported");
 					},
 				},
-				() => enabled("summary"),
+				() => enabled("tree"),
 			),
 		).toEqual({ available: false });
 

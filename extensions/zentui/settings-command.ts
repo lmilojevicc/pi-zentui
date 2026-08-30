@@ -135,7 +135,11 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
-const thinkingStepsModeValues: ThinkingStepsMode[] = ["collapsed", "summary", "expanded"];
+const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
+	rail: "Rail",
+	tree: "Tree",
+};
+const thinkingStepsModeValues = Object.values(thinkingStepsModeLabels);
 
 const settingsSections = [
 	"appearance",
@@ -220,7 +224,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
-	thinkingSteps: "Thinking steps",
+	thinkingSteps: "Thinking",
 	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
@@ -316,6 +320,11 @@ function userMessageStyleLabel(style: UserMessageStyle): string {
 }
 function userMessageStyleId(label: string): UserMessageStyle | undefined {
 	return (Object.entries(userMessageStyleLabels) as Array<[UserMessageStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
+function thinkingStepsModeId(label: string): ThinkingStepsMode | undefined {
+	return (Object.entries(thinkingStepsModeLabels) as Array<[ThinkingStepsMode, string]>).find(
 		([, value]) => value === label,
 	)?.[0];
 }
@@ -637,8 +646,8 @@ function buildThinkingStepsItems(config: PolishedTuiConfig, available: boolean):
 			id: "thinkingStepsMode",
 			label: "Mode",
 			description:
-				"Collapsed shows the latest step, Summary the latest five, and Expanded every finalized step and body.",
-			currentValue: thinkingSteps.mode,
+				"Rail and Tree both show all structural labels; only their visual rail/tree layout differs.",
+			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
 			values: thinkingStepsModeValues,
 		},
 	];
@@ -734,7 +743,7 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 		{
 			id: "workingLineThought",
-			label: "Thinking",
+			label: "Thinking time",
 			description: "Show cumulative wall-clock thinking time and active updates.",
 			currentValue: featureValue(workingLine.segments.thought),
 			values: featureStateValues,
@@ -1406,12 +1415,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										notifyChange("Thinking steps", newValue, result);
 										return;
 									}
-									if (
-										id === "thinkingStepsMode" &&
-										thinkingStepsModeValues.includes(newValue as ThinkingStepsMode)
-									) {
+									const selectedThinkingStepsMode =
+										id === "thinkingStepsMode" ? thinkingStepsModeId(newValue) : undefined;
+									if (selectedThinkingStepsMode) {
 										const result = deps.setThinkingStepsComponent(
-											{ mode: newValue as ThinkingStepsMode },
+											{ mode: selectedThinkingStepsMode },
 											ctx,
 										);
 										settingsList.updateValue(id, newValue);

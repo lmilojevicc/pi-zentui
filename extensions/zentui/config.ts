@@ -46,7 +46,7 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
-export type ThinkingStepsMode = "collapsed" | "summary" | "expanded";
+export type ThinkingStepsMode = "rail" | "tree";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
@@ -507,7 +507,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "theme",
 		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 	},
-	thinkingSteps: { enabled: false, mode: "summary" },
+	thinkingSteps: { enabled: false, mode: "tree" },
 	workingLine: {
 		enabled: false,
 		turnSummary: true,
@@ -1310,9 +1310,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		thinkingSteps: {
 			enabled: parseBoolean(thinkingSteps.enabled, defaultComponents.thinkingSteps.enabled),
 			mode:
-				thinkingSteps.mode === "collapsed" ||
-				thinkingSteps.mode === "summary" ||
-				thinkingSteps.mode === "expanded"
+				thinkingSteps.mode === "rail" || thinkingSteps.mode === "tree"
 					? thinkingSteps.mode
 					: defaultComponents.thinkingSteps.mode,
 		},

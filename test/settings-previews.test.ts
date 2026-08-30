@@ -270,28 +270,12 @@ describe("settings previews", () => {
 		expect(disabledOutput).not.toContain("preview");
 	});
 
-	it("renders settled Thinking-step modes through Pi Markdown at their minimum widths", () => {
+	it("renders streaming Rail and Tree previews through production Pi Markdown", () => {
 		const expected: Record<ThinkingStepsMode, string[]> = {
-			collapsed: ["│ Thinking · Step 2: Verify compatibility"],
-			summary: [
-				"┆ Thinking Steps · Summary",
-				"├─ · Step 1: Inspect the change",
-				"└─ · Step 2: Verify compatibility",
-			],
-			expanded: [
-				"┆ Thinking Steps · Expanded",
-				"├─ · Step 1: Inspect the change",
-				"Map the affected surface.",
-				"└─ · Step 2: Verify compatibility",
-				"Preserve native behavior.",
-			],
+			rail: ["│ Thinking · Rail", "│ · Inspect the change", "│ • Verify compatibility"],
+			tree: ["┆ Thinking · Tree", "├─ · Inspect the change", "└─ • Verify compatibility"],
 		};
-		const minimumWidths: Record<ThinkingStepsMode, number> = {
-			collapsed: 22,
-			summary: 26,
-			expanded: 27,
-		};
-		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+		for (const mode of ["rail", "tree"] as const) {
 			const current = config();
 			current.components.thinkingSteps.mode = mode;
 			const fullRows = renderThinkingStepsSettingsPreview(current, theme(), 72);
@@ -300,46 +284,49 @@ describe("settings previews", () => {
 				.map((line) => line.trimEnd())
 				.filter(Boolean);
 			expect(visibleRows).toEqual(expected[mode]);
-			expect(fullRows.join("\n")).not.toContain("•");
+			expect(fullRows.join("\n")).toContain("•");
 			expect(fullRows.join("\n")).toContain("·");
-			expect(renderThinkingStepsSettingsPreview(current, theme(), minimumWidths[mode] - 1)).toEqual(
-				[],
-			);
-			expect(renderThinkingStepsSettingsPreview(current, theme(), minimumWidths[mode])).not.toEqual(
-				[],
-			);
+			expect(renderThinkingStepsSettingsPreview(current, theme(), 16)).toEqual([]);
+			expect(renderThinkingStepsSettingsPreview(current, theme(), 17)).not.toEqual([]);
 		}
 	});
 
-	it("keeps unavailable Thinking capability status across every mode preview threshold", () => {
-		const minimumWidths: Record<ThinkingStepsMode, number> = {
-			collapsed: 22,
-			summary: 26,
-			expanded: 27,
-		};
-		const modeLabels: Record<ThinkingStepsMode, string> = {
-			collapsed: "Thinking · Step 2",
-			summary: "Thinking Steps · Summary",
-			expanded: "Thinking Steps · Expanded",
-		};
-		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+	it("applies mdHeading to the title and bold only to the latest streaming preview label", () => {
+		const colors: string[] = [];
+		const boldText: string[] = [];
+		const trackedTheme = {
+			...theme(),
+			fg: (color: string, text: string) => {
+				colors.push(color);
+				return text;
+			},
+			bold: (text: string) => {
+				boldText.push(text);
+				return text;
+			},
+		} as unknown as Theme;
+		const rows = renderThinkingStepsSettingsPreview(config(), trackedTheme, 72);
+		expect(plain(rows)).toContain("┆ Thinking · Tree");
+		expect(colors).toContain("mdHeading");
+		expect(boldText).toContain("┆ Thinking · Tree");
+		expect(boldText).toContain("Verify compatibility");
+		expect(boldText).not.toContain("Inspect the change");
+		expect(colors).not.toEqual(expect.arrayContaining(["mdListBullet", "mdQuote", "mdCode"]));
+	});
+
+	it("keeps unavailable Thinking capability status across the shared preview threshold", () => {
+		for (const mode of ["rail", "tree"] as const) {
 			const current = config();
 			current.components.thinkingSteps.mode = mode;
-			const minimumWidth = minimumWidths[mode];
-			const below = renderThinkingStepsSettingsPreview(current, theme(), minimumWidth - 1, false);
-			const at = renderThinkingStepsSettingsPreview(current, theme(), minimumWidth, false);
+			const below = renderThinkingStepsSettingsPreview(current, theme(), 16, false);
+			const at = renderThinkingStepsSettingsPreview(current, theme(), 17, false);
 
-			expect(plain(below)).not.toContain(modeLabels[mode]);
-			expect(plain(below)).toBe(
-				"Pi 0.84+ required · Using native thinking".slice(0, minimumWidth - 1),
-			);
-			expect(plain(at)).toContain(modeLabels[mode]);
-			expect(plain(at.slice(-1))).toBe(
-				"Pi 0.84+ required · Using native thinking".slice(0, minimumWidth),
-			);
+			expect(plain(below)).toBe("Pi 0.84+ require");
+			expect(plain(at)).toContain(mode === "rail" ? "Thinking · Rail" : "Thinking · Tree");
+			expect(plain(at.slice(-1))).toBe("Pi 0.84+ required");
 			for (const [width, rows] of [
-				[minimumWidth - 1, below],
-				[minimumWidth, at],
+				[16, below],
+				[17, at],
 			] as const) {
 				expect(rows.length).toBeLessThanOrEqual(SETTINGS_PREVIEW_MAX_ROWS);
 				expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
@@ -347,10 +334,10 @@ describe("settings previews", () => {
 		}
 	});
 
-	it.each([0, 1, 4, 20, 22, 26, 27, 60, 72, 100])(
+	it.each([0, 1, 4, 16, 17, 20, 60, 72, 100])(
 		"bounds Thinking-step output and never exposes fixture Markdown at width %i",
 		(width) => {
-			for (const mode of ["collapsed", "summary", "expanded"] as const) {
+			for (const mode of ["rail", "tree"] as const) {
 				const current = config();
 				current.components.thinkingSteps.mode = mode;
 				const rows = renderThinkingStepsSettingsPreview(current, theme(), width);
@@ -365,8 +352,8 @@ describe("settings previews", () => {
 		},
 	);
 
-	it("keeps Thinking-step preview preconfiguration independent of enablement and capability", () => {
-		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+	it("keeps Thinking-step preview independent of enablement and capability", () => {
+		for (const mode of ["rail", "tree"] as const) {
 			const current = config();
 			current.components.thinkingSteps.mode = mode;
 			current.components.thinkingSteps.enabled = false;
@@ -379,13 +366,15 @@ describe("settings previews", () => {
 		}
 	});
 
-	it("re-renders Thinking-step preview with current theme thinking semantics", () => {
+	it("re-renders Thinking-step preview with current mode and theme immediately", () => {
 		const current = config();
-		current.components.thinkingSteps.mode = "expanded";
-		const first = renderThinkingStepsSettingsPreview(current, theme(0), 72);
-		const second = renderThinkingStepsSettingsPreview(current, theme(37), 72);
-		expect(second).not.toEqual(first);
-		expect(plain(second)).toBe(plain(first));
+		current.components.thinkingSteps.mode = "rail";
+		const rail = renderThinkingStepsSettingsPreview(current, theme(0), 72);
+		current.components.thinkingSteps.mode = "tree";
+		const tree = renderThinkingStepsSettingsPreview(current, theme(37), 72);
+		expect(tree).not.toEqual(rail);
+		expect(plain(rail)).toContain("Thinking · Rail");
+		expect(plain(tree)).toContain("Thinking · Tree");
 	});
 
 	it("sanitizes hostile source and configured icons before trusted preview styling", () => {

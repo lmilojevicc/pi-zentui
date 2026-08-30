@@ -30,7 +30,7 @@ Editor, User messages, Thinking steps, Working line, and selector borders have i
 | --- | --- | --- |
 | Editor | `opencode` | Opencode, copy-friendly, Accent Rail, Minimalist |
 | User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
-| Thinking steps | disabled (`summary`) | Collapsed latest step, latest-five Summary, finalized Expanded bodies |
+| Thinking steps | disabled (`tree`) | Rail or Tree layout; both show every structural label without numbering |
 | Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
@@ -89,7 +89,7 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking steps, Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections. Changes are applied live and saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking, Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections. Changes are applied live and saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -110,7 +110,7 @@ A small starter config:
     },
     "thinkingSteps": {
       "enabled": false,
-      "mode": "summary"
+      "mode": "tree"
     },
     "workingLine": {
       "enabled": false
@@ -144,7 +144,7 @@ Useful shortcuts:
 /zentui format clear
 ```
 
-Thinking steps use Pi's public Markdown-transformer API on Pi 0.84 or newer. Their upstream-inspired, theme-native layout uses neutral `·` marks for settled steps and `•` only for the latest streaming step, with ordinary Unicode connectors. On Pi 0.80.5–0.83, an enabled preference is preserved but native thinking remains byte-for-byte unchanged. Mode changes affect new, streaming, restored, resized, or otherwise rebuilt thinking; already settled same-width transcript entries cannot be publicly invalidated.
+Thinking steps use Pi's public Markdown-transformer API on Pi 0.84 or newer. Rail and Tree both show every safely parsed structural label in chronological order, with labels only and no visible numbering. Their upstream-inspired, theme-native layouts color and bold the title, use neutral `·` marks for settled labels, and use `•` plus bold only for the latest streaming label. Rail and Tree differ only in their connector layout. On Pi 0.80.5–0.83, an enabled preference is preserved but native thinking remains byte-for-byte unchanged. Mode changes affect new, streaming, restored, resized, or otherwise rebuilt thinking; already settled same-width transcript entries cannot be publicly invalidated.
 
 Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Zentui does not enable it automatically; select fullscreen from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 

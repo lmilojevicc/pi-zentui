@@ -729,7 +729,7 @@ describe("Pi docs compliance", () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
-				components: { thinkingSteps: { enabled: true, mode: "collapsed" } },
+				components: { thinkingSteps: { enabled: true, mode: "tree" } },
 			}),
 		);
 		const transformers: unknown[] = [];
@@ -746,7 +746,7 @@ describe("Pi docs compliance", () => {
 				isStreaming: true,
 				availableWidth: 80,
 			}),
-		).toBe("│ Thinking • Step 2: Latest");
+		).toBe("## ┆ Thinking · Tree\n├─ · First  \n└─ • **Latest**");
 		const ctx = makeContext();
 		await emit(handlers, "session_start", ctx);
 		await emit(handlers, "session_shutdown", ctx);
@@ -6146,7 +6146,7 @@ describe("Pi docs compliance", () => {
 			| "Appearance"
 			| "Editor"
 			| "User messages"
-			| "Thinking steps"
+			| "Thinking"
 			| "Working line"
 			| "Footer"
 			| "Segments"
@@ -6157,7 +6157,7 @@ describe("Pi docs compliance", () => {
 			"Appearance",
 			"Editor",
 			"User messages",
-			"Thinking steps",
+			"Thinking",
 			"Working line",
 			"Footer",
 			"Segments",

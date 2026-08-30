@@ -133,7 +133,7 @@ describe("canonical config resolution", () => {
 				colorSource: "theme",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
-			thinkingSteps: { enabled: false, mode: "summary" },
+			thinkingSteps: { enabled: false, mode: "tree" },
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
@@ -575,16 +575,18 @@ describe("thinking-steps config", () => {
 	it("defaults independently and normalizes invalid canonical leaves", () => {
 		const first = mergeConfig({});
 		const second = mergeConfig({});
-		expect(first.components.thinkingSteps).toEqual({ enabled: false, mode: "summary" });
+		expect(first.components.thinkingSteps).toEqual({ enabled: false, mode: "tree" });
 		expect(first.components.thinkingSteps).not.toBe(second.components.thinkingSteps);
 		expect(
-			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "expanded" } } }).components
+			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }).components
 				.thinkingSteps,
-		).toEqual({ enabled: true, mode: "expanded" });
-		expect(
-			mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode: "native" } } }).components
-				.thinkingSteps,
-		).toEqual({ enabled: false, mode: "summary" });
+		).toEqual({ enabled: true, mode: "rail" });
+		for (const mode of [undefined, "native", "Rail"]) {
+			expect(
+				mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode } } }).components
+					.thinkingSteps,
+			).toEqual({ enabled: false, mode: "tree" });
+		}
 	});
 
 	it("persists atomic component patches and preserves unknown keys", () => {
@@ -594,12 +596,12 @@ describe("thinking-steps config", () => {
 				components: { thinkingSteps: { future: { keep: true } } },
 			},
 			(path) => {
-				const saved = saveThinkingStepsComponentPatch({ enabled: true, mode: "collapsed" }, path);
+				const saved = saveThinkingStepsComponentPatch({ enabled: true, mode: "rail" }, path);
 				const raw = readRaw(path);
-				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "collapsed" });
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "rail" });
 				expect(raw.components.thinkingSteps).toMatchObject({
 					enabled: true,
-					mode: "collapsed",
+					mode: "rail",
 					future: { keep: true },
 				});
 				expect(raw.futureTop).toEqual({ keep: true });

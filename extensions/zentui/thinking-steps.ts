@@ -245,8 +245,8 @@ function boundedOutput(output: string, input: string): string {
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-const SUMMARY_TITLE = "┆ Thinking Steps · Summary";
-const EXPANDED_TITLE = "┆ Thinking Steps · Expanded";
+const RAIL_TITLE = "│ Thinking · Rail";
+const TREE_TITLE = "┆ Thinking · Tree";
 
 function widthCanFit(text: string, availableWidth: number): boolean {
 	return visibleWidth(text) <= Math.floor(availableWidth);
@@ -262,53 +262,32 @@ export function transformThinkingSteps(
 		!config.enabled ||
 		context.messageType !== "assistant-thinking" ||
 		!Number.isFinite(context.availableWidth) ||
-		context.availableWidth < 0 ||
-		(config.mode === "expanded" && context.isStreaming)
+		context.availableWidth < 0
 	) {
 		return markdown;
 	}
 	const steps = parseThinkingSteps(markdown);
 	if (!steps?.length) return markdown;
 
-	if (config.mode === "collapsed") {
-		const step = steps.at(-1);
-		if (!step) return markdown;
-		const marker = context.isStreaming ? "•" : "·";
-		const prefix = `│ Thinking ${marker} Step ${step.number}: `;
-		const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
-		return label ? boundedOutput(`${prefix}${label}`, markdown) : markdown;
-	}
-
-	if (config.mode === "summary") {
-		if (!widthCanFit(SUMMARY_TITLE, context.availableWidth)) return markdown;
-		const selected = steps.slice(-5);
-		const lines: string[] = [SUMMARY_TITLE];
-		for (const [index, step] of selected.entries()) {
-			const final = index === selected.length - 1;
-			const connector = final ? "└─" : "├─";
-			const marker = context.isStreaming && final ? "•" : "·";
-			const prefix = `${connector} ${marker} Step ${step.number}: `;
-			const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
-			if (!label) return markdown;
-			lines.push(`${prefix}${label}`);
-		}
-		return boundedOutput(
-			lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n"),
-			markdown,
-		);
-	}
-
-	if (config.mode !== "expanded") return markdown;
-	if (!widthCanFit(EXPANDED_TITLE, context.availableWidth)) return markdown;
-	const sections: string[] = [];
+	const rail = config.mode === "rail";
+	const title = rail ? RAIL_TITLE : TREE_TITLE;
+	if (!widthCanFit(title, context.availableWidth)) return markdown;
+	const lines: string[] = [`## ${title}`];
 	for (const [index, step] of steps.entries()) {
-		const connector = index === steps.length - 1 ? "└─" : "├─";
-		const prefix = `${connector} · Step ${step.number}: `;
+		const final = index === steps.length - 1;
+		const connector = rail ? "│" : final ? "└─" : "├─";
+		const active = context.isStreaming && final;
+		const prefix = `${connector} ${active ? "•" : "·"} `;
 		const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
 		if (!label) return markdown;
-		sections.push(`${prefix}${label}${step.body ? `\n\n${step.body}` : ""}`);
+		lines.push(`${prefix}${active ? `**${label}**` : label}`);
 	}
-	return boundedOutput(`${EXPANDED_TITLE}\n\n${sections.join("\n\n")}`, markdown);
+	return boundedOutput(
+		lines
+			.map((line, index) => (index > 0 && index < lines.length - 1 ? `${line}  ` : line))
+			.join("\n"),
+		markdown,
+	);
 }
 
 /** Register Zentui's single internal Markdown-dispatch slot when the public Pi API is present. */

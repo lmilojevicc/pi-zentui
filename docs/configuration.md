@@ -11,14 +11,14 @@ The interactive `/zentui` menu is split into nine component-oriented sections. U
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
-4. **Thinking steps** — independent enablement and Collapsed, Summary, or Expanded structural thinking display.
-5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking/Tokens segments, and animated preview.
+4. **Thinking** — independent enablement and Rail or Tree structural-label layout.
+5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
 6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
 7. **Segments** — visibility toggles for non-Git Starship segments.
 8. **Git** — Starship Git segment and probe controls.
 9. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-Editor, User messages, Thinking steps, and Working line retain independent configuration. Editor and User-message previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
+Editor, User messages, Thinking steps, and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
 
 Free-form values such as custom formats, Opencode metadata formats, raw colors/styles, and inactive extension keys remain JSON-only. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
@@ -102,7 +102,7 @@ Copy this example and change only the values you need. Optional editor source-aw
     },
     "thinkingSteps": {
       "enabled": false,
-      "mode": "summary"
+      "mode": "tree"
     },
     "workingLine": {
       "enabled": false,
@@ -272,7 +272,7 @@ Copy this example and change only the values you need. Optional editor source-aw
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
-- `components.thinkingSteps` independently owns opt-in structural thinking display. It defaults to `{ "enabled": false, "mode": "summary" }`; modes are `collapsed | summary | expanded`.
+- `components.thinkingSteps` independently owns opt-in structural thinking display. It defaults to `{ "enabled": false, "mode": "tree" }`; modes are `rail | tree`.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking steps never enable, configure, or own the Working line.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden installs an empty component with zero rows.
@@ -389,11 +389,11 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non
 
 ## Thinking steps
 
-Thinking steps use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. **Collapsed** shows the latest structural label, **Summary** shows the latest five in chronological order, and **Expanded** shows every label plus its original Markdown body after thinking is finalized. The upstream-inspired, theme-native symbol language uses ordinary Unicode connectors, neutral `·` marks for settled steps, and `•` only for the latest streaming step. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
+Thinking steps use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. **Rail** and **Tree** both show every safely parsed structural label in chronological order, labels only, with no visible numbering; they differ only in their rail/tree connector layout. The genuine title is a theme-colored, bold Markdown heading. Ordinary Unicode connectors and neutral `·` marks identify settled labels, while only the latest streaming label uses `•` and bold emphasis. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
 
 The component is opt-in and does not own the Working line, hidden-thinking label, transcript lifecycle, Footer, Editor, widgets, or statuses. Pi 0.84 or newer provides the required public API. On Pi 0.80.5–0.83, `/zentui` preserves the enabled preference, shows `Using native thinking — requires Pi 0.84 or newer`, and leaves native thinking byte-for-byte unchanged.
 
-Markdown transforms run for new and streaming content, restored messages, width changes, and other public rebuilds. Expanded intentionally stays native while streaming. Pi has no public invalidation API for already settled same-width transcript entries, so settings changes appear there only when Pi otherwise rebuilds that thinking content.
+Markdown transforms run for new and streaming content, restored messages, width changes, and other public rebuilds. Pi has no public invalidation API for already settled same-width transcript entries, so settings changes appear there only when Pi otherwise rebuilds that thinking content.
 
 ## Working line
 
@@ -403,7 +403,7 @@ When enabled, Zentui owns Pi's complete working-row message and indicator. Five 
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 
-When Pi settles, the default-on **Turn summary** appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. Summaries always include both token totals, even when live Tokens or Thinking is hidden or zero, and can be disabled without changing historical rows. They use the fixed high style and are inactive while Working line is disabled.
+When Pi settles, the default-on **Turn summary** appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. Summaries always include both token totals, even when live Tokens or **Thinking time** is hidden or zero, and can be disabled without changing historical rows. They use the fixed high style and are inactive while Working line is disabled.
 
 Classic and KITT move color across message and segments. **Animate spinner color** optionally includes spinner cells and separator. Static colors the full row uniformly and ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
 

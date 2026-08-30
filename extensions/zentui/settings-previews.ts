@@ -144,7 +144,7 @@ export function renderThinkingStepsSettingsPreview(
 		{ ...config.components.thinkingSteps, enabled: true },
 		{
 			messageType: "assistant-thinking",
-			isStreaming: false,
+			isStreaming: true,
 			availableWidth: previewWidth,
 		},
 	);
