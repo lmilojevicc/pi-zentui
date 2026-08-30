@@ -842,7 +842,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Thinking");
 
 		const initialRows = component.render(100);
-		const previewIndex = previewRow(initialRows, "┆ Thinking · Tree");
+		const previewIndex = previewRow(initialRows, "┆ [Thinking]");
 		const enabledIndex = initialRows.findIndex((line) => line.includes("> Enabled"));
 		expect(previewIndex).toBeGreaterThan(2);
 		expect(previewIndex).toBeLessThan(enabledIndex);
@@ -900,8 +900,9 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Mode");
 		const rail = component.render(140).join("\n");
-		expect(rail).toContain("Thinking · Rail");
-		expect(rail).toContain("Rail and Tree show all structural labels");
+		expect(rail).toContain("│ [Thinking]");
+		expect(rail).not.toContain("Thinking · Rail");
+		expect(rail).toContain("Rail shows all structural labels; Tree shows the latest five");
 		component.handleInput(" ");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Mode");
@@ -1015,13 +1016,13 @@ describe("component-oriented /zentui settings", () => {
 			const statusIndex = rows.indexOf(statusRows[0]);
 			expect(statusIndex).toBeGreaterThanOrEqual(3);
 			expect(statusIndex).toBeLessThanOrEqual(3 + SETTINGS_PREVIEW_MAX_ROWS);
-			expect(rows.join("\n").includes("Thinking · Tree")).toBe(width >= 23);
+			expect(rows.join("\n").includes("┆ [")).toBe(width >= 16);
 			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes("> ")));
 		}
 		for (const label of ["Enabled", "Mode"] as const) {
 			selectLabel(component, label);
 			const rows = component.render(100);
-			const previewIndex = previewRow(rows, "┆ Thinking · Tree");
+			const previewIndex = previewRow(rows, "┆ [Thinking]");
 			const statusIndex = previewRow(rows, "Pi 0.84+ required · Using native thinking");
 			expect(statusIndex).toBeGreaterThan(previewIndex);
 			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes(`> ${label}`)));

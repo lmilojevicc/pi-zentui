@@ -88,28 +88,29 @@ for (const mode of ["rail", "tree"]) {
 		const underlineCalls = [];
 		const identity = (text) => text;
 		const theme = Object.fromEntries(
-			[
-				"link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "hr",
-				"italic", "strikethrough",
-			].map((key) => [key, identity]),
+			["hr", "italic", "strikethrough"].map((key) => [key, identity]),
 		);
 		theme.heading = (text) => { headingCalls.push(text); return text; };
 		theme.bold = (text) => { boldCalls.push(text); return text; };
 		theme.underline = (text) => { underlineCalls.push(text); return text; };
-		theme.listBullet = (text) => { structuralMarkdownCalls += 1; return text; };
-		theme.quote = (text) => { structuralMarkdownCalls += 1; return text; };
-		theme.quoteBorder = (text) => { structuralMarkdownCalls += 1; return text; };
+		for (const key of [
+			"listBullet", "quote", "quoteBorder", "code", "codeBlock", "codeBlockBorder", "link", "linkUrl",
+		]) {
+			theme[key] = (text) => { structuralMarkdownCalls += 1; return text; };
+		}
 		const rendered = new Markdown(markdown, 0, 0, theme, undefined, {
 			preserveBackslashEscapes: false,
 			renderLatex: false,
 		}).render(80);
+		const compactRows = rendered.map((line) => line.trimEnd());
 		return {
 			boldCalls,
+			compactRows,
 			headingCalls,
 			rendered,
 			structuralMarkdownCalls,
 			underlineCalls,
-			visible: rendered.map((line) => line.trimEnd()).filter(Boolean),
+			visible: compactRows.filter(Boolean),
 		};
 	};
 	const assertRendered = (state, expectedVisible, label) => {
@@ -137,8 +138,8 @@ for (const mode of ["rail", "tree"]) {
 	const expectedOutput = !expected
 		? input
 		: mode === "rail"
-			? "## │ Thinking · Rail\\n│ · First  \\n│ • **Latest**"
-			: "## ┆ Thinking · Tree\\n├─ · First  \\n└─ • **Latest**";
+			? "│ **Thinking**  \\n│ · First  \\n│ • **Latest**"
+			: "┆ **Thinking**  \\n├─ · First  \\n└─ • **Latest**";
 	if (transformed !== expectedOutput) {
 		throw new Error("Pi " + version + " " + mode + " unexpected transform: " + JSON.stringify(transformed));
 	}
@@ -157,18 +158,19 @@ for (const mode of ["rail", "tree"]) {
 			throw new Error("Pi " + version + " " + mode + " native H1 callbacks failed");
 		}
 	} else {
-		const title = mode === "rail" ? "│ Thinking · Rail" : "┆ Thinking · Tree";
+		const title = mode === "rail" ? "│ Thinking" : "┆ Thinking";
 		const streamingVisible = mode === "rail"
 			? [title, "│ · First", "│ • Latest"]
 			: [title, "├─ · First", "└─ • Latest"];
 		assertRendered(streamingState, streamingVisible, "streaming");
 		if (
-			!streamingState.headingCalls.includes(title) ||
-			!streamingState.boldCalls.includes(title) ||
+			streamingState.compactRows.some((line) => line === "") ||
+			streamingState.headingCalls.length !== 0 ||
+			!streamingState.boldCalls.includes("Thinking") ||
 			!streamingState.boldCalls.includes("Latest") ||
 			streamingState.underlineCalls.length !== 0
 		) {
-			throw new Error("Pi " + version + " " + mode + " streaming H2 or latest-bold callbacks failed");
+			throw new Error("Pi " + version + " " + mode + " compact title or latest-bold callbacks failed");
 		}
 
 		const settled = transformer(input, {
@@ -177,8 +179,8 @@ for (const mode of ["rail", "tree"]) {
 			availableWidth: 80,
 		});
 		const expectedSettled = mode === "rail"
-			? "## │ Thinking · Rail\\n│ · First  \\n│ · Latest"
-			: "## ┆ Thinking · Tree\\n├─ · First  \\n└─ · Latest";
+			? "│ **Thinking**  \\n│ · First  \\n│ · Latest"
+			: "┆ **Thinking**  \\n├─ · First  \\n└─ · Latest";
 		if (settled !== expectedSettled) {
 			throw new Error("Pi " + version + " " + mode + " unexpected settled transform: " + JSON.stringify(settled));
 		}
@@ -188,14 +190,15 @@ for (const mode of ["rail", "tree"]) {
 			: [title, "├─ · First", "└─ · Latest"];
 		assertRendered(settledState, settledVisible, "settled");
 		if (
-			!settledState.headingCalls.includes(title) ||
-			!settledState.boldCalls.includes(title) ||
+			settledState.compactRows.some((line) => line === "") ||
+			settledState.headingCalls.length !== 0 ||
+			!settledState.boldCalls.includes("Thinking") ||
 			settledState.boldCalls.includes("Latest") ||
 			settledState.underlineCalls.length !== 0 ||
 			!settledState.visible.slice(1).every((line) => line.includes(" · ")) ||
 			settledState.visible.slice(1).some((line) => line.includes(" • "))
 		) {
-			throw new Error("Pi " + version + " " + mode + " settled H2, markers, or latest-bold callbacks failed");
+			throw new Error("Pi " + version + " " + mode + " settled title, markers, or bold callbacks failed");
 		}
 		console.log(
 			version + " " + mode +

@@ -164,22 +164,31 @@ describe("Thinking-step Markdown transform", () => {
 	it.each([
 		[
 			"rail",
-			"## │ Thinking · Rail\n│ · Label 1  \n│ · Label 2  \n│ · Label 3  \n│ · Label 4  \n│ · Label 5  \n│ · Label 6  \n│ • **Label 7**",
+			"│ **Thinking**  \n│ · Label 1  \n│ · Label 2  \n│ · Label 3  \n│ · Label 4  \n│ · Label 5  \n│ · Label 6  \n│ • **Label 7**",
 		],
 		[
 			"tree",
-			"## ┆ Thinking · Tree\n├─ · Label 1  \n├─ · Label 2  \n├─ · Label 3  \n├─ · Label 4  \n├─ · Label 5  \n├─ · Label 6  \n└─ • **Label 7**",
+			"┆ **Thinking**  \n├─ · Label 3  \n├─ · Label 4  \n├─ · Label 5  \n├─ · Label 6  \n└─ • **Label 7**",
 		],
-	] as const)("renders all labels without ordinals in streaming %s mode", (mode, expected) => {
-		const output = transformThinkingSteps(seven, enabled(mode), context({ isStreaming: true }));
-		expect(output).toBe(expected);
-		expect(output).not.toMatch(/Step \d|Label 3.*Label 7$/);
-	});
+	] as const)(
+		"renders the selected labels without ordinals in streaming %s mode",
+		(mode, expected) => {
+			const output = transformThinkingSteps(seven, enabled(mode), context({ isStreaming: true }));
+			expect(output).toBe(expected);
+			expect(output).not.toMatch(/Step \d/);
+			const labels = output.match(/Label \d/g);
+			expect(labels).toEqual(
+				mode === "rail"
+					? ["Label 1", "Label 2", "Label 3", "Label 4", "Label 5", "Label 6", "Label 7"]
+					: ["Label 3", "Label 4", "Label 5", "Label 6", "Label 7"],
+			);
+		},
+	);
 
 	it.each([
-		["rail", "## │ Thinking · Rail\n│ · First  \n│ · Latest"],
-		["tree", "## ┆ Thinking · Tree\n├─ · First  \n└─ · Latest"],
-	] as const)("settles every %s label and omits bodies", (mode, expected) => {
+		["rail", "│ **Thinking**  \n│ · First  \n│ · Latest"],
+		["tree", "┆ **Thinking**  \n├─ · First  \n└─ · Latest"],
+	] as const)("settles every selected %s label and omits bodies", (mode, expected) => {
 		const source = "# First\nOriginal **Markdown** body.\n# Latest\n$$\nx\n$$";
 		const output = transformThinkingSteps(source, enabled(mode), context());
 		expect(output).toBe(expected);
@@ -204,8 +213,8 @@ describe("Thinking-step Markdown transform", () => {
 		}
 	});
 
-	it.each([0, 1, 2, 3, 8, 16] as const)(
-		"fails open when width %i cannot hold the title",
+	it.each([0, 1, 2, 3, 8, 9] as const)(
+		"fails open when width %i cannot hold the visible compact title",
 		(width) => {
 			const input = "# Width label";
 			for (const mode of ["rail", "tree"] as const) {
@@ -217,14 +226,14 @@ describe("Thinking-step Markdown transform", () => {
 	);
 
 	it.each([
-		["rail", "## │ Thinking · Rail\n│ · A"],
-		["tree", "## ┆ Thinking · Tree\n└─ · A"],
-	] as const)("renders %s at its 17-cell minimum and fails open below", (mode, output) => {
+		["rail", "│ **Thinking**  \n│ · A"],
+		["tree", "┆ **Thinking**  \n└─ · A"],
+	] as const)("renders %s at its 10-cell visible minimum and fails open below", (mode, output) => {
 		const input = "# A";
-		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 17 }))).toBe(
+		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 10 }))).toBe(
 			output,
 		);
-		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 16 }))).toBe(
+		expect(transformThinkingSteps(input, enabled(mode), context({ availableWidth: 9 }))).toBe(
 			input,
 		);
 	});
@@ -244,7 +253,7 @@ describe("Thinking-step Markdown transform", () => {
 	);
 
 	it.each(["rail", "tree"] as const)(
-		"uses honest H2 title styling, latest-only streaming bold, and structural-safe hard breaks for %s",
+		"uses an ordinary compact title, trusted strong emphasis, and structural-safe hard breaks for %s",
 		(mode) => {
 			const source = "# First\n# Latest";
 			const heading = vi.fn((text: string) => `H(${text})`);
@@ -254,6 +263,9 @@ describe("Thinking-step Markdown transform", () => {
 			const quoteBorder = vi.fn((text: string) => text);
 			const code = vi.fn((text: string) => text);
 			const codeBlock = vi.fn((text: string) => text);
+			const codeBlockBorder = vi.fn((text: string) => text);
+			const link = vi.fn((text: string) => text);
+			const linkUrl = vi.fn((text: string) => text);
 			const markdownTheme = {
 				...identityMarkdownTheme,
 				heading,
@@ -263,31 +275,41 @@ describe("Thinking-step Markdown transform", () => {
 				quoteBorder,
 				code,
 				codeBlock,
+				codeBlockBorder,
+				link,
+				linkUrl,
 			} as MarkdownTheme;
 			const transformed = transformThinkingSteps(
 				source,
 				enabled(mode),
 				context({ availableWidth: 80, isStreaming: true }),
 			);
+			expect(transformed).toMatch(/^.[ ]\*\*Thinking\*\*[ ]{2}\n/);
 			expect(transformed.split("\n")[1]).toMatch(/ {2}$/);
 			const rendered = new Markdown(transformed, 0, 0, markdownTheme, undefined, {
 				preserveBackslashEscapes: false,
 				renderLatex: false,
 			}).render(80);
-			const visible = rendered.map((line) => line.trimEnd()).filter(Boolean);
+			const visible = rendered.map((line) => line.trimEnd());
 			expect(visible).toEqual(
 				mode === "rail"
-					? ["H(B(│ Thinking · Rail))", "│ · First", "│ • B(Latest)"]
-					: ["H(B(┆ Thinking · Tree))", "├─ · First", "└─ • B(Latest)"],
+					? ["│ B(Thinking)", "│ · First", "│ • B(Latest)"]
+					: ["┆ B(Thinking)", "├─ · First", "└─ • B(Latest)"],
 			);
-			expect(heading).toHaveBeenCalled();
-			expect(
-				heading.mock.calls.some(([value]) =>
-					String(value).includes(mode === "rail" ? "│ Thinking · Rail" : "┆ Thinking · Tree"),
-				),
-			).toBe(true);
+			expect(visible).not.toContain("");
+			expect(heading).not.toHaveBeenCalled();
+			expect(bold).toHaveBeenCalledWith("Thinking");
 			expect(bold).toHaveBeenCalledWith("Latest");
-			for (const callback of [listBullet, quote, quoteBorder, code, codeBlock]) {
+			for (const callback of [
+				listBullet,
+				quote,
+				quoteBorder,
+				code,
+				codeBlock,
+				codeBlockBorder,
+				link,
+				linkUrl,
+			]) {
 				expect(callback).not.toHaveBeenCalled();
 			}
 			for (const line of rendered) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
@@ -299,6 +321,7 @@ describe("Thinking-step Markdown transform", () => {
 				0,
 				markdownTheme,
 			).render(80);
+			expect(bold).toHaveBeenCalledWith("Thinking");
 			expect(bold).not.toHaveBeenCalledWith("Latest");
 		},
 	);
@@ -346,18 +369,31 @@ describe("Thinking-step Markdown transform", () => {
 		expect(renderedLabel.endsWith("…")).toBe(true);
 	});
 
-	it("keeps the maximum all-label rendering within the generated-output boundary", () => {
+	it("keeps the maximum all-label Rail rendering within the generated-output boundary", () => {
 		const source = Array.from(
 			{ length: THINKING_STEPS_MAX_STEPS },
 			() => `# A${"*".repeat(507)}`,
 		).join("\n");
 		const output = transformThinkingSteps(
 			source,
-			enabled("tree"),
+			enabled("rail"),
 			context({ availableWidth: 1_000 }),
 		);
 		expect(output).not.toBe(source);
 		expect(output.split("\n")).toHaveLength(THINKING_STEPS_MAX_STEPS + 1);
+		expect(output.length).toBeLessThanOrEqual(THINKING_STEPS_MAX_OUTPUT_LENGTH);
+	});
+
+	it("bounds Tree rendering to its latest five labels even at the parser limit", () => {
+		const source = Array.from(
+			{ length: THINKING_STEPS_MAX_STEPS },
+			(_, index) => `# Label ${index + 1}`,
+		).join("\n");
+		const output = transformThinkingSteps(source, enabled("tree"), context());
+		expect(output.split("\n")).toHaveLength(6);
+		expect(output).toContain("Label 124");
+		expect(output).toContain("Label 128");
+		expect(output).not.toContain("Label 123");
 		expect(output.length).toBeLessThanOrEqual(THINKING_STEPS_MAX_OUTPUT_LENGTH);
 	});
 });
@@ -397,8 +433,9 @@ describe("Thinking-step source composability", () => {
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-const RAIL_TITLE = "│ Thinking · Rail";
-const TREE_TITLE = "┆ Thinking · Tree";`;
+const RAIL_TITLE = "│ **Thinking**";
+const TREE_TITLE = "┆ **Thinking**";
+const TITLE_VISIBLE_WIDTH = visibleWidth("│ Thinking");`;
 		expect(source).toContain(adaptedVisualLayoutAttribution);
 		const experimentalSource = readFileSync(
 			join(import.meta.dirname, "../extensions/zentui/thinking-stream-experimental.ts"),
@@ -466,11 +503,9 @@ describe("Thinking-step public capability registration", () => {
 		expect(capability).toEqual({ available: true });
 		expect(Object.isFrozen(capability)).toBe(true);
 		expect(register).toHaveBeenCalledTimes(1);
-		expect(callback?.("# One\n# Two", context())).toBe("## │ Thinking · Rail\n│ · One  \n│ · Two");
+		expect(callback?.("# One\n# Two", context())).toBe("│ **Thinking**  \n│ · One  \n│ · Two");
 		config = enabled("tree");
-		expect(callback?.("# One\n# Two", context())).toBe(
-			"## ┆ Thinking · Tree\n├─ · One  \n└─ · Two",
-		);
+		expect(callback?.("# One\n# Two", context())).toBe("┆ **Thinking**  \n├─ · One  \n└─ · Two");
 	});
 
 	it("fails open on registration and transformation failures", () => {

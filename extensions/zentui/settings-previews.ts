@@ -13,8 +13,15 @@ export const SETTINGS_PREVIEW_MAX_WIDTH = 72;
 export const SETTINGS_PREVIEW_MAX_ROWS = 10;
 export const EDITOR_PREVIEW_INPUT = "Explain this change safely.";
 export const USER_MESSAGE_PREVIEW_MARKDOWN = "Please review **this change** safely.";
-export const THINKING_STEPS_PREVIEW_MARKDOWN =
-	"# Inspect the change\nMap the affected surface.\n# Verify compatibility\nPreserve native behavior.";
+export const THINKING_STEPS_PREVIEW_MARKDOWN = [
+	"# Inspect the change",
+	"# Map the affected surface",
+	"# Parse structural labels",
+	"# Check narrow widths",
+	"# Preserve native fallback",
+	"# Validate rendered output",
+	"# Verify compatibility",
+].join("\n");
 const THINKING_STEPS_CAPABILITY_STATUS = "Pi 0.84+ required · Using native thinking";
 
 type ThinkingPreviewCapability =

@@ -245,11 +245,12 @@ function boundedOutput(output: string, input: string): string {
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-const RAIL_TITLE = "│ Thinking · Rail";
-const TREE_TITLE = "┆ Thinking · Tree";
+const RAIL_TITLE = "│ **Thinking**";
+const TREE_TITLE = "┆ **Thinking**";
+const TITLE_VISIBLE_WIDTH = visibleWidth("│ Thinking");
 
-function widthCanFit(text: string, availableWidth: number): boolean {
-	return visibleWidth(text) <= Math.floor(availableWidth);
+function titleCanFit(availableWidth: number): boolean {
+	return TITLE_VISIBLE_WIDTH <= Math.floor(availableWidth);
 }
 
 /** Transform parsed thinking into ordinary Markdown without changing the source/session content. */
@@ -272,10 +273,11 @@ export function transformThinkingSteps(
 
 	const rail = config.mode === "rail";
 	const title = rail ? RAIL_TITLE : TREE_TITLE;
-	if (!widthCanFit(title, context.availableWidth)) return markdown;
-	const lines: string[] = [`## ${title}`];
-	for (const [index, step] of steps.entries()) {
-		const final = index === steps.length - 1;
+	if (!titleCanFit(context.availableWidth)) return markdown;
+	const selectedSteps = rail ? steps : steps.slice(-5);
+	const lines: string[] = [title];
+	for (const [index, step] of selectedSteps.entries()) {
+		const final = index === selectedSteps.length - 1;
 		const connector = rail ? "│" : final ? "└─" : "├─";
 		const active = context.isStreaming && final;
 		const prefix = `${connector} ${active ? "•" : "·"} `;
@@ -284,9 +286,7 @@ export function transformThinkingSteps(
 		lines.push(`${prefix}${active ? `**${label}**` : label}`);
 	}
 	return boundedOutput(
-		lines
-			.map((line, index) => (index > 0 && index < lines.length - 1 ? `${line}  ` : line))
-			.join("\n"),
+		lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n"),
 		markdown,
 	);
 }
