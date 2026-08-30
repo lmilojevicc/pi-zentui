@@ -271,7 +271,7 @@ describe("settings previews", () => {
 	});
 
 	it("renders streaming Rail and Tree previews through production Pi Markdown", () => {
-		const expected: Record<ThinkingStepsMode, string[]> = {
+		const expected: Record<Exclude<ThinkingStepsMode, "streaming-experimental">, string[]> = {
 			rail: ["│ Thinking · Rail", "│ · Inspect the change", "│ • Verify compatibility"],
 			tree: ["┆ Thinking · Tree", "├─ · Inspect the change", "└─ • Verify compatibility"],
 		};
@@ -289,6 +289,42 @@ describe("settings previews", () => {
 			expect(renderThinkingStepsSettingsPreview(current, theme(), 16)).toEqual([]);
 			expect(renderThinkingStepsSettingsPreview(current, theme(), 17)).not.toEqual([]);
 		}
+	});
+
+	it("renders a pure static Streaming (Experimental) preview and mode-aware status", () => {
+		const current = config();
+		current.components.thinkingSteps.mode = "streaming-experimental";
+		current.components.thinkingSteps.enabled = false;
+		const saved = plain(
+			renderThinkingStepsSettingsPreview(current, theme(), 72, {
+				publicAvailable: true,
+				experimental: {
+					available: true,
+					active: false,
+					restartRequired: false,
+				},
+			}),
+		);
+		expect(saved).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
+		expect(saved).toContain("Inspect the host-rendered reasoning tail.");
+		expect(saved).toContain("Preserve native Markdown and wrapping.");
+		expect(saved).toContain("Experimental renderer supported · restart required");
+		const active = plain(
+			renderThinkingStepsSettingsPreview(current, theme(), 72, {
+				publicAvailable: true,
+				experimental: {
+					available: true,
+					active: true,
+					restartRequired: false,
+				},
+			}),
+		);
+		expect(active).toContain("Experimental renderer active");
+		current.components.thinkingSteps.enabled = true;
+		const unavailable = plain(renderThinkingStepsSettingsPreview(current, theme(), 72, false));
+		expect(unavailable).toBe("Experimental renderer unavailable · using native thinking");
+		expect(unavailable).not.toContain("configured thinking toggle to expand");
+		expect(unavailable).not.toContain("host-rendered reasoning tail");
 	});
 
 	it("applies mdHeading to the title and bold only to the latest streaming preview label", () => {

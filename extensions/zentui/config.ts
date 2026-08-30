@@ -46,7 +46,7 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
-export type ThinkingStepsMode = "rail" | "tree";
+export type ThinkingStepsMode = "rail" | "tree" | "streaming-experimental";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
@@ -1310,7 +1310,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		thinkingSteps: {
 			enabled: parseBoolean(thinkingSteps.enabled, defaultComponents.thinkingSteps.enabled),
 			mode:
-				thinkingSteps.mode === "rail" || thinkingSteps.mode === "tree"
+				thinkingSteps.mode === "rail" ||
+				thinkingSteps.mode === "tree" ||
+				thinkingSteps.mode === "streaming-experimental"
 					? thinkingSteps.mode
 					: defaultComponents.thinkingSteps.mode,
 		},

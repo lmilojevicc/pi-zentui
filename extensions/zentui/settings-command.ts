@@ -138,6 +138,7 @@ const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
 	tree: "Tree",
+	"streaming-experimental": "Streaming (Experimental)",
 };
 const thinkingStepsModeValues = Object.values(thinkingStepsModeLabels);
 
@@ -173,6 +174,34 @@ type SettingsOutcome =
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
 
+type ThinkingStepsSettingsCapability =
+	| Readonly<{ available: boolean }>
+	| Readonly<{
+			publicAvailable: boolean;
+			experimental: Readonly<{
+				available: boolean;
+				active: boolean;
+				displaced: boolean;
+				restartRequired: boolean;
+				reason?: string;
+			}>;
+	  }>;
+
+function publicThinkingAvailable(capability: ThinkingStepsSettingsCapability): boolean {
+	return "publicAvailable" in capability ? capability.publicAvailable : capability.available;
+}
+
+function experimentalThinkingCapability(capability: ThinkingStepsSettingsCapability) {
+	return "experimental" in capability
+		? capability.experimental
+		: {
+				available: capability.available,
+				active: false,
+				displaced: false,
+				restartRequired: false,
+			};
+}
+
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
@@ -185,7 +214,7 @@ type SettingsCommandDeps = {
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
-	thinkingStepsCapability: Readonly<{ available: boolean }>;
+	thinkingStepsCapability: ThinkingStepsSettingsCapability;
 	setThinkingStepsComponent: (
 		patch: Partial<ThinkingStepsComponentConfig>,
 		ctx: ExtensionContext,
@@ -630,23 +659,40 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 	];
 }
-function buildThinkingStepsItems(config: PolishedTuiConfig, available: boolean): SettingItem[] {
+function buildThinkingStepsItems(
+	config: PolishedTuiConfig,
+	capability: ThinkingStepsSettingsCapability,
+): SettingItem[] {
 	const thinkingSteps = config.components.thinkingSteps;
+	const experimental = thinkingSteps.mode === "streaming-experimental";
+	const experimentalCapability = experimentalThinkingCapability(capability);
+	const enabledDescription = experimental
+		? experimentalCapability.available
+			? experimentalCapability.active
+				? "Experimental renderer active in this session. Disabling restores native thinking; live reactivation requires restart."
+				: "Restart Pi to activate the private renderer. The preference remains saved."
+			: `${experimentalCapability.reason ?? "Experimental renderer unavailable"}; using native thinking. The preference remains saved.`
+		: publicThinkingAvailable(capability)
+			? "Applies to new, streaming, restored, resized, or otherwise rebuilt thinking; settled same-width history changes only when Pi rebuilds it."
+			: "Using native thinking — requires Pi 0.84 or newer. The enabled preference is saved until the public API is available.";
 	return [
 		{
 			id: "thinkingStepsEnabled",
 			label: "Enabled",
-			description: available
-				? "Applies to new, streaming, restored, resized, or otherwise rebuilt thinking; settled same-width history changes only when Pi rebuilds it."
-				: "Using native thinking — requires Pi 0.84 or newer. The enabled preference is saved until the public API is available.",
+			description: enabledDescription,
 			currentValue: featureValue(thinkingSteps.enabled),
 			values: featureStateValues,
 		},
 		{
 			id: "thinkingStepsMode",
 			label: "Mode",
-			description:
-				"Rail and Tree both show all structural labels; only their visual rail/tree layout differs.",
+			description: experimental
+				? experimentalCapability.available
+					? experimentalCapability.active
+						? "Private renderer active: shows a live rendered tail, folds completed thinking, and the configured thinking-toggle binding (Ctrl+T by default) expands Pi's native full reasoning. Switching away restores native thinking; reactivation requires restart."
+						: "Private renderer supported but inactive. Restart Pi to activate the private renderer. Ctrl+T remains owned by Pi until active startup."
+					: "Experimental private renderer is unavailable; using native thinking."
+				: "Rail and Tree show all structural labels. Streaming (Experimental) privately decorates Pi's host renderer and may break after Pi updates.",
 			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
 			values: thinkingStepsModeValues,
 		},
@@ -1000,7 +1046,7 @@ function buildSectionItems(
 	section: SettingsSection,
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
-	thinkingStepsAvailable: boolean,
+	thinkingStepsCapability: ThinkingStepsSettingsCapability,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -1022,7 +1068,7 @@ function buildSectionItems(
 		case "userMessages":
 			return buildUserMessagesItems(config);
 		case "thinkingSteps":
-			return buildThinkingStepsItems(config, thinkingStepsAvailable);
+			return buildThinkingStepsItems(config, thinkingStepsCapability);
 		case "workingLine":
 			return buildWorkingLineItems(config);
 		case "footer":
@@ -1266,7 +1312,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							activeSection,
 							deps.getConfig(),
 							deps.getActiveExtensionStatuses(),
-							deps.thinkingStepsCapability.available,
+							deps.thinkingStepsCapability,
 						);
 						const list = new SettingsList(
 							items,
@@ -1411,7 +1457,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									}
 									if (id === "thinkingStepsEnabled" && enabled !== undefined) {
 										const result = deps.setThinkingStepsComponent({ enabled }, ctx);
-										settingsList.updateValue(id, newValue);
+										settingsList = makeSettingsList("thinkingStepsEnabled");
 										notifyChange("Thinking steps", newValue, result);
 										return;
 									}
@@ -1422,7 +1468,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											{ mode: selectedThinkingStepsMode },
 											ctx,
 										);
-										settingsList.updateValue(id, newValue);
+										settingsList = makeSettingsList("thinkingStepsMode");
 										notifyChange("Thinking steps mode", newValue, result);
 										return;
 									}
@@ -1730,7 +1776,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								deps.getConfig(),
 								theme,
 								previewWidth,
-								deps.thinkingStepsCapability.available,
+								deps.thinkingStepsCapability,
 							);
 						if (activeSection === "workingLine" && preview && preview.frames.length > 0)
 							return [

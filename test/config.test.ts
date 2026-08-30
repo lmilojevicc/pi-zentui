@@ -581,6 +581,13 @@ describe("thinking-steps config", () => {
 			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }).components
 				.thinkingSteps,
 		).toEqual({ enabled: true, mode: "rail" });
+		expect(
+			mergeConfig({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming-experimental" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming-experimental" });
 		for (const mode of [undefined, "native", "Rail"]) {
 			expect(
 				mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode } } }).components

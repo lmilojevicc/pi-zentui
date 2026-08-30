@@ -27,6 +27,8 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:thinking-steps-compat": "node test/thinking-steps-compatibility.mjs",
+		"test:thinking-stream-tui": "node test/thinking-stream-experimental-tui.mjs",
+		"test:thinking-stream-diagnostics": "node test/thinking-stream-loader-diagnostics.mjs",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./extensions/zentui/index.ts",
 		"pi:install-local": "${PI_BIN:-/opt/homebrew/bin/pi} install ./ -l",
 		"fmt": "biome format --write .",

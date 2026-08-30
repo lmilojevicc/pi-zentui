@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,32 @@ const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-compat-"));
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("npm_execpath is required; run this harness through npm");
+
+function resolveInstalledVersion(installRoot, packageName) {
+	const manifestPath = realpathSync(join(installRoot, "node_modules", packageName, "package.json"));
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+	if (manifest.name !== packageName)
+		throw new Error(
+			`Resolved manifest ${manifestPath} was ${String(manifest.name)}, not ${packageName}`,
+		);
+	return manifest.version;
+}
+
+function attestInstalledVersions(installRoot, requestedVersion) {
+	const measured = {
+		codingAgent: resolveInstalledVersion(installRoot, "@earendil-works/pi-coding-agent"),
+		tui: resolveInstalledVersion(installRoot, "@earendil-works/pi-tui"),
+		ai: resolveInstalledVersion(installRoot, "@earendil-works/pi-ai"),
+	};
+	for (const [name, installedVersion] of Object.entries(measured)) {
+		if (installedVersion !== requestedVersion) {
+			throw new Error(
+				`Installed ${name} version ${installedVersion} did not equal requested ${requestedVersion}`,
+			);
+		}
+	}
+	return measured;
+}
 
 const checkSource = `
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -210,16 +236,18 @@ try {
 			],
 			{ cwd: workspace, stdio: "inherit", timeout: 180_000 },
 		);
+		const measured = attestInstalledVersions(workspace, version);
 		execFileSync(
 			process.execPath,
 			[
 				join(workspace, "node_modules", "tsx", "dist", "cli.mjs"),
 				"check.mts",
-				version,
+				measured.codingAgent,
 				available ? "present" : "absent",
 			],
 			{ cwd: workspace, stdio: "inherit", timeout: 60_000 },
 		);
+		console.log(`${measured.codingAgent}: measured=${JSON.stringify(measured)}`);
 	}
 } finally {
 	rmSync(workspace, { recursive: true, force: true });

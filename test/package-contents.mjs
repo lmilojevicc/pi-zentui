@@ -13,11 +13,14 @@ assert.equal(packages.length, 1, "npm pack must report exactly one package");
 
 const files = packages[0]?.files;
 assert.ok(Array.isArray(files), "npm pack must report its package file list");
-assert.ok(
-	files.some(({ path }) => path === "extensions/zentui/thinking-steps.ts"),
-	"npm pack must include extensions/zentui/thinking-steps.ts",
-);
+for (const required of [
+	"extensions/zentui/thinking-steps.ts",
+	"extensions/zentui/thinking-stream-experimental.ts",
+]) {
+	assert.ok(
+		files.some(({ path }) => path === required),
+		`npm pack must include ${required}`,
+	);
+}
 
-console.log(
-	`Package file assertion passed: extensions/zentui/thinking-steps.ts (${files.length} files total)`,
-);
+console.log(`Package file assertions passed (${files.length} files total)`);

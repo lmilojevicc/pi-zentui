@@ -260,6 +260,7 @@ export function transformThinkingSteps(
 ): string {
 	if (
 		!config.enabled ||
+		config.mode === "streaming-experimental" ||
 		context.messageType !== "assistant-thinking" ||
 		!Number.isFinite(context.availableWidth) ||
 		context.availableWidth < 0

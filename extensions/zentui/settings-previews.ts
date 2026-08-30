@@ -17,6 +17,19 @@ export const THINKING_STEPS_PREVIEW_MARKDOWN =
 	"# Inspect the change\nMap the affected surface.\n# Verify compatibility\nPreserve native behavior.";
 const THINKING_STEPS_CAPABILITY_STATUS = "Pi 0.84+ required · Using native thinking";
 
+type ThinkingPreviewCapability =
+	| boolean
+	| Readonly<{ available: boolean }>
+	| Readonly<{
+			publicAvailable: boolean;
+			experimental: Readonly<{
+				available: boolean;
+				active: boolean;
+				restartRequired: boolean;
+				reason?: string;
+			}>;
+	  }>;
+
 function boundedRows(rows: string[], width: number): string[] {
 	const safeWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
 	if (safeWidth <= 0) return [];
@@ -135,13 +148,50 @@ export function renderThinkingStepsSettingsPreview(
 	config: PolishedTuiConfig,
 	theme: Theme,
 	width: number,
-	capabilityAvailable = true,
+	capability: ThinkingPreviewCapability = true,
 ): string[] {
 	const previewWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
 	if (previewWidth <= 0) return [];
+	const thinkingSteps = config.components.thinkingSteps;
+	if (thinkingSteps.mode === "streaming-experimental") {
+		const experimental =
+			typeof capability === "boolean"
+				? { available: capability, active: false, restartRequired: capability }
+				: "experimental" in capability
+					? capability.experimental
+					: {
+							available: capability.available,
+							active: false,
+							restartRequired: capability.available,
+						};
+		if (!experimental.available) {
+			return boundedRows(
+				[safeThemeFg(theme, "muted", "Experimental renderer unavailable · using native thinking")],
+				previewWidth,
+			);
+		}
+		const status = experimental.active
+			? "Experimental renderer active"
+			: "Experimental renderer supported · restart required";
+		return boundedRows(
+			[
+				safeThemeFg(theme, "thinkingText", "Thinking 7.1s  (configured thinking toggle to expand)"),
+				safeThemeFg(theme, "thinkingText", "Inspect the host-rendered reasoning tail."),
+				safeThemeFg(theme, "thinkingText", "Preserve native Markdown and wrapping."),
+				safeThemeFg(theme, "muted", status),
+			],
+			previewWidth,
+		);
+	}
+	const publicAvailable =
+		typeof capability === "boolean"
+			? capability
+			: "publicAvailable" in capability
+				? capability.publicAvailable
+				: capability.available;
 	const transformed = transformThinkingSteps(
 		THINKING_STEPS_PREVIEW_MARKDOWN,
-		{ ...config.components.thinkingSteps, enabled: true },
+		{ ...thinkingSteps, enabled: true },
 		{
 			messageType: "assistant-thinking",
 			isStreaming: true,
@@ -156,7 +206,6 @@ export function renderThinkingStepsSettingsPreview(
 		});
 		rows.push(...markdown.render(previewWidth));
 	}
-	if (!capabilityAvailable)
-		rows.push(safeThemeFg(theme, "muted", THINKING_STEPS_CAPABILITY_STATUS));
+	if (!publicAvailable) rows.push(safeThemeFg(theme, "muted", THINKING_STEPS_CAPABILITY_STATUS));
 	return boundedRows(rows, previewWidth);
 }
