@@ -6,13 +6,16 @@ import {
 	defaultConfig,
 	type EditorStyle,
 	type PolishedTuiConfig,
+	type ThinkingStepsMode,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
 import {
 	renderEditorSettingsPreview,
+	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_ROWS,
 	SETTINGS_PREVIEW_MAX_WIDTH,
+	THINKING_STEPS_PREVIEW_MARKDOWN,
 } from "../extensions/zentui/settings-previews";
 
 function theme(offset = 0): Theme {
@@ -265,6 +268,124 @@ describe("settings previews", () => {
 		const disabledOutput = plain(renderUserMessageSettingsPreview(current, theme(), 72));
 		expect(disabledOutput).toContain("Please review this change safely.");
 		expect(disabledOutput).not.toContain("preview");
+	});
+
+	it("renders settled Thinking-step modes through Pi Markdown at their minimum widths", () => {
+		const expected: Record<ThinkingStepsMode, string[]> = {
+			collapsed: ["│ Thinking · Step 2: Verify compatibility"],
+			summary: [
+				"┆ Thinking Steps · Summary",
+				"├─ · Step 1: Inspect the change",
+				"└─ · Step 2: Verify compatibility",
+			],
+			expanded: [
+				"┆ Thinking Steps · Expanded",
+				"├─ · Step 1: Inspect the change",
+				"Map the affected surface.",
+				"└─ · Step 2: Verify compatibility",
+				"Preserve native behavior.",
+			],
+		};
+		const minimumWidths: Record<ThinkingStepsMode, number> = {
+			collapsed: 22,
+			summary: 26,
+			expanded: 27,
+		};
+		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+			const current = config();
+			current.components.thinkingSteps.mode = mode;
+			const fullRows = renderThinkingStepsSettingsPreview(current, theme(), 72);
+			const visibleRows = plain(fullRows)
+				.split("\n")
+				.map((line) => line.trimEnd())
+				.filter(Boolean);
+			expect(visibleRows).toEqual(expected[mode]);
+			expect(fullRows.join("\n")).not.toContain("•");
+			expect(fullRows.join("\n")).toContain("·");
+			expect(renderThinkingStepsSettingsPreview(current, theme(), minimumWidths[mode] - 1)).toEqual(
+				[],
+			);
+			expect(renderThinkingStepsSettingsPreview(current, theme(), minimumWidths[mode])).not.toEqual(
+				[],
+			);
+		}
+	});
+
+	it("keeps unavailable Thinking capability status across every mode preview threshold", () => {
+		const minimumWidths: Record<ThinkingStepsMode, number> = {
+			collapsed: 22,
+			summary: 26,
+			expanded: 27,
+		};
+		const modeLabels: Record<ThinkingStepsMode, string> = {
+			collapsed: "Thinking · Step 2",
+			summary: "Thinking Steps · Summary",
+			expanded: "Thinking Steps · Expanded",
+		};
+		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+			const current = config();
+			current.components.thinkingSteps.mode = mode;
+			const minimumWidth = minimumWidths[mode];
+			const below = renderThinkingStepsSettingsPreview(current, theme(), minimumWidth - 1, false);
+			const at = renderThinkingStepsSettingsPreview(current, theme(), minimumWidth, false);
+
+			expect(plain(below)).not.toContain(modeLabels[mode]);
+			expect(plain(below)).toBe(
+				"Pi 0.84+ required · Using native thinking".slice(0, minimumWidth - 1),
+			);
+			expect(plain(at)).toContain(modeLabels[mode]);
+			expect(plain(at.slice(-1))).toBe(
+				"Pi 0.84+ required · Using native thinking".slice(0, minimumWidth),
+			);
+			for (const [width, rows] of [
+				[minimumWidth - 1, below],
+				[minimumWidth, at],
+			] as const) {
+				expect(rows.length).toBeLessThanOrEqual(SETTINGS_PREVIEW_MAX_ROWS);
+				expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+			}
+		}
+	});
+
+	it.each([0, 1, 4, 20, 22, 26, 27, 60, 72, 100])(
+		"bounds Thinking-step output and never exposes fixture Markdown at width %i",
+		(width) => {
+			for (const mode of ["collapsed", "summary", "expanded"] as const) {
+				const current = config();
+				current.components.thinkingSteps.mode = mode;
+				const rows = renderThinkingStepsSettingsPreview(current, theme(), width);
+				expect(rows.length).toBeLessThanOrEqual(SETTINGS_PREVIEW_MAX_ROWS);
+				for (const row of rows)
+					expect(visibleWidth(row)).toBeLessThanOrEqual(
+						Math.min(width, SETTINGS_PREVIEW_MAX_WIDTH),
+					);
+				expect(plain(rows)).not.toContain(THINKING_STEPS_PREVIEW_MARKDOWN);
+				expect(plain(rows)).not.toContain("# Inspect the change");
+			}
+		},
+	);
+
+	it("keeps Thinking-step preview preconfiguration independent of enablement and capability", () => {
+		for (const mode of ["collapsed", "summary", "expanded"] as const) {
+			const current = config();
+			current.components.thinkingSteps.mode = mode;
+			current.components.thinkingSteps.enabled = false;
+			const disabled = renderThinkingStepsSettingsPreview(current, theme(), 72);
+			current.components.thinkingSteps.enabled = true;
+			expect(renderThinkingStepsSettingsPreview(current, theme(), 72)).toEqual(disabled);
+			const unsupported = renderThinkingStepsSettingsPreview(current, theme(), 72, false);
+			expect(unsupported.slice(0, -1)).toEqual(disabled);
+			expect(plain(unsupported.slice(-1))).toBe("Pi 0.84+ required · Using native thinking");
+		}
+	});
+
+	it("re-renders Thinking-step preview with current theme thinking semantics", () => {
+		const current = config();
+		current.components.thinkingSteps.mode = "expanded";
+		const first = renderThinkingStepsSettingsPreview(current, theme(0), 72);
+		const second = renderThinkingStepsSettingsPreview(current, theme(37), 72);
+		expect(second).not.toEqual(first);
+		expect(plain(second)).toBe(plain(first));
 	});
 
 	it("sanitizes hostile source and configured icons before trusted preview styling", () => {

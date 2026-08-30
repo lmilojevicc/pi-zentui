@@ -14,6 +14,7 @@ import {
 } from "../extensions/zentui/config";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
+import { SETTINGS_PREVIEW_MAX_ROWS } from "../extensions/zentui/settings-previews";
 
 type Component = { render(width: number): string[]; handleInput(data: string): void };
 type Command = {
@@ -830,6 +831,91 @@ describe("component-oriented /zentui settings", () => {
 			"Could not update Zentui settings: read-only editor",
 			"Could not update Zentui settings: read-only segments",
 		]);
+	});
+
+	it("stacks a static Thinking-step preview and rerenders saved mode without changing focus", async () => {
+		vi.useFakeTimers();
+		const harness = createHarness();
+		harness.sessionLifecycle.start();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking steps");
+
+		const initialRows = component.render(100);
+		const previewIndex = previewRow(initialRows, "┆ Thinking Steps · Summary");
+		const enabledIndex = initialRows.findIndex((line) => line.includes("> Enabled"));
+		expect(previewIndex).toBeGreaterThan(2);
+		expect(previewIndex).toBeLessThan(enabledIndex);
+		expect(initialRows[previewIndex]).toMatch(/^ {2}/);
+		expect(focusedRow(component)).toContain("> Enabled");
+		expect(harness.calls.thinkingSteps).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		const expanded = component.render(100).join("\n");
+		expect(focusedRow(component)).toContain("> Mode");
+		expect(expanded).toContain("  ┆ Thinking Steps · Expanded");
+		expect(expanded).toContain("  Map the affected surface.");
+		expect(expanded).toContain("  Preserve native behavior.");
+		expect(expanded).not.toContain("•");
+		expect(vi.getTimerCount()).toBe(0);
+
+		selectLabel(component, "Enabled");
+		const beforeEnable = component
+			.render(100)
+			.filter((line) => line.includes("Thinking Steps") || line.includes("affected surface"));
+		component.handleInput(" ");
+		const afterEnable = component
+			.render(100)
+			.filter((line) => line.includes("Thinking Steps") || line.includes("affected surface"));
+		expect(afterEnable).toEqual(beforeEnable);
+		expect(harness.calls.thinkingSteps).toEqual([{ mode: "expanded" }, { enabled: true }]);
+
+		component.handleInput("\t");
+		expect(component.render(100).join("\n")).not.toContain("Thinking Steps · Expanded");
+		component.handleInput("\x1b");
+		expect(harness.doneCalls()).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("keeps unsupported Thinking capability status non-focusable and persistent", async () => {
+		vi.useFakeTimers();
+		const current = cloneConfig();
+		current.components.thinkingSteps.mode = "expanded";
+		const harness = createHarness(current, {
+			thinkingStepsCapability: { available: false },
+		});
+		harness.sessionLifecycle.start();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking steps");
+		for (const width of [29, 30, 31, 100]) {
+			const rows = component.render(width);
+			const statusRows = rows.filter((line) => line.includes("Pi 0.84+ required"));
+			expect(statusRows).toHaveLength(1);
+			expect(statusRows[0]).not.toContain("> ");
+			expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
+			const statusIndex = rows.indexOf(statusRows[0]);
+			expect(statusIndex).toBeGreaterThanOrEqual(4);
+			expect(statusIndex).toBeLessThanOrEqual(3 + SETTINGS_PREVIEW_MAX_ROWS);
+			expect(rows.join("\n").includes("Thinking Steps · Expanded")).toBe(width >= 31);
+			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes("> ")));
+		}
+		for (const label of ["Enabled", "Mode"] as const) {
+			selectLabel(component, label);
+			const rows = component.render(100);
+			const previewIndex = previewRow(rows, "┆ Thinking Steps · Expanded");
+			const statusIndex = previewRow(rows, "Pi 0.84+ required · Using native thinking");
+			expect(statusIndex).toBe(previewIndex + 9);
+			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes(`> ${label}`)));
+			expect(focusedRow(component)).toContain(`> ${label}`);
+		}
+		expectFocusOrder(component, ["Mode", "Enabled"]);
+		expect(harness.calls.thinkingSteps).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+		component.handleInput("\x1b");
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it("routes Thinking-step enablement and mode independently", async () => {

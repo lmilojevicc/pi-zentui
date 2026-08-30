@@ -1,17 +1,21 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderAccentRailEditorFrame } from "./accent-rail-editor";
 import type { PolishedTuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { renderMinimalistFrame } from "./minimalist-editor";
 import { safeThemeFg } from "./style";
+import { transformThinkingSteps } from "./thinking-steps";
 import { renderPolishedEditorFrame } from "./ui";
-import { renderUserMessageStyle } from "./user-message-styles";
+import { makeMarkdownTheme, renderUserMessageStyle } from "./user-message-styles";
 
 export const SETTINGS_PREVIEW_MAX_WIDTH = 72;
 export const SETTINGS_PREVIEW_MAX_ROWS = 10;
 export const EDITOR_PREVIEW_INPUT = "Explain this change safely.";
 export const USER_MESSAGE_PREVIEW_MARKDOWN = "Please review **this change** safely.";
+export const THINKING_STEPS_PREVIEW_MARKDOWN =
+	"# Inspect the change\nMap the affected surface.\n# Verify compatibility\nPreserve native behavior.";
+const THINKING_STEPS_CAPABILITY_STATUS = "Pi 0.84+ required · Using native thinking";
 
 function boundedRows(rows: string[], width: number): string[] {
 	const safeWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
@@ -125,4 +129,34 @@ export function renderUserMessageSettingsPreview(
 	const safeConfig = previewConfig(config);
 	const frame = renderUserMessageStyle({ text, width: previewWidth, theme, config: safeConfig });
 	return boundedRows(frame, previewWidth);
+}
+
+export function renderThinkingStepsSettingsPreview(
+	config: PolishedTuiConfig,
+	theme: Theme,
+	width: number,
+	capabilityAvailable = true,
+): string[] {
+	const previewWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
+	if (previewWidth <= 0) return [];
+	const transformed = transformThinkingSteps(
+		THINKING_STEPS_PREVIEW_MARKDOWN,
+		{ ...config.components.thinkingSteps, enabled: true },
+		{
+			messageType: "assistant-thinking",
+			isStreaming: false,
+			availableWidth: previewWidth,
+		},
+	);
+	const rows: string[] = [];
+	if (transformed !== THINKING_STEPS_PREVIEW_MARKDOWN) {
+		const markdown = new Markdown(transformed, 0, 0, makeMarkdownTheme(theme), {
+			color: (text) => theme.fg("thinkingText", text),
+			italic: true,
+		});
+		rows.push(...markdown.render(previewWidth));
+	}
+	if (!capabilityAvailable)
+		rows.push(safeThemeFg(theme, "muted", THINKING_STEPS_CAPABILITY_STATUS));
+	return boundedRows(rows, previewWidth);
 }

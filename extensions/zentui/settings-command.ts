@@ -58,6 +58,7 @@ import { isIconMode } from "./icons";
 import type { SessionLifecycle } from "./session-lifecycle";
 import {
 	renderEditorSettingsPreview,
+	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
 } from "./settings-previews";
@@ -1716,6 +1717,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							return renderEditorSettingsPreview(deps.getConfig(), theme, previewWidth);
 						if (activeSection === "userMessages")
 							return renderUserMessageSettingsPreview(deps.getConfig(), theme, previewWidth);
+						if (activeSection === "thinkingSteps")
+							return renderThinkingStepsSettingsPreview(
+								deps.getConfig(),
+								theme,
+								previewWidth,
+								deps.thinkingStepsCapability.available,
+							);
 						if (activeSection === "workingLine" && preview && preview.frames.length > 0)
 							return [
 								truncateToWidth(
