@@ -138,7 +138,7 @@ const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
 	tree: "Tree",
-	"streaming-experimental": "Streaming (Experimental)",
+	streaming: "Streaming",
 };
 const thinkingStepsModeValues = Object.values(thinkingStepsModeLabels);
 
@@ -174,29 +174,29 @@ type SettingsOutcome =
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
 
+type ThinkingControllerState = Readonly<{
+	available: boolean;
+	active: boolean;
+	activeMode?: ThinkingStepsMode;
+	startup: Readonly<ThinkingStepsComponentConfig>;
+	displaced: boolean;
+	restartRequired: boolean;
+	reason?: string;
+}>;
+
 type ThinkingStepsSettingsCapability =
 	| Readonly<{ available: boolean }>
-	| Readonly<{
-			publicAvailable: boolean;
-			experimental: Readonly<{
-				available: boolean;
-				active: boolean;
-				displaced: boolean;
-				restartRequired: boolean;
-				reason?: string;
-			}>;
-	  }>;
+	| Readonly<{ readonly state: ThinkingControllerState }>;
 
-function publicThinkingAvailable(capability: ThinkingStepsSettingsCapability): boolean {
-	return "publicAvailable" in capability ? capability.publicAvailable : capability.available;
-}
-
-function experimentalThinkingCapability(capability: ThinkingStepsSettingsCapability) {
-	return "experimental" in capability
-		? capability.experimental
+function experimentalThinkingCapability(
+	capability: ThinkingStepsSettingsCapability,
+): ThinkingControllerState {
+	return "state" in capability
+		? capability.state
 		: {
 				available: capability.available,
 				active: false,
+				startup: { enabled: false, mode: "tree" },
 				displaced: false,
 				restartRequired: false,
 			};
@@ -253,7 +253,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
-	thinkingSteps: "Thinking",
+	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
@@ -664,17 +664,21 @@ function buildThinkingStepsItems(
 	capability: ThinkingStepsSettingsCapability,
 ): SettingItem[] {
 	const thinkingSteps = config.components.thinkingSteps;
-	const experimental = thinkingSteps.mode === "streaming-experimental";
-	const experimentalCapability = experimentalThinkingCapability(capability);
-	const enabledDescription = experimental
-		? experimentalCapability.available
-			? experimentalCapability.active
-				? "Experimental renderer active in this session. Disabling restores native thinking; live reactivation requires restart."
-				: "Restart Pi to activate the private renderer. The preference remains saved."
-			: `${experimentalCapability.reason ?? "Experimental renderer unavailable"}; using native thinking. The preference remains saved.`
-		: publicThinkingAvailable(capability)
-			? "Applies to new, streaming, restored, resized, or otherwise rebuilt thinking; settled same-width history changes only when Pi rebuilds it."
-			: "Using native thinking — requires Pi 0.84 or newer. The enabled preference is saved until the public API is available.";
+	const controller = experimentalThinkingCapability(capability);
+	const startupLabel = controller.startup.enabled
+		? `Active startup: ${thinkingStepsModeLabels[controller.startup.mode]}`
+		: "Active startup: native thinking";
+	const savedLabel = thinkingSteps.enabled
+		? `Saved: ${thinkingStepsModeLabels[thinkingSteps.mode]}`
+		: "Saved: disabled";
+	const status = !controller.available
+		? `${controller.reason ?? "Private renderer unavailable"}; using native thinking.`
+		: controller.restartRequired
+			? `${savedLabel}; ${startupLabel}. Restart Pi to apply.`
+			: controller.active
+				? `${startupLabel}.`
+				: `${savedLabel}; using native thinking.`;
+	const enabledDescription = `${status} Private renderer; every enable, disable, or mode change requires restart and may break after Pi updates.`;
 	return [
 		{
 			id: "thinkingStepsEnabled",
@@ -686,13 +690,7 @@ function buildThinkingStepsItems(
 		{
 			id: "thinkingStepsMode",
 			label: "Mode",
-			description: experimental
-				? experimentalCapability.available
-					? experimentalCapability.active
-						? "Private renderer active: shows a live rendered tail, folds completed thinking, and the configured thinking-toggle binding (Ctrl+T by default) expands Pi's native full reasoning. Switching away restores native thinking; reactivation requires restart."
-						: "Private renderer supported but inactive. Restart Pi to activate the private renderer. Ctrl+T remains owned by Pi until active startup."
-					: "Experimental private renderer is unavailable; using native thinking."
-				: "Rail shows all labels without settled dots; Tree shows the latest five with settled dots. Connectors use theme Markdown-code color; plain labels inherit thinking text; Markdown-risky labels use Markdown-code color for literal rendering. Streaming (Experimental) privately decorates Pi's host renderer and may break after Pi updates.",
+			description: `${status} Rail shows every parsed label; Tree shows the latest five per contiguous run; Streaming folds to the latest five host-rendered rows and owns the configured thinking toggle only when active. Incompatibility uses native thinking.`,
 			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
 			values: thinkingStepsModeValues,
 		},
@@ -1458,7 +1456,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									if (id === "thinkingStepsEnabled" && enabled !== undefined) {
 										const result = deps.setThinkingStepsComponent({ enabled }, ctx);
 										settingsList = makeSettingsList("thinkingStepsEnabled");
-										notifyChange("Thinking steps", newValue, result);
+										notifyChange("Thinking (Experimental)", newValue, result);
 										return;
 									}
 									const selectedThinkingStepsMode =
@@ -1469,7 +1467,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											ctx,
 										);
 										settingsList = makeSettingsList("thinkingStepsMode");
-										notifyChange("Thinking steps mode", newValue, result);
+										notifyChange("Thinking (Experimental)", newValue, result);
 										return;
 									}
 									if (id === "workingLineEnabled" && enabled !== undefined) {

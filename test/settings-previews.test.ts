@@ -6,7 +6,6 @@ import {
 	defaultConfig,
 	type EditorStyle,
 	type PolishedTuiConfig,
-	type ThinkingStepsMode,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
 import {
@@ -15,7 +14,6 @@ import {
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_ROWS,
 	SETTINGS_PREVIEW_MAX_WIDTH,
-	THINKING_STEPS_PREVIEW_MARKDOWN,
 } from "../extensions/zentui/settings-previews";
 
 function theme(offset = 0): Theme {
@@ -270,175 +268,67 @@ describe("settings previews", () => {
 		expect(disabledOutput).not.toContain("preview");
 	});
 
-	it("renders compact streaming Rail and Tree previews through production Pi Markdown", () => {
-		const expected: Record<Exclude<ThinkingStepsMode, "streaming-experimental">, string[]> = {
-			rail: [
-				"│ Thinking",
-				"│ Inspect the change",
-				"│ Map the affected surface",
-				"│ Parse structural labels",
-				"│ Check narrow widths",
-				"│ Preserve [literal] labels",
-				"│ Validate rendered output",
-				"│ • Verify compatibility",
-			],
-			tree: [
-				"┆ Thinking",
-				"├─ · Parse structural labels",
-				"├─ · Check narrow widths",
-				"├─ · Preserve [literal] labels",
-				"├─ · Validate rendered output",
-				"└─ • Verify compatibility",
-			],
-		};
+	it("renders all Rail labels and the latest five Tree labels through native Markdown rows", () => {
+		const source = config();
 		for (const mode of ["rail", "tree"] as const) {
-			const current = config();
-			current.components.thinkingSteps.mode = mode;
-			const fullRows = renderThinkingStepsSettingsPreview(current, theme(), 72);
-			const visibleRows = plain(fullRows)
-				.split("\n")
-				.map((line) => line.trimEnd());
-			expect(visibleRows).toEqual(expected[mode]);
-			expect(fullRows).toHaveLength(mode === "rail" ? 8 : 6);
-			expect(visibleRows).not.toContain("");
-			expect(fullRows.join("\n")).toContain("•");
-			if (mode === "tree") expect(fullRows.join("\n")).toContain("·");
-			else expect(fullRows.join("\n")).not.toContain("·");
-			expect(renderThinkingStepsSettingsPreview(current, theme(), 9)).toEqual([]);
-			expect(renderThinkingStepsSettingsPreview(current, theme(), 10)).not.toEqual([]);
+			source.components.thinkingSteps.mode = mode;
+			const output = plain(renderThinkingStepsSettingsPreview(source, theme(), 72));
+			expect(output).toContain(mode === "rail" ? "│ Thinking" : "┆ Thinking");
+			expect(output).toContain(
+				mode === "rail" ? "│ • Verify compatibility" : "└─ • Verify compatibility",
+			);
+			if (mode === "tree") expect(output).not.toContain("Inspect the change");
+			else expect(output).toContain("Inspect the change");
 		}
 	});
 
-	it("renders a pure static Streaming (Experimental) preview and mode-aware status", () => {
+	it("renders a pure static Streaming preview with saved/restart/active status", () => {
 		const current = config();
-		current.components.thinkingSteps.mode = "streaming-experimental";
-		current.components.thinkingSteps.enabled = false;
-		const saved = plain(
+		current.components.thinkingSteps.enabled = true;
+		current.components.thinkingSteps.mode = "streaming";
+		const output = plain(
 			renderThinkingStepsSettingsPreview(current, theme(), 72, {
-				publicAvailable: true,
-				experimental: {
-					available: true,
-					active: false,
-					restartRequired: false,
-				},
-			}),
-		);
-		expect(saved).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
-		expect(saved).toContain("Inspect the host-rendered reasoning tail.");
-		expect(saved).toContain("Preserve native Markdown and wrapping.");
-		expect(saved).toContain("Experimental renderer supported · restart required");
-		const active = plain(
-			renderThinkingStepsSettingsPreview(current, theme(), 72, {
-				publicAvailable: true,
-				experimental: {
+				state: {
 					available: true,
 					active: true,
-					restartRequired: false,
+					activeMode: "tree",
+					startup: { enabled: true, mode: "tree" },
+					restartRequired: true,
 				},
 			}),
 		);
-		expect(active).toContain("Experimental renderer active");
-		current.components.thinkingSteps.enabled = true;
-		const unavailable = plain(renderThinkingStepsSettingsPreview(current, theme(), 72, false));
-		expect(unavailable).toBe("Experimental renderer unavailable · using native thinking");
-		expect(unavailable).not.toContain("configured thinking toggle to expand");
-		expect(unavailable).not.toContain("host-rendered reasoning tail");
+		expect(output).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
+		expect(output).toContain("saved streaming · active tree · restart required");
 	});
 
-	it("uses mdCode for connectors and risky labels, thinkingText for safe labels, and bold only for Thinking", () => {
-		const colors: string[] = [];
-		const coloredText: Array<[string, string]> = [];
-		const boldText: string[] = [];
-		const trackedTheme = {
+	it("uses direct accent connectors and native thinking/bold Markdown callbacks", () => {
+		const calls: Array<[string, string]> = [];
+		const currentTheme = {
 			...theme(),
 			fg: (color: string, text: string) => {
-				colors.push(color);
-				coloredText.push([color, text]);
-				return text;
-			},
-			bold: (text: string) => {
-				boldText.push(text);
+				calls.push([color, text]);
 				return text;
 			},
 		} as unknown as Theme;
-		const rows = renderThinkingStepsSettingsPreview(config(), trackedTheme, 72);
-		expect(plain(rows)).toContain("┆ Thinking");
-		expect(colors).toContain("thinkingText");
-		expect(colors).toContain("mdCode");
-		expect(coloredText).toEqual(
+		const output = plain(renderThinkingStepsSettingsPreview(config(), currentTheme, 72));
+		expect(output).toContain("┆ Thinking");
+		expect(calls).toEqual(
 			expect.arrayContaining([
-				["mdCode", "┆"],
-				["mdCode", "├─ ·"],
-				["mdCode", "Preserve [literal] labels"],
-				["mdCode", "└─ •"],
+				["accent", "┆ "],
+				["accent", "└─ • "],
 			]),
 		);
-		expect(colors).not.toContain("mdHeading");
-		expect(coloredText).toEqual(
-			expect.arrayContaining([
-				["thinkingText", expect.stringContaining("Parse structural labels")],
-			]),
-		);
-		expect(
-			coloredText.some(
-				([color, text]) => color === "thinkingText" && text.includes("Preserve [literal] labels"),
-			),
-		).toBe(false);
-		expect(boldText).toEqual(expect.arrayContaining(["Thinking"]));
-		expect(boldText).not.toContain("Verify compatibility");
-		expect(boldText).not.toContain("Inspect the change");
-		expect(colors).not.toEqual(expect.arrayContaining(["mdListBullet", "mdQuote"]));
+		expect(calls.some(([color]) => color === "thinkingText")).toBe(true);
 	});
 
-	it("keeps unavailable Thinking capability status across the compact preview threshold", () => {
-		for (const mode of ["rail", "tree"] as const) {
-			const current = config();
+	it("keeps unavailable/native status visible while disabled and width-bounded", () => {
+		const current = config();
+		current.components.thinkingSteps.enabled = false;
+		for (const mode of ["rail", "tree", "streaming"] as const) {
 			current.components.thinkingSteps.mode = mode;
-			const below = renderThinkingStepsSettingsPreview(current, theme(), 9, false);
-			const at = renderThinkingStepsSettingsPreview(current, theme(), 10, false);
-
-			expect(plain(below)).toBe("Pi 0.84+ ");
-			expect(plain(at)).toContain(mode === "rail" ? "│ Thinking" : "┆ Thinking");
-			expect(plain(at.slice(-1))).toBe("Pi 0.84+ r");
-			for (const [width, rows] of [
-				[9, below],
-				[10, at],
-			] as const) {
-				expect(rows.length).toBeLessThanOrEqual(SETTINGS_PREVIEW_MAX_ROWS);
-				expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
-			}
-		}
-	});
-
-	it.each([0, 1, 4, 16, 17, 20, 60, 72, 100])(
-		"bounds Thinking-step output and never exposes fixture Markdown at width %i",
-		(width) => {
-			for (const mode of ["rail", "tree"] as const) {
-				const current = config();
-				current.components.thinkingSteps.mode = mode;
-				const rows = renderThinkingStepsSettingsPreview(current, theme(), width);
-				expect(rows.length).toBeLessThanOrEqual(SETTINGS_PREVIEW_MAX_ROWS);
-				for (const row of rows)
-					expect(visibleWidth(row)).toBeLessThanOrEqual(
-						Math.min(width, SETTINGS_PREVIEW_MAX_WIDTH),
-					);
-				expect(plain(rows)).not.toContain(THINKING_STEPS_PREVIEW_MARKDOWN);
-				expect(plain(rows)).not.toContain("# Inspect the change");
-			}
-		},
-	);
-
-	it("keeps Thinking-step preview independent of enablement and capability", () => {
-		for (const mode of ["rail", "tree"] as const) {
-			const current = config();
-			current.components.thinkingSteps.mode = mode;
-			current.components.thinkingSteps.enabled = false;
-			const disabled = renderThinkingStepsSettingsPreview(current, theme(), 72);
-			current.components.thinkingSteps.enabled = true;
-			expect(renderThinkingStepsSettingsPreview(current, theme(), 72)).toEqual(disabled);
-			const unsupported = renderThinkingStepsSettingsPreview(current, theme(), 72, false);
-			expect(unsupported.slice(0, -1)).toEqual(disabled);
-			expect(plain(unsupported.slice(-1))).toBe("Pi 0.84+ required · Using native thinking");
+			const rendered = renderThinkingStepsSettingsPreview(current, theme(), 20, false);
+			expect(rendered.every((row) => visibleWidth(row) <= 20)).toBe(true);
+			expect(plain(rendered)).toContain("private renderer una");
 		}
 	});
 

@@ -4,7 +4,7 @@ type PrototypePatchAdapter =
 	| "user-message-render"
 	| "user-message-invalidate"
 	| "selector-border-render"
-	| "thinking-stream-update-content";
+	| "thinking-experimental-update-content";
 
 type PrototypeMethod = (this: unknown, ...args: unknown[]) => unknown;
 

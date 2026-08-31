@@ -9,11 +9,11 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 
 describe("Streaming (Experimental) optional private export", () => {
 	it("loads fail-open and preserves the selected mode when the private constructor is absent", async () => {
-		const { ThinkingStreamExperimentalController } = await import(
-			"../extensions/zentui/thinking-stream-experimental"
+		const { ThinkingExperimentalController } = await import(
+			"../extensions/zentui/thinking-experimental"
 		);
-		const config = { enabled: true, mode: "streaming-experimental" as const };
-		const value = new ThinkingStreamExperimentalController(() => config);
+		const config = { enabled: true, mode: "streaming" as const };
+		const value = new ThinkingExperimentalController(() => config);
 		const ctx = {
 			mode: "tui",
 			hasUI: true,
@@ -26,13 +26,13 @@ describe("Streaming (Experimental) optional private export", () => {
 			applied: false,
 			reason: expect.stringContaining("unavailable"),
 		});
-		expect(config).toEqual({ enabled: true, mode: "streaming-experimental" });
+		expect(config).toEqual({ enabled: true, mode: "streaming" });
 		value.shutdown();
 	});
 
 	it("does not statically import or deep-import the private renderer", () => {
 		const source = readFileSync(
-			join(process.cwd(), "extensions/zentui/thinking-stream-experimental.ts"),
+			join(process.cwd(), "extensions/zentui/thinking-experimental.ts"),
 			"utf8",
 		);
 		expect(source).not.toMatch(

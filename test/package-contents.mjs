@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const npmCli = process.env.npm_execpath;
 const reportJson = execFileSync(
@@ -15,7 +16,7 @@ const files = packages[0]?.files;
 assert.ok(Array.isArray(files), "npm pack must report its package file list");
 for (const required of [
 	"extensions/zentui/thinking-steps.ts",
-	"extensions/zentui/thinking-stream-experimental.ts",
+	"extensions/zentui/thinking-experimental.ts",
 ]) {
 	assert.ok(
 		files.some(({ path }) => path === required),
@@ -23,4 +24,9 @@ for (const required of [
 	);
 }
 
-console.log(`Package file assertions passed (${files.length} files total)`);
+const renderer = readFileSync("extensions/zentui/thinking-experimental.ts", "utf8");
+assert.match(renderer, /Copyright \(c\) 2026 Zach Yuen/);
+assert.match(renderer, /Copyright \(c\) 2026 Marc Mironescu \/ FluxGear/);
+assert.equal((renderer.match(/Permission is hereby granted, free of charge/g) ?? []).length, 2);
+
+console.log(`Package and license assertions passed (${files.length} files total)`);

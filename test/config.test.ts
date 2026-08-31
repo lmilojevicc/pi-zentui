@@ -584,10 +584,17 @@ describe("thinking-steps config", () => {
 		expect(
 			mergeConfig({
 				components: {
+					thinkingSteps: { enabled: true, mode: "streaming" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming" });
+		expect(
+			mergeConfig({
+				components: {
 					thinkingSteps: { enabled: true, mode: "streaming-experimental" },
 				},
 			}).components.thinkingSteps,
-		).toEqual({ enabled: true, mode: "streaming-experimental" });
+		).toEqual({ enabled: true, mode: "streaming" });
 		for (const mode of [undefined, "native", "Rail"]) {
 			expect(
 				mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode } } }).components
@@ -613,6 +620,20 @@ describe("thinking-steps config", () => {
 				});
 				expect(raw.futureTop).toEqual({ keep: true });
 				expect(configTempFiles(join(path, ".."))).toEqual([]);
+			},
+		);
+	});
+
+	it("normalizes the one-window Streaming migration alias on the next save", () => {
+		withConfig(
+			{ components: { thinkingSteps: { enabled: false, mode: "streaming-experimental" } } },
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true }, path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "streaming" });
+				expect(readRaw(path).components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "streaming",
+				});
 			},
 		);
 	});

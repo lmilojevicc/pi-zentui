@@ -4,14 +4,14 @@ import {
 	type ExtensionContext,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
+import { type Component, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThinkingStepsComponentConfig } from "../extensions/zentui/config";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
-	THINKING_STREAM_MAX_TRACKED_COMPONENTS,
-	ThinkingStreamExperimentalController,
-} from "../extensions/zentui/thinking-stream-experimental";
+	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
+	ThinkingExperimentalController,
+} from "../extensions/zentui/thinking-experimental";
 
 initTheme("dark", false);
 
@@ -94,6 +94,7 @@ function context() {
 		hasUI: true,
 		ui: {
 			...forbidden,
+			theme: { fg: (_color: string, text: string) => text },
 			onTerminalInput(handler: typeof inputHandler) {
 				inputRegistrations += 1;
 				inputHandler = handler;
@@ -147,7 +148,41 @@ function bridgeSourceLoadedMarkdownIdentity(): void {
 	});
 }
 
-const controllers = new Set<ThinkingStreamExperimentalController>();
+function installLegacyThinkingRenderer(
+	afterNative?: (container: { children: Component[] }, children: Component[]) => void,
+): void {
+	Object.defineProperty(prototype, "updateContent", {
+		...originalDescriptor,
+		value: function legacyThinkingChildren(
+			this: { contentContainer?: { children: Component[] } },
+			value: AssistantMessage,
+		) {
+			const children: Component[] = [new Spacer(1)];
+			for (const [index, part] of value.content.entries()) {
+				if (part.type === "thinking" && part.thinking.trim()) {
+					children.push(
+						new Markdown(part.thinking.trim(), 1, 0, markdownTheme, {
+							color: identity,
+							italic: true,
+						}),
+					);
+					if (value.content.slice(index + 1).some((next) => next.type !== "toolCall")) {
+						children.push(new Spacer(1));
+					}
+				} else if (part.type === "text" && part.text.trim()) {
+					children.push(new Markdown(part.text.trim(), 1, 0, markdownTheme));
+				}
+			}
+			const container = this.contentContainer ?? { children: [] };
+			container.children = children;
+			this.contentContainer = container;
+			afterNative?.(container, children);
+			return value;
+		},
+	});
+}
+
+const controllers = new Set<ThinkingExperimentalController>();
 
 afterEach(() => {
 	for (const controller of controllers) controller.shutdown();
@@ -167,8 +202,8 @@ function controller(
 		matches(data: string, action: string): boolean;
 	},
 	getHostKeyText?: (action: string) => string,
-): ThinkingStreamExperimentalController {
-	const value = new ThinkingStreamExperimentalController(
+): ThinkingExperimentalController {
+	const value = new ThinkingExperimentalController(
 		() => config,
 		requestRender,
 		now,
@@ -179,7 +214,28 @@ function controller(
 	return value;
 }
 
-describe("Streaming (Experimental) private assistant decorator", () => {
+describe("Thinking (Experimental) private assistant decorator", () => {
+	it.each(["rail", "tree"] as const)(
+		"installs %s only at enabled startup, preserves hidden native thinking, and owns no input",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const host = context();
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(host.ctx)).toEqual({ applied: true });
+			expect(value.state).toMatchObject({ active: true, activeMode: mode });
+			expect(host.inputRegistrations()).toBe(0);
+			const visible = component(false);
+			visible.updateContent(message("# One\n# Two", 1_000), true);
+			const output = plain(visible.render(80)).join("\n");
+			expect(output).toContain(mode === "rail" ? "│ • Two" : "└─ • Two");
+			const hidden = component(true);
+			hidden.updateContent(message("# Hidden", 2_000), true);
+			const hiddenOutput = plain(hidden.render(80)).join("\n");
+			expect(hiddenOutput).toContain("Thinking...");
+			expect(hiddenOutput).not.toContain("Hidden");
+		},
+	);
+
 	it("saves live Experimental selection without taking patch or input ownership until restart", () => {
 		const config: ThinkingStepsComponentConfig = { enabled: false, mode: "tree" };
 		const host = context();
@@ -187,23 +243,23 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		expect(value.startSession(host.ctx)).toEqual({ applied: true });
 		expect(Object.getOwnPropertyDescriptor(prototype, "updateContent")).toEqual(originalDescriptor);
 
-		config.mode = "streaming-experimental";
+		config.mode = "streaming";
 		expect(value.reconcile()).toEqual({
 			applied: false,
-			reason: "Restart Pi to activate the private renderer.",
+			reason: "Restart Pi to apply saved Thinking changes.",
 		});
 		config.enabled = true;
 		expect(value.reconcile()).toEqual({
 			applied: false,
-			reason: "Restart Pi to activate the private renderer.",
+			reason: "Restart Pi to apply saved Thinking changes.",
 		});
-		expect(config).toEqual({ enabled: true, mode: "streaming-experimental" });
+		expect(config).toEqual({ enabled: true, mode: "streaming" });
 		expect(Object.getOwnPropertyDescriptor(prototype, "updateContent")).toEqual(originalDescriptor);
 		expect(value.state).toMatchObject({
 			available: true,
 			active: false,
 			restartRequired: true,
-			reason: "Restart Pi to activate the private renderer.",
+			reason: "Restart Pi to apply saved Thinking changes.",
 		});
 		expect(host.input("\x14")).toBeUndefined();
 		expect(host.inputRegistrations()).toBe(0);
@@ -225,7 +281,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		let now = 8_100;
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config, () => now);
@@ -261,7 +317,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config, () => 2_000);
@@ -309,7 +365,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config);
@@ -344,6 +400,333 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		const separatedExpanded = plain(separated.render(80)).join("\n");
 		expect(separatedExpanded).toContain("separated A");
 		expect(separatedExpanded).toContain("separated B");
+	});
+
+	it.each(["rail", "tree"] as const)(
+		"groups a legacy adjacent thinking run into one %s title and run-level selection",
+		(mode) => {
+			installLegacyThinkingRenderer();
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(context().ctx)).toEqual({ applied: true });
+			const assistant = component();
+			assistant.updateContent(
+				messageWithContent([
+					{
+						type: "thinking",
+						thinking: ["# Legacy 1", "# Legacy 2", "# Legacy 3", "# Legacy 4"].join("\n"),
+					},
+					{
+						type: "thinking",
+						thinking: ["# Legacy 5", "# Legacy 6", "# Legacy 7", "# Legacy 8"].join("\n"),
+					},
+				]),
+				true,
+			);
+			const output = plain(assistant.render(80));
+			const titleRows = output.filter((row) => row.includes("Thinking"));
+			const labelRows = output.filter((row) => row.includes("Legacy"));
+			expect(titleRows).toHaveLength(1);
+			expect(labelRows).toHaveLength(mode === "rail" ? 8 : 5);
+			expect(labelRows.at(0)).toContain(mode === "rail" ? "Legacy 1" : "Legacy 4");
+			expect(labelRows.at(-1)).toContain("Legacy 8");
+			const titleIndex = output.findIndex((row) => row.includes("Thinking"));
+			expect(output.slice(titleIndex, titleIndex + labelRows.length + 1)).not.toContain("");
+		},
+	);
+
+	it.each(["modern", "legacy"] as const)(
+		"marks only an actually open final thinking run in exact %s streaming layouts",
+		(layout) => {
+			if (layout === "modern") bridgeSourceLoadedMarkdownIdentity();
+			else installLegacyThinkingRenderer();
+			for (const mode of ["rail", "tree"] as const) {
+				const value = controller({ enabled: true, mode });
+				expect(value.startSession(context().ctx)).toEqual({ applied: true });
+				const fixtures = [
+					{
+						name: "thinking→text→thinking",
+						content: [
+							{ type: "thinking" as const, thinking: "# Before" },
+							{ type: "text" as const, text: "boundary" },
+							{ type: "thinking" as const, thinking: "# After" },
+						],
+						rail: [" │ Thinking", " │ Before", " boundary", " │ Thinking", " │ • After"],
+						tree: [" ┆ Thinking", " └─ · Before", " boundary", " ┆ Thinking", " └─ • After"],
+					},
+					{
+						name: "thinking→tool→thinking",
+						content: [
+							{ type: "thinking" as const, thinking: "# Before" },
+							{ type: "toolCall" as const, id: "tool", name: "read", arguments: {} },
+							{ type: "thinking" as const, thinking: "# After" },
+						],
+						rail: [" │ Thinking", " │ Before", " │ Thinking", " │ • After"],
+						tree: [" ┆ Thinking", " └─ · Before", " ┆ Thinking", " └─ • After"],
+					},
+					{
+						name: "thinking→text",
+						content: [
+							{ type: "thinking" as const, thinking: "# Before" },
+							{ type: "text" as const, text: "boundary" },
+						],
+						rail: [" │ Thinking", " │ Before", " boundary"],
+						tree: [" ┆ Thinking", " └─ · Before", " boundary"],
+					},
+				] as const;
+				for (const fixture of fixtures) {
+					const assistant = component();
+					assistant.updateContent(messageWithContent([...fixture.content]), true);
+					const exactRows = plain(assistant.render(80)).filter(Boolean);
+					expect(exactRows, `${layout} ${mode} ${fixture.name}`).toEqual(fixture[mode]);
+				}
+				value.shutdown();
+				controllers.delete(value);
+			}
+		},
+	);
+
+	it("does not invoke an accessor setter that mutates native children before throwing", () => {
+		let originalChildren: Component[] = [];
+		const setter = vi.fn((replacement: Component[]) => {
+			originalChildren.splice(0, originalChildren.length, ...replacement);
+			throw new Error("atomic replacement rejected");
+		});
+		installLegacyThinkingRenderer((container, children) => {
+			originalChildren = children;
+			Object.defineProperty(container, "children", {
+				configurable: true,
+				get: () => children,
+				set: setter,
+			});
+		});
+		const value = controller({ enabled: true, mode: "rail" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		expect(() =>
+			assistant.updateContent(
+				messageWithContent([
+					{ type: "thinking", thinking: "# Atomic 1" },
+					{ type: "thinking", thinking: "# Atomic 2" },
+				]),
+				true,
+			),
+		).not.toThrow();
+		const children = (assistant as unknown as { contentContainer: { children: Component[] } })
+			.contentContainer.children;
+		expect(setter).not.toHaveBeenCalled();
+		expect(children).toBe(originalChildren);
+		expect(children.map((child) => child.constructor.name)).toEqual([
+			"Spacer",
+			"Markdown",
+			"Spacer",
+			"Markdown",
+		]);
+		expect(children.some((child) => child.constructor.name === "ThinkingStepsRows")).toBe(false);
+		expect(value.diagnostics.trackedComponents).toBe(0);
+	});
+
+	it.each(["nonwritable", "inherited"] as const)(
+		"retains native identity and output for a %s children property",
+		(shape) => {
+			let originalChildren: Component[] = [];
+			installLegacyThinkingRenderer((container, children) => {
+				originalChildren = children;
+				if (shape === "nonwritable") {
+					Object.defineProperty(container, "children", {
+						configurable: true,
+						writable: false,
+						value: children,
+					});
+				} else {
+					delete (container as { children?: Component[] }).children;
+					const inherited = Object.create(Object.getPrototypeOf(container)) as {
+						children: Component[];
+					};
+					inherited.children = children;
+					Object.setPrototypeOf(container, inherited);
+				}
+			});
+			const value = controller({ enabled: true, mode: "tree" });
+			value.startSession(context().ctx);
+			const assistant = component();
+			assistant.updateContent(message("# Native identity"), true);
+			const container = (assistant as unknown as { contentContainer: { children: Component[] } })
+				.contentContainer;
+			expect(container.children).toBe(originalChildren);
+			const output = plain(assistant.render(80)).join("\n");
+			expect(output).toContain("Native identity");
+			expect(output).not.toMatch(/[│┆][ •]? Thinking|[└├]─/);
+			expect(value.diagnostics.trackedComponents).toBe(0);
+		},
+	);
+
+	it("propagates the predecessor's exact thrown object without decoration containment", () => {
+		const marker = { source: "predecessor" };
+		Object.defineProperty(prototype, "updateContent", {
+			...originalDescriptor,
+			value() {
+				throw marker;
+			},
+		});
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		let caught: unknown;
+		try {
+			component().updateContent(message("# Never decorated"), true);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBe(marker);
+		expect(value.diagnostics.trackedComponents).toBe(0);
+	});
+
+	it.each([
+		["rail", "hidden"],
+		["rail", "no-thinking"],
+		["tree", "hidden"],
+		["tree", "no-thinking"],
+	] as const)(
+		"drops stale %s state when an authoritative %s predecessor mutates then throws",
+		(mode, transition) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const native = prototype.updateContent;
+			const marker = { source: `${mode}-${transition}` };
+			let throwAfterMutation = false;
+			Object.defineProperty(prototype, "updateContent", {
+				...Object.getOwnPropertyDescriptor(prototype, "updateContent"),
+				value: function mutateThenThrow(this: unknown, ...args: unknown[]) {
+					const result = Reflect.apply(native, this, args);
+					if (throwAfterMutation) throw marker;
+					return result;
+				},
+			});
+			const requestRender = vi.fn();
+			const value = controller({ enabled: true, mode }, Date.now, requestRender);
+			value.startSession(context().ctx);
+			const assistant = component(false);
+			const stale = message("# Stale custom thinking", 84_000);
+			value.beginMessage({ message: stale });
+			assistant.updateContent(stale, true);
+			expect(value.diagnostics).toMatchObject({ trackedComponents: 1, activeComponents: 1 });
+
+			const authoritative =
+				transition === "hidden" ? stale : message("", 84_001, "Authoritative text after failure");
+			if (transition === "hidden")
+				(assistant as unknown as { hideThinkingBlock: boolean }).hideThinkingBlock = true;
+			throwAfterMutation = true;
+			let caught: unknown;
+			try {
+				assistant.updateContent(authoritative, false);
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).toBe(marker);
+			expect(value.diagnostics).toMatchObject({ trackedComponents: 0, activeComponents: 0 });
+			expect((value as unknown as { timings: Map<number, unknown> }).timings.has(84_000)).toBe(
+				false,
+			);
+			expect(
+				(value as unknown as { currentMessage?: AssistantMessage }).currentMessage,
+			).toBeUndefined();
+			expect(requestRender).not.toHaveBeenCalled();
+
+			value.shutdown();
+			expect(requestRender).not.toHaveBeenCalled();
+			const output = plain(assistant.render(80)).join("\n");
+			if (transition === "hidden") {
+				expect(output).toContain("Thinking...");
+				expect(output).not.toContain("Stale custom thinking");
+			} else {
+				expect(output).toContain("Authoritative text after failure");
+				expect(output).not.toContain("Stale custom thinking");
+			}
+		},
+	);
+
+	it.each(["rail", "tree"] as const)(
+		"drops %s ownership after a visible-to-native-hidden authoritative host update",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const assistant = component(false);
+			const current = message("# Visible\n# Latest", 81_000);
+			assistant.updateContent(current, true);
+			expect(value.diagnostics.trackedComponents).toBe(1);
+			assistant.setHideThinkingBlock(true);
+			assistant.updateContent(current, true);
+			expect(value.diagnostics).toMatchObject({ trackedComponents: 0, activeComponents: 0 });
+			expect((value as unknown as { timings: Map<number, unknown> }).timings.has(81_000)).toBe(
+				false,
+			);
+			value.shutdown();
+			const rendered = plain(assistant.render(80)).join("\n");
+			expect(rendered).toContain("Thinking...");
+			expect(rendered).not.toContain("Visible");
+		},
+	);
+
+	it.each(["rail", "tree"] as const)(
+		"does not replay stale visible %s args when native-hidden ownership is displaced",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const assistant = component(false);
+			const current = message("# Stale visible", 82_000);
+			assistant.updateContent(current, true);
+			assistant.setHideThinkingBlock(true);
+			assistant.updateContent(current, true);
+			const zentuiWrapper = prototype.updateContent;
+			Object.defineProperty(prototype, "updateContent", {
+				...Object.getOwnPropertyDescriptor(prototype, "updateContent"),
+				value: function successor(this: unknown, ...args: unknown[]) {
+					return Reflect.apply(zentuiWrapper, this, args);
+				},
+			});
+			expect(value.state.displaced).toBe(true);
+			const rendered = plain(assistant.render(80)).join("\n");
+			expect(rendered).toContain("Thinking...");
+			expect(rendered).not.toContain("Stale visible");
+		},
+	);
+
+	it.each(["streaming", "rail", "tree"] as const)(
+		"drops %s ownership on an authoritative thinking-to-no-thinking update",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const assistant = component();
+			assistant.updateContent(message("# Old thinking", 83_000), true);
+			expect(value.diagnostics.trackedComponents).toBe(1);
+			assistant.updateContent(message("", 83_001, "Authoritative text only"), false);
+			expect(value.diagnostics).toMatchObject({ trackedComponents: 0, activeComponents: 0 });
+			expect((value as unknown as { timings: Map<number, unknown> }).timings.has(83_000)).toBe(
+				false,
+			);
+			value.shutdown();
+			const rendered = plain(assistant.render(80)).join("\n");
+			expect(rendered).toContain("Authoritative text only");
+			expect(rendered).not.toContain("Old thinking");
+		},
+	);
+
+	it("keeps Streaming temporarily visible while active, then restores the latest native-hidden state", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "streaming" }, () => 90_000);
+		value.startSession(context().ctx);
+		const assistant = component(false);
+		const current = message("# Temporarily shown", 89_000);
+		assistant.updateContent(current, true);
+		assistant.setHideThinkingBlock(true);
+		assistant.updateContent(current, true);
+		expect(value.diagnostics.trackedComponents).toBe(1);
+		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking 0.0s");
+		value.shutdown();
+		const rendered = plain(assistant.render(80)).join("\n");
+		expect(rendered).toContain("Thinking...");
+		expect(rendered).not.toContain("Temporarily shown");
 	});
 
 	it.each(["count", "order", "text", "constructor"] as const)(
@@ -382,7 +765,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 			});
 			const config: ThinkingStepsComponentConfig = {
 				enabled: true,
-				mode: "streaming-experimental",
+				mode: "streaming",
 			};
 			const value = controller(config);
 			expect(value.startSession(context().ctx)).toEqual({ applied: true });
@@ -409,7 +792,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config, () => 2_000);
@@ -427,7 +810,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		vi.setSystemTime(10_000);
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const requestRender = vi.fn();
@@ -448,7 +831,12 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		expect(plain(assistant.render(40)).join("\n")).toContain("Thought for 1.0s");
 
 		config.enabled = false;
-		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.reconcile()).toEqual({
+			applied: false,
+			reason: "Restart Pi to apply saved Thinking changes.",
+		});
+		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		value.shutdown();
 		expect(requestRender).toHaveBeenCalledTimes(3);
 		expect(plain(assistant.render(40)).join("\n")).not.toMatch(/Thinking \d|Thought for/);
 		expect(plain(assistant.render(40)).join("\n")).toContain("live redraw reasoning");
@@ -460,7 +848,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		vi.setSystemTime(10_000);
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const requestRender = vi.fn();
@@ -484,7 +872,9 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		expect(plain(restored.render(80)).join("\n")).not.toContain("Thought for");
 
 		config.enabled = false;
-		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.reconcile()).toMatchObject({ applied: false });
+		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		value.shutdown();
 		expect(plain(assistant.render(80)).join("\n")).toContain("private reasoning");
 		expect(host.stopInput).toHaveBeenCalledTimes(1);
 		for (const method of Object.values(host.forbidden)) expect(method).not.toHaveBeenCalled();
@@ -494,7 +884,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config, () => 2_000);
@@ -522,7 +912,9 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		expect(plain(hiddenToVisible.render(80)).join("\n")).toContain("Thinking 0.0s");
 
 		config.enabled = false;
-		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.reconcile()).toMatchObject({ applied: false });
+		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		value.shutdown();
 		const hiddenNative = plain(visibleToHidden.render(80)).join("\n");
 		expect(hiddenNative).toContain("Thinking...");
 		expect(hiddenNative).not.toContain("preference row");
@@ -544,7 +936,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const remapped = {
 			getDefinition: vi.fn(() => ({ defaultKeys: "ctrl+y" })),
@@ -589,7 +981,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const cases = [
 			{ key: "?", data: "question", keyText: "Question mark", label: "Question mark" },
@@ -629,7 +1021,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 	it("rejects empty and nonstring bindings and deactivates on a throwing matcher", () => {
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		for (const keys of [[], [""], [null], [42]]) {
 			const value = controller(config, Date.now, vi.fn(), () => ({
@@ -678,18 +1070,18 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		vi.setSystemTime(10_000);
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const requestRender = vi.fn();
 		const value = controller(config, Date.now, requestRender);
 		expect(value.startSession(context().ctx)).toEqual({ applied: true });
 		const first = component(true);
 		first.updateContent(message("evicted native-hidden reasoning", 1), false);
-		for (let index = 1; index <= THINKING_STREAM_MAX_TRACKED_COMPONENTS; index += 1) {
+		for (let index = 1; index <= THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS; index += 1) {
 			component().updateContent(message(`settled reasoning ${index}`, index + 1), false);
 		}
 		expect(value.diagnostics).toMatchObject({
-			trackedComponents: THINKING_STREAM_MAX_TRACKED_COMPONENTS,
+			trackedComponents: THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 			activeComponents: 0,
 		});
 		const restored = plain(first.render(80)).join("\n");
@@ -702,7 +1094,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		(pending as { stopReason: string }).stopReason = "pending";
 		live.updateContent(pending, true);
 		expect(value.diagnostics).toMatchObject({
-			trackedComponents: THINKING_STREAM_MAX_TRACKED_COMPONENTS,
+			trackedComponents: THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 			activeComponents: 1,
 		});
 		vi.advanceTimersByTime(1_000);
@@ -711,51 +1103,10 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		expect(value.diagnostics.activeComponents).toBe(0);
 	});
 
-	it("switches away live but requires restart to reselect Experimental", () => {
-		bridgeSourceLoadedMarkdownIdentity();
-		vi.useFakeTimers();
-		vi.setSystemTime(10_000);
-		const config: ThinkingStepsComponentConfig = {
-			enabled: true,
-			mode: "streaming-experimental",
-		};
-		const host = context();
-		const requestRender = vi.fn();
-		const value = controller(config, Date.now, requestRender);
-		value.startSession(host.ctx);
-		const assistant = component();
-		const live = message("old live tail", 5_000);
-		(live as { stopReason: string }).stopReason = "pending";
-		value.beginMessage({ message: live });
-		assistant.updateContent(live, true);
-		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking 0.0s");
-
-		config.mode = "tree";
-		expect(value.reconcile()).toEqual({ applied: true });
-		const afterDisable = requestRender.mock.calls.length;
-		const completed = message("host completed native content", 5_000, "native answer");
-		assistant.updateContent(completed, false);
-		expect(plain(assistant.render(80)).join("\n")).toContain("host completed native content");
-		config.mode = "streaming-experimental";
-		expect(value.reconcile()).toEqual({
-			applied: false,
-			reason: "Restart Pi to activate the private renderer.",
-		});
-		expect(host.input("\x14")).toBeUndefined();
-		expect(host.stopInput).toHaveBeenCalledTimes(1);
-		expect(requestRender).toHaveBeenCalledTimes(afterDisable);
-		vi.advanceTimersByTime(3_000);
-		expect(requestRender).toHaveBeenCalledTimes(afterDisable);
-		const reenabled = plain(assistant.render(80)).join("\n");
-		expect(reenabled).toContain("host completed native content");
-		expect(reenabled).not.toContain("old live tail");
-		expect(reenabled).not.toMatch(/Thinking \d|Thought for/);
-	});
-
 	it("bounds current-session timings even for text-only assistant events", () => {
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const value = controller(config, () => 50_000);
 		value.startSession(context().ctx);
@@ -775,7 +1126,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const value = controller(config, () => 5_000);
 		value.startSession(context().ctx);
@@ -795,7 +1146,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const firstHost = context();
 		const firstRender = vi.fn();
@@ -838,7 +1189,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const requestRender = vi.fn();
@@ -885,7 +1236,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		});
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const value = controller(config);
@@ -900,7 +1251,7 @@ describe("Streaming (Experimental) private assistant decorator", () => {
 		bridgeSourceLoadedMarkdownIdentity();
 		const config: ThinkingStepsComponentConfig = {
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		};
 		const host = context();
 		const requestRender = vi.fn();

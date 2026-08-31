@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
+	AssistantMessageComponent,
 	initTheme,
 	ModelSelectorComponent,
 	SettingsSelectorComponent,
@@ -513,13 +514,7 @@ function stripTestTags(line: string): string {
 	return stripPromptMarks(line).replaceAll(/\[[^\]]+\]/g, "");
 }
 
-function loadExtension(
-	options: {
-		thinkingLevel?: string;
-		commands?: Map<string, unknown>;
-		markdownTransformers?: unknown[];
-	} = {},
-) {
+function loadExtension(options: { thinkingLevel?: string; commands?: Map<string, unknown> } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const api = {
 		on(eventName: string, handler: Handler) {
@@ -532,11 +527,6 @@ function loadExtension(
 			return options.thinkingLevel ?? "off";
 		},
 	} as Record<string, unknown>;
-	if (options.markdownTransformers) {
-		api.registerMarkdownTransformer = (transformer: unknown) => {
-			options.markdownTransformers?.push(transformer);
-		};
-	}
 	zentui(api as never);
 	return handlers;
 }
@@ -725,33 +715,46 @@ describe("fixed-editor retirement contract", () => {
 });
 
 describe("Pi docs compliance", () => {
-	it("registers one public Thinking-step transformer at activation, never in lifecycle/settings", async () => {
+	it("does not register a public Thinking Markdown transformer or command", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
-			JSON.stringify({
-				components: { thinkingSteps: { enabled: true, mode: "tree" } },
-			}),
+			JSON.stringify({ components: { thinkingSteps: { enabled: false, mode: "tree" } } }),
 		);
-		const transformers: unknown[] = [];
 		const commands = new Map<string, unknown>();
-		const handlers = loadExtension({ markdownTransformers: transformers, commands });
-		expect(transformers).toHaveLength(1);
-		const transform = transformers[0] as (
-			markdown: string,
-			context: { messageType: string; isStreaming: boolean; availableWidth: number },
-		) => string;
-		expect(
-			transform("# First\n# Latest", {
-				messageType: "assistant-thinking",
-				isStreaming: true,
-				availableWidth: 80,
-			}),
-		).toBe("`┆` **Thinking**  \n`├─ ·` First  \n`└─ •` Latest");
+		const handlers = loadExtension({ commands });
+		const indexSource = readFileSync(
+			join(import.meta.dirname, "../extensions/zentui/index.ts"),
+			"utf8",
+		);
+		expect(indexSource).not.toContain("registerMarkdown" + "Transformer");
 		const ctx = makeContext();
 		await emit(handlers, "session_start", ctx);
 		await emit(handlers, "session_shutdown", ctx);
-		expect(transformers).toHaveLength(1);
 		expect(commands.has("thinking-steps")).toBe(false);
+	});
+
+	it("reloads external Thinking configuration synchronously for each session startup", async () => {
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(
+			configPath,
+			JSON.stringify({ components: { thinkingSteps: { enabled: false, mode: "tree" } } }),
+		);
+		const nativeUpdate = AssistantMessageComponent.prototype.updateContent;
+		const handlers = loadExtension();
+		const ctx = makeContext();
+
+		await emit(handlers, "session_start", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeUpdate);
+		await emit(handlers, "session_shutdown", ctx);
+
+		writeFileSync(
+			configPath,
+			JSON.stringify({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }),
+		);
+		await emit(handlers, "session_start", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).not.toBe(nativeUpdate);
+		await emit(handlers, "session_shutdown", ctx);
+		expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeUpdate);
 	});
 
 	it("derives lazy data requirements from only the active wide and compact candidates", () => {

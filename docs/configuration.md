@@ -11,14 +11,14 @@ The interactive `/zentui` menu is split into nine component-oriented sections. U
 1. **Appearance** — selector-border enablement, style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
-4. **Thinking** — independent enablement with Rail, Tree, or Streaming (Experimental). Streaming uses Pi's private renderer and may break after Pi updates.
+4. **Thinking (Experimental)** — restart-gated private Rail, Tree, or Streaming rendering; it may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
 6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
 7. **Segments** — visibility toggles for non-Git Starship segments.
 8. **Git** — Starship Git segment and probe controls.
 9. **Extensions** — Starship extension-status placement and color controls for active keys.
 
-Editor, User messages, Thinking steps, and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
+Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer-specific rows are shown only while Starship is selected, while Segments, Git, and Extensions remain available for preconfiguration under every Footer style.
 
 Free-form values such as custom formats, Opencode metadata formats, raw colors/styles, and inactive extension keys remain JSON-only. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
@@ -272,9 +272,9 @@ Copy this example and change only the values you need. Optional editor source-aw
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
-- `components.thinkingSteps` independently owns opt-in thinking display. It defaults to `{ "enabled": false, "mode": "tree" }`; modes are `rail | tree | streaming-experimental`.
-- Rail and Tree use Pi's public Markdown transformer (Pi 0.84+). `streaming-experimental` instead decorates Pi's private host renderer at session startup and is tested on Pi 0.80.5, 0.83.0, 0.84.0, and 0.84.4. Enable and select it before starting Pi; a live selection is saved but requires restart. Active startup owns Pi's `app.thinking.toggle` binding (normally Ctrl+T) for full native expansion/refolding. Switching away or disabling restores native thinking live, but reselecting cannot reactivate until another restart and leaves Ctrl+T native while pending. Private compatibility checks fail open to native thinking, never Rail/Tree. Future Pi updates may break this experimental mode.
-- `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking steps never enable, configure, or own the Working line; Streaming (Experimental) also leaves the existing **Thinking time** option unchanged.
+- `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
+- All three modes decorate Pi's private host renderer at session startup and are tested on exact Pi versions 0.80.5, 0.83.0, 0.84.0, and 0.84.4. Every live enable, disable, or mode change persists but leaves the active startup snapshot unchanged until restart.
+- `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden installs an empty component with zero rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
@@ -388,24 +388,26 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non
 - Disabling styling delegates to Pi's native renderer; native is not a style ID.
 - Zentui intentionally provides no custom `plain` style.
 
-## Thinking steps
+## Thinking (Experimental)
 
-**Rail** and **Tree** use only Pi's public `registerMarkdownTransformer` API and only transform assistant-thinking Markdown. Rail shows every safely parsed structural label in chronological order; Tree shows the latest five in their original order. Both show labels only, with no visible numbering or bodies. Their compact title is simply `Thinking`, with trusted bold emphasis and no heading semantics. Renderer-owned connector and marker sequences use Pi's theme-native `mdCode` color: it is accent-like in the built-in dark and light themes, while custom themes remain authoritative. Plain safe labels—including ordinary slashes, periods, parentheses, semicolons, and quotes—are inserted without generated escaping and inherit Pi's italic `thinkingText`. Markdown-risky labels—including Pi/Marked GFM bare `http`, `https`, and `ftp` protocol URLs, `www.` URLs, email addresses or any other retained `@` character, and labels containing other active syntax—are instead isolated in robust CommonMark code spans, so their exact visible backslashes, backticks, emphasis markers, links, HTML, entities, and LaTeX remain literal on one row with no link, link-URL, or OSC hyperlink semantics; these labels use `mdCode` as an honest safety fallback. Zentui promises no exact connector, label, accent, or muted color under custom themes. Rail settled rows are `│ Label` with no dot; its latest streaming row is `│ • Label`. Tree settled rows remain `├─ · Label` or `└─ · Label`, and its latest streaming row is `└─ • Label`. Labels come directly from top-level headings, top-level list items, and blank-line-separated prose; fenced code, Mermaid, display math, and indented content remain opaque.
+Rail, Tree, and Streaming share one restart-gated private `AssistantMessageComponent` wrapper. The saved `{ enabled, mode }` value is snapshotted at session start before transcript restoration. Disabled startup installs nothing. Every live settings change only persists the desired value; the active startup mode never deactivates, switches, or reactivates until restart. Shutdown restores native children, exact hidden-state ownership, and the predecessor descriptor. Private constructor, layout, Markdown identity, parser, theme, rendering, width, displacement, or cleanup incompatibility fails open to native thinking. Private APIs may break after any Pi update.
 
-Pi 0.84 or newer provides that public API. The public compatibility matrix is tested as follows:
+Rail parses each native contiguous thinking run and shows every label in that run. Tree shows the latest five in each run; neither aggregates across intervening text or tool blocks. Labels come from headings, top-level list items, and blank-line-separated prose; controls, malformed or over-limit input, unterminated fences/math, and unsupported structure leave that complete run native. Fenced code, Mermaid, display math, and indented nested content remain opaque bodies.
 
-| Pi version | Rail/Tree public API behavior |
-| --- | --- |
-| 0.80.5 | Transformer API absent; configured preference is preserved and native thinking remains exact |
-| 0.83.0 | Transformer API absent; configured preference is preserved and native thinking remains exact |
-| 0.84.0 | Transformer active; one-row Rail/Tree output, exact safe/risky callback isolation, and built-in dark/light `mdCode` connector colors tested |
-| 0.84.4 | Transformer active; one-row Rail/Tree output, exact safe/risky callback isolation, and built-in dark/light `mdCode` connector colors tested |
+Each selected label is rendered from its original Markdown by a fresh Pi `Markdown` with the host child's exact theme, default `thinkingText`/italic style, and transform options. Native emphasis, code, links, HTML, LaTeX, and custom theme/transform callbacks therefore remain authoritative. Host horizontal padding is applied externally. Each label is exactly one terminal row; Pi TUI's ANSI/OSC/grapheme-aware width utilities crop the first rendered row and reserve one cell for `…` only when required. Empty, image, non-text, impossible-width, or throwing output restores the whole native run. Connectors are separate from Markdown and call the current `theme.fg("accent", connector)` every render, so custom themes directly control their appearance. Visible forms are:
 
-On Pi 0.80.5–0.83, `/zentui` shows `Using native thinking — requires Pi 0.84 or newer`. Public Markdown transforms run for new and streaming content, restored messages, width changes, and other public rebuilds. Pi has no public invalidation API for already settled same-width transcript entries, so settings changes appear there only when Pi otherwise rebuilds that thinking content. Label budgets use the visible connector width and grapheme-safe truncation of the original plain label before classification. Risky truncated labels use a code-span delimiter one backtick longer than their longest content run, with CommonMark edge padding that preserves the literal text. Tabs still fail open because Pi expands them after public width budgeting.
+```text
+│ Thinking       ┆ Thinking
+│ First          ├─ · Earlier
+│ Latest         └─ · Latest
+│ • Open         └─ • Open
+```
 
-**Streaming (Experimental)** is a separate opt-in mode tested against Pi 0.80.5, 0.83.0, 0.84.0, and 0.84.4. Enable and select it before starting Pi. Live `/zentui` changes save the preference and report `Restart Pi to activate the private renderer.` The startup installation runs before restored transcript components render; only an active startup owns the configured `app.thinking.toggle` binding. Switching away or disabling restores native thinking immediately. Reselecting in the same session remains pending until restart, with Ctrl+T left to Pi. While live, it shows the final five host-rendered rows and times current-session thinking accurately; completion freezes that timer as `Thought for Ns`. Restored completed entries omit duration and render `Thought` because Pi does not persist a reliable thinking-end timestamp. Expand/refold applies to the most recent 256 retained assistant components. Evicting an older component restores its native rendering first, and later toggles no longer refold that entry globally. On every host-driven update, Zentui refreshes the native hidden-thinking snapshot before its temporary visible render, then restores the latest property ownership, value, and native output on deactivation or shutdown. It does not save or change Pi settings. Private shape, input, or ownership failures fail open to native thinking rather than Rail/Tree. Because this relies on private host internals, a future Pi update may break it.
+Only an actually open thinking phase uses `•`; a text/tool transition or restored completion is settled. Rail and Tree preserve Pi's hidden state and native hidden label.
 
-All three modes are opt-in and do not own the Working line, hidden-thinking label setting, Footer, Editor, widgets, statuses, or model behavior.
+Streaming keeps the reviewed host-rendered behavior: while open it shows the latest five rendered terminal rows beneath `Thinking 7.1s`; completion folds under `Thought` or current-session `Thought for Ns`. Restored entries have no duration because Pi does not persist a reliable thinking-end timestamp. Only active Streaming startup owns its validated configured `app.thinking.toggle` binding and one-second timer. Ctrl+T expands/refolds native reasoning. Component and timing tracking are bounded to 256; evicted entries are restored natively first.
+
+The exact all-mode private matrix covers Pi 0.80.5, 0.83.0, 0.84.0, and 0.84.4 under dark, light, and current themes, narrow/wide widths and resize. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
 
 ## Working line
 

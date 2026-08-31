@@ -2,13 +2,22 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import * as PiTui from "@earendil-works/pi-tui";
-import { type Component, getKeybindings, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import type { ThinkingStepsComponentConfig } from "./config";
+import {
+	type Component,
+	getKeybindings,
+	Markdown,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
+import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config";
 import {
 	installPrototypePatch,
 	isPrototypePatchCurrent,
 	type PrototypePatchRegistration,
 } from "./prototype-patch-registry";
+import { parseThinkingSteps, type ThinkingStep } from "./thinking-steps";
 
 /*
  * The rendered-row folding and lifecycle below are adapted from
@@ -37,10 +46,10 @@ import {
  * SOFTWARE.
  */
 
-export const THINKING_STREAM_TAIL_ROWS = 5;
+export const THINKING_EXPERIMENTAL_TAIL_ROWS = 5;
 /** Bounds expand/refold ownership to the most recent retained session components. */
-export const THINKING_STREAM_MAX_TRACKED_COMPONENTS = 256;
-const PATCH_ADAPTER = "thinking-stream-update-content" as const;
+export const THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS = 256;
+const PATCH_ADAPTER = "thinking-experimental-update-content" as const;
 const MAX_TIMINGS = 256;
 
 type PatchableAssistant = {
@@ -98,15 +107,17 @@ type ToggleInput = Readonly<{
 	rawFallback: boolean;
 }>;
 
-export type ThinkingStreamExperimentalDiagnostics = Readonly<{
+export type ThinkingExperimentalDiagnostics = Readonly<{
 	trackedComponents: number;
 	activeComponents: number;
 	lastTimerWork: number;
 }>;
 
-export type ThinkingStreamExperimentalState = Readonly<{
+export type ThinkingExperimentalState = Readonly<{
 	available: boolean;
 	active: boolean;
+	activeMode?: ThinkingStepsMode;
+	startup: Readonly<ThinkingStepsComponentConfig>;
 	displaced: boolean;
 	restartRequired: boolean;
 	reason?: string;
@@ -135,6 +146,144 @@ type NativeMarkdownShape = {
 	options?: ConstructorParameters<typeof Markdown>[5];
 };
 
+type AccentTheme = { fg(color: "accent", text: string): string };
+type StructuralThinkingMode = Exclude<ThinkingStepsMode, "streaming">;
+
+/*
+ * The visual title/connector language below is adapted from pi-thinking-steps d0a59a4.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2026 Marc Mironescu / FluxGear
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+function unsafeRenderedRow(source: string, row: string): boolean {
+	return (
+		/!\[[^\]]*\]\(/.test(source) ||
+		row.includes("\x1b_G") ||
+		/\x1b\]1337;File=/.test(row) ||
+		visibleWidth(row) === 0
+	);
+}
+
+function croppedMarkdownRow(markdown: Markdown, source: string, width: number): string | undefined {
+	if (width <= 0) return undefined;
+	const rows = markdown.render(width);
+	const first = rows[0];
+	if (!first || unsafeRenderedRow(source, first)) return undefined;
+	if (rows.length > 1) {
+		if (width === 1) return "…";
+		return `${truncateToWidth(first, width - 1, "")}…`;
+	}
+	return visibleWidth(first) <= width ? first : truncateToWidth(first, width, "…");
+}
+
+/** A width-bounded private replacement for one native contiguous thinking run. */
+export class ThinkingStepsRows implements Component {
+	private readonly title: Markdown;
+	private readonly labels: Array<{ source: string; markdown: Markdown }>;
+
+	constructor(
+		private readonly native: Component,
+		private readonly shape: NativeMarkdownShape,
+		steps: readonly ThinkingStep[],
+		private readonly mode: StructuralThinkingMode,
+		private readonly incomplete: boolean,
+		private readonly getTheme: () => AccentTheme,
+	) {
+		const selected = mode === "rail" ? steps : steps.slice(-5);
+		this.title = new Markdown(
+			"**Thinking**",
+			0,
+			0,
+			shape.theme,
+			shape.defaultTextStyle,
+			shape.options,
+		);
+		this.labels = selected.map((step) => ({
+			source: step.label,
+			markdown: new Markdown(step.label, 0, 0, shape.theme, shape.defaultTextStyle, shape.options),
+		}));
+	}
+
+	render(width: number): string[] {
+		try {
+			const outer = this.shape.paddingX;
+			const innerWidth = Math.floor(width) - outer * 2;
+			const titleConnector = this.mode === "rail" ? "│ " : "┆ ";
+			const titleBudget = innerWidth - visibleWidth(titleConnector);
+			const title = croppedMarkdownRow(this.title, "**Thinking**", titleBudget);
+			if (!title) return this.native.render(width);
+			const renderedLabels: Array<{ connector: string; label: string }> = [];
+			for (const [index, value] of this.labels.entries()) {
+				const final = index === this.labels.length - 1;
+				const connector =
+					this.mode === "rail"
+						? final && this.incomplete
+							? "│ • "
+							: "│ "
+						: final
+							? this.incomplete
+								? "└─ • "
+								: "└─ · "
+							: "├─ · ";
+				const budget = innerWidth - visibleWidth(connector);
+				const label = croppedMarkdownRow(value.markdown, value.source, budget);
+				if (!label) return this.native.render(width);
+				renderedLabels.push({ connector, label });
+			}
+			const theme = this.getTheme();
+			const left = " ".repeat(outer);
+			const right = " ".repeat(outer);
+			const rows = [
+				`${left}${theme.fg("accent", titleConnector)}${title}${right}`,
+				...renderedLabels.map(
+					({ connector, label }) => `${left}${theme.fg("accent", connector)}${label}${right}`,
+				),
+			];
+			return rows.every((row) => visibleWidth(row) <= width) ? rows : this.native.render(width);
+		} catch {
+			return this.native.render(width);
+		}
+	}
+
+	invalidate(): void {
+		this.native.invalidate();
+		this.title.invalidate();
+		for (const label of this.labels) label.markdown.invalidate();
+	}
+}
+
+/** Pure factory shared by settings previews and the private assistant wrapper. */
+export function createThinkingStepsRows(
+	native: Component,
+	shape: NativeMarkdownShape,
+	steps: readonly ThinkingStep[],
+	mode: StructuralThinkingMode,
+	incomplete: boolean,
+	getTheme: () => AccentTheme,
+): ThinkingStepsRows {
+	return new ThinkingStepsRows(native, shape, steps, mode, incomplete, getTheme);
+}
+
 class FoldContext {
 	readonly sections: FoldedThinkingSection[] = [];
 	private preparedWidth: number | undefined;
@@ -155,8 +304,8 @@ class FoldContext {
 		if (this.preparedWidth === width) return;
 		const rendered = this.sections.map((section) => section.renderNative(width));
 		const total = rendered.reduce((count, rows) => count + rows.length, 0);
-		this.hidden = !this.incomplete || total > THINKING_STREAM_TAIL_ROWS;
-		let remaining = this.incomplete ? Math.min(total, THINKING_STREAM_TAIL_ROWS) : 0;
+		this.hidden = !this.incomplete || total > THINKING_EXPERIMENTAL_TAIL_ROWS;
+		let remaining = this.incomplete ? Math.min(total, THINKING_EXPERIMENTAL_TAIL_ROWS) : 0;
 		this.allocations = new Map();
 		for (let index = rendered.length - 1; index >= 0; index -= 1) {
 			const rows = rendered[index] ?? [];
@@ -238,7 +387,7 @@ function markdownShape(component: Markdown): NativeMarkdownShape | undefined {
 }
 
 type NativeChildDescriptor =
-	| Readonly<{ kind: "markdown"; source: string; thinking: boolean }>
+	| Readonly<{ kind: "markdown"; source: string; thinkingRun?: number }>
 	| Readonly<{ kind: "spacer" }>
 	| Readonly<{ kind: "text"; markers: readonly string[] }>;
 
@@ -246,7 +395,25 @@ type ThinkingMarkdownMatch = Readonly<{
 	index: number;
 	markdown: Markdown;
 	shape: NativeMarkdownShape;
+	run: number;
 }>;
+
+type ThinkingMarkdownLayout = Readonly<{
+	matches: readonly ThinkingMarkdownMatch[];
+	descriptors: readonly NativeChildDescriptor[];
+}>;
+
+class NativeThinkingRun implements Component {
+	constructor(private readonly children: readonly Component[]) {}
+
+	render(width: number): string[] {
+		return this.children.flatMap((child) => child.render(width));
+	}
+
+	invalidate(): void {
+		for (const child of this.children) child.invalidate();
+	}
+}
 
 const legacyLengthMarkers = [
 	"Error: Model stopped because it reached the maximum output token limit. The response may be incomplete.",
@@ -293,19 +460,27 @@ function trailingDescriptors(message: AssistantMessage): NativeChildDescriptor[]
 function nativeChildLayouts(message: AssistantMessage): NativeChildDescriptor[][] {
 	const build = (coalesceThinking: boolean): NativeChildDescriptor[] => {
 		const descriptors: NativeChildDescriptor[] = [];
+		let nextRun = 0;
+		let contiguousRun: number | undefined;
 		if (hasVisibleContentAfter(message, 0)) descriptors.push({ kind: "spacer" });
 		for (let index = 0; index < message.content.length; index += 1) {
 			const content = message.content[index];
 			if (content?.type === "text") {
+				contiguousRun = undefined;
 				const source = content.text.trim();
-				if (source) descriptors.push({ kind: "markdown", source, thinking: false });
+				if (source) descriptors.push({ kind: "markdown", source });
 				continue;
 			}
-			if (content?.type !== "thinking") continue;
+			if (content?.type !== "thinking") {
+				contiguousRun = undefined;
+				continue;
+			}
+			const run = contiguousRun ?? nextRun++;
+			contiguousRun = run;
 			if (!coalesceThinking) {
 				const source = content.thinking.trim();
 				if (source) {
-					descriptors.push({ kind: "markdown", source, thinking: true });
+					descriptors.push({ kind: "markdown", source, thinkingRun: run });
 					if (hasVisibleContentAfter(message, index + 1)) descriptors.push({ kind: "spacer" });
 				}
 				continue;
@@ -319,7 +494,7 @@ function nativeChildLayouts(message: AssistantMessage): NativeChildDescriptor[][
 			}
 			index -= 1;
 			if (!blocks.length) continue;
-			descriptors.push({ kind: "markdown", source: blocks.join("\n\n"), thinking: true });
+			descriptors.push({ kind: "markdown", source: blocks.join("\n\n"), thinkingRun: run });
 			if (hasVisibleContentAfter(message, index + 1)) descriptors.push({ kind: "spacer" });
 		}
 		return [...descriptors, ...trailingDescriptors(message)];
@@ -340,7 +515,7 @@ function exactConstructor(component: Component, expected: { prototype: object })
 function matchNativeLayout(
 	children: Component[],
 	descriptors: NativeChildDescriptor[],
-): ThinkingMarkdownMatch[] | undefined {
+): ThinkingMarkdownLayout | undefined {
 	if (children.length !== descriptors.length) return undefined;
 	const thinking: ThinkingMarkdownMatch[] = [];
 	for (let index = 0; index < descriptors.length; index += 1) {
@@ -363,46 +538,131 @@ function matchNativeLayout(
 		if (!exactConstructor(child, Markdown)) return undefined;
 		const shape = markdownShape(child as Markdown);
 		if (!shape || shape.text !== descriptor.source) return undefined;
-		if (descriptor.thinking) thinking.push({ index, markdown: child as Markdown, shape });
+		if (descriptor.thinkingRun !== undefined) {
+			thinking.push({
+				index,
+				markdown: child as Markdown,
+				shape,
+				run: descriptor.thinkingRun,
+			});
+		}
 	}
-	return thinking;
+	return { matches: thinking, descriptors };
 }
 
-function thinkingMarkdownMatches(
+function thinkingMarkdownLayout(
 	children: Component[],
 	message: AssistantMessage,
-): ThinkingMarkdownMatch[] | undefined {
+): ThinkingMarkdownLayout | undefined {
 	for (const descriptors of nativeChildLayouts(message)) {
-		const matches = matchNativeLayout(children, descriptors);
-		if (matches?.length) return matches;
+		const layout = matchNativeLayout(children, descriptors);
+		if (layout?.matches.length) return layout;
 	}
 	return undefined;
 }
 
-export function hasThinkingStreamMarkdownIdentity(
+function writableOwnChildren(
+	instance: PatchableAssistant,
+): { container: { children?: Component[] }; children: Component[] } | undefined {
+	const container = instance.contentContainer;
+	if (!container) return undefined;
+	const descriptor = Object.getOwnPropertyDescriptor(container, "children");
+	if (
+		!descriptor ||
+		!("value" in descriptor) ||
+		descriptor.writable !== true ||
+		!Array.isArray(descriptor.value)
+	)
+		return undefined;
+	return { container, children: descriptor.value };
+}
+
+export function hasThinkingExperimentalMarkdownIdentity(
 	instance: object,
 	message: AssistantMessage,
 ): boolean {
-	const children = (instance as PatchableAssistant).contentContainer?.children;
-	return Array.isArray(children) && thinkingMarkdownMatches(children, message) !== undefined;
+	const owned = writableOwnChildren(instance as PatchableAssistant);
+	return Boolean(owned && thinkingMarkdownLayout(owned.children, message) !== undefined);
+}
+
+function activeThinkingRun(message: AssistantMessage, incomplete: boolean): number | undefined {
+	if (!incomplete || message.content.at(-1)?.type !== "thinking") return undefined;
+	let nextRun = 0;
+	let contiguousRun: number | undefined;
+	for (const content of message.content) {
+		if (content.type !== "thinking") {
+			contiguousRun = undefined;
+			continue;
+		}
+		contiguousRun ??= nextRun++;
+	}
+	return contiguousRun;
 }
 
 function replaceThinkingChildren(
 	instance: PatchableAssistant,
 	message: AssistantMessage,
+	mode: ThinkingStepsMode,
 	incomplete: boolean,
 	header: (hidden: boolean) => string,
+	getTheme: () => AccentTheme,
 ): boolean {
-	const children = instance.contentContainer?.children;
-	if (!Array.isArray(children)) return false;
-	const matches = thinkingMarkdownMatches(children, message);
-	if (!matches) return false;
-	const template = matches[0]?.shape;
-	if (!template) return false;
-	const context = new FoldContext(incomplete, header, template);
-	for (const [position, match] of matches.entries()) {
-		children[match.index] = new FoldedThinkingSection(match.markdown, context, position === 0);
+	const owned = writableOwnChildren(instance);
+	if (!owned) return false;
+	const { container, children } = owned;
+	const layout = thinkingMarkdownLayout(children, message);
+	if (!layout) return false;
+	const replacements = new Map<number, Component>();
+	const removals = new Set<number>();
+	if (mode === "streaming") {
+		const template = layout.matches[0]?.shape;
+		if (!template) return false;
+		const context = new FoldContext(incomplete, header, template);
+		for (const [position, match] of layout.matches.entries()) {
+			replacements.set(
+				match.index,
+				new FoldedThinkingSection(match.markdown, context, position === 0),
+			);
+		}
+	} else {
+		const runs = new Map<number, ThinkingMarkdownMatch[]>();
+		for (const match of layout.matches) {
+			const matches = runs.get(match.run) ?? [];
+			matches.push(match);
+			runs.set(match.run, matches);
+		}
+		const activeRun = activeThinkingRun(message, incomplete);
+		for (const [run, matches] of runs) {
+			const first = matches[0];
+			const last = matches.at(-1);
+			if (!first || !last) continue;
+			const source = matches.map((match) => match.shape.text).join("\n\n");
+			const steps = parseThinkingSteps(source);
+			if (!steps?.length) continue;
+			const nativeChildren = children.slice(first.index, last.index + 1);
+			const native =
+				nativeChildren.length === 1 ? first.markdown : new NativeThinkingRun(nativeChildren);
+			replacements.set(
+				first.index,
+				createThinkingStepsRows(
+					native,
+					{ ...first.shape, text: source },
+					steps,
+					mode,
+					run === activeRun,
+					getTheme,
+				),
+			);
+			for (let index = first.index + 1; index <= last.index; index += 1) removals.add(index);
+		}
 	}
+	if (replacements.size === 0) return true;
+	const nextChildren = children.flatMap((child, index) => {
+		const replacement = replacements.get(index);
+		if (replacement) return [replacement];
+		return removals.has(index) ? [] : [child];
+	});
+	container.children = nextChildren;
 	return true;
 }
 
@@ -424,6 +684,10 @@ function assistantMessage(event: unknown): AssistantMessage | undefined {
 	)
 		return undefined;
 	return message as AssistantMessage;
+}
+
+function beginsThinkingPhase(type: string | undefined): boolean {
+	return type === "thinking_start" || type === "thinking_delta";
 }
 
 function endsThinkingPhase(type: string | undefined): boolean {
@@ -477,7 +741,7 @@ function isKeyRelease(data: string): boolean {
 }
 
 /** Owns the opt-in private renderer wrapper for one Zentui extension/session lifecycle. */
-export class ThinkingStreamExperimentalController {
+export class ThinkingExperimentalController {
 	private installed = false;
 	private active = false;
 	private displaced = false;
@@ -498,6 +762,8 @@ export class ThinkingStreamExperimentalController {
 	private currentMessage: AssistantMessage | undefined;
 	private rerendering = false;
 	private shapeFailureDuringRerender: string | undefined;
+	private startup: ThinkingStepsComponentConfig = { enabled: false, mode: "tree" };
+	private activeMode: ThinkingStepsMode | undefined;
 
 	constructor(
 		private readonly getConfig: () => ThinkingStepsComponentConfig,
@@ -521,24 +787,24 @@ export class ThinkingStreamExperimentalController {
 		}
 	}
 
-	get state(): ThinkingStreamExperimentalState {
+	get state(): ThinkingExperimentalState {
 		this.checkDisplacement();
 		const reason = this.displaced
 			? "Private renderer patch ownership was displaced; restart required"
 			: (this.unavailableReason ??
-				(this.restartRequired && !this.active
-					? "Restart Pi to activate the private renderer."
-					: undefined));
+				(this.restartRequired ? "Restart Pi to apply saved Thinking changes." : undefined));
 		return Object.freeze({
 			available: !this.unavailableReason && !this.displaced,
 			active: this.active && !this.displaced,
+			...(this.activeMode ? { activeMode: this.activeMode } : {}),
+			startup: Object.freeze({ ...this.startup }),
 			displaced: this.displaced,
 			restartRequired: this.restartRequired,
 			...(reason ? { reason } : {}),
 		});
 	}
 
-	get diagnostics(): ThinkingStreamExperimentalDiagnostics {
+	get diagnostics(): ThinkingExperimentalDiagnostics {
 		return Object.freeze({
 			trackedComponents: this.trackedEntries().length,
 			activeComponents: this.activeEntries().length,
@@ -549,18 +815,15 @@ export class ThinkingStreamExperimentalController {
 	/** Activates the private renderer only during session startup, before transcript restoration. */
 	startSession(ctx: ExtensionContext): { applied: boolean; reason?: string } {
 		if (ctx.mode === "tui" && ctx.hasUI) this.context = ctx;
-		const config = this.getConfig();
-		const shouldActivate = config.enabled && config.mode === "streaming-experimental";
-		if (!shouldActivate) {
-			this.deactivate();
-			this.restartRequired = config.mode === "streaming-experimental";
-			return { applied: true };
-		}
+		this.startup = { ...this.getConfig() };
+		this.restartRequired = false;
+		this.activeMode = undefined;
+		if (!this.startup.enabled) return { applied: true };
 		if (!this.context) {
-			this.restartRequired = true;
-			return { applied: false, reason: "Streaming (Experimental) requires a TUI session" };
+			return { applied: false, reason: "Thinking (Experimental) requires a TUI session" };
 		}
-		if (this.unavailableReason || !this.resolveToggleInput()) {
+		if (this.unavailableReason) return { applied: false, reason: this.unavailableReason };
+		if (this.startup.mode === "streaming" && !this.resolveToggleInput()) {
 			return {
 				applied: false,
 				reason: this.unavailableReason ?? "Experimental thinking toggle is unavailable",
@@ -581,8 +844,8 @@ export class ThinkingStreamExperimentalController {
 			};
 		}
 		this.active = true;
-		this.restartRequired = false;
-		this.installInputListener();
+		this.activeMode = this.startup.mode;
+		if (this.activeMode === "streaming") this.installInputListener();
 		if (!this.active) {
 			return {
 				applied: false,
@@ -592,31 +855,13 @@ export class ThinkingStreamExperimentalController {
 		return { applied: true };
 	}
 
-	/** Reconciles live settings without ever acquiring private patch or input ownership. */
+	/** Persists live settings while retaining the immutable startup renderer snapshot. */
 	reconcile(): { applied: boolean; reason?: string } {
-		const config = this.getConfig();
-		if (config.mode !== "streaming-experimental") {
-			this.deactivate();
-			this.restartRequired = false;
-			return { applied: true };
-		}
-		if (!config.enabled) {
-			const deactivated = this.active;
-			this.deactivate();
-			this.restartRequired = true;
-			return deactivated
-				? { applied: true }
-				: {
-						applied: false,
-						reason: "Restart Pi to activate the private renderer.",
-					};
-		}
-		if (this.active && !this.checkDisplacement()) return { applied: true };
-		this.restartRequired = true;
-		return {
-			applied: false,
-			reason: "Restart Pi to activate the private renderer.",
-		};
+		const desired = this.getConfig();
+		this.restartRequired =
+			desired.enabled !== this.startup.enabled || desired.mode !== this.startup.mode;
+		if (!this.restartRequired) return { applied: true };
+		return { applied: false, reason: "Restart Pi to apply saved Thinking changes." };
 	}
 
 	private install(): boolean {
@@ -634,21 +879,64 @@ export class ThinkingStreamExperimentalController {
 				"updateContent",
 				PATCH_ADAPTER,
 				({ predecessor, receiver, args }) => {
-					const renderNative = () => Reflect.apply(predecessor, receiver, args);
+					const component = receiver as object;
+					const dropFailedPredecessor = () => {
+						try {
+							this.dropComponent(component, true);
+						} catch {
+							// Preserve the predecessor's exact thrown value over bookkeeping failures.
+						}
+					};
+					const renderNative = () => {
+						try {
+							return Reflect.apply(predecessor, receiver, args);
+						} catch (error) {
+							dropFailedPredecessor();
+							throw error;
+						}
+					};
+					const renderNativeWithHiddenState = (
+						instance: PatchableAssistant,
+						hidden: HiddenState,
+					) => {
+						try {
+							return renderWithHiddenState(instance, predecessor, args, hidden);
+						} catch (error) {
+							dropFailedPredecessor();
+							throw error;
+						}
+					};
 					if (!this.active || this.checkDisplacement()) return renderNative();
-					const message = args[0] as AssistantMessage | undefined;
-					if (!message || !Array.isArray(message.content) || !hasThinking(message))
-						return renderNative();
 					const instance = receiver as PatchableAssistant;
+					const message = args[0] as AssistantMessage | undefined;
+					if (!message || !Array.isArray(message.content) || !hasThinking(message)) {
+						const nativeResult = renderNative();
+						this.declineOwnership(component);
+						return nativeResult;
+					}
 					// Host-driven calls are the authority for Pi's latest hidden preference.
 					// Controller rerenders bypass this wrapper and therefore cannot overwrite it.
 					const nativeHidden = hiddenState(instance);
-					let nativeResult: unknown;
+					const mode = this.activeMode;
+					if (!mode) {
+						const nativeResult = renderNative();
+						this.declineOwnership(component);
+						return nativeResult;
+					}
+					// The predecessor is outside decoration error containment. Its exact exception,
+					// including object identity, remains authoritative to the host.
+					const nativeResult =
+						mode === "streaming"
+							? renderNativeWithHiddenState(instance, {
+									own: true,
+									value: false,
+								})
+							: renderNative();
+					if (mode !== "streaming" && nativeHidden.value === true) {
+						this.declineOwnership(component);
+						return nativeResult;
+					}
 					try {
-						nativeResult = renderWithHiddenState(instance, predecessor, args, {
-							own: true,
-							value: false,
-						});
 						const timestamp = messageTimestamp(message);
 						const timing = timestamp === undefined ? undefined : this.timings.get(timestamp);
 						const streamingArgument = args[1];
@@ -660,22 +948,36 @@ export class ThinkingStreamExperimentalController {
 									(message.stopReason as string) === "pending" ||
 									(timing?.startedAt !== undefined && timing.completedAt === undefined);
 						const incomplete = streaming && timing?.completedAt === undefined;
-						this.track(receiver as object, message, args, predecessor, incomplete, nativeHidden);
-						if (this.expanded) return nativeResult;
+						if (!writableOwnChildren(instance)) {
+							this.failShape("Pi's private assistant renderer shape is incompatible");
+							return nativeResult;
+						}
+						this.track(component, message, args, predecessor, incomplete, nativeHidden);
+						if (mode === "streaming" && this.expanded) return nativeResult;
 						if (
-							!replaceThinkingChildren(instance, message, incomplete, (hidden) =>
-								this.headerFor(message, incomplete, hidden),
+							!replaceThinkingChildren(
+								instance,
+								message,
+								mode,
+								incomplete,
+								(hidden) => this.headerFor(message, incomplete, hidden),
+								() => {
+									const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
+									if (!theme || typeof theme.fg !== "function")
+										throw new Error("theme unavailable");
+									return theme;
+								},
 							)
 						) {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
 							return nativeResult;
 						}
-						const state = this.states.get(receiver as object);
+						const state = this.states.get(component);
 						if (state) state.folded = true;
 						return nativeResult;
 					} catch {
-						this.dropComponent(receiver as object);
-						return renderWithHiddenState(instance, predecessor, args, nativeHidden);
+						this.declineOwnership(component);
+						return nativeResult;
 					}
 				},
 				() => {
@@ -913,7 +1215,16 @@ export class ThinkingStreamExperimentalController {
 		return entries;
 	}
 
-	private dropComponent(component: object): void {
+	private declineOwnership(component: object): void {
+		try {
+			this.dropComponent(component, true);
+		} catch {
+			// Native already completed; private bookkeeping must fail open.
+		}
+	}
+
+	private dropComponent(component: object, dropTiming = false): void {
+		const state = this.states.get(component);
 		const reference = this.references.get(component);
 		if (reference) {
 			this.tracked.delete(reference);
@@ -921,10 +1232,21 @@ export class ThinkingStreamExperimentalController {
 		}
 		this.references.delete(component);
 		this.states.delete(component);
+		if (!dropTiming || !state) return;
+		const timestamp = messageTimestamp(state.message);
+		if (timestamp === undefined) return;
+		const stillReferenced = this.trackedEntries().some(
+			([, tracked]) => messageTimestamp(tracked.message) === timestamp,
+		);
+		if (!stillReferenced) this.timings.delete(timestamp);
+		if (this.currentMessage && messageTimestamp(this.currentMessage) === timestamp) {
+			this.currentMessage = undefined;
+		}
+		this.reconcileTimer();
 	}
 
 	private enforceTrackedCapacity(): void {
-		while (this.tracked.size > THINKING_STREAM_MAX_TRACKED_COMPONENTS) {
+		while (this.tracked.size > THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS) {
 			const reference = this.tracked.values().next().value as WeakRef<object> | undefined;
 			if (!reference) break;
 			const component = reference.deref();
@@ -968,15 +1290,36 @@ export class ThinkingStreamExperimentalController {
 				processed += 1;
 				const instance = component as PatchableAssistant;
 				try {
-					renderWithHiddenState(instance, state.predecessor, state.args, {
-						own: true,
-						value: false,
-					});
+					const mode = this.activeMode;
+					if (!mode) continue;
+					if (mode === "streaming") {
+						renderWithHiddenState(instance, state.predecessor, state.args, {
+							own: true,
+							value: false,
+						});
+					} else {
+						renderWithHiddenState(instance, state.predecessor, state.args, state.nativeHidden);
+						if (state.nativeHidden.value === true) continue;
+					}
 					state.folded = false;
-					if (this.active && !this.expanded && hasThinking(state.message)) {
+					if (
+						this.active &&
+						(mode !== "streaming" || !this.expanded) &&
+						hasThinking(state.message)
+					) {
 						if (
-							!replaceThinkingChildren(instance, state.message, state.incomplete, (hidden) =>
-								this.headerFor(state.message, state.incomplete, hidden),
+							!replaceThinkingChildren(
+								instance,
+								state.message,
+								mode,
+								state.incomplete,
+								(hidden) => this.headerFor(state.message, state.incomplete, hidden),
+								() => {
+									const theme = this.context?.ui.theme as unknown as AccentTheme | undefined;
+									if (!theme || typeof theme.fg !== "function")
+										throw new Error("theme unavailable");
+									return theme;
+								},
 							)
 						) {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
@@ -1019,7 +1362,7 @@ export class ThinkingStreamExperimentalController {
 	}
 
 	private reconcileTimer(): void {
-		if (!this.active) {
+		if (!this.active || this.activeMode !== "streaming") {
 			this.stopTimer();
 			return;
 		}
@@ -1099,6 +1442,7 @@ export class ThinkingStreamExperimentalController {
 
 	private deactivate(): void {
 		this.active = false;
+		this.activeMode = undefined;
 		this.expanded = false;
 		this.stopTimer();
 		this.stopInput?.();
@@ -1125,7 +1469,9 @@ export class ThinkingStreamExperimentalController {
 		const message = assistantMessage(event);
 		if (!message) return;
 		this.currentMessage = message;
-		if (endsThinkingPhase(eventType(event))) this.complete(message);
+		const type = eventType(event);
+		if (beginsThinkingPhase(type)) this.reopen(message);
+		else if (endsThinkingPhase(type)) this.complete(message);
 	}
 
 	endMessage(event: unknown): void {
@@ -1139,6 +1485,26 @@ export class ThinkingStreamExperimentalController {
 		if (!this.active) return;
 		if (this.currentMessage) this.complete(this.currentMessage);
 		this.currentMessage = undefined;
+	}
+
+	private reopen(message: AssistantMessage): void {
+		const timestamp = messageTimestamp(message);
+		if (timestamp === undefined) return;
+		const timing = this.timings.get(timestamp);
+		if (timing?.completedAt === undefined) return;
+		this.setTiming(timestamp, { startedAt: timing.startedAt ?? this.now() });
+		const reopenedEntries = this.trackedEntries().filter(([, state]) => {
+			if (messageTimestamp(state.message) !== timestamp) return false;
+			state.incomplete = true;
+			return true;
+		});
+		for (const [component] of reopenedEntries) {
+			const reference = this.references.get(component);
+			if (reference) this.activeComponents.add(reference);
+		}
+		const processed = this.rerenderEntries(reopenedEntries);
+		if (processed > 0) this.requestHostRender();
+		this.reconcileTimer();
 	}
 
 	private complete(message: AssistantMessage): void {
@@ -1179,6 +1545,7 @@ export class ThinkingStreamExperimentalController {
 
 	shutdown(): void {
 		this.deactivate();
+		this.startup = { enabled: false, mode: "tree" };
 		this.restartRequired = false;
 		this.patchRegistration?.();
 		this.patchRegistration = undefined;

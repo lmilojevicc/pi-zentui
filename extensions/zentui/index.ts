@@ -14,6 +14,7 @@ import {
 import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
+	defaultConfig,
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -88,8 +89,7 @@ import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
 import { resolveFooterTelemetry } from "./telemetry";
-import { registerThinkingStepsTransformer } from "./thinking-steps";
-import { ThinkingStreamExperimentalController } from "./thinking-stream-experimental";
+import { ThinkingExperimentalController } from "./thinking-experimental";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
 import {
@@ -184,11 +184,7 @@ export default function (pi: ExtensionAPI) {
 	const sessionLifecycle = new SessionLifecycle();
 	const editorOwnerToken = Symbol("zentui-editor-owner");
 
-	let currentConfig: PolishedTuiConfig = loadConfig();
-	const thinkingStepsPublicCapability = registerThinkingStepsTransformer(
-		pi,
-		() => currentConfig.components.thinkingSteps,
-	);
+	let currentConfig: PolishedTuiConfig = structuredClone(defaultConfig);
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
 	if (typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
@@ -286,13 +282,12 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender?.();
 		requestEditorRender?.();
 	};
-	const thinkingStream = new ThinkingStreamExperimentalController(
+	const thinkingExperimental = new ThinkingExperimentalController(
 		() => currentConfig.components.thinkingSteps,
 	);
 	const thinkingStepsCapability = {
-		publicAvailable: thinkingStepsPublicCapability.available,
-		get experimental() {
-			return thinkingStream.state;
+		get state() {
+			return thinkingExperimental.state;
 		},
 	};
 	const liveContext = new LiveContextController(sessionLifecycle, refresh);
@@ -1045,7 +1040,6 @@ export default function (pi: ExtensionAPI) {
 		const staleFooterOwner = ctxFooterOwner(ctx);
 		if (typeof staleFooterOwner === "symbol") installedFooterToken = staleFooterOwner;
 		ensureConfigExists();
-		currentConfig = loadConfig();
 		syncFooterState(ctx);
 		stopProjectRefresh();
 
@@ -1153,8 +1147,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const lifecycleGeneration = sessionLifecycle.start();
-		// Experimental private ownership must exist before Pi restores transcript components.
-		thinkingStream.startSession(ctx);
+		// Reload synchronously so private ownership uses this session's disk snapshot before
+		// any await or transcript restoration.
+		currentConfig = loadConfig();
+		thinkingExperimental.startSession(ctx);
 		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
 		cleanupAccentRailLayoutPatch();
 		cleanupAccentRailLayoutPatch = () => {};
@@ -1241,17 +1237,7 @@ export default function (pi: ExtensionAPI) {
 			_ctx: ExtensionContext,
 		) {
 			currentConfig = saveThinkingStepsComponentPatch(patch);
-			const thinkingSteps = currentConfig.components.thinkingSteps;
-			const experimentalResult = thinkingStream.reconcile();
-			if (thinkingSteps.mode === "streaming-experimental") {
-				if (patch.enabled === false) return { applied: true };
-				return experimentalResult;
-			}
-			const unavailable = thinkingSteps.enabled && !thinkingStepsPublicCapability.available;
-			return {
-				applied: !unavailable,
-				reason: unavailable ? "Using native thinking — requires Pi 0.84 or newer" : undefined,
-			};
+			return thinkingExperimental.reconcile();
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);
@@ -1340,7 +1326,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		thinkingStream.shutdown();
+		thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLine.dispose(ctx);
@@ -1352,7 +1338,7 @@ export default function (pi: ExtensionAPI) {
 		refreshInteractiveState(ctx, true);
 	};
 
-	pi.on("message_start", (event) => thinkingStream.beginMessage(event));
+	pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
 
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
@@ -1366,7 +1352,7 @@ export default function (pi: ExtensionAPI) {
 		workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
-		thinkingStream.endAgent();
+		thinkingExperimental.endAgent();
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
@@ -1383,7 +1369,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("thinking_level_select", syncInteractiveState);
 	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event, ctx) => {
-		thinkingStream.updateMessage(event);
+		thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
@@ -1394,7 +1380,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 	pi.on("message_end", (event, ctx) => {
-		thinkingStream.endMessage(event);
+		thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
 			workingLine.updateMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);

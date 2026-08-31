@@ -15,9 +15,14 @@ import { dirname, join } from "node:path";
 import {
 	assertExtensionLoaderDiagnosticFixtures,
 	hasExtensionLoaderDiagnostic,
-} from "./thinking-stream-loader-diagnostics.mjs";
+} from "./thinking-experimental-loader-diagnostics.mjs";
 
-const versions = ["0.80.5", "0.83.0", "0.84.0", "0.84.4"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? [
+	"0.80.5",
+	"0.83.0",
+	"0.84.0",
+	"0.84.4",
+];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
 const npmCli = process.env.npm_execpath;
@@ -112,9 +117,10 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import {
 	AssistantMessageComponent,
 	getMarkdownTheme,
+	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Markdown } from "@earendil-works/pi-tui";
-import { hasThinkingStreamMarkdownIdentity } from "./extensions/zentui/thinking-stream-experimental.ts";
+import { Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { hasThinkingExperimentalMarkdownIdentity } from "./extensions/zentui/thinking-experimental.ts";
 
 const originalUpdate = AssistantMessageComponent.prototype.updateContent;
 const originalDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
@@ -129,17 +135,202 @@ const probePath = process.env.ZENTUI_PROBE_PATH;
 const fixture = ${JSON.stringify(assistant)};
 const liveFixture = ${JSON.stringify(liveAssistant)};
 const version = process.env.ZENTUI_PI_VERSION;
-const cleanRows = (rows) => rows.map((text) => text.replace(/\\x1b\\][^\\x07]*(?:\\x07|\\x1b\\\\)/g, "").replace(/\\x1b\\[[0-?]*[ -/]*[@-~]/g, "").trimEnd());
+const mode = process.env.ZENTUI_THINKING_MODE ?? "streaming";
+const cleanRows = (rows) => rows.map((text) => text.replace(/\\x1b\\](?:[^\\x07\\x1b]|\\x1b(?!\\\\))*(?:\\x07|\\x1b\\\\)/g, "").replace(/\\x1b\\[[0-?]*[ -/]*[@-~]/g, "").trimEnd());
 const LIVE_SECTION_START = "__ZENTUI_EXPERIMENTAL_LIVE_START_7D91B2__";
 const LIVE_SECTION_END = "__ZENTUI_EXPERIMENTAL_LIVE_END_7D91B2__";
 const COMPLETED_SECTION_START = "__ZENTUI_EXPERIMENTAL_COMPLETED_START_4A62C9__";
 const COMPLETED_SECTION_END = "__ZENTUI_EXPERIMENTAL_COMPLETED_END_4A62C9__";
 
 let removeProbeWidget;
+let structuralWidths = [];
+let structuralGenerations = [];
 let removeLiveProbeWidget;
 let stopProbeInput;
 export default function (pi) {
 	pi.on("session_start", (_event, ctx) => {
+		if (mode === "rail" || mode === "tree") {
+			const labels = Array.from(
+				{ length: 8 },
+				(_, index) =>
+					"PTY label " +
+					(index + 1) +
+					" with *emphasis* and \`code\` plus [link](https://example.com/" +
+					(index + 1) +
+					")",
+			);
+			const structuralBlocks = [
+				labels.slice(0, 4).map((label) => "# " + label).join("\\n"),
+				labels.slice(4).map((label) => "# " + label).join("\\n"),
+			];
+			const baseStructuralFixture = {
+				...liveFixture,
+				content: structuralBlocks.map((thinking) => ({ type: "thinking", thinking })),
+			};
+			const specs = ["current", "dark", "light"].flatMap((themeName) => [
+				{ themeName, active: true },
+				{ themeName, active: false },
+			]);
+			let generation = 0;
+			let tested;
+			let initialCalls = [];
+			const crop = (markdown, source, width) => {
+				const rows = markdown.render(width);
+				const first = rows[0];
+				if (!first) return undefined;
+				if (rows.length > 1)
+					return width === 1 ? "…" : truncateToWidth(first, width - 1, "") + "…";
+				return visibleWidth(first) <= width ? first : truncateToWidth(first, width, "…");
+			};
+			const compareAnsi = (component, nativeShape, selected, incomplete, width) => {
+				const rendered = component.render(width);
+				const structuralRows = rendered.filter((row) =>
+					/^\\s*(?:│|┆|├─|└─)/.test(cleanRows([row])[0] ?? ""),
+				);
+				const actualLabels = structuralRows
+					.slice(1)
+					.map((row) => row.replace(/\\x1b\\]133;[ABC]\\x07/g, ""));
+				const outer = nativeShape.paddingX;
+				const innerWidth = width - outer * 2;
+				const expectedLabels = selected.map((label, index) => {
+					const final = index === selected.length - 1;
+					const connector =
+						mode === "rail"
+							? final && incomplete
+								? "│ • "
+								: "│ "
+							: final
+								? incomplete
+									? "└─ • "
+									: "└─ · "
+								: "├─ · ";
+					const budget = innerWidth - visibleWidth(connector);
+					const markdown = new Markdown(
+						label,
+						0,
+						0,
+						nativeShape.theme,
+						nativeShape.defaultTextStyle,
+						nativeShape.options,
+					);
+					const nativeLabel = crop(markdown, label, budget);
+					return (
+						" ".repeat(outer) +
+						ctx.ui.theme.fg("accent", connector) +
+						nativeLabel +
+						" ".repeat(outer)
+					);
+				});
+				return {
+					width,
+					rendered,
+					actualLabels,
+					expectedLabels,
+					exactNativeLabels: JSON.stringify(actualLabels) === JSON.stringify(expectedLabels),
+					linkSemantics:
+						width < 80 ||
+						(actualLabels.every((row) => row.includes("\\x1b]8;;https://example.com/")) &&
+							expectedLabels.every((row) => row.includes("\\x1b]8;;https://example.com/"))),
+					croppedWithEllipsis:
+						width > 20 || cleanRows(actualLabels).every((row) => row.includes("…")),
+				};
+			};
+			const createGeneration = () => {
+				const spec = specs[generation];
+				if (spec.themeName !== "current") initTheme(spec.themeName, false);
+				const structuralFixture = {
+					...baseStructuralFixture,
+					stopReason: spec.active ? "pending" : "stop",
+					timestamp: baseStructuralFixture.timestamp + generation,
+				};
+				tested = new AssistantMessageComponent(
+					undefined,
+					false,
+					getMarkdownTheme(),
+					"Thinking...",
+					1,
+					[],
+				);
+				const beforeWrapperCalls = forwarded.length;
+				if (version === "0.80.5" || version === "0.83.0") tested.updateContent(structuralFixture);
+				else tested.updateContent(structuralFixture, spec.active);
+				if (generation === 0) {
+					initialCalls = forwarded.slice(beforeWrapperCalls).map((call) => ({
+						count: call.count,
+						isStreaming: call.isStreaming,
+						messageIdentity: call.message === structuralFixture,
+					}));
+				}
+				const native = new AssistantMessageComponent(
+					undefined,
+					false,
+					getMarkdownTheme(),
+					"Thinking...",
+					1,
+					[],
+				);
+				Reflect.apply(originalUpdate, native, [structuralFixture, spec.active]);
+				const nativeMarkdown = (native.contentContainer?.children ?? []).find(
+					(child) => child instanceof Markdown && child.text.includes("PTY label 1"),
+				);
+				if (!nativeMarkdown) throw new Error("native structural Markdown shape missing");
+				const selected = mode === "rail" ? labels : labels.slice(-5);
+				const record = {
+					generation,
+					themeName: spec.themeName,
+					active: spec.active,
+					constructors: (tested.contentContainer?.children ?? []).map(
+						(child) => child.constructor.name,
+					),
+					comparisons: [20, 80].map((width) =>
+						compareAnsi(tested, nativeMarkdown, selected, spec.active, width),
+					),
+				};
+				structuralGenerations.push(record);
+			};
+			createGeneration();
+			const hidden = new AssistantMessageComponent(
+				undefined,
+				true,
+				getMarkdownTheme(),
+				"Thinking...",
+				1,
+				[],
+			);
+			hidden.updateContent(baseStructuralFixture, true);
+			const widget = {
+				render(width) {
+					structuralWidths.push(width);
+					const marker = "Z" + generation + "W" + width;
+					return ["«" + marker + "»", ...tested.render(width), "«/" + marker + "»"];
+				},
+				invalidate() {
+					tested.invalidate();
+				},
+			};
+			ctx.ui.setWidget("zentui-structural-probe", () => widget, { placement: "aboveEditor" });
+			stopProbeInput = ctx.ui.onTerminalInput((data) => {
+				if (data !== "\\x1d" || generation >= specs.length - 1) return;
+				generation += 1;
+				createGeneration();
+				process.stdout.emit("resize");
+				return { consume: true };
+			});
+			removeProbeWidget = () => ctx.ui.setWidget("zentui-structural-probe", undefined);
+			writeFileSync(
+				probePath,
+				JSON.stringify({
+					ready: true,
+					mode,
+					installed: AssistantMessageComponent.prototype.updateContent !== nativeUpdate,
+					wrapperCalls: initialCalls.length,
+					testedCalls: initialCalls,
+					hidden80: hidden.render(80),
+					hiddenStatePreserved: hidden.hideThinkingBlock === true,
+				}) + "\\n",
+			);
+			return;
+		}
 		const nativeLive = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		Reflect.apply(originalUpdate, nativeLive, [liveFixture, true]);
 		const nativeChildren = nativeLive.contentContainer?.children ?? [];
@@ -148,7 +339,7 @@ export default function (pi) {
 		const nativeScreenRows = cleanRows(nativeLive.render(100));
 		const importedAssistantIdentity = nativeLive.constructor === AssistantMessageComponent;
 		const importedMarkdownIdentity = Boolean(nativeMarkdown && nativeMarkdown.constructor === Markdown);
-		const markdownIdentity = hasThinkingStreamMarkdownIdentity(nativeLive, liveFixture);
+		const markdownIdentity = hasThinkingExperimentalMarkdownIdentity(nativeLive, liveFixture);
 		const installed = AssistantMessageComponent.prototype.updateContent !== nativeUpdate;
 
 		const tested = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
@@ -290,7 +481,11 @@ export default function (pi) {
 		stopProbeInput?.();
 		stopProbeInput = undefined;
 		const restored = AssistantMessageComponent.prototype.updateContent === nativeUpdate;
-		appendFileSync(probePath, JSON.stringify({ restored, widgetRemoved: true }) + "\\n");
+		appendFileSync(
+			probePath,
+			JSON.stringify({ restored, widgetRemoved: true, structuralWidths, structuralGenerations }) +
+				"\\n",
+		);
 		Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", originalDescriptor);
 	});
 }
@@ -304,7 +499,8 @@ environment = os.environ.copy()
 environment.update(json.loads(sys.argv[2]))
 probe_path = environment["ZENTUI_PROBE_PATH"]
 supervisor_path = environment["ZENTUI_SUPERVISOR_PATH"]
-rows, cols = 30, 100
+rows = 30
+cols = 80 if environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree") else 100
 
 class Screen:
     def __init__(self):
@@ -312,6 +508,20 @@ class Screen:
         self.r = 0; self.c = 0; self.saved = (0, 0)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.pending = ""
+    def resize(self, height, width):
+        global rows, cols
+        resized = []
+        for y in range(height):
+            previous = self.cells[y] if y < len(self.cells) else []
+            resized.append((previous[:width] + [" "] * width)[:width])
+        self.cells = resized
+        rows, cols = height, width
+        self.r = max(0, min(rows - 1, self.r))
+        self.c = max(0, min(cols - 1, self.c))
+        self.saved = (
+            max(0, min(rows - 1, self.saved[0])),
+            max(0, min(cols - 1, self.saved[1])),
+        )
     def clear_line(self, mode=0):
         if mode == 2: start, end = 0, cols
         elif mode == 1: start, end = 0, self.c + 1
@@ -572,9 +782,41 @@ try:
         raise TimeoutError("deadline waiting for " + label + ": " + screen.text()[-2000:])
 
     folded = live_section = expanded = refolded = quiescence_snapshot = ""
+    structural_snapshots = []
     if environment.get("ZENTUI_QUIESCENCE_SIMULATION") == "1":
         pump_until(lambda: "TRANSIENT_READY" in screen.text() and "STABLE_GATE" in screen.text(), "stable simulated state")
         quiescence_snapshot = screen.text()
+        pump_until(lambda: status is not None, "process exit")
+    elif environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree"):
+        def sentinel_rows(snapshot, start, end):
+            values = snapshot.split("\n")
+            try: start_index = next(i for i, row in enumerate(values) if row.strip() == start)
+            except StopIteration: return []
+            try: end_index = next(i for i, row in enumerate(values[start_index + 1:], start_index + 1) if row.strip() == end)
+            except StopIteration: return []
+            return [row.rstrip() for row in values[start_index + 1:end_index]]
+        pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "«Z0W80»" in screen.text() and "«/Z0W80»" in screen.text(), "initial 80-column structural screen")
+        for generation in range(6):
+            for width in (20, 80):
+                screen.resize(rows, width)
+                fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, width, 0, 0))
+                os.kill(pid, signal.SIGWINCH)
+                start = "«Z" + str(generation) + "W" + str(width) + "»"
+                end = "«/Z" + str(generation) + "W" + str(width) + "»"
+                pump_until(lambda start=start, end=end: start in screen.text() and end in screen.text(), str(width) + "-column structural generation " + str(generation))
+                snapshot = screen.text()
+                structural_snapshots.append({
+                    "generation": generation,
+                    "width": width,
+                    "rows": sentinel_rows(snapshot, start, end),
+                    "screen": snapshot,
+                })
+                if generation == 0 and width == 80: folded = snapshot
+            if generation < 5:
+                os.write(master, b"\x1d")
+                next_start = "«Z" + str(generation + 1) + "W80»"
+                pump_until(lambda next_start=next_start: next_start in screen.text(), "structural generation " + str(generation + 1))
+        os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
     else:
         pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "Thought" in screen.text() and "ctrl+t to expand" in screen.text() and "Thinking" in screen.text() and "KNOWN WRAPPED CONTINUATION" in screen.text() and "__ZENTUI_EXPERIMENTAL_LIVE_START_7D91B2__" in screen.text() and "__ZENTUI_EXPERIMENTAL_LIVE_END_7D91B2__" in screen.text() and "__ZENTUI_EXPERIMENTAL_COMPLETED_START_4A62C9__" in screen.text() and "__ZENTUI_EXPERIMENTAL_COMPLETED_END_4A62C9__" in screen.text(), "fold readiness")
@@ -612,6 +854,7 @@ print(json.dumps({
     "expanded": expanded,
     "refolded": refolded,
     "quiescenceSnapshot": quiescence_snapshot,
+    "structuralSnapshots": structural_snapshots,
     "raw": raw.decode("utf-8", "replace"),
     "groupAlive": group_alive,
     "pid": pid,
@@ -921,7 +1164,7 @@ while True: time.sleep(1)
 			join(agentDir, "zentui.json"),
 			JSON.stringify({
 				components: {
-					thinkingSteps: { enabled: true, mode: "streaming-experimental" },
+					thinkingSteps: { enabled: true, mode: "streaming" },
 					editor: { enabled: false },
 					userMessages: { enabled: false },
 					workingLine: { enabled: false },
@@ -1107,6 +1350,150 @@ while True: time.sleep(1)
 				`Pi ${version} live identity/tail/cleanup probe failed: ${JSON.stringify(probes)}`,
 			);
 		}
+		for (const mode of ["rail", "tree"]) {
+			writeFileSync(
+				join(agentDir, "zentui.json"),
+				JSON.stringify({
+					components: {
+						thinkingSteps: { enabled: true, mode },
+						editor: { enabled: false },
+						userMessages: { enabled: false },
+						workingLine: { enabled: false },
+						selectorBorders: { enabled: false },
+						footer: { style: "native" },
+					},
+				}),
+			);
+			const modeProbePath = join(versionRoot, `probe-${mode}.jsonl`);
+			const modeSupervisorPath = join(versionRoot, `supervisor-${mode}.json`);
+			const modeResult = await runDriver(
+				python,
+				command,
+				{
+					...environment,
+					ZENTUI_PROBE_PATH: modeProbePath,
+					ZENTUI_SUPERVISOR_PATH: modeSupervisorPath,
+					ZENTUI_THINKING_MODE: mode,
+				},
+				versionRoot,
+			);
+			if (
+				modeResult.exit !== 0 ||
+				modeResult.groupAlive ||
+				hasExtensionLoaderDiagnostic(modeResult.raw)
+			) {
+				throw new Error(`Pi ${version} ${mode} PTY/process probe failed`);
+			}
+			const modeProbes = readFileSync(modeProbePath, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			const structural = modeProbes[0];
+			const completedStructural = modeProbes.at(-1);
+			const cleanExact = (rows) =>
+				(rows ?? []).map((text) =>
+					text
+						.replace(/\x1b\]133;[ABC]\x07/g, "")
+						.replace(/\x1b\](?:[^\x07\x1b]|\x1b(?!\\))*(?:\x07|\x1b\\)/g, "")
+						.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+						.trimEnd(),
+				);
+			const clean = (rows) => cleanExact(rows).filter((text) => text.trim().length > 0);
+			const generations = completedStructural?.structuralGenerations ?? [];
+			const snapshots = modeResult.structuralSnapshots ?? [];
+			const oldContract = runtimeVersion === "0.80.5" || runtimeVersion === "0.83.0";
+			const modeCall = structural?.testedCalls?.[0];
+			let generationFailure;
+			for (const generation of generations) {
+				if (generation.constructors.filter((name) => name === "ThinkingStepsRows").length !== 1) {
+					generationFailure = "replacement constructor count";
+					break;
+				}
+				for (const comparison of generation.comparisons ?? []) {
+					const snapshot = snapshots.find(
+						(value) =>
+							value.generation === generation.generation && value.width === comparison.width,
+					);
+					const exactScreen =
+						JSON.stringify(snapshot?.rows) === JSON.stringify(cleanExact(comparison.rendered));
+					const structuralRows = clean(comparison.rendered).filter((row) =>
+						/^(?:│|┆|├─|└─)/.test(row.trimStart()),
+					);
+					const labels = structuralRows.slice(1);
+					const expectedFirst = mode === "rail" ? "PTY label 1" : "PTY label 4";
+					const expectedFinal = generation.active
+						? mode === "rail"
+							? "│ • PTY label 8"
+							: "└─ • PTY label 8"
+						: mode === "rail"
+							? "│ PTY label 8"
+							: "└─ · PTY label 8";
+					if (
+						!snapshot ||
+						!exactScreen ||
+						!comparison.exactNativeLabels ||
+						!comparison.linkSemantics ||
+						!comparison.croppedWithEllipsis ||
+						structuralRows.length !== (mode === "rail" ? 9 : 6) ||
+						structuralRows.filter((row) => row.includes("Thinking")).length !== 1 ||
+						labels.length !== (mode === "rail" ? 8 : 5) ||
+						!labels[0]?.includes(expectedFirst) ||
+						!labels.at(-1)?.includes(expectedFinal) ||
+						labels.some((row) => row.trim().length === 0)
+					) {
+						generationFailure = JSON.stringify({
+							generation: generation.generation,
+							width: comparison.width,
+							exactScreen,
+							comparison,
+							snapshot: snapshot?.rows,
+						});
+						break;
+					}
+				}
+				if (generationFailure) break;
+			}
+			if (
+				modeProbes.length !== 2 ||
+				!structural?.ready ||
+				!structural.installed ||
+				structural.wrapperCalls !== 1 ||
+				modeCall?.count !== (oldContract ? 1 : 2) ||
+				modeCall?.messageIdentity !== true ||
+				generations.length !== 6 ||
+				snapshots.length !== 12 ||
+				JSON.stringify(generations.map(({ themeName, active }) => [themeName, active])) !==
+					JSON.stringify([
+						["current", true],
+						["current", false],
+						["dark", true],
+						["dark", false],
+						["light", true],
+						["light", false],
+					]) ||
+				generationFailure ||
+				clean(structural.hidden80).some((row) => row.includes("PTY label")) ||
+				!clean(structural.hidden80).some((row) => row.includes("Thinking...")) ||
+				!structural.hiddenStatePreserved ||
+				!completedStructural?.structuralWidths?.includes(20) ||
+				!completedStructural?.structuralWidths?.includes(80) ||
+				!completedStructural?.restored ||
+				!completedStructural?.widgetRemoved
+			) {
+				throw new Error(
+					`Pi ${version} ${mode} structural probe failed (${generationFailure ?? "summary"}): ${JSON.stringify(modeProbes)}`,
+				);
+			}
+			const screenArrays = snapshots.map(({ generation, width, rows }) => ({
+				generation,
+				width,
+				rows,
+			}));
+			console.log(
+				`${runtimeVersion} ${mode}: private-wrapper=exact args=${modeCall.count}:${String(modeCall.isStreaming)} contiguous-run=one-title labels=${mode === "rail" ? "all-8" : "latest-5"} exact-screen=${JSON.stringify(screenArrays)} ansi=current/dark/light:host-Markdown-exact+connector-accent-only links=OSC8-preserved width=20/80 ellipsis=yes active->settled=yes hidden=native descriptor=restored process-group=gone`,
+			);
+		}
+
 		const artifacts = readdirSync(versionRoot).filter((name) => /\.tmp$|\.lock$/.test(name));
 		if (artifacts.length) throw new Error(`Pi ${version} left temporary artifacts: ${artifacts}`);
 		console.log(

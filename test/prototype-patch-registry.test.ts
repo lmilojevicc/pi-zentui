@@ -20,7 +20,7 @@ describe("prototype patch registry updateContent ownership", () => {
 		const cleanupFirst = installPrototypePatch(
 			target,
 			"updateContent",
-			"thinking-stream-update-content",
+			"thinking-experimental-update-content",
 			behavior,
 		);
 		const wrapper = target.updateContent;
@@ -34,7 +34,7 @@ describe("prototype patch registry updateContent ownership", () => {
 		const cleanupSecond = installPrototypePatch(
 			target,
 			"updateContent",
-			"thinking-stream-update-content",
+			"thinking-experimental-update-content",
 			behavior,
 		);
 		expect(target.updateContent).toBe(wrapper);
@@ -43,7 +43,7 @@ describe("prototype patch registry updateContent ownership", () => {
 			isPrototypePatchCurrent(
 				target,
 				"updateContent",
-				"thinking-stream-update-content",
+				"thinking-experimental-update-content",
 				cleanupFirst.token,
 			),
 		).toBe(false);
@@ -51,7 +51,7 @@ describe("prototype patch registry updateContent ownership", () => {
 			isPrototypePatchCurrent(
 				target,
 				"updateContent",
-				"thinking-stream-update-content",
+				"thinking-experimental-update-content",
 				cleanupSecond.token,
 			),
 		).toBe(true);
@@ -79,7 +79,7 @@ describe("prototype patch registry updateContent ownership", () => {
 		const cleanup = installPrototypePatch(
 			target,
 			"updateContent",
-			"thinking-stream-update-content",
+			"thinking-experimental-update-content",
 			({ predecessor: previous, receiver, args }) => Reflect.apply(previous, receiver, args),
 		);
 		expect(Object.getOwnPropertyDescriptor(target, "updateContent")).toMatchObject({
@@ -89,9 +89,9 @@ describe("prototype patch registry updateContent ownership", () => {
 		});
 		const foreign = function foreign() {};
 		Object.defineProperty(target, "updateContent", { ...descriptor, value: foreign });
-		expect(isPrototypePatchCurrent(target, "updateContent", "thinking-stream-update-content")).toBe(
-			false,
-		);
+		expect(
+			isPrototypePatchCurrent(target, "updateContent", "thinking-experimental-update-content"),
+		).toBe(false);
 		cleanup();
 		expect(target.updateContent).toBe(foreign);
 	});
@@ -102,7 +102,7 @@ describe("prototype patch registry updateContent ownership", () => {
 				installPrototypePatch(
 					target,
 					"updateContent",
-					"thinking-stream-update-content",
+					"thinking-experimental-update-content",
 					() => undefined,
 				),
 			).toThrow(/predecessor is not a function/);
@@ -120,7 +120,7 @@ describe("prototype patch registry updateContent ownership", () => {
 			installPrototypePatch(
 				fixed,
 				"updateContent",
-				"thinking-stream-update-content",
+				"thinking-experimental-update-content",
 				() => undefined,
 			),
 		).toThrow();

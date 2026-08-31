@@ -14,7 +14,6 @@ import {
 } from "../extensions/zentui/config";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
-import { SETTINGS_PREVIEW_MAX_ROWS } from "../extensions/zentui/settings-previews";
 
 type Component = { render(width: number): string[]; handleInput(data: string): void };
 type Command = {
@@ -833,211 +832,54 @@ describe("component-oriented /zentui settings", () => {
 		]);
 	});
 
-	it("stacks a static Thinking preview and rerenders the saved experimental mode without changing focus", async () => {
-		vi.useFakeTimers();
+	it("shows Thinking (Experimental) with only Enabled and Mode focus rows", async () => {
 		const harness = createHarness();
-		harness.sessionLifecycle.start();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
 		goToSection(component, "Thinking");
-
-		const initialRows = component.render(100);
-		const previewIndex = previewRow(initialRows, "┆ [Thinking]");
-		const enabledIndex = initialRows.findIndex((line) => line.includes("> Enabled"));
-		expect(previewIndex).toBeGreaterThan(2);
-		expect(previewIndex).toBeLessThan(enabledIndex);
-		expect(initialRows[previewIndex]).toMatch(/^ {2}/);
-		expect(focusedRow(component)).toContain("> Enabled");
-		expect(initialRows.join("\n")).toContain("└─ • Verify compatibility");
-		expect(harness.calls.thinkingSteps).toEqual([]);
-		expect(vi.getTimerCount()).toBe(0);
-
-		selectLabel(component, "Mode");
-		component.handleInput(" ");
-		const experimental = component.render(100).join("\n");
-		expect(focusedRow(component)).toContain("> Mode");
-		expect(experimental).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
-		expect(experimental).toContain("Experimental renderer supported · restart required");
-		expect(experimental).toContain("Restart Pi to activate the private renderer.");
-		expect(experimental).toMatch(/Ctrl\+T\s+remains owned by Pi until active startup\./);
-		expect(experimental).not.toContain("Map the affected surface.");
-		expect(vi.getTimerCount()).toBe(0);
-
-		selectLabel(component, "Enabled");
-		const beforeEnable = component
-			.render(100)
-			.filter((line) => line.includes("Thinking 7.1s") || line.includes("Experimental renderer"));
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Enabled");
-		const afterEnable = component
-			.render(100)
-			.filter((line) => line.includes("Thinking 7.1s") || line.includes("Experimental renderer"));
-		expect(afterEnable[0]).toBe(beforeEnable[0]);
-		expect(afterEnable.at(-1)).toContain("supported · restart required");
-		expect(harness.calls.thinkingSteps).toEqual([
-			{ mode: "streaming-experimental" },
-			{ enabled: true },
-		]);
-
-		component.handleInput("\t");
-		expect(component.render(100).join("\n")).not.toContain("Thinking 7.1s");
-		component.handleInput("\x1b");
-		expect(harness.doneCalls()).toBe(1);
-		expect(vi.getTimerCount()).toBe(0);
+		expect(component.render(120).join("\n")).toContain("Thinking (Experimental)");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
+		expect(component.render(120).join("\n")).toContain(
+			"every enable, disable, or mode change requires restart",
+		);
 	});
 
-	it("refreshes Rail/Tree and Experimental descriptions in both directions with Mode focused", async () => {
+	it("shows saved and immutable active startup state honestly", async () => {
 		const config = cloneConfig();
-		config.components.thinkingSteps.mode = "streaming-experimental";
-		const harness = createHarness(config);
-		await harness.command().handler("", harness.ctx);
-		const component = harness.component();
-		goToSection(component, "Thinking");
-		selectLabel(component, "Mode");
-		expect(component.render(140).join("\n")).toContain(
-			"Restart Pi to activate the private renderer.",
-		);
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Mode");
-		const rail = component.render(140).join("\n");
-		expect(rail).toContain("│ [Thinking]");
-		expect(rail).not.toContain("Thinking · Rail");
-		expect(rail).toContain(
-			"Rail shows all labels without settled dots; Tree shows the latest five with settled dots",
-		);
-		expect(rail).toContain(
-			"plain labels inherit thinking text; Markdown-risky labels use Markdown-code color for literal rendering",
-		);
-		component.handleInput(" ");
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Mode");
-		const experimental = component.render(140).join("\n");
-		expect(experimental).toContain("configured thinking toggle to expand");
-		expect(experimental).toMatch(/Ctrl\+T\s+remains owned by Pi until active startup\./);
-	});
-
-	it("shows active Experimental startup status while retaining the two independent focus rows", async () => {
-		const config = cloneConfig();
-		config.components.thinkingSteps.mode = "streaming-experimental";
 		config.components.thinkingSteps.enabled = true;
+		config.components.thinkingSteps.mode = "streaming";
 		const harness = createHarness(config, {
 			thinkingStepsCapability: {
-				publicAvailable: true,
-				experimental: {
+				state: {
 					available: true,
 					active: true,
+					activeMode: "tree",
+					startup: { enabled: true, mode: "tree" },
 					displaced: false,
-					restartRequired: false,
+					restartRequired: true,
 				},
 			},
 		});
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
 		goToSection(component, "Thinking");
-		expectFocusOrder(component, ["Enabled", "Mode"]);
-		expect(component.render(160).join("\n")).toContain("Experimental renderer active");
-		selectLabel(component, "Enabled");
-		expect(component.render(160).join("\n")).toContain(
-			"Experimental renderer active in this session.",
-		);
-		selectLabel(component, "Mode");
-		expect(component.render(160).join("\n")).toContain("Private renderer active:");
+		const output = component.render(160).join("\n");
+		expect(output).toContain("Saved: Streaming");
+		expect(output).toContain("Active startup: Tree");
+		expect(output).toContain("Restart Pi to apply");
 	});
 
-	it("refreshes an experimental activation failure description immediately and preserves focus", async () => {
-		const config = cloneConfig();
-		config.components.thinkingSteps.mode = "streaming-experimental";
-		config.components.thinkingSteps.enabled = false;
-		let experimental = {
-			available: true,
-			active: false,
-			displaced: false,
-			restartRequired: false,
-			reason: undefined as string | undefined,
-		};
-		const capability = {
-			publicAvailable: true,
-			get experimental() {
-				return experimental;
-			},
-		};
-		const harness = createHarness(config, {
-			thinkingStepsCapability: capability,
-			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
-				Object.assign(config.components.thinkingSteps, patch);
-				experimental = {
-					available: false,
-					active: false,
-					displaced: false,
-					restartRequired: false,
-					reason: "Pi's thinking-toggle has no usable configured binding",
-				};
-				return { applied: false, reason: experimental.reason };
-			},
-		});
-		await harness.command().handler("", harness.ctx);
-		const component = harness.component();
-		goToSection(component, "Thinking");
-		selectLabel(component, "Enabled");
-		expect(component.render(160).join("\n")).toContain(
-			"Restart Pi to activate the private renderer.",
-		);
-		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Enabled");
-		const failed = component.render(160).join("\n");
-		expect(failed).toContain(
-			"Pi's thinking-toggle has no usable configured binding; using native thinking",
-		);
-		expect(failed).toContain("Experimental renderer unavailable · using native thinking");
-		expect(failed).not.toContain("configured thinking toggle to expand");
-		expect(failed).not.toMatch(/configured thinking-toggle binding \(Ctrl\+T by\s+default\)/);
-		selectLabel(component, "Mode");
-		const unavailableMode = component.render(160).join("\n");
-		expect(unavailableMode).toContain(
-			"Experimental private renderer is unavailable; using native thinking.",
-		);
-		expect(unavailableMode).not.toMatch(
-			/configured thinking-toggle binding \(Ctrl\+T by\s+default\)/,
-		);
-	});
-
-	it("keeps unsupported Thinking capability status non-focusable and persistent", async () => {
-		vi.useFakeTimers();
-		const current = cloneConfig();
-		current.components.thinkingSteps.mode = "tree";
-		const harness = createHarness(current, {
+	it("keeps private-renderer unavailability non-focusable and fails open to native", async () => {
+		const harness = createHarness(cloneConfig(), {
 			thinkingStepsCapability: { available: false },
 		});
-		harness.sessionLifecycle.start();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
 		goToSection(component, "Thinking");
-		for (const width of [20, 21, 22, 100]) {
-			const rows = component.render(width);
-			const statusRows = rows.filter((line) => line.includes("Pi 0.84+"));
-			expect(statusRows).toHaveLength(1);
-			expect(statusRows[0]).not.toContain("> ");
-			expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
-			const statusIndex = rows.indexOf(statusRows[0]);
-			expect(statusIndex).toBeGreaterThanOrEqual(3);
-			expect(statusIndex).toBeLessThanOrEqual(3 + SETTINGS_PREVIEW_MAX_ROWS);
-			expect(rows.join("\n").includes("┆ [")).toBe(width >= 16);
-			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes("> ")));
-		}
-		for (const label of ["Enabled", "Mode"] as const) {
-			selectLabel(component, label);
-			const rows = component.render(100);
-			const previewIndex = previewRow(rows, "┆ [Thinking]");
-			const statusIndex = previewRow(rows, "Pi 0.84+ required · Using native thinking");
-			expect(statusIndex).toBeGreaterThan(previewIndex);
-			expect(statusIndex).toBeLessThan(rows.findIndex((line) => line.includes(`> ${label}`)));
-			expect(focusedRow(component)).toContain(`> ${label}`);
-		}
-		expectFocusOrder(component, ["Mode", "Enabled"]);
-		expect(harness.calls.thinkingSteps).toEqual([]);
-		expect(vi.getTimerCount()).toBe(0);
-		component.handleInput("\x1b");
-		expect(vi.getTimerCount()).toBe(0);
+		const output = component.render(120).join("\n");
+		expect(output).toContain("Private renderer unavailable");
+		expect(output).toContain("using native thinking");
+		expectFocusOrder(component, ["Enabled", "Mode"]);
 	});
 
 	it("routes Thinking-step enablement and mode independently", async () => {
@@ -1050,63 +892,12 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		selectLabel(component, "Mode");
 		component.handleInput(" ");
-		expect(harness.calls.thinkingSteps).toEqual([
-			{ enabled: true },
-			{ mode: "streaming-experimental" },
-		]);
+		expect(harness.calls.thinkingSteps).toEqual([{ enabled: true }, { mode: "streaming" }]);
 		expect(harness.config.components.thinkingSteps).toEqual({
 			enabled: true,
-			mode: "streaming-experimental",
+			mode: "streaming",
 		});
-	});
-
-	it("keeps public fallback mode-aware when experimental private support is available", async () => {
-		const config = cloneConfig();
-		const harness = createHarness(config, {
-			thinkingStepsCapability: {
-				publicAvailable: false,
-				experimental: {
-					available: true,
-					active: false,
-					displaced: false,
-					restartRequired: false,
-				},
-			},
-			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
-				Object.assign(config.components.thinkingSteps, patch);
-				const experimental = config.components.thinkingSteps.mode === "streaming-experimental";
-				const unavailable = config.components.thinkingSteps.enabled && !experimental;
-				return {
-					applied: !unavailable,
-					reason: unavailable
-						? "Using native thinking — requires Pi 0.84 or newer"
-						: experimental
-							? "Experimental private renderer active"
-							: undefined,
-				};
-			},
-		});
-		await harness.command().handler("", harness.ctx);
-		const component = harness.component();
-		goToSection(component, "Thinking");
-		expectFocusOrder(component, ["Enabled", "Mode"]);
-		expect(component.render(200).join("\n")).toContain(
-			"Using native thinking — requires Pi 0.84 or newer",
-		);
-		selectLabel(component, "Enabled");
-		component.handleInput(" ");
-		expect(config.components.thinkingSteps.enabled).toBe(true);
-		expect(harness.notifications.at(-1)).toContain(
-			"Using native thinking — requires Pi 0.84 or newer",
-		);
-		selectLabel(component, "Mode");
-		component.handleInput(" ");
-		expect(config.components.thinkingSteps.mode).toBe("streaming-experimental");
-		expect(harness.notifications.at(-1)).toContain("Streaming (Experimental)");
-		expect(component.render(200).join("\n")).toContain(
-			"Experimental renderer supported · restart required",
-		);
-		expect(component.render(200).join("\n")).not.toContain("Pi 0.84+ required");
+		expect(harness.notifications).toContain("Thinking (Experimental): Streaming");
 	});
 
 	it("restores Thinking-step rows after persistence failure and exposes no direct route", async () => {
