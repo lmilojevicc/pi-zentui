@@ -692,7 +692,7 @@ function buildThinkingStepsItems(
 						? "Private renderer active: shows a live rendered tail, folds completed thinking, and the configured thinking-toggle binding (Ctrl+T by default) expands Pi's native full reasoning. Switching away restores native thinking; reactivation requires restart."
 						: "Private renderer supported but inactive. Restart Pi to activate the private renderer. Ctrl+T remains owned by Pi until active startup."
 					: "Experimental private renderer is unavailable; using native thinking."
-				: "Rail shows all structural labels; Tree shows the latest five. Streaming (Experimental) privately decorates Pi's host renderer and may break after Pi updates.",
+				: "Rail shows all labels without settled dots; Tree shows the latest five with settled dots. Connectors use theme Markdown-code color; plain labels inherit thinking text; Markdown-risky labels use Markdown-code color for literal rendering. Streaming (Experimental) privately decorates Pi's host renderer and may break after Pi updates.",
 			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
 			values: thinkingStepsModeValues,
 		},

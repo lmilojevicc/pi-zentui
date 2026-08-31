@@ -18,7 +18,7 @@ export const THINKING_STEPS_PREVIEW_MARKDOWN = [
 	"# Map the affected surface",
 	"# Parse structural labels",
 	"# Check narrow widths",
-	"# Preserve native fallback",
+	"# Preserve [literal] labels",
 	"# Validate rendered output",
 	"# Verify compatibility",
 ].join("\n");

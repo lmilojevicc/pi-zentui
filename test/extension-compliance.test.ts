@@ -746,7 +746,7 @@ describe("Pi docs compliance", () => {
 				isStreaming: true,
 				availableWidth: 80,
 			}),
-		).toBe("┆ **Thinking**  \n├─ · First  \n└─ • **Latest**");
+		).toBe("`┆` **Thinking**  \n`├─ ·` First  \n`└─ •` Latest");
 		const ctx = makeContext();
 		await emit(handlers, "session_start", ctx);
 		await emit(handlers, "session_shutdown", ctx);

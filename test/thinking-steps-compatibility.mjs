@@ -41,9 +41,9 @@ function attestInstalledVersions(installRoot, requestedVersion) {
 }
 
 const checkSource = `
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
+import { discoverAndLoadExtensions, getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 
 const version = process.argv[2];
@@ -81,10 +81,14 @@ for (const mode of ["rail", "tree"]) {
 			(expected ? "function" : "absence"),
 		);
 	}
-	const renderMarkdown = (markdown) => {
+	const renderMarkdown = (markdown, width = 80, renderLatex = true) => {
 		let structuralMarkdownCalls = 0;
 		const headingCalls = [];
 		const boldCalls = [];
+		const codeCalls = [];
+		const linkCalls = [];
+		const linkUrlCalls = [];
+		const thinkingCalls = [];
 		const underlineCalls = [];
 		const identity = (text) => text;
 		const theme = Object.fromEntries(
@@ -92,28 +96,37 @@ for (const mode of ["rail", "tree"]) {
 		);
 		theme.heading = (text) => { headingCalls.push(text); return text; };
 		theme.bold = (text) => { boldCalls.push(text); return text; };
+		theme.code = (text) => { codeCalls.push(text); return text; };
 		theme.underline = (text) => { underlineCalls.push(text); return text; };
-		for (const key of [
-			"listBullet", "quote", "quoteBorder", "code", "codeBlock", "codeBlockBorder", "link", "linkUrl",
-		]) {
+		for (const key of ["listBullet", "quote", "quoteBorder", "codeBlock", "codeBlockBorder"]) {
 			theme[key] = (text) => { structuralMarkdownCalls += 1; return text; };
 		}
-		const rendered = new Markdown(markdown, 0, 0, theme, undefined, {
-			preserveBackslashEscapes: false,
-			renderLatex: false,
-		}).render(80);
+		theme.link = (text, url) => { linkCalls.push([text, url]); return text; };
+		theme.linkUrl = (url) => { linkUrlCalls.push(url); return url; };
+		const rendered = new Markdown(
+			markdown,
+			0,
+			0,
+			theme,
+			{ color: (text) => { thinkingCalls.push(text); return text; }, italic: true },
+			{ preserveBackslashEscapes: false, renderLatex },
+		).render(width);
 		const compactRows = rendered.map((line) => line.trimEnd());
 		return {
 			boldCalls,
+			codeCalls,
 			compactRows,
 			headingCalls,
+			linkCalls,
+			linkUrlCalls,
 			rendered,
 			structuralMarkdownCalls,
+			thinkingCalls,
 			underlineCalls,
 			visible: compactRows.filter(Boolean),
 		};
 	};
-	const assertRendered = (state, expectedVisible, label) => {
+	const assertRendered = (state, expectedVisible, label, width = 80) => {
 		if (JSON.stringify(state.visible) !== JSON.stringify(expectedVisible)) {
 			throw new Error(
 				"Pi " + version + " " + mode + " unexpected " + label +
@@ -122,7 +135,7 @@ for (const mode of ["rail", "tree"]) {
 		}
 		if (
 			state.structuralMarkdownCalls !== 0 ||
-			state.rendered.some((line) => visibleWidth(line) > 80)
+			state.rendered.some((line) => visibleWidth(line) > width)
 		) {
 			throw new Error("Pi " + version + " " + mode + " " + label + " structure or width failed");
 		}
@@ -138,15 +151,14 @@ for (const mode of ["rail", "tree"]) {
 	const expectedOutput = !expected
 		? input
 		: mode === "rail"
-			? "│ **Thinking**  \\n│ · First  \\n│ • **Latest**"
-			: "┆ **Thinking**  \\n├─ · First  \\n└─ • **Latest**";
+			? "\`│\` **Thinking**  \\n\`│\` First  \\n\`│ •\` Latest"
+			: "\`┆\` **Thinking**  \\n\`├─ ·\` First  \\n\`└─ •\` Latest";
 	if (transformed !== expectedOutput) {
 		throw new Error("Pi " + version + " " + mode + " unexpected transform: " + JSON.stringify(transformed));
 	}
 
 	const streamingState = renderMarkdown(transformed);
 	if (!expected) {
-		assertRendered(streamingState, ["First", "Latest"], "native");
 		if (
 			!streamingState.headingCalls.includes("First") ||
 			!streamingState.headingCalls.includes("Latest") ||
@@ -157,20 +169,107 @@ for (const mode of ["rail", "tree"]) {
 		) {
 			throw new Error("Pi " + version + " " + mode + " native H1 callbacks failed");
 		}
+
+		const longLabel = 'Gaps/risks I noticed (AGENTS.md not updated; process.stdout.emit("resize") hack; docs say "compact rail and tree" latest commit changed semantics)';
+		const fallbackCorpus = [
+			{ name: "long", source: "# " + longLabel, expectsLink: false },
+			{ name: "math-matrix", source: "# matrix $\\\\begin{matrix}a&b\\\\\\\\c&d\\\\end{matrix}$", expectsLink: false },
+			{ name: "single-dollar", source: "# single $ unclosed", expectsLink: false },
+			{ name: "backslash", source: "# literal \\\\ backslash and \\*native escape\\*", expectsLink: false },
+			{ name: "markdown-link", source: "# [brackets](https://example.com/path) and [literal brackets]", expectsLink: true },
+			{ name: "emphasis", source: "# *emphasis* _underscores_ and under_score", expectsLink: false },
+			{ name: "backticks", source: "# \`\`code \` tick\`\` and backtick runs", expectsLink: false },
+			{ name: "entities", source: "# ampersands & entities &amp; &#38;", expectsLink: false },
+			{ name: "angle-links", source: "# <https://example.com/path> and <tag>", expectsLink: true },
+			{ name: "inline-math", source: "# math \\\\(x^2 + y^2 and \\\\[x+y", expectsLink: false },
+			{ name: "gfm-https", source: "# https://example.com/path", expectsLink: true },
+			{ name: "gfm-www", source: "# www.example.com", expectsLink: true },
+			{ name: "gfm-email", source: "# user@example.com", expectsLink: true },
+			{ name: "at-malformed", source: "# foo@:bar.com", expectsLink: false },
+			{ name: "at-host-only", source: "# name@host", expectsLink: false },
+			{ name: "gfm-hyphen-domain", source: "# foo@-bar.com", expectsLink: true },
+			{ name: "gfm-underscore-domain", source: "# foo@_bar.com", expectsLink: true },
+			{ name: "gfm-prose-url", source: "# Review (https://example.com/path), then continue.", expectsLink: true },
+			{ name: "gfm-prose-email", source: "# Contact user@example.com; then continue.", expectsLink: true },
+			{ name: "grapheme-safe", source: "# family 👨‍👩‍👧‍👦 café 界語 wide", expectsLink: false },
+			{ name: "grapheme-risky", source: "# family 👨‍👩‍👧‍👦 café 界語 *literal*", expectsLink: false },
+		];
+		const nativeEvidence = {
+			cases: fallbackCorpus.length,
+			widths: [20, 80, 200],
+			rows: { min: Number.POSITIVE_INFINITY, max: 0 },
+			callbacks: { heading: 0, bold: 0, underline: 0, link: 0, linkUrl: 0 },
+			longRows: {},
+		};
+		for (const item of fallbackCorpus) {
+			for (const width of nativeEvidence.widths) {
+				const nativeOutput = typeof transformer === "function"
+					? transformer(item.source, {
+						messageType: "assistant-thinking", isStreaming: false, availableWidth: width,
+					})
+					: item.source;
+				if (nativeOutput !== item.source) {
+					throw new Error("Pi " + version + " " + mode + " changed absent-transformer source at " + width + ": " + item.name);
+				}
+				const state = renderMarkdown(nativeOutput, width);
+				const repeated = renderMarkdown(item.source, width);
+				const callbackSnapshot = (value) => JSON.stringify({
+					rows: value.compactRows,
+					heading: value.headingCalls,
+					bold: value.boldCalls,
+					underline: value.underlineCalls,
+					code: value.codeCalls,
+					link: value.linkCalls,
+					linkUrl: value.linkUrlCalls,
+				});
+				if (
+					state.rendered.length === 0 ||
+					state.rendered.some((line) => visibleWidth(line) > width) ||
+					callbackSnapshot(state) !== callbackSnapshot(repeated) ||
+					state.headingCalls.length === 0 ||
+					state.boldCalls.length === 0 ||
+					state.underlineCalls.length === 0 ||
+					(item.expectsLink && state.linkCalls.length === 0) ||
+					(!item.expectsLink && state.linkCalls.length !== 0)
+				) {
+					throw new Error("Pi " + version + " " + mode + " native rows/callbacks failed at " + width + ": " + item.name + " " + callbackSnapshot(state));
+				}
+				nativeEvidence.rows.min = Math.min(nativeEvidence.rows.min, state.rendered.length);
+				nativeEvidence.rows.max = Math.max(nativeEvidence.rows.max, state.rendered.length);
+				nativeEvidence.callbacks.heading += state.headingCalls.length;
+				nativeEvidence.callbacks.bold += state.boldCalls.length;
+				nativeEvidence.callbacks.underline += state.underlineCalls.length;
+				nativeEvidence.callbacks.link += state.linkCalls.length;
+				nativeEvidence.callbacks.linkUrl += state.linkUrlCalls.length;
+				if (item.name === "long") nativeEvidence.longRows[width] = state.compactRows;
+			}
+		}
+		console.log(
+			version + " " + mode +
+				": public-loader=ok errors=0 markdownTransformer=absent passthrough=" +
+				(fallbackCorpus.length * nativeEvidence.widths.length) + "/" +
+				(fallbackCorpus.length * nativeEvidence.widths.length) +
+				" native=" + JSON.stringify(nativeEvidence),
+		);
+		continue;
 	} else {
 		const title = mode === "rail" ? "│ Thinking" : "┆ Thinking";
 		const streamingVisible = mode === "rail"
-			? [title, "│ · First", "│ • Latest"]
+			? [title, "│ First", "│ • Latest"]
 			: [title, "├─ · First", "└─ • Latest"];
 		assertRendered(streamingState, streamingVisible, "streaming");
+		const expectedStreamingCode = mode === "rail" ? ["│", "│", "│ •"] : ["┆", "├─ ·", "└─ •"];
 		if (
 			streamingState.compactRows.some((line) => line === "") ||
 			streamingState.headingCalls.length !== 0 ||
 			!streamingState.boldCalls.includes("Thinking") ||
-			!streamingState.boldCalls.includes("Latest") ||
+			streamingState.boldCalls.includes("Latest") ||
+			JSON.stringify(streamingState.codeCalls) !== JSON.stringify(expectedStreamingCode) ||
+			!streamingState.thinkingCalls.some((text) => text.includes("First")) ||
+			!streamingState.thinkingCalls.some((text) => text.includes("Latest")) ||
 			streamingState.underlineCalls.length !== 0
 		) {
-			throw new Error("Pi " + version + " " + mode + " compact title or latest-bold callbacks failed");
+			throw new Error("Pi " + version + " " + mode + " compact title, mdCode, or thinking style callbacks failed");
 		}
 
 		const settled = transformer(input, {
@@ -179,14 +278,14 @@ for (const mode of ["rail", "tree"]) {
 			availableWidth: 80,
 		});
 		const expectedSettled = mode === "rail"
-			? "│ **Thinking**  \\n│ · First  \\n│ · Latest"
-			: "┆ **Thinking**  \\n├─ · First  \\n└─ · Latest";
+			? "\`│\` **Thinking**  \\n\`│\` First  \\n\`│\` Latest"
+			: "\`┆\` **Thinking**  \\n\`├─ ·\` First  \\n\`└─ ·\` Latest";
 		if (settled !== expectedSettled) {
 			throw new Error("Pi " + version + " " + mode + " unexpected settled transform: " + JSON.stringify(settled));
 		}
 		const settledState = renderMarkdown(settled);
 		const settledVisible = mode === "rail"
-			? [title, "│ · First", "│ · Latest"]
+			? [title, "│ First", "│ Latest"]
 			: [title, "├─ · First", "└─ · Latest"];
 		assertRendered(settledState, settledVisible, "settled");
 		if (
@@ -195,24 +294,181 @@ for (const mode of ["rail", "tree"]) {
 			!settledState.boldCalls.includes("Thinking") ||
 			settledState.boldCalls.includes("Latest") ||
 			settledState.underlineCalls.length !== 0 ||
-			!settledState.visible.slice(1).every((line) => line.includes(" · ")) ||
+			(mode === "rail" && settledState.visible.slice(1).some((line) => line.includes(" · "))) ||
+			(mode === "tree" && !settledState.visible.slice(1).every((line) => line.includes(" · "))) ||
 			settledState.visible.slice(1).some((line) => line.includes(" • "))
 		) {
 			throw new Error("Pi " + version + " " + mode + " settled title, markers, or bold callbacks failed");
+		}
+
+		const longLabel = 'Gaps/risks I noticed (AGENTS.md not updated; process.stdout.emit("resize") hack; docs say "compact rail and tree" latest commit changed semantics)';
+		const longEvidence = {};
+		const expectedLongRows = mode === "rail"
+			? {
+				20: "│ Gaps/risks I noti…",
+				80: '│ Gaps/risks I noticed (AGENTS.md not updated; process.stdout.emit("resize") ha…',
+				200: "│ " + longLabel,
+			}
+			: {
+				20: "└─ · Gaps/risks I n…",
+				80: '└─ · Gaps/risks I noticed (AGENTS.md not updated; process.stdout.emit("resize")…',
+				200: "└─ · " + longLabel,
+			};
+		for (const width of [20, 80, 200]) {
+			const longOutput = transformer("# " + longLabel, {
+				messageType: "assistant-thinking", isStreaming: false, availableWidth: width,
+			});
+			const longState = renderMarkdown(longOutput, width);
+			longEvidence[width] = longState.visible[1];
+			const expectedLongCode = mode === "rail" ? ["│", "│"] : ["┆", "└─ ·"];
+			if (
+				longOutput === "# " + longLabel ||
+				longState.rendered.length !== 2 ||
+				longState.rendered.some((line) => visibleWidth(line) > width) ||
+				longOutput.includes("\\\\") ||
+				longState.visible[1] !== expectedLongRows[width] ||
+				JSON.stringify(longState.codeCalls) !== JSON.stringify(expectedLongCode) ||
+				!longState.thinkingCalls.some((text) => text.includes("Gaps/risks"))
+			) {
+				throw new Error("Pi " + version + " " + mode + " long-label row contract failed at " + width);
+			}
+		}
+
+		const riskyLabels = [
+			"matrix $\\\\begin{matrix}a&b\\\\\\\\c&d\\\\end{matrix}$",
+			"single $ unclosed",
+			"literal \\\\ backslash and \\*native escape\\*",
+			"[brackets](https://example.com/path) and [literal brackets]",
+			"*emphasis* _underscores_ and under_score",
+			"\`\`code \` tick\`\` and backtick runs",
+			"ampersands & entities &amp; &#38;",
+			"<https://example.com/path> and <tag>",
+			"math \\\\(x^2 + y^2 and \\\\[x+y",
+		];
+		for (const label of riskyLabels) {
+			for (const width of [20, 80, 200]) {
+				const output = transformer("# " + label, {
+					messageType: "assistant-thinking", isStreaming: false, availableWidth: width,
+				});
+				const state = renderMarkdown(output, width);
+				const connector = mode === "rail" ? "│" : "└─ ·";
+				const literalLabel = state.codeCalls[2];
+				if (
+					output === "# " + label ||
+					state.rendered.length !== 2 ||
+					state.rendered.some((line) => visibleWidth(line) > width) ||
+					state.structuralMarkdownCalls !== 0 ||
+					state.linkCalls.length !== 0 ||
+					state.linkUrlCalls.length !== 0 ||
+					state.codeCalls.length !== 3 ||
+					state.visible[1] !== connector + " " + literalLabel ||
+					(width === 200 && literalLabel !== label)
+				) {
+					throw new Error("Pi " + version + " " + mode + " risky literal row failed at " + width + ": " + label);
+				}
+			}
+		}
+
+		const gfmCases = [
+			{ label: "https://example.com/path", widths: [14, 20, 80, 200] },
+			{ label: "ftp://example.com/file", widths: [14, 20, 80, 200] },
+			{ label: "www.example.com", widths: [14, 20, 80, 200] },
+			{ label: "user@example.com", widths: [14, 20, 80, 200] },
+			{ label: "foo@:bar.com", widths: [80] },
+			{ label: "foo@-bar.com", widths: [80] },
+			{ label: "foo@_bar.com", widths: [80] },
+			{ label: "foo+tag@host-name.com", widths: [80] },
+			{ label: "name@host", widths: [80] },
+			{ label: "trailing@", widths: [80] },
+			{ label: "@domain.example", widths: [10] },
+			{ label: "Review (https://example.com/path), then continue.", widths: [80, 200] },
+			{ label: "Contact user@example.com; visit www.example.com.", widths: [80, 200] },
+		];
+		const gfmEvidence = {};
+		for (const isStreaming of [true, false]) {
+			for (const { label, widths } of gfmCases) {
+				for (const width of widths) {
+					const output = transformer("# " + label, {
+						messageType: "assistant-thinking", isStreaming, availableWidth: width,
+					});
+					const state = renderMarkdown(output, width);
+					const marker = mode === "rail"
+						? (isStreaming ? "│ •" : "│")
+						: (isStreaming ? "└─ •" : "└─ ·");
+					const budget = Math.min(160, width - visibleWidth(marker + " "));
+					const literalLabel = visibleWidth(label) <= budget
+						? label
+						: label.slice(0, budget - 1) + "…";
+					const titleConnector = mode === "rail" ? "│" : "┆";
+					const expectedConnectorCode = [titleConnector, marker];
+					const connectorCode = state.codeCalls.slice(0, 2);
+					const labelCode = state.codeCalls.slice(2);
+					const tick = String.fromCharCode(96);
+					const expectedOutput = tick + titleConnector + tick + " **Thinking**  " + String.fromCharCode(10) + tick + marker + tick + " " + tick + " " + literalLabel + " " + tick;
+					if (
+						output !== expectedOutput ||
+						output.includes(String.fromCharCode(92)) ||
+						output.includes(String.fromCharCode(27)) ||
+						state.rendered.length !== 2 ||
+						state.rendered.some((line) => visibleWidth(line) > width) ||
+						state.structuralMarkdownCalls !== 0 ||
+						JSON.stringify(connectorCode) !== JSON.stringify(expectedConnectorCode) ||
+						JSON.stringify(labelCode) !== JSON.stringify([literalLabel]) ||
+						state.linkCalls.length !== 0 ||
+						state.linkUrlCalls.length !== 0 ||
+						state.visible[1] !== marker + " " + literalLabel ||
+						state.rendered.join("\\n").includes(String.fromCharCode(27) + "]8;")
+					) {
+						throw new Error("Pi " + version + " " + mode + " GFM callback/row isolation failed for " + (isStreaming ? "streaming" : "settled") + " at " + width + ": " + label + " " + JSON.stringify({ connectorCode, labelCode, links: state.linkCalls, linkUrls: state.linkUrlCalls, visible: state.visible }));
+					}
+					const key = (isStreaming ? "streaming" : "settled") + "-" + width;
+					gfmEvidence[key] = (gfmEvidence[key] ?? 0) + 1;
+				}
+			}
+		}
+
+		for (const label of ["family 👨‍👩‍👧‍👦 café 界語 wide", "family 👨‍👩‍👧‍👦 café 界語 *literal*"]) {
+			for (const width of [20, 80]) {
+				const output = transformer("# " + label, {
+					messageType: "assistant-thinking", isStreaming: false, availableWidth: width,
+				});
+				const state = renderMarkdown(output, width);
+				if (
+					state.rendered.length !== 2 ||
+					state.rendered.some((line) => visibleWidth(line) > width) ||
+					(output.includes("‍") && !output.includes("👨‍👩‍👧‍👦")) ||
+					(output.includes("́") && !output.includes("é"))
+				) {
+					throw new Error("Pi " + version + " " + mode + " grapheme row failed at " + width + ": " + label);
+				}
+			}
+		}
+
+		const themeEvidence = {};
+		for (const themeName of ["dark", "light"]) {
+			initTheme(themeName, false);
+			const callbackOutput = getMarkdownTheme().code(mode === "rail" ? "│" : "┆");
+			const data = JSON.parse(readFileSync(join(cwd, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "modes", "interactive", "theme", themeName + ".json"), "utf8"));
+			const resolveColor = (value) => data.vars?.[value] ?? value;
+			const mdCode = resolveColor(data.colors.mdCode);
+			const thinkingText = resolveColor(data.colors.thinkingText);
+			if (callbackOutput === (mode === "rail" ? "│" : "┆") || mdCode === thinkingText) {
+				throw new Error("Pi " + version + " " + mode + " " + themeName + " theme-native color evidence failed");
+			}
+			themeEvidence[themeName] = { callbackOutput, mdCode, thinkingText };
 		}
 		console.log(
 			version + " " + mode +
 				": public-loader=ok errors=0 markdownTransformer=present" +
 				" streaming=" + JSON.stringify(transformed) +
-				" settled=" + JSON.stringify(settled),
+				" settled=" + JSON.stringify(settled) +
+				" long=" + JSON.stringify(longEvidence) +
+				" risky=9x3-literal gfm=" + JSON.stringify(gfmEvidence) +
+				" grapheme=2x2-one-row" +
+				" themes=" + JSON.stringify(themeEvidence),
 		);
 		continue;
 	}
-	console.log(
-		version + " " + mode +
-			": public-loader=ok errors=0 markdownTransformer=absent" +
-			" native=" + JSON.stringify(transformed),
-	);
 }
 `;
 

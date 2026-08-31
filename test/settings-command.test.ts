@@ -848,7 +848,7 @@ describe("component-oriented /zentui settings", () => {
 		expect(previewIndex).toBeLessThan(enabledIndex);
 		expect(initialRows[previewIndex]).toMatch(/^ {2}/);
 		expect(focusedRow(component)).toContain("> Enabled");
-		expect(initialRows.join("\n")).toContain("└─ • [Verify compatibility]");
+		expect(initialRows.join("\n")).toContain("└─ • Verify compatibility");
 		expect(harness.calls.thinkingSteps).toEqual([]);
 		expect(vi.getTimerCount()).toBe(0);
 
@@ -902,7 +902,12 @@ describe("component-oriented /zentui settings", () => {
 		const rail = component.render(140).join("\n");
 		expect(rail).toContain("│ [Thinking]");
 		expect(rail).not.toContain("Thinking · Rail");
-		expect(rail).toContain("Rail shows all structural labels; Tree shows the latest five");
+		expect(rail).toContain(
+			"Rail shows all labels without settled dots; Tree shows the latest five with settled dots",
+		);
+		expect(rail).toContain(
+			"plain labels inherit thinking text; Markdown-risky labels use Markdown-code color for literal rendering",
+		);
 		component.handleInput(" ");
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Mode");

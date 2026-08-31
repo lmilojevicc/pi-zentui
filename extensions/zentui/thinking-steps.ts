@@ -40,7 +40,6 @@ type StructuralLabel = { label: string };
 type OpaqueBlock = { end: number; malformed: boolean };
 
 const meaningfulLabelPattern = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
-const markdownLabelEscapePattern = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g;
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function headingLabel(line: string): StructuralLabel | undefined {
@@ -101,7 +100,9 @@ function safeLabel(label: string): string | undefined {
 	if (
 		!trimmed ||
 		trimmed.length > THINKING_STEPS_MAX_LABEL_LENGTH ||
-		!meaningfulLabelPattern.test(trimmed)
+		!meaningfulLabelPattern.test(trimmed) ||
+		// Pi expands tabs after the public width budget is computed.
+		trimmed.includes("\t")
 	) {
 		return undefined;
 	}
@@ -199,8 +200,33 @@ function truncateLabel(label: string, width: number): string | undefined {
 	return result ? `${result}${suffix}` : undefined;
 }
 
-function escapeMarkdownLabel(label: string): string {
-	return label.replace(markdownLabelEscapePattern, "\\$&");
+// Any character that can introduce CommonMark styling, links, HTML/entities,
+// LaTeX, email-like text, or an inline-code collision takes the literal code-span
+// path. Marked's GFM URL rule also recognizes bare http(s), ftp, and www tokens.
+// These bounded checks run after truncation because a retained prefix may tokenize.
+// A plain label remains untouched so it inherits Pi's thinkingText style.
+const riskyLabelPattern = /[\\`*_[\]<>$~&!|@]/;
+const gfmBareProtocolPrefixes = ["http://", "https://", "ftp://"] as const;
+
+function hasGfmBareUrl(label: string): boolean {
+	const lower = label.toLowerCase();
+	return gfmBareProtocolPrefixes.some((prefix) => lower.includes(prefix)) || lower.includes("www.");
+}
+
+function isRiskyLabel(label: string): boolean {
+	return riskyLabelPattern.test(label) || hasGfmBareUrl(label);
+}
+
+function literalCodeSpan(label: string): string {
+	let longestBacktickRun = 0;
+	for (const run of label.matchAll(/`+/g)) {
+		longestBacktickRun = Math.max(longestBacktickRun, run[0].length);
+	}
+	const delimiter = "`".repeat(longestBacktickRun + 1);
+	// CommonMark removes one edge space from a non-blank code span. Supplying one
+	// on each side therefore preserves content that itself starts/ends with spaces
+	// and separates arbitrary content backticks from the trusted delimiter.
+	return `${delimiter} ${label} ${delimiter}`;
 }
 
 function sizedLabel(
@@ -213,7 +239,8 @@ function sizedLabel(
 		Math.max(0, Math.floor(availableWidth) - prefixWidth),
 	);
 	const label = truncateLabel(step.label, budget);
-	return label ? escapeMarkdownLabel(label) : undefined;
+	if (!label) return undefined;
+	return isRiskyLabel(label) ? literalCodeSpan(label) : label;
 }
 
 function boundedOutput(output: string, input: string): string {
@@ -245,8 +272,8 @@ function boundedOutput(output: string, input: string): string {
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-const RAIL_TITLE = "│ **Thinking**";
-const TREE_TITLE = "┆ **Thinking**";
+const RAIL_TITLE = "`│` **Thinking**";
+const TREE_TITLE = "`┆` **Thinking**";
 const TITLE_VISIBLE_WIDTH = visibleWidth("│ Thinking");
 
 function titleCanFit(availableWidth: number): boolean {
@@ -280,10 +307,14 @@ export function transformThinkingSteps(
 		const final = index === selectedSteps.length - 1;
 		const connector = rail ? "│" : final ? "└─" : "├─";
 		const active = context.isStreaming && final;
-		const prefix = `${connector} ${active ? "•" : "·"} `;
-		const label = sizedLabel(step, context.availableWidth, visibleWidth(prefix));
+		const marker = rail
+			? active
+				? `${connector} •`
+				: connector
+			: `${connector} ${active ? "•" : "·"}`;
+		const label = sizedLabel(step, context.availableWidth, visibleWidth(`${marker} `));
 		if (!label) return markdown;
-		lines.push(`${prefix}${active ? `**${label}**` : label}`);
+		lines.push(`\`${marker}\` ${label}`);
 	}
 	return boundedOutput(
 		lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n"),

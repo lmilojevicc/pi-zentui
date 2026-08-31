@@ -274,19 +274,19 @@ describe("settings previews", () => {
 		const expected: Record<Exclude<ThinkingStepsMode, "streaming-experimental">, string[]> = {
 			rail: [
 				"│ Thinking",
-				"│ · Inspect the change",
-				"│ · Map the affected surface",
-				"│ · Parse structural labels",
-				"│ · Check narrow widths",
-				"│ · Preserve native fallback",
-				"│ · Validate rendered output",
+				"│ Inspect the change",
+				"│ Map the affected surface",
+				"│ Parse structural labels",
+				"│ Check narrow widths",
+				"│ Preserve [literal] labels",
+				"│ Validate rendered output",
 				"│ • Verify compatibility",
 			],
 			tree: [
 				"┆ Thinking",
 				"├─ · Parse structural labels",
 				"├─ · Check narrow widths",
-				"├─ · Preserve native fallback",
+				"├─ · Preserve [literal] labels",
 				"├─ · Validate rendered output",
 				"└─ • Verify compatibility",
 			],
@@ -302,7 +302,8 @@ describe("settings previews", () => {
 			expect(fullRows).toHaveLength(mode === "rail" ? 8 : 6);
 			expect(visibleRows).not.toContain("");
 			expect(fullRows.join("\n")).toContain("•");
-			expect(fullRows.join("\n")).toContain("·");
+			if (mode === "tree") expect(fullRows.join("\n")).toContain("·");
+			else expect(fullRows.join("\n")).not.toContain("·");
 			expect(renderThinkingStepsSettingsPreview(current, theme(), 9)).toEqual([]);
 			expect(renderThinkingStepsSettingsPreview(current, theme(), 10)).not.toEqual([]);
 		}
@@ -344,13 +345,15 @@ describe("settings previews", () => {
 		expect(unavailable).not.toContain("host-rendered reasoning tail");
 	});
 
-	it("keeps the compact title in native thinking color and bolds only Thinking and the active label", () => {
+	it("uses mdCode for connectors and risky labels, thinkingText for safe labels, and bold only for Thinking", () => {
 		const colors: string[] = [];
+		const coloredText: Array<[string, string]> = [];
 		const boldText: string[] = [];
 		const trackedTheme = {
 			...theme(),
 			fg: (color: string, text: string) => {
 				colors.push(color);
+				coloredText.push([color, text]);
 				return text;
 			},
 			bold: (text: string) => {
@@ -361,11 +364,30 @@ describe("settings previews", () => {
 		const rows = renderThinkingStepsSettingsPreview(config(), trackedTheme, 72);
 		expect(plain(rows)).toContain("┆ Thinking");
 		expect(colors).toContain("thinkingText");
+		expect(colors).toContain("mdCode");
+		expect(coloredText).toEqual(
+			expect.arrayContaining([
+				["mdCode", "┆"],
+				["mdCode", "├─ ·"],
+				["mdCode", "Preserve [literal] labels"],
+				["mdCode", "└─ •"],
+			]),
+		);
 		expect(colors).not.toContain("mdHeading");
-		expect(boldText).toContain("Thinking");
-		expect(boldText).toContain("Verify compatibility");
+		expect(coloredText).toEqual(
+			expect.arrayContaining([
+				["thinkingText", expect.stringContaining("Parse structural labels")],
+			]),
+		);
+		expect(
+			coloredText.some(
+				([color, text]) => color === "thinkingText" && text.includes("Preserve [literal] labels"),
+			),
+		).toBe(false);
+		expect(boldText).toEqual(expect.arrayContaining(["Thinking"]));
+		expect(boldText).not.toContain("Verify compatibility");
 		expect(boldText).not.toContain("Inspect the change");
-		expect(colors).not.toEqual(expect.arrayContaining(["mdListBullet", "mdQuote", "mdCode"]));
+		expect(colors).not.toEqual(expect.arrayContaining(["mdListBullet", "mdQuote"]));
 	});
 
 	it("keeps unavailable Thinking capability status across the compact preview threshold", () => {
