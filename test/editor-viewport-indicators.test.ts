@@ -975,7 +975,7 @@ describe("same-render autocomplete capture", () => {
 });
 
 describe("accent rail editor integration", () => {
-	it("decorates trusted wrapped input and autocomplete rows", () => {
+	it("decorates trusted wrapped input and preserves multi-row autocomplete output", () => {
 		const editor = wrapped(baseEditor({ autocomplete: ["one", "two"] }), {
 			style: "accent-rail",
 		});
@@ -986,6 +986,17 @@ describe("accent rail editor integration", () => {
 		expect(lines.slice(1).map((line) => line.trimEnd())).toEqual(["one", "two"]);
 	});
 
+	it("places one reserved row on each side of a one-row rail", () => {
+		const editor = wrapped(baseEditor({}), { style: "accent-rail" });
+		const lines = editor.render(24);
+
+		expect(lines).toHaveLength(3);
+		expect(lines[0]).toBe("");
+		expect(lines[1]).toMatch(/^▎ typed text/);
+		expect(lines[2]).toBe("");
+		expect([...lines, "footer"].slice(-3)).toEqual([lines[1], "", "footer"]);
+	});
+
 	it("fails open from the reduced same-render rows for untrusted third-party output", () => {
 		const base = baseEditor({ malformedTop: "third-party header" });
 		const editor = wrapped(base, { style: "accent-rail" });
@@ -994,9 +1005,11 @@ describe("accent rail editor integration", () => {
 		expect(lines.join("\n")).not.toContain("▎");
 	});
 
-	it("renders the standalone editor with the same accent rail", () => {
+	it("renders the standalone editor with the same reserved rows and accent rail", () => {
 		const lines = standalone("accent-rail").render(24);
-		expect(lines.some((line) => line.startsWith("▎ "))).toBe(true);
+		expect(lines[0]).toBe("");
+		expect(lines[1]).toMatch(/^▎ /);
+		expect(lines[2]).toBe("");
 		expect(lines.every((line) => visibleWidth(line) <= 24)).toBe(true);
 	});
 });
@@ -1062,7 +1075,9 @@ describe("minimalist editor integration", () => {
 		expect(rawWidths).toEqual([36, 38, 36, 34, 36]);
 		expect(polished.join("\n").match(/provider/g)).toHaveLength(1);
 		expect(lowRail.join("\n").match(/provider/g)).toHaveLength(1);
-		expect(accentRail[0]).toMatch(/^▎ typed text/);
+		expect(accentRail[0]).toBe("");
+		expect(accentRail[1]).toMatch(/^▎ typed text/);
+		expect(accentRail[2]).toBe("");
 		expect(accentRail.join("\n")).not.toContain("provider");
 		expect(minimalist[0]).toMatch(/^╭.*╮$/);
 		expect(minimalist.at(-1)).toMatch(/^╰.*╯$/);
