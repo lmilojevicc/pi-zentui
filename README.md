@@ -192,8 +192,10 @@ See [CONTRIBUTING.md](https://github.com/lmilojevicc/pi-zentui/blob/main/CONTRIB
 - [Opencode](https://github.com/anomalyco/opencode) — inspiration for the Opencode editor treatment
 - [Oh My Pi (`omp`)](https://github.com/can1357/oh-my-pi) by [Can Bölük](https://github.com/can1357) — visual inspiration for the filled, single-left-rail Accent Rail editor
 - [Pi Custom Input](https://github.com/VinhLe1410/pi-custom-input) by [Vinh Le](https://github.com/VinhLe1410) — visual inspiration for Minimalist's framed, border-embedded session, model, context, Git, and path metadata
+- [Pi Thinking Steps](https://github.com/crustyhacker/pi-thinking-steps) by Marc Mironescu / FluxGear — structural-step parsing and the Rail/Tree visual language; adapted in Thinking (Experimental) under the MIT License
+- [Pi Thinking Fold](https://github.com/99percentpeople/pi-extensions/tree/master/extensions/thinking-fold) by [Zach Yuen](https://github.com/99percentpeople) — native rendered-row folding, timing, expand/refold behavior, and fail-open compatibility patterns; adapted in Thinking (Experimental) under the MIT License
 
-Zentui's implementations are independent; these credits acknowledge product and visual inspiration rather than source-code reuse.
+Most Zentui implementations are independent; these credits acknowledge product and visual inspiration. Thinking (Experimental) also adapts MIT-licensed implementation work from Pi Thinking Steps and Pi Thinking Fold. Their complete copyright and permission notices are retained in the packaged [`thinking-experimental.ts`](./extensions/zentui/thinking-experimental.ts) source.
 
 ## License
 
