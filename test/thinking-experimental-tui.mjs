@@ -61,7 +61,63 @@ function attestInstalledVersions(installRoot, requestedVersion) {
 	return { resolved, versions };
 }
 
+function structuralLinkSemantics(actualLabels, expectedLabels, width) {
+	if (width < 80) return { capability: "cropped", preserved: true };
+	const osc8 = "\x1b]8;;https://example.com/";
+	const fallback = "(https://example.com/";
+	const expectedOsc8 = expectedLabels.every((row) => row.includes(osc8));
+	const actualOsc8 = actualLabels.every((row) => row.includes(osc8));
+	const expectedFallback = expectedLabels.every((row) => row.includes(fallback));
+	const actualFallback = actualLabels.every((row) => row.includes(fallback));
+	return {
+		capability: expectedOsc8 ? "osc8" : "fallback-url",
+		preserved: expectedOsc8
+			? actualOsc8 && !actualFallback
+			: expectedFallback && actualFallback && !actualOsc8,
+	};
+}
+
+function assertStructuralLinkSemanticsFixtures() {
+	const osc8 = "\x1b]8;;https://example.com/1\x07link\x1b]8;;\x07";
+	const fallback = "link (https://example.com/1)";
+	if (
+		!structuralLinkSemantics([osc8], [osc8], 80).preserved ||
+		!structuralLinkSemantics([fallback], [fallback], 80).preserved ||
+		structuralLinkSemantics([osc8], [fallback], 80).preserved
+	) {
+		throw new Error("Structural link capability simulation failed");
+	}
+}
+
+function boundedJson(value, maxLength = 12_000) {
+	const json = JSON.stringify(value, (_key, current) => {
+		if (typeof current === "string" && current.length > 240) {
+			return `${current.slice(0, 240)}…<${current.length} chars>`;
+		}
+		if (Array.isArray(current) && current.length > 20) {
+			return [...current.slice(0, 20), `…<${current.length} items>`];
+		}
+		return current;
+	});
+	if (json.length <= maxLength) return json;
+	return JSON.stringify({
+		truncated: true,
+		originalLength: json.length,
+		preview: json.slice(0, Math.min(2_000, Math.floor(maxLength / 4))),
+	});
+}
+
+function assertBoundedJsonFixtures() {
+	const diagnostic = boundedJson({
+		rows: Array.from({ length: 100 }, () => "\x1b[31m".repeat(100)),
+	});
+	JSON.parse(diagnostic);
+	if (diagnostic.length > 12_000) throw new Error("Structural diagnostic bound simulation failed");
+}
+
 assertExtensionLoaderDiagnosticFixtures();
+assertStructuralLinkSemanticsFixtures();
+assertBoundedJsonFixtures();
 
 const completedThinkingRows = [
 	"PTY exact row 1  ",
@@ -137,6 +193,7 @@ const liveFixture = ${JSON.stringify(liveAssistant)};
 const version = process.env.ZENTUI_PI_VERSION;
 const mode = process.env.ZENTUI_THINKING_MODE ?? "streaming";
 const cleanRows = (rows) => rows.map((text) => text.replace(/\\x1b\\](?:[^\\x07\\x1b]|\\x1b(?!\\\\))*(?:\\x07|\\x1b\\\\)/g, "").replace(/\\x1b\\[[0-?]*[ -/]*[@-~]/g, "").trimEnd());
+const structuralLinkSemantics = ${structuralLinkSemantics.toString()};
 const LIVE_SECTION_START = "__ZENTUI_EXPERIMENTAL_LIVE_START_7D91B2__";
 const LIVE_SECTION_END = "__ZENTUI_EXPERIMENTAL_LIVE_END_7D91B2__";
 const COMPLETED_SECTION_START = "__ZENTUI_EXPERIMENTAL_COMPLETED_START_4A62C9__";
@@ -221,16 +278,15 @@ export default function (pi) {
 						" ".repeat(outer)
 					);
 				});
+				const links = structuralLinkSemantics(actualLabels, expectedLabels, width);
 				return {
 					width,
 					rendered,
 					actualLabels,
 					expectedLabels,
 					exactNativeLabels: JSON.stringify(actualLabels) === JSON.stringify(expectedLabels),
-					linkSemantics:
-						width < 80 ||
-						(actualLabels.every((row) => row.includes("\\x1b]8;;https://example.com/")) &&
-							expectedLabels.every((row) => row.includes("\\x1b]8;;https://example.com/"))),
+					linkCapability: links.capability,
+					linkSemantics: links.preserved,
 					croppedWithEllipsis:
 						width > 20 || cleanRows(actualLabels).every((row) => row.includes("…")),
 				};
@@ -298,6 +354,15 @@ export default function (pi) {
 				[],
 			);
 			hidden.updateContent(baseStructuralFixture, true);
+			const nativeHidden = new AssistantMessageComponent(
+				undefined,
+				true,
+				getMarkdownTheme(),
+				"Thinking...",
+				1,
+				[],
+			);
+			Reflect.apply(originalUpdate, nativeHidden, [baseStructuralFixture, true]);
 			const widget = {
 				render(width) {
 					structuralWidths.push(width);
@@ -326,6 +391,7 @@ export default function (pi) {
 					wrapperCalls: initialCalls.length,
 					testedCalls: initialCalls,
 					hidden80: hidden.render(80),
+					nativeHidden80: nativeHidden.render(80),
 					hiddenStatePreserved: hidden.hideThinkingBlock === true,
 				}) + "\\n",
 			);
@@ -1405,8 +1471,15 @@ while True: time.sleep(1)
 			const modeCall = structural?.testedCalls?.[0];
 			let generationFailure;
 			for (const generation of generations) {
-				if (generation.constructors.filter((name) => name === "ThinkingStepsRows").length !== 1) {
-					generationFailure = "replacement constructor count";
+				const replacementCount = generation.constructors.filter(
+					(name) => name === "ThinkingStepsRows",
+				).length;
+				if (replacementCount !== 1) {
+					generationFailure = {
+						generation: generation.generation,
+						predicates: { replacementConstructorCount: replacementCount === 1 },
+						constructors: generation.constructors,
+					};
 					break;
 				}
 				for (const comparison of generation.comparisons ?? []) {
@@ -1428,69 +1501,109 @@ while True: time.sleep(1)
 						: mode === "rail"
 							? "│ PTY label 8"
 							: "└─ · PTY label 8";
-					if (
-						!snapshot ||
-						!exactScreen ||
-						!comparison.exactNativeLabels ||
-						!comparison.linkSemantics ||
-						!comparison.croppedWithEllipsis ||
-						structuralRows.length !== (mode === "rail" ? 9 : 6) ||
-						structuralRows.filter((row) => row.includes("Thinking")).length !== 1 ||
-						labels.length !== (mode === "rail" ? 8 : 5) ||
-						!labels[0]?.includes(expectedFirst) ||
-						!labels.at(-1)?.includes(expectedFinal) ||
-						labels.some((row) => row.trim().length === 0)
-					) {
-						generationFailure = JSON.stringify({
+					const predicates = {
+						snapshotPresent: Boolean(snapshot),
+						exactScreen,
+						exactNativeLabels: comparison.exactNativeLabels === true,
+						linkSemantics: comparison.linkSemantics === true,
+						croppedWithEllipsis: comparison.croppedWithEllipsis === true,
+						structuralRowCount: structuralRows.length === (mode === "rail" ? 9 : 6),
+						oneTitle: structuralRows.filter((row) => row.includes("Thinking")).length === 1,
+						labelCount: labels.length === (mode === "rail" ? 8 : 5),
+						firstLabel: labels[0]?.includes(expectedFirst) === true,
+						finalLabel: labels.at(-1)?.includes(expectedFinal) === true,
+						nonemptyLabels: !labels.some((row) => row.trim().length === 0),
+					};
+					if (!Object.values(predicates).every(Boolean)) {
+						generationFailure = {
 							generation: generation.generation,
 							width: comparison.width,
-							exactScreen,
-							comparison,
+							linkCapability: comparison.linkCapability,
+							predicates,
+							structuralRows,
+							actualLabels: comparison.actualLabels,
+							expectedLabels: comparison.expectedLabels,
 							snapshot: snapshot?.rows,
-						});
+						};
 						break;
 					}
 				}
 				if (generationFailure) break;
 			}
-			if (
-				modeProbes.length !== 2 ||
-				!structural?.ready ||
-				!structural.installed ||
-				structural.wrapperCalls !== 1 ||
-				modeCall?.count !== (oldContract ? 1 : 2) ||
-				modeCall?.messageIdentity !== true ||
-				generations.length !== 6 ||
-				snapshots.length !== 12 ||
-				JSON.stringify(generations.map(({ themeName, active }) => [themeName, active])) !==
-					JSON.stringify([
-						["current", true],
-						["current", false],
-						["dark", true],
-						["dark", false],
-						["light", true],
-						["light", false],
-					]) ||
-				generationFailure ||
-				clean(structural.hidden80).some((row) => row.includes("PTY label")) ||
-				!clean(structural.hidden80).some((row) => row.includes("Thinking...")) ||
-				!structural.hiddenStatePreserved ||
-				!completedStructural?.structuralWidths?.includes(20) ||
-				!completedStructural?.structuralWidths?.includes(80) ||
-				!completedStructural?.restored ||
-				!completedStructural?.widgetRemoved
-			) {
-				throw new Error(
-					`Pi ${version} ${mode} structural probe failed (${generationFailure ?? "summary"}): ${JSON.stringify(modeProbes)}`,
+			const expectedThemeStates = [
+				["current", true],
+				["current", false],
+				["dark", true],
+				["dark", false],
+				["light", true],
+				["light", false],
+			];
+			const hiddenExact = structural?.hidden80;
+			const nativeHiddenExact = structural?.nativeHidden80;
+			const hiddenMatchesNativeByteForByte =
+				Array.isArray(hiddenExact) &&
+				Array.isArray(nativeHiddenExact) &&
+				JSON.stringify(hiddenExact) === JSON.stringify(nativeHiddenExact);
+			const nativeHiddenHasThinkingLabel =
+				Array.isArray(nativeHiddenExact) &&
+				nativeHiddenExact.some((row) => row.includes("Thinking..."));
+			const hiddenRows = clean(hiddenExact);
+			const nativeHiddenRows = clean(nativeHiddenExact);
+			const summaryPredicates = {
+				probeRecordCount: modeProbes.length === 2,
+				ready: structural?.ready === true,
+				installed: structural?.installed === true,
+				wrapperCallCount: structural?.wrapperCalls === 1,
+				forwardedArgumentCount: modeCall?.count === (oldContract ? 1 : 2),
+				forwardedMessageIdentity: modeCall?.messageIdentity === true,
+				generationCount: generations.length === 6,
+				snapshotCount: snapshots.length === 12,
+				themeAndActivityOrder:
+					JSON.stringify(generations.map(({ themeName, active }) => [themeName, active])) ===
+					JSON.stringify(expectedThemeStates),
+				generationsValid: !generationFailure,
+				hiddenHasNoStructuralLabels: !hiddenRows.some((row) => row.includes("PTY label")),
+				hiddenMatchesNativeByteForByte,
+				nativeHiddenHasThinkingLabel,
+				hiddenStatePreserved: structural?.hiddenStatePreserved === true,
+				width20Rendered: completedStructural?.structuralWidths?.includes(20) === true,
+				width80Rendered: completedStructural?.structuralWidths?.includes(80) === true,
+				descriptorRestored: completedStructural?.restored === true,
+				widgetRemoved: completedStructural?.widgetRemoved === true,
+			};
+			if (!Object.values(summaryPredicates).every(Boolean)) {
+				console.error(
+					`ZENTUI_STRUCTURAL_DIAGNOSTIC ${boundedJson({
+						version: runtimeVersion,
+						mode,
+						summaryPredicates,
+						generationFailure,
+						state: {
+							modeCall,
+							themeStates: generations.map(({ themeName, active }) => [themeName, active]),
+							snapshotKeys: snapshots.map(({ generation, width }) => [generation, width]),
+							hiddenRows,
+							nativeHiddenRows,
+							structuralWidths: completedStructural?.structuralWidths,
+						},
+					})}`,
 				);
+				throw new Error(`Pi ${version} ${mode} structural probe failed; see diagnostic above`);
 			}
 			const screenArrays = snapshots.map(({ generation, width, rows }) => ({
 				generation,
 				width,
 				rows,
 			}));
+			const linkCapabilities = [
+				...new Set(
+					generations.flatMap((generation) =>
+						generation.comparisons.map((comparison) => comparison.linkCapability),
+					),
+				),
+			];
 			console.log(
-				`${runtimeVersion} ${mode}: private-wrapper=exact args=${modeCall.count}:${String(modeCall.isStreaming)} contiguous-run=one-title labels=${mode === "rail" ? "all-8" : "latest-5"} exact-screen=${JSON.stringify(screenArrays)} ansi=current/dark/light:host-Markdown-exact+connector-accent-only links=OSC8-preserved width=20/80 ellipsis=yes active->settled=yes hidden=native descriptor=restored process-group=gone`,
+				`${runtimeVersion} ${mode}: private-wrapper=exact args=${modeCall.count}:${String(modeCall.isStreaming)} contiguous-run=one-title labels=${mode === "rail" ? "all-8" : "latest-5"} exact-screen=${JSON.stringify(screenArrays)} ansi=current/dark/light:host-Markdown-exact+connector-accent-only links=${linkCapabilities.join("+")}:preserved width=20/80 ellipsis=yes active->settled=yes hidden=native-byte-exact:${JSON.stringify(hiddenExact)} label=Thinking... descriptor=restored process-group=gone`,
 			);
 		}
 

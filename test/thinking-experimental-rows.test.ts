@@ -101,22 +101,101 @@ describe("Experimental native Rail/Tree rows", () => {
 		expect(current.accent).toHaveBeenCalledWith("accent", "│ ");
 	});
 
-	it("preserves host transforms plus HTML and LaTeX options on each fresh label Markdown", () => {
+	it("preserves host transform, HTML, and literal-LaTeX behavior on fresh label Markdown", () => {
+		const capabilityTransform = vi.fn(() => "**transformed-capability**");
+		const capabilityOutput = plain(
+			new Markdown(
+				"plain-capability",
+				0,
+				0,
+				{
+					...identityTheme,
+					bold: (text) => `<b>${text}</b>`,
+				},
+				undefined,
+				{
+					transform: capabilityTransform,
+				},
+			).render(78)[0] ?? "",
+		);
+		const hostExecutesTransform = capabilityOutput === "<b>transformed-capability</b>";
+		expect(capabilityOutput).toBe(
+			hostExecutesTransform ? "<b>transformed-capability</b>" : "plain-capability",
+		);
+		expect(capabilityTransform).toHaveBeenCalledTimes(hostExecutesTransform ? 1 : 0);
+
+		const source = "native <span>HTML</span> $x^2$";
 		const transform = vi.fn((text: string) => text.replace("native", "**native**"));
 		const bold = vi.fn((text: string) => `<b>${text}</b>`);
+		const theme = { ...identityTheme, bold };
+		const options = { transform, renderLatex: false };
+		const nativeLabel = plain(
+			new Markdown(source, 0, 0, theme, undefined, options).render(78)[0] ?? "",
+		);
+		expect(nativeLabel).toContain("$x^2$");
+		expect(transform).toHaveBeenCalledTimes(hostExecutesTransform ? 1 : 0);
+		transform.mockClear();
+		bold.mockClear();
+
+		const output = rows(`# ${source}`, "rail", 80, false, 0, theme, options).rendered.map(plain);
+		expect(output[1]).toBe(`│ ${nativeLabel}`);
+		if (hostExecutesTransform) {
+			expect(transform.mock.calls).toEqual([
+				["**Thinking**", 78],
+				[source, 78],
+			]);
+			expect(bold.mock.calls).toEqual([["Thinking"], ["native"]]);
+		} else {
+			expect(transform).not.toHaveBeenCalled();
+			expect(bold.mock.calls).toEqual([["Thinking"]]);
+		}
+		expect(output[1]).toContain("HTML");
+		expect(output[1]).toContain("$x^2$");
+	});
+
+	it.each([
+		{
+			name: "ordered-list source markers",
+			source: "7) ordered marker",
+			option: "preserveOrderedListMarkers" as const,
+			expectedWhenSupported: "7) ordered marker",
+			expectedWhenDisabled: "7. ordered marker",
+		},
+		{
+			name: "backslash escapes",
+			source: String.raw`escaped \*asterisks\*`,
+			option: "preserveBackslashEscapes" as const,
+			expectedWhenSupported: String.raw`escaped \*asterisks\*`,
+			expectedWhenDisabled: "escaped *asterisks*",
+		},
+	])("preserves $name behavior exactly when the host supports it", (fixture) => {
+		const enabledOptions = { [fixture.option]: true, renderLatex: false };
+		const disabledOptions = { [fixture.option]: false, renderLatex: false };
+		const nativeEnabled = plain(
+			new Markdown(fixture.source, 0, 0, identityTheme, undefined, enabledOptions).render(78)[0] ??
+				"",
+		);
+		const nativeDisabled = plain(
+			new Markdown(fixture.source, 0, 0, identityTheme, undefined, disabledOptions).render(78)[0] ??
+				"",
+		);
 		const output = rows(
-			"# native <span>HTML</span> $x^2$",
+			`# ${fixture.source}`,
 			"rail",
 			80,
 			false,
 			0,
-			{ ...identityTheme, bold },
-			{ transform, renderLatex: true },
+			identityTheme,
+			enabledOptions,
 		).rendered.map(plain);
-		expect(transform).toHaveBeenCalledWith("native <span>HTML</span> $x^2$", 78);
-		expect(bold).toHaveBeenCalledWith("native");
-		expect(output[1]).toContain("HTML");
-		expect(output[1]).toContain("x");
+
+		expect(nativeDisabled).toBe(fixture.expectedWhenDisabled);
+		expect(output[1]).toBe(`│ ${nativeEnabled}`);
+		if (nativeEnabled !== nativeDisabled) {
+			expect(nativeEnabled).toBe(fixture.expectedWhenSupported);
+		} else {
+			expect(output[1]).toBe(`│ ${nativeDisabled}`);
+		}
 	});
 
 	it.each(["界語 emoji 👨‍👩‍👧‍👦", "cafe\u0301 punctuation /().;:"])(
