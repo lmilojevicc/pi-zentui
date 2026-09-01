@@ -1154,10 +1154,10 @@ export class WorkingLineController {
 			selectedMessage ?? this.selectedMessage ?? effectiveWorkingLineMessages(config)[0];
 		const snapshot = this.installationSnapshot();
 		try {
-			if (!this.ownsMessage) {
-				this.ownsMessage = true;
-				ui.setWorkingMessage("");
-			}
+			// Message ownership is (re-)asserted inside applyIndicator on every repaint:
+			// other extensions (e.g. thinking-fold) write the shared unkeyed working
+			// message mid-turn and reset it to undefined on message_end, which makes Pi
+			// fall back to its default "Working..." appended after the owned row.
 			this.applyIndicator(ui, rootConfig, nextMessage, forceIndicator, rebasePhase);
 			this.selectedMessage = nextMessage;
 			this.reconcileElapsedUpdates(ctx);
@@ -1269,12 +1269,13 @@ export class WorkingLineController {
 		// visible replacement can still jitter by less than one interval because the API cannot
 		// schedule a fractional first interval.
 		const frameEpochMs = sampledAtMs - intervalFraction * generated.intervalMs;
-		this.ownsIndicator = true;
 		// Re-assert on every repaint: other extensions (e.g. thinking-fold) write the shared
 		// unkeyed working message mid-turn and reset it to undefined on message_end, which
 		// makes Pi fall back to its default "Working..." appended after the owned row.
+		// Must run before ownsIndicator flips so a failure here still releases cleanly.
 		this.ownsMessage = true;
 		ui.setWorkingMessage("");
+		this.ownsIndicator = true;
 		const indicatorOptions = { frames: generated.frames, intervalMs: generated.intervalMs };
 		ui.setWorkingIndicator(indicatorOptions);
 		this.installedPhase = {
