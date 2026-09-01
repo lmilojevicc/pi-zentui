@@ -602,7 +602,7 @@ function renderAccentRailFrameFromBase({
 		above: parsedTop?.count,
 		below: parsedBottom?.count,
 	};
-	const lines = renderAccentRailEditorFrame({
+	const renderedLines = renderAccentRailEditorFrame({
 		width,
 		editorLines,
 		autocompleteLines,
@@ -610,6 +610,7 @@ function renderAccentRailFrameFromBase({
 		uiTheme,
 		config,
 	});
+	const lines = renderedLines.length === 1 ? ["", ...renderedLines, ""] : renderedLines;
 	POLISHED_FRAME_SPLITS.set(lines, {
 		rows: Object.freeze([...lines]),
 		split: { editorLines, trailingLines: autocompleteLines, viewport },
