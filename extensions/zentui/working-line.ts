@@ -1270,6 +1270,11 @@ export class WorkingLineController {
 		// schedule a fractional first interval.
 		const frameEpochMs = sampledAtMs - intervalFraction * generated.intervalMs;
 		this.ownsIndicator = true;
+		// Re-assert on every repaint: other extensions (e.g. thinking-fold) write the shared
+		// unkeyed working message mid-turn and reset it to undefined on message_end, which
+		// makes Pi fall back to its default "Working..." appended after the owned row.
+		this.ownsMessage = true;
+		ui.setWorkingMessage("");
 		const indicatorOptions = { frames: generated.frames, intervalMs: generated.intervalMs };
 		ui.setWorkingIndicator(indicatorOptions);
 		this.installedPhase = {
