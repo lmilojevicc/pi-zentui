@@ -14,6 +14,7 @@ import {
 import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
+	defaultConfig,
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -46,8 +47,10 @@ import {
 	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
+	type ThinkingStepsComponentConfig,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
@@ -86,6 +89,7 @@ import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
 import { resolveFooterTelemetry } from "./telemetry";
+import { ThinkingExperimentalController } from "./thinking-experimental";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
 import {
@@ -180,7 +184,7 @@ export default function (pi: ExtensionAPI) {
 	const sessionLifecycle = new SessionLifecycle();
 	const editorOwnerToken = Symbol("zentui-editor-owner");
 
-	let currentConfig: PolishedTuiConfig = loadConfig();
+	let currentConfig: PolishedTuiConfig = structuredClone(defaultConfig);
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
 	if (typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
@@ -277,6 +281,14 @@ export default function (pi: ExtensionAPI) {
 		if (!sessionLifecycle.isCurrent()) return;
 		requestFooterRender?.();
 		requestEditorRender?.();
+	};
+	const thinkingExperimental = new ThinkingExperimentalController(
+		() => currentConfig.components.thinkingSteps,
+	);
+	const thinkingStepsCapability = {
+		get state() {
+			return thinkingExperimental.state;
+		},
 	};
 	const liveContext = new LiveContextController(sessionLifecycle, refresh);
 	const getActiveTheme = () => activeTheme;
@@ -1028,7 +1040,6 @@ export default function (pi: ExtensionAPI) {
 		const staleFooterOwner = ctxFooterOwner(ctx);
 		if (typeof staleFooterOwner === "symbol") installedFooterToken = staleFooterOwner;
 		ensureConfigExists();
-		currentConfig = loadConfig();
 		syncFooterState(ctx);
 		stopProjectRefresh();
 
@@ -1136,6 +1147,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const lifecycleGeneration = sessionLifecycle.start();
+		// Reload synchronously so private ownership uses this session's disk snapshot before
+		// any await or transcript restoration.
+		currentConfig = loadConfig();
+		thinkingExperimental.startSession(ctx);
 		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
 		cleanupAccentRailLayoutPatch();
 		cleanupAccentRailLayoutPatch = () => {};
@@ -1215,6 +1230,14 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
+		},
+		thinkingStepsCapability,
+		setThinkingStepsComponent(
+			patch: Partial<ThinkingStepsComponentConfig>,
+			_ctx: ExtensionContext,
+		) {
+			currentConfig = saveThinkingStepsComponentPatch(patch);
+			return thinkingExperimental.reconcile();
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);
@@ -1303,6 +1326,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLine.dispose(ctx);
@@ -1313,6 +1337,8 @@ export default function (pi: ExtensionAPI) {
 		invalidateUsageTotalsCache();
 		refreshInteractiveState(ctx, true);
 	};
+
+	pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
 
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
@@ -1326,6 +1352,7 @@ export default function (pi: ExtensionAPI) {
 		workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
+		thinkingExperimental.endAgent();
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
@@ -1342,6 +1369,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("thinking_level_select", syncInteractiveState);
 	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event, ctx) => {
+		thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
@@ -1352,6 +1380,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 	pi.on("message_end", (event, ctx) => {
+		thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
 			workingLine.updateMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);

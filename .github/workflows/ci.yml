@@ -33,13 +33,33 @@ jobs:
       - name: Dry-run pack
         run: npm run pack:check
 
+  thinking-experimental-tui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test all-mode experimental actual TUI compatibility
+        run: timeout --signal=TERM --kill-after=30s 15m npm run test:thinking-experimental-tui
+
   supported-pi-compatibility:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        pi-version: ["0.80.5", "0.82.1", "0.83.0"]
+        pi-version: ["0.80.5", "0.82.1", "0.83.0", "0.84.0", "0.84.4"]
 
     steps:
       - name: Checkout

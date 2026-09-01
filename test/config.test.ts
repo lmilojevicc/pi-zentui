@@ -52,6 +52,7 @@ import {
 	saveSelectorBordersComponentPatch,
 	saveSeparatorPatch,
 	saveStarshipFooterStylePatch,
+	saveThinkingStepsComponentPatch,
 	saveUiFeaturesPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
@@ -132,6 +133,7 @@ describe("canonical config resolution", () => {
 				colorSource: "theme",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
+			thinkingSteps: { enabled: false, mode: "tree" },
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
@@ -566,6 +568,84 @@ describe("canonical config resolution", () => {
 		expect(FOOTER_FORMAT_VARIABLES).toEqual(
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),
 		);
+	});
+});
+
+describe("thinking-steps config", () => {
+	it("defaults independently and normalizes invalid canonical leaves", () => {
+		const first = mergeConfig({});
+		const second = mergeConfig({});
+		expect(first.components.thinkingSteps).toEqual({ enabled: false, mode: "tree" });
+		expect(first.components.thinkingSteps).not.toBe(second.components.thinkingSteps);
+		expect(
+			mergeConfig({ components: { thinkingSteps: { enabled: true, mode: "rail" } } }).components
+				.thinkingSteps,
+		).toEqual({ enabled: true, mode: "rail" });
+		expect(
+			mergeConfig({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming" });
+		expect(
+			mergeConfig({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming-experimental" },
+				},
+			}).components.thinkingSteps,
+		).toEqual({ enabled: true, mode: "streaming" });
+		for (const mode of [undefined, "native", "Rail"]) {
+			expect(
+				mergeConfig({ components: { thinkingSteps: { enabled: "yes", mode } } }).components
+					.thinkingSteps,
+			).toEqual({ enabled: false, mode: "tree" });
+		}
+	});
+
+	it("persists atomic component patches and preserves unknown keys", () => {
+		withConfig(
+			{
+				futureTop: { keep: true },
+				components: { thinkingSteps: { future: { keep: true } } },
+			},
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true, mode: "rail" }, path);
+				const raw = readRaw(path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "rail" });
+				expect(raw.components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "rail",
+					future: { keep: true },
+				});
+				expect(raw.futureTop).toEqual({ keep: true });
+				expect(configTempFiles(join(path, ".."))).toEqual([]);
+			},
+		);
+	});
+
+	it("normalizes the one-window Streaming migration alias on the next save", () => {
+		withConfig(
+			{ components: { thinkingSteps: { enabled: false, mode: "streaming-experimental" } } },
+			(path) => {
+				const saved = saveThinkingStepsComponentPatch({ enabled: true }, path);
+				expect(saved.components.thinkingSteps).toEqual({ enabled: true, mode: "streaming" });
+				expect(readRaw(path).components.thinkingSteps).toMatchObject({
+					enabled: true,
+					mode: "streaming",
+				});
+			},
+		);
+	});
+
+	it("refuses to overwrite corrupt files", () => {
+		withConfig(undefined, (path) => {
+			writeFileSync(path, "{broken");
+			expect(() => saveThinkingStepsComponentPatch({ enabled: true }, path)).toThrow(
+				/Refusing to save Zentui config/,
+			);
+			expect(readFileSync(path, "utf8")).toBe("{broken");
+		});
 	});
 });
 
@@ -1387,6 +1467,7 @@ describe("compatibility saver recipes", () => {
 				"editor",
 				"footer",
 				"selectorBorders",
+				"thinkingSteps",
 				"userMessages",
 				"workingLine",
 			]);

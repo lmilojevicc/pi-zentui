@@ -45,6 +45,8 @@ import {
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
+	type ThinkingStepsComponentConfig,
+	type ThinkingStepsMode,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
@@ -56,6 +58,7 @@ import { isIconMode } from "./icons";
 import type { SessionLifecycle } from "./session-lifecycle";
 import {
 	renderEditorSettingsPreview,
+	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
 } from "./settings-previews";
@@ -132,11 +135,18 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
+const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
+	rail: "Rail",
+	tree: "Tree",
+	streaming: "Streaming",
+};
+const thinkingStepsModeValues = Object.values(thinkingStepsModeLabels);
 
 const settingsSections = [
 	"appearance",
 	"editor",
 	"userMessages",
+	"thinkingSteps",
 	"workingLine",
 	"footer",
 	"segments",
@@ -164,6 +174,34 @@ type SettingsOutcome =
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
 
+type ThinkingControllerState = Readonly<{
+	available: boolean;
+	active: boolean;
+	activeMode?: ThinkingStepsMode;
+	startup: Readonly<ThinkingStepsComponentConfig>;
+	displaced: boolean;
+	restartRequired: boolean;
+	reason?: string;
+}>;
+
+type ThinkingStepsSettingsCapability =
+	| Readonly<{ available: boolean }>
+	| Readonly<{ readonly state: ThinkingControllerState }>;
+
+function experimentalThinkingCapability(
+	capability: ThinkingStepsSettingsCapability,
+): ThinkingControllerState {
+	return "state" in capability
+		? capability.state
+		: {
+				available: capability.available,
+				active: false,
+				startup: { enabled: false, mode: "tree" },
+				displaced: false,
+				restartRequired: false,
+			};
+}
+
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
@@ -176,6 +214,11 @@ type SettingsCommandDeps = {
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	thinkingStepsCapability: ThinkingStepsSettingsCapability;
+	setThinkingStepsComponent: (
+		patch: Partial<ThinkingStepsComponentConfig>,
+		ctx: ExtensionContext,
+	) => ApplyResult;
 	setWorkingLineComponent: (patch: WorkingLineComponentPatch, ctx: ExtensionContext) => ApplyResult;
 	setSelectorBordersComponent: (
 		patch: Partial<SelectorBordersComponentConfig>,
@@ -210,6 +253,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	appearance: "Appearance",
 	editor: "Editor",
 	userMessages: "User messages",
+	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
 	footer: "Footer",
 	segments: "Segments",
@@ -305,6 +349,11 @@ function userMessageStyleLabel(style: UserMessageStyle): string {
 }
 function userMessageStyleId(label: string): UserMessageStyle | undefined {
 	return (Object.entries(userMessageStyleLabels) as Array<[UserMessageStyle, string]>).find(
+		([, value]) => value === label,
+	)?.[0];
+}
+function thinkingStepsModeId(label: string): ThinkingStepsMode | undefined {
+	return (Object.entries(thinkingStepsModeLabels) as Array<[ThinkingStepsMode, string]>).find(
 		([, value]) => value === label,
 	)?.[0];
 }
@@ -610,6 +659,44 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 	];
 }
+function buildThinkingStepsItems(
+	config: PolishedTuiConfig,
+	capability: ThinkingStepsSettingsCapability,
+): SettingItem[] {
+	const thinkingSteps = config.components.thinkingSteps;
+	const controller = experimentalThinkingCapability(capability);
+	const startupLabel = controller.startup.enabled
+		? `Active startup: ${thinkingStepsModeLabels[controller.startup.mode]}`
+		: "Active startup: native thinking";
+	const savedLabel = thinkingSteps.enabled
+		? `Saved: ${thinkingStepsModeLabels[thinkingSteps.mode]}`
+		: "Saved: disabled";
+	const status = !controller.available
+		? `${controller.reason ?? "Private renderer unavailable"}; using native thinking.`
+		: controller.restartRequired
+			? `${savedLabel}; ${startupLabel}. Restart Pi to apply.`
+			: controller.active
+				? `${startupLabel}.`
+				: `${savedLabel}; using native thinking.`;
+	const enabledDescription = `${status} Private renderer; every enable, disable, or mode change requires restart and may break after Pi updates.`;
+	return [
+		{
+			id: "thinkingStepsEnabled",
+			label: "Enabled",
+			description: enabledDescription,
+			currentValue: featureValue(thinkingSteps.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "thinkingStepsMode",
+			label: "Mode",
+			description: `${status} Rail shows every parsed label; Tree shows the latest five per contiguous run; Streaming folds to the latest five host-rendered rows and owns the configured thinking toggle only when active. Incompatibility uses native thinking.`,
+			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
+			values: thinkingStepsModeValues,
+		},
+	];
+}
+
 function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 	const workingLine = config.components.workingLine;
 	const staticText = workingLine.textAnimation === "disabled";
@@ -700,7 +787,7 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 		},
 		{
 			id: "workingLineThought",
-			label: "Thinking",
+			label: "Thinking time",
 			description: "Show cumulative wall-clock thinking time and active updates.",
 			currentValue: featureValue(workingLine.segments.thought),
 			values: featureStateValues,
@@ -957,6 +1044,7 @@ function buildSectionItems(
 	section: SettingsSection,
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
+	thinkingStepsCapability: ThinkingStepsSettingsCapability,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -977,6 +1065,8 @@ function buildSectionItems(
 			];
 		case "userMessages":
 			return buildUserMessagesItems(config);
+		case "thinkingSteps":
+			return buildThinkingStepsItems(config, thinkingStepsCapability);
 		case "workingLine":
 			return buildWorkingLineItems(config);
 		case "footer":
@@ -1220,6 +1310,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							activeSection,
 							deps.getConfig(),
 							deps.getActiveExtensionStatuses(),
+							deps.thinkingStepsCapability,
 						);
 						const list = new SettingsList(
 							items,
@@ -1360,6 +1451,23 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										setMessages({ colorSource: newValue }, ctx);
 										settingsList.updateValue(id, newValue);
 										notifyChange("Message colors", newValue);
+										return;
+									}
+									if (id === "thinkingStepsEnabled" && enabled !== undefined) {
+										const result = deps.setThinkingStepsComponent({ enabled }, ctx);
+										settingsList = makeSettingsList("thinkingStepsEnabled");
+										notifyChange("Thinking (Experimental)", newValue, result);
+										return;
+									}
+									const selectedThinkingStepsMode =
+										id === "thinkingStepsMode" ? thinkingStepsModeId(newValue) : undefined;
+									if (selectedThinkingStepsMode) {
+										const result = deps.setThinkingStepsComponent(
+											{ mode: selectedThinkingStepsMode },
+											ctx,
+										);
+										settingsList = makeSettingsList("thinkingStepsMode");
+										notifyChange("Thinking (Experimental)", newValue, result);
 										return;
 									}
 									if (id === "workingLineEnabled" && enabled !== undefined) {
@@ -1661,6 +1769,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							return renderEditorSettingsPreview(deps.getConfig(), theme, previewWidth);
 						if (activeSection === "userMessages")
 							return renderUserMessageSettingsPreview(deps.getConfig(), theme, previewWidth);
+						if (activeSection === "thinkingSteps")
+							return renderThinkingStepsSettingsPreview(
+								deps.getConfig(),
+								theme,
+								previewWidth,
+								deps.thinkingStepsCapability,
+							);
 						if (activeSection === "workingLine" && preview && preview.frames.length > 0)
 							return [
 								truncateToWidth(

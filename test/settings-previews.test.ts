@@ -10,6 +10,7 @@ import {
 } from "../extensions/zentui/config";
 import {
 	renderEditorSettingsPreview,
+	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_ROWS,
 	SETTINGS_PREVIEW_MAX_WIDTH,
@@ -265,6 +266,83 @@ describe("settings previews", () => {
 		const disabledOutput = plain(renderUserMessageSettingsPreview(current, theme(), 72));
 		expect(disabledOutput).toContain("Please review this change safely.");
 		expect(disabledOutput).not.toContain("preview");
+	});
+
+	it("renders all Rail labels and the latest five Tree labels through native Markdown rows", () => {
+		const source = config();
+		for (const mode of ["rail", "tree"] as const) {
+			source.components.thinkingSteps.mode = mode;
+			const output = plain(renderThinkingStepsSettingsPreview(source, theme(), 72));
+			expect(output).toContain(mode === "rail" ? "│ Thinking" : "┆ Thinking");
+			expect(output).toContain(
+				mode === "rail" ? "│ • Verify compatibility" : "└─ • Verify compatibility",
+			);
+			if (mode === "tree") expect(output).not.toContain("Inspect the change");
+			else expect(output).toContain("Inspect the change");
+		}
+	});
+
+	it("renders a pure static Streaming preview with saved/restart/active status", () => {
+		const current = config();
+		current.components.thinkingSteps.enabled = true;
+		current.components.thinkingSteps.mode = "streaming";
+		const output = plain(
+			renderThinkingStepsSettingsPreview(current, theme(), 72, {
+				state: {
+					available: true,
+					active: true,
+					activeMode: "tree",
+					startup: { enabled: true, mode: "tree" },
+					restartRequired: true,
+				},
+			}),
+		);
+		expect(output).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
+		expect(output).toContain("saved streaming · active tree · restart required");
+	});
+
+	it("uses direct accent connectors and native thinking/bold Markdown callbacks", () => {
+		const calls: Array<[string, string]> = [];
+		const currentTheme = {
+			...theme(),
+			fg: (color: string, text: string) => {
+				calls.push([color, text]);
+				return text;
+			},
+		} as unknown as Theme;
+		const output = plain(renderThinkingStepsSettingsPreview(config(), currentTheme, 72));
+		expect(output).toContain("┆ Thinking");
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				["accent", "┆ "],
+				["accent", "└─ • "],
+			]),
+		);
+		expect(calls.some(([color]) => color === "thinkingText")).toBe(true);
+	});
+
+	it("keeps unavailable/native status visible while disabled and width-bounded", () => {
+		const current = config();
+		current.components.thinkingSteps.enabled = false;
+		for (const mode of ["rail", "tree", "streaming"] as const) {
+			current.components.thinkingSteps.mode = mode;
+			const rendered = renderThinkingStepsSettingsPreview(current, theme(), 20, false);
+			expect(rendered.every((row) => visibleWidth(row) <= 20)).toBe(true);
+			expect(plain(rendered)).toContain("private renderer una");
+		}
+	});
+
+	it("re-renders Thinking-step preview with current mode and theme immediately", () => {
+		const current = config();
+		current.components.thinkingSteps.mode = "rail";
+		const rail = renderThinkingStepsSettingsPreview(current, theme(0), 72);
+		current.components.thinkingSteps.mode = "tree";
+		const tree = renderThinkingStepsSettingsPreview(current, theme(37), 72);
+		expect(tree).not.toEqual(rail);
+		expect(plain(rail)).toContain("│ Thinking");
+		expect(plain(tree)).toContain("┆ Thinking");
+		expect(plain(rail)).not.toMatch(/Thinking ·|Thinking.*Rail|Thinking.*Tree/);
+		expect(plain(tree)).not.toMatch(/Thinking ·|Thinking.*Rail|Thinking.*Tree/);
 	});
 
 	it("sanitizes hostile source and configured icons before trusted preview styling", () => {

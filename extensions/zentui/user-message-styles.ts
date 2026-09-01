@@ -24,7 +24,7 @@ function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): str
 	return theme ? theme.fg(color, text) : text;
 }
 
-function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
+export function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
 	return {
 		heading: (text) => themeFg(theme, "mdHeading", text),
 		link: (text) => themeFg(theme, "mdLink", text),

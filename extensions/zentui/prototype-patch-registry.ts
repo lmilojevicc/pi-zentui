@@ -3,7 +3,8 @@ export const ZENTUI_PROTOTYPE_PATCH_REGISTRY = Symbol.for("pi-zentui.prototype-p
 type PrototypePatchAdapter =
 	| "user-message-render"
 	| "user-message-invalidate"
-	| "selector-border-render";
+	| "selector-border-render"
+	| "thinking-experimental-update-content";
 
 type PrototypeMethod = (this: unknown, ...args: unknown[]) => unknown;
 
@@ -18,10 +19,13 @@ type PatchBehavior = (invocation: PatchInvocation) => unknown;
 type Registration = {
 	token: symbol;
 	behavior?: PatchBehavior;
+	onDisplaced?: () => void;
 };
 
+type PatchMethod = "render" | "invalidate" | "updateContent";
+
 type PatchRecord = {
-	method: "render" | "invalidate";
+	method: PatchMethod;
 	predecessor: PrototypeMethod;
 	predecessorDescriptor?: PropertyDescriptor;
 	wrapper: PrototypeMethod;
@@ -48,10 +52,20 @@ function registryFor(target: PatchTarget): PatchRegistry {
 	return registry;
 }
 
-function deactivateRecord(record: PatchRecord): void {
+function deactivateRecord(record: PatchRecord, displaced = false): void {
 	if (!record.registration) return;
-	record.registration.behavior = undefined;
+	const registration = record.registration;
+	const onDisplaced = registration.onDisplaced;
+	registration.behavior = undefined;
+	registration.onDisplaced = undefined;
 	record.registration = undefined;
+	if (displaced) {
+		try {
+			onDisplaced?.();
+		} catch {
+			// Registration handoff must not prevent the newer owner from installing.
+		}
+	}
 }
 
 function restorePredecessor(target: PatchTarget, record: PatchRecord): void {
@@ -77,15 +91,17 @@ function installWrapper(target: PatchTarget, record: PatchRecord): void {
 	});
 }
 
+export type PrototypePatchRegistration = (() => void) & Readonly<{ token: symbol }>;
+
 function createCleanup(
 	target: PatchTarget,
 	adapter: PrototypePatchAdapter,
 	registry: PatchRegistry,
 	record: PatchRecord,
 	token: symbol,
-): () => void {
+): PrototypePatchRegistration {
 	let cleaned = false;
-	return () => {
+	const cleanup = () => {
 		if (cleaned) return;
 		cleaned = true;
 		if (record.registration?.token !== token) return;
@@ -97,14 +113,16 @@ function createCleanup(
 		registry.delete(adapter);
 		if (registry.size === 0) delete target[ZENTUI_PROTOTYPE_PATCH_REGISTRY];
 	};
+	return Object.assign(cleanup, { token });
 }
 
 export function installPrototypePatch(
 	targetValue: object,
-	method: "render" | "invalidate",
+	method: PatchMethod,
 	adapter: PrototypePatchAdapter,
 	behavior: PatchBehavior,
-): () => void {
+	onDisplaced?: () => void,
+): PrototypePatchRegistration {
 	const target = targetValue as PatchTarget;
 	const registry = registryFor(target);
 	let record = registry.get(adapter);
@@ -141,17 +159,43 @@ export function installPrototypePatch(
 		}
 		record = nextRecord;
 		registry.set(adapter, record);
-		if (displacedRecord && displacedRecord !== record) deactivateRecord(displacedRecord);
+		if (displacedRecord && displacedRecord !== record) deactivateRecord(displacedRecord, true);
 	}
 
+	const previousRegistration = record.registration;
 	const token = Symbol(adapter);
-	record.registration = { token, behavior };
+	record.registration = { token, behavior, onDisplaced };
+	if (previousRegistration) {
+		previousRegistration.behavior = undefined;
+		try {
+			previousRegistration.onDisplaced?.();
+		} catch {
+			// Registration handoff must not prevent the newer owner from installing.
+		}
+		previousRegistration.onDisplaced = undefined;
+	}
 	return createCleanup(target, adapter, registry, record, token);
+}
+
+export function isPrototypePatchCurrent(
+	targetValue: object,
+	method: PatchMethod,
+	adapter: PrototypePatchAdapter,
+	token?: symbol,
+): boolean {
+	const target = targetValue as PatchTarget;
+	const record = existingRegistry(target)?.get(adapter);
+	return Boolean(
+		record &&
+			record.method === method &&
+			target[method] === record.wrapper &&
+			(token === undefined || record.registration?.token === token),
+	);
 }
 
 export function removePrototypePatch(
 	targetValue: object,
-	method: "render" | "invalidate",
+	method: PatchMethod,
 	adapter: PrototypePatchAdapter,
 ): void {
 	const target = targetValue as PatchTarget;
