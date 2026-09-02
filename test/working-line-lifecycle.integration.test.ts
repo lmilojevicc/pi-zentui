@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { EventBus, Theme } from "@earendil-works/pi-coding-agent";
 import { Loader, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +40,10 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 });
 
 import zentui from "../extensions/zentui/index";
+import {
+	ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT,
+	ZENTUI_WORKING_LINE_SEGMENT_EVENT,
+} from "../extensions/zentui/working-line-extension-segments";
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
 
@@ -73,11 +77,27 @@ function loaderPhase(rendered: string): [string, number | undefined] {
 	];
 }
 
-function loadExtension() {
-	const handlers = new Map<string, Handler[]>();
+type LoadedHandlers = Map<string, Handler[]> & { events: EventBus };
+
+function loadExtension(): LoadedHandlers {
+	const handlers = new Map<string, Handler[]>() as LoadedHandlers;
+	const eventHandlers = new Map<string, Set<(data: unknown) => void>>();
+	const events: EventBus = {
+		emit(channel, data) {
+			for (const handler of eventHandlers.get(channel) ?? []) handler(data);
+		},
+		on(channel, handler) {
+			const current = eventHandlers.get(channel) ?? new Set();
+			current.add(handler);
+			eventHandlers.set(channel, current);
+			return () => current.delete(handler);
+		},
+	};
+	handlers.events = events;
 	zentui({
 		registerEntryRenderer() {},
 		appendEntry() {},
+		events,
 		on(name: string, handler: Handler) {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
@@ -226,6 +246,33 @@ describe("working-line extension lifecycle integration", () => {
 			["message", undefined],
 		]);
 		expect(current.forbidden).not.toHaveBeenCalled();
+	});
+
+	it("composes keyed extension segments into the owned animated row", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		const row = () => {
+			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+		};
+		await emit(handlers, "session_start", current.ctx);
+		const capability = { supported: false, active: false };
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT, capability);
+		expect(capability).toEqual({ supported: true, active: true });
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "tps",
+			text: "24.3 tok/s · TTFT 820ms",
+		});
+		expect(row()).toContain("Stable · 24.3 tok/s · TTFT 820ms");
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "queue",
+			text: "queue 2",
+		});
+		expect(row()).toContain("queue 2 · 24.3 tok/s · TTFT 820ms");
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, { key: "tps" });
+		expect(row()).toContain("Stable · queue 2");
+		expect(row()).not.toContain("tok/s");
+		await emit(handlers, "session_shutdown", current.ctx);
 	});
 
 	it("compacts live provider usage", async () => {

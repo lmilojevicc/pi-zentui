@@ -494,6 +494,7 @@ export type WorkingLineRuntimeSegments = {
 	elapsedMs?: number;
 	thought?: { durationMs: number; active: boolean };
 	tokens?: { input: number; output: number; outputApproximate?: boolean };
+	extensions?: readonly string[];
 };
 
 export type WorkingLineFrameState = {
@@ -573,6 +574,26 @@ function truncateWithEllipsis(value: string, capacity: number): string {
 	return prefix ? `${prefix}…` : "";
 }
 
+function fitWorkingLineExtensionSegments(
+	values: readonly string[],
+	budget: number,
+	delimiter: string,
+): string[] {
+	const fitted: string[] = [];
+	let used = 0;
+	for (const value of values) {
+		const normalized = normalizeWorkingLineMessage(value);
+		const remaining = budget - used - visibleWidth(delimiter);
+		if (!normalized || remaining <= 0) continue;
+		const text = truncateWithEllipsis(normalized, remaining);
+		if (!text) continue;
+		fitted.push(text);
+		used += visibleWidth(delimiter) + visibleWidth(text);
+		if (text !== normalized) break;
+	}
+	return fitted;
+}
+
 export type ComposedWorkingLine = { message: string; row: string };
 
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
@@ -596,7 +617,17 @@ export function composeWorkingLineRow(
 		MAX_WORKING_LINE_FRAME_CELLS - workingLineSpinnerWidth(config.spinner) - visibleWidth(" ");
 	const delimiter = " · ";
 	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
-	const mandatoryWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
+	const tokenWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
+	const extensions = fitWorkingLineExtensionSegments(
+		runtime.extensions ?? [],
+		Math.max(0, maximumRowCells - tokenWidth - 1),
+		delimiter,
+	);
+	const extensionWidth = extensions.reduce(
+		(width, value) => width + visibleWidth(delimiter) + visibleWidth(value),
+		0,
+	);
+	const mandatoryWidth = tokenWidth + extensionWidth;
 	const messageCapacity = maximumRowCells - mandatoryWidth;
 	const fittedMessage = truncateWithEllipsis(normalized, messageCapacity);
 	const segments: string[] = [fittedMessage];
@@ -630,6 +661,7 @@ export function composeWorkingLineRow(
 	if (accepted.has("elapsed") && elapsed) segments.push(elapsed);
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
+	segments.push(...extensions);
 	return { message: normalized, row: segments.filter(Boolean).join(delimiter) };
 }
 
@@ -1022,6 +1054,7 @@ export class WorkingLineController {
 	private installedIndicatorOptions: WorkingIndicatorOptions | undefined;
 	private tokens: WorkingLineRuntimeSegments["tokens"];
 	private thought: WorkingLineRuntimeSegments["thought"];
+	private extensionSegments: readonly string[] = [];
 	private readonly activeTools = new Map<string, string>();
 	private elapsedUpdatesActive = false;
 	private elapsedUpdatesContext: WorkingLineContext | undefined;
@@ -1080,6 +1113,17 @@ export class WorkingLineController {
 
 	updateTokens(tokens: WorkingLineRuntimeSegments["tokens"], ctx: WorkingLineContext): void {
 		this.updateMetrics(tokens, this.getThought(), ctx);
+	}
+
+	updateExtensionSegments(segments: readonly string[], ctx: WorkingLineContext): void {
+		if (
+			this.extensionSegments.length === segments.length &&
+			this.extensionSegments.every((value, index) => value === segments[index])
+		) {
+			return;
+		}
+		this.extensionSegments = [...segments];
+		this.updateIndicator(ctx);
 	}
 
 	startTool(toolCallId: string, toolName: string, ctx: WorkingLineContext): void {
@@ -1201,6 +1245,7 @@ export class WorkingLineController {
 			elapsedMs: this.agentActive ? this.durationClock.elapsedMs() : undefined,
 			thought,
 			tokens: this.tokens,
+			extensions: this.extensionSegments,
 		};
 	}
 
@@ -1429,5 +1474,6 @@ export class WorkingLineController {
 		this.activeTools.clear();
 		this.tokens = undefined;
 		this.thought = undefined;
+		this.extensionSegments = [];
 	}
 }

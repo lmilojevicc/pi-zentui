@@ -968,6 +968,42 @@ describe("working-line row composition", () => {
 		expect(constrained.row).not.toContain("parallel");
 	});
 
+	it("composes sanitized extension segments into every animated frame", () => {
+		const current = config();
+		const component = current.components.workingLine;
+		const runtime = {
+			tokens: { input: 12, output: 3 },
+			extensions: ["24.3 tok/s · TTFT 820ms", "\x1b[31mqueue 2\x1b[0m"],
+		};
+		const composed = composeWorkingLineRow(component, "Working…", runtime);
+		expect(composed.row).toBe("Working… · ↑12 ↓3 · 24.3 tok/s · TTFT 820ms · queue 2");
+		const generated = buildWorkingLineFrames(
+			component,
+			current.colors,
+			theme(),
+			"Working…",
+			runtime,
+		);
+		expect(strippedFrames(generated.frames).every((frame) => frame.includes(composed.row))).toBe(
+			true,
+		);
+	});
+
+	it("bounds extension segments inside the complete Working-line row", () => {
+		const component = config().components.workingLine;
+		component.spinner = "pulse";
+		const composed = composeWorkingLineRow(component, "Working…", {
+			tokens: { input: Number.MAX_SAFE_INTEGER, output: Number.MAX_SAFE_INTEGER },
+			extensions: ["extension ".repeat(50), "must-not-fit"],
+		});
+		expect(composed.row).toContain("extension");
+		expect(composed.row).toContain("…");
+		expect(composed.row).not.toContain("must-not-fit");
+		expect(
+			workingLineSpinnerWidth(component.spinner) + 1 + visibleWidth(composed.row) + 3,
+		).toBeLessThanOrEqual(MAX_WORKING_LINE_ROW_CELLS);
+	});
+
 	it("reserves exact Tokens, then allocates Message, Elapsed, and truncated Tool within 80 cells", () => {
 		const component = config().components.workingLine;
 		const composed = composeWorkingLineRow(component, "x".repeat(43), {

@@ -97,6 +97,7 @@ import {
 	snapshotWorkingLineHighStyle,
 	WorkingLineController,
 } from "./working-line";
+import { WorkingLineExtensionSegments } from "./working-line-extension-segments";
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
 const ZENTUI_EDITOR_BASE_FACTORY = Symbol.for("pi-zentui.editor-base-factory");
@@ -300,6 +301,18 @@ export default function (pi: ExtensionAPI) {
 		Math.random,
 		Date.now,
 		() => interactionMetrics.currentThought(),
+	);
+	const workingLineExtensions = new WorkingLineExtensionSegments(
+		pi.events,
+		() =>
+			sessionLifecycle.isCurrent() &&
+			currentConfig.components.workingLine.enabled &&
+			activeTuiContext !== undefined,
+		(segments) => {
+			if (activeTuiContext && sessionLifecycle.isCurrent()) {
+				workingLine.updateExtensionSegments(segments, activeTuiContext);
+			}
+		},
 	);
 	const getContextSnapshot = (ctx: ExtensionContext) => resolveContextUsage(ctx, liveContext.get());
 	const getContextWindow = (ctx: ExtensionContext): number | undefined =>
@@ -1173,6 +1186,7 @@ export default function (pi: ExtensionAPI) {
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		workingLineExtensions.clear();
 		state.sessionStartEpoch = Date.now();
 		invalidateUsageTotalsCache();
 		resetAgentTimer();
@@ -1241,6 +1255,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = saveWorkingLineComponentPatch(patch);
+			if (patch.enabled === false) workingLineExtensions.clear();
 			return workingLine.reconcile(ctx);
 		},
 		setSelectorBordersComponent(
@@ -1330,6 +1345,7 @@ export default function (pi: ExtensionAPI) {
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLine.dispose(ctx);
+		workingLineExtensions.clear();
 		cleanupUi(ctx);
 	});
 
