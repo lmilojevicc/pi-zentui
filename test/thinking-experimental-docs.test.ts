@@ -13,6 +13,8 @@ describe("Thinking (Experimental) documentation", () => {
 			expect(documentation).toMatch(/switch.*live|live switching/i);
 			expect(documentation).toMatch(/restart/i);
 			expect(documentation).toMatch(/native.*Markdown|Pi `Markdown`/i);
+			expect(documentation).toMatch(/strict(?: 7-bit CSI)? SGR styling is stripped/i);
+			expect(documentation).toMatch(/every other terminal control/i);
 			expect(documentation).toMatch(/256/);
 			expect(documentation).toMatch(/Working line/);
 		}

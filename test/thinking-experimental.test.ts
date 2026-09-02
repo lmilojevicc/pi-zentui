@@ -229,10 +229,40 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			const output = plain(visible.render(80)).join("\n");
 			expect(output).toContain(mode === "rail" ? "│ • Two" : "└─ • Two");
 			const hidden = component(true);
-			hidden.updateContent(message("# Hidden", 2_000), true);
+			hidden.updateContent(message("\x1b[31m# Hidden\x1b[0m", 2_000), true);
 			const hiddenOutput = plain(hidden.render(80)).join("\n");
 			expect(hiddenOutput).toContain("Thinking...");
 			expect(hiddenOutput).not.toContain("Hidden");
+		},
+	);
+
+	it.each(["rail", "tree"] as const)(
+		"renders SGR-decorated thinking in %s and preserves mixed unsafe source natively",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const unsafeSource = "\x1b[38;2;137;180;250m# Native fallback\x1b[39m\x1b[2J";
+			const expectedNative = component();
+			expectedNative.updateContent(message(unsafeSource, 3_000), true);
+
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(context().ctx)).toEqual({ applied: true });
+			const decorated = component();
+			decorated.updateContent(
+				message(
+					"\x1b[38;2;137;180;250m# First\x1b[39m\n\x1b[38;2;186;194;222m# Second\x1b[39m",
+					2_000,
+				),
+				true,
+			);
+			const decoratedRows = decorated.render(80);
+			const decoratedPlain = plain(decoratedRows).join("\n");
+			expect(decoratedPlain).toContain(mode === "rail" ? "│ • Second" : "└─ • Second");
+			expect(decoratedRows.join("\n")).not.toContain("\x1b[38;2;137;180;250m");
+			expect(decoratedRows.join("\n")).not.toContain("\x1b[38;2;186;194;222m");
+
+			const unsafe = component();
+			unsafe.updateContent(message(unsafeSource, 3_000), true);
+			expect(unsafe.render(80)).toEqual(expectedNative.render(80));
 		},
 	);
 

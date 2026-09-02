@@ -84,6 +84,31 @@ describe("Experimental native Rail/Tree rows", () => {
 		]);
 	});
 
+	it.each(["rail", "tree"] as const)(
+		"renders SGR-decorated thinking structurally in %s without carrying source SGR forward",
+		(mode) => {
+			const truecolor = "\x1b[38;2;137;180;250m";
+			const muted = "\x1b[38;2;186;194;222m";
+			const reset = "\x1b[39m";
+			const source = `${truecolor}# First${reset}\n${muted}body${reset}\n${truecolor}# Second${reset}`;
+			const output = rows(source, mode).rendered;
+			expect(output.map(plain)).toEqual(
+				mode === "rail"
+					? ["│ Thinking", "│ First", "│ Second"]
+					: ["┆ Thinking", "├─ · First", "└─ · Second"],
+			);
+			expect(output.join("\n")).not.toContain(truecolor);
+			expect(output.join("\n")).not.toContain(muted);
+			expect(output.join("\n")).not.toContain(reset);
+		},
+	);
+
+	it("fails open when stripping SGR reconstructs image syntax", () => {
+		const source = "# ![im\x1b[31mage](asset.png)";
+		const value = rows(source, "tree");
+		expect(value.rendered).toEqual(value.native.render(80));
+	});
+
 	it("preserves native label Markdown callbacks and accents connectors separately", () => {
 		const italic = vi.fn((text: string) => `<i>${text}</i>`);
 		const code = vi.fn((text: string) => `<c>${text}</c>`);

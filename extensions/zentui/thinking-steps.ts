@@ -1,4 +1,4 @@
-import { sanitizeUserMessageSourceText } from "./user-message-osc";
+import { sanitizeSgrOnlySourceText } from "./user-message-osc";
 
 /** Hard limits keep private transcript parsing synchronous and bounded. Limits are inclusive. */
 export const THINKING_STEPS_MAX_INPUT_LENGTH = 65_536;
@@ -109,9 +109,8 @@ function finishSteps(steps: MutableStep[]): ThinkingStep[] | undefined {
 /** Parse source-level structure; fenced and display-math blocks remain opaque bodies. */
 export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | undefined {
 	if (!markdown || markdown.length > THINKING_STEPS_MAX_INPUT_LENGTH) return undefined;
-	const source = markdown.replace(/\r\n/g, "\n");
-	const sanitized = sanitizeUserMessageSourceText(source);
-	if (sanitized !== source || !source.trim()) return undefined;
+	const source = sanitizeSgrOnlySourceText(markdown.replace(/\r\n/g, "\n"));
+	if (source === undefined || !source.trim()) return undefined;
 
 	const lines = source.split("\n");
 	const steps: MutableStep[] = [];
