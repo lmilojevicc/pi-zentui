@@ -428,7 +428,36 @@ Classic and KITT move color across message and segments. **Animate spinner color
 
 Both speeds accept `30..1000` ms. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule with at most half a spinner-cycle and half a text-step rounding. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
-Content reserves the complete Tokens label first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
+Content reserves the complete Tokens label and active extension segments first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens · Extensions** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
+
+### Working-line extension integration
+
+Third-party extensions can add dynamic text to Zentui's owned Working line through Pi's shared event bus. Keyed segments are sanitized, ordered by key, width-bounded, and included in the same Classic/KITT animation frames as Zentui's built-in content.
+
+Probe the capability when an interaction starts so an extension can fall back to Pi's public `setWorkingMessage()` slot when Zentui's Working line is unavailable:
+
+```typescript
+const capability = { supported: false, active: false };
+pi.events.emit("zentui:working-line-segment-capability", capability);
+
+if (capability.active) {
+  pi.events.emit("zentui:working-line-segment", {
+    key: "my-extension",
+    text: "24.3 tok/s · TTFT 820ms",
+  });
+}
+```
+
+Update a segment by emitting the same key with new text. Remove it when the interaction settles or the extension shuts down:
+
+```typescript
+pi.events.emit("zentui:working-line-segment", {
+  key: "my-extension",
+  text: undefined,
+});
+```
+
+`text: ""` also removes a segment. Zentui accepts at most 16 unique keys, keys up to 64 code units, and values up to 256 code units. Extra segments are omitted or truncated when the complete row reaches its fixed width. `supported` reports whether this Zentui version understands the protocol; `active` additionally requires an enabled Working line in an active TUI session.
 
 ## Git status icons
 
