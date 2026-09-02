@@ -6,6 +6,7 @@ import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { renderMinimalistFrame } from "./minimalist-editor";
 import { safeThemeFg } from "./style";
 import { createThinkingStepsRows } from "./thinking-experimental";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import { parseThinkingSteps } from "./thinking-steps";
 import { renderPolishedEditorFrame } from "./ui";
 import { makeMarkdownTheme, renderUserMessageStyle } from "./user-message-styles";
@@ -25,6 +26,9 @@ export const THINKING_STEPS_PREVIEW_MARKDOWN = [
 ].join("\n");
 type ThinkingPreviewState = Readonly<{
 	available: boolean;
+	rendererAvailable?: boolean;
+	streamingAvailable?: boolean;
+	streamingPoisoned?: boolean;
 	active: boolean;
 	activeMode?: "rail" | "tree" | "streaming";
 	startup: Readonly<{ enabled: boolean; mode: "rail" | "tree" | "streaming" }>;
@@ -36,6 +40,23 @@ type ThinkingPreviewCapability =
 	| boolean
 	| Readonly<{ available: boolean }>
 	| Readonly<{ readonly state: ThinkingPreviewState }>;
+
+function wrapPreviewText(text: string, width: number): string[] {
+	if (width <= 0) return [];
+	const rows: string[] = [];
+	for (const fact of text.split(" · ")) {
+		const candidate = rows.length > 0 ? `${rows.at(-1)} · ${fact}` : fact;
+		if (visibleWidth(candidate) <= width) {
+			if (rows.length > 0) rows[rows.length - 1] = candidate;
+			else rows.push(candidate);
+			continue;
+		}
+		if (rows.length === 0 || rows.at(-1) !== fact) rows.push(fact);
+	}
+	return rows.flatMap((row) =>
+		visibleWidth(row) <= width ? [row] : [truncateToWidth(row, width, "")],
+	);
+}
 
 function boundedRows(rows: string[], width: number): string[] {
 	const safeWidth = Math.max(0, Math.min(SETTINGS_PREVIEW_MAX_WIDTH, width));
@@ -176,20 +197,17 @@ export function renderThinkingStepsSettingsPreview(
 						startup: { enabled: false, mode: "tree" },
 						restartRequired: false,
 					};
-	const saved = thinkingSteps.enabled ? `saved ${thinkingSteps.mode}` : "saved disabled";
-	const active = state.active && state.activeMode ? `active ${state.activeMode}` : "native active";
-	const status = !state.available
-		? `${state.reason ?? "private renderer unavailable"} · native thinking`
-		: state.restartRequired
-			? `${saved} · ${active} · restart required`
-			: `${saved} · ${active}`;
+	const status = formatThinkingStatus(thinkingStatusLabels(thinkingSteps, state));
+	const statusRows = wrapPreviewText(status, previewWidth).map((row) =>
+		safeThemeFg(theme, "muted", row),
+	);
 	if (thinkingSteps.mode === "streaming") {
 		return boundedRows(
 			[
+				...statusRows,
 				safeThemeFg(theme, "thinkingText", "Thinking 7.1s  (configured thinking toggle to expand)"),
 				safeThemeFg(theme, "thinkingText", "Inspect the host-rendered reasoning tail."),
 				safeThemeFg(theme, "thinkingText", "Preserve native Markdown and wrapping."),
-				safeThemeFg(theme, "muted", status),
 			],
 			previewWidth,
 		);
@@ -223,6 +241,5 @@ export function renderThinkingStepsSettingsPreview(
 				() => theme,
 			).render(previewWidth)
 		: native.render(previewWidth);
-	rows.push(safeThemeFg(theme, "muted", status));
-	return boundedRows(rows, previewWidth);
+	return boundedRows([...statusRows, ...rows], previewWidth);
 }

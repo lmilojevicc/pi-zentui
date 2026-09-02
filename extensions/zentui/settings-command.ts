@@ -63,6 +63,7 @@ import {
 	SETTINGS_PREVIEW_MAX_WIDTH,
 } from "./settings-previews";
 import { EDITOR_BORDER_STYLE, renderChromeBorder, safeThemeFg } from "./style";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
@@ -140,7 +141,11 @@ const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	tree: "Tree",
 	streaming: "Streaming",
 };
-const thinkingStepsModeValues = Object.values(thinkingStepsModeLabels);
+const thinkingStepsModeValues = (startupMode: ThinkingStepsMode): string[] => {
+	if (startupMode === "streaming") return ["Streaming", "Tree", "Rail"];
+	if (startupMode === "rail") return ["Rail", "Tree", "Streaming"];
+	return ["Tree", "Rail", "Streaming"];
+};
 
 const settingsSections = [
 	"appearance",
@@ -176,6 +181,9 @@ type SettingsOutcome =
 
 type ThinkingControllerState = Readonly<{
 	available: boolean;
+	rendererAvailable?: boolean;
+	streamingAvailable?: boolean;
+	streamingPoisoned?: boolean;
 	active: boolean;
 	activeMode?: ThinkingStepsMode;
 	startup: Readonly<ThinkingStepsComponentConfig>;
@@ -665,20 +673,8 @@ function buildThinkingStepsItems(
 ): SettingItem[] {
 	const thinkingSteps = config.components.thinkingSteps;
 	const controller = experimentalThinkingCapability(capability);
-	const startupLabel = controller.startup.enabled
-		? `Active startup: ${thinkingStepsModeLabels[controller.startup.mode]}`
-		: "Active startup: native thinking";
-	const savedLabel = thinkingSteps.enabled
-		? `Saved: ${thinkingStepsModeLabels[thinkingSteps.mode]}`
-		: "Saved: disabled";
-	const status = !controller.available
-		? `${controller.reason ?? "Private renderer unavailable"}; using native thinking.`
-		: controller.restartRequired
-			? `${savedLabel}; ${startupLabel}. Restart Pi to apply.`
-			: controller.active
-				? `${startupLabel}.`
-				: `${savedLabel}; using native thinking.`;
-	const enabledDescription = `${status} Private renderer; every enable, disable, or mode change requires restart and may break after Pi updates.`;
+	const status = formatThinkingStatus(thinkingStatusLabels(thinkingSteps, controller));
+	const enabledDescription = `${status} Live switching supports Streaming → Rail/Tree and Rail ↔ Tree. Entering Streaming, first enable, and re-enable after live disable require restart. Private renderer may break after Pi updates.`;
 	return [
 		{
 			id: "thinkingStepsEnabled",
@@ -690,9 +686,9 @@ function buildThinkingStepsItems(
 		{
 			id: "thinkingStepsMode",
 			label: "Mode",
-			description: `${status} Rail shows every parsed label; Tree shows the latest five per contiguous run; Streaming folds to the latest five host-rendered rows and owns the configured thinking toggle only when active. Incompatibility uses native thinking.`,
+			description: `${status} Rail shows every parsed label; Tree shows the latest five per contiguous run; both follow Pi thinking visibility, and unsafe or unstructured content remains native. Streaming folds to the latest five host-rendered rows and owns the configured thinking toggle only when active. Incompatibility uses native thinking.`,
 			currentValue: thinkingStepsModeLabels[thinkingSteps.mode],
-			values: thinkingStepsModeValues,
+			values: thinkingStepsModeValues(controller.startup.mode),
 		},
 	];
 }
@@ -1285,9 +1281,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					};
 					const notifyChange = (label: string, value: string, result?: ApplyResult) => {
 						deps.requestRender();
+						const detail = result?.reason?.trim();
 						ctx.ui.notify(
-							`${label}: ${value}${result && !result.applied ? ` (${result.reason ?? "reload Pi to apply this change"})` : ""}`,
-							"info",
+							`${label}: ${value}${detail ? ` (${detail})` : result && !result.applied ? " (reload Pi to apply this change)" : ""}`,
+							result && (!result.applied || detail) ? "warning" : "info",
 						);
 						startPreview();
 						tui.requestRender();
