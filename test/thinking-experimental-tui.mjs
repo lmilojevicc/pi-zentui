@@ -116,9 +116,31 @@ function assertBoundedJsonFixtures() {
 	if (diagnostic.length > 12_000) throw new Error("Structural diagnostic bound simulation failed");
 }
 
+const streamingHeaderPattern = /^(\s*)Thinking \d+\.\d+s {2}\(ctrl\+t to expand\)$/;
+
+function canonicalizeStreamingElapsed(rows) {
+	return rows.map((row) =>
+		row.replace(streamingHeaderPattern, "$1Thinking <elapsed>s  (ctrl+t to expand)"),
+	);
+}
+
+function assertStreamingElapsedVarianceFixtures() {
+	const expected = [" Thinking <elapsed>s  (ctrl+t to expand)", " exact native tail row"];
+	const startup = [" Thinking 0.0s  (ctrl+t to expand)", " exact native tail row"];
+	const delayedLinux = [" Thinking 0.1s  (ctrl+t to expand)", " exact native tail row"];
+	const malformed = [" Thinking soon  (ctrl+t to expand)", " exact native tail row"];
+	if (
+		JSON.stringify(canonicalizeStreamingElapsed(startup)) !== JSON.stringify(expected) ||
+		JSON.stringify(canonicalizeStreamingElapsed(delayedLinux)) !== JSON.stringify(expected) ||
+		JSON.stringify(canonicalizeStreamingElapsed(malformed)) === JSON.stringify(expected)
+	)
+		throw new Error("Streaming elapsed-time variance simulation failed");
+}
+
 assertExtensionLoaderDiagnosticFixtures();
 assertStructuralLinkSemanticsFixtures();
 assertBoundedJsonFixtures();
+assertStreamingElapsedVarianceFixtures();
 
 const completedThinkingRows = [
 	"PTY exact row 1  ",
@@ -1688,15 +1710,16 @@ while True: time.sleep(1)
 		const expectedScreenTail = (live?.nativeScreenTail ?? []).map((row) => row.trimEnd());
 		const extractedLiveRows = result.liveSection.split("\n").map((row) => row.trimEnd());
 		const expectedStartupStreamingRows = [
-			" Thinking 0.0s  (ctrl+t to expand)",
+			" Thinking <elapsed>s  (ctrl+t to expand)",
 			" padding words KNOWN WRAPPED CONTINUATION",
 			" LIVE rendered row 5",
 			" LIVE rendered row 6",
 			" LIVE rendered row 7",
 			" LIVE rendered row 8",
 		];
+		const canonicalExtractedLiveRows = canonicalizeStreamingElapsed(extractedLiveRows);
 		const extractedLiveHeaderIndexes = extractedLiveRows.flatMap((row, index) =>
-			/^Thinking \d+\.\d+s {2}\(ctrl\+t to expand\)$/.test(row.trimStart()) ? [index] : [],
+			streamingHeaderPattern.test(row) ? [index] : [],
 		);
 		const extractedLiveBody = extractedLiveRows.filter(
 			(_row, index) => index !== extractedLiveHeaderIndexes[0],
@@ -1710,50 +1733,96 @@ while True: time.sleep(1)
 			(signature ?? [])
 				.filter((child) => child.constructor === "Markdown")
 				.map((child) => child.text);
-		if (
-			probes.length !== 2 ||
-			!live?.ready ||
-			!live.installed ||
-			!live.markdownIdentity ||
-			!live.importedAssistantIdentity ||
-			!live.importedMarkdownIdentity ||
-			live.wrapperCalls !== 1 ||
-			live.testedCalls?.length !== 1 ||
-			call?.count !== (oldContract ? 1 : 2) ||
-			call?.messageIdentity !== true ||
-			(oldContract ? call?.isStreaming !== undefined : call?.isStreaming !== true) ||
-			!live.hiddenFolded ||
-			!live.hiddenStatePreserved ||
-			countConstructor(signatures?.collision, "FoldedThinkingSection") !== 2 ||
-			JSON.stringify(markdownTexts(signatures?.collision)) !== JSON.stringify(["collision B"]) ||
-			countConstructor(signatures?.equal, "FoldedThinkingSection") !== 1 ||
-			JSON.stringify(markdownTexts(signatures?.equal)) !== JSON.stringify(["equal source"]) ||
-			countConstructor(signatures?.contiguous, "FoldedThinkingSection") !==
-				(runtimeVersion === "0.80.5" ? 2 : 1) ||
-			countConstructor(signatures?.toolSeparated, "FoldedThinkingSection") !== 2 ||
-			markdownTexts(signatures?.toolSeparated).length !== 0 ||
-			!liveRows.some((row) => row.includes("Thinking")) ||
-			liveRows.some((row) => /LIVE rendered row [123]/.test(row)) ||
-			JSON.stringify(liveBody.slice(-5)) !== JSON.stringify(liveTail) ||
-			JSON.stringify(extractedLiveRows) !== JSON.stringify(expectedStartupStreamingRows) ||
-			expectedScreenTail.length !== 5 ||
-			extractedLiveHeaderIndexes.length !== 1 ||
-			extractedLiveBody.length !== 5 ||
-			JSON.stringify(extractedLiveBody) !== JSON.stringify(expectedScreenTail) ||
-			!extractedLiveBody[0]?.includes("KNOWN WRAPPED CONTINUATION") ||
-			![5, 6, 7, 8].every((row) =>
+		const equalRows = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+		const callPredicates = {
+			probeCount: probes.length === 2,
+			ready: live?.ready === true,
+			installed: live?.installed === true,
+			markdownIdentity: live?.markdownIdentity === true,
+			importedAssistantIdentity: live?.importedAssistantIdentity === true,
+			importedMarkdownIdentity: live?.importedMarkdownIdentity === true,
+			wrapperCallCount: live?.wrapperCalls === 1,
+			testedCallCount: live?.testedCalls?.length === 1,
+			argumentCount: call?.count === (oldContract ? 1 : 2),
+			messageIdentity: call?.messageIdentity === true,
+			streamingArgument: oldContract ? call?.isStreaming === undefined : call?.isStreaming === true,
+			hiddenFolded: live?.hiddenFolded === true,
+			hiddenStatePreserved: live?.hiddenStatePreserved === true,
+		};
+		const signaturePredicates = {
+			collisionThinkingCount:
+				countConstructor(signatures?.collision, "FoldedThinkingSection") === 2,
+			collisionMarkdown: equalRows(markdownTexts(signatures?.collision), ["collision B"]),
+			equalThinkingCount: countConstructor(signatures?.equal, "FoldedThinkingSection") === 1,
+			equalMarkdown: equalRows(markdownTexts(signatures?.equal), ["equal source"]),
+			contiguousThinkingCount:
+				countConstructor(signatures?.contiguous, "FoldedThinkingSection") ===
+				(runtimeVersion === "0.80.5" ? 2 : 1),
+			toolSeparatedThinkingCount:
+				countConstructor(signatures?.toolSeparated, "FoldedThinkingSection") === 2,
+			toolSeparatedMarkdownCount: markdownTexts(signatures?.toolSeparated).length === 0,
+		};
+		const livePredicates = {
+			liveHeaderPresent: liveRows.some((row) => row.includes("Thinking")),
+			liveRowsOneThroughThreeAbsent: !liveRows.some((row) => /LIVE rendered row [123]/.test(row)),
+			liveBodyTailEqualsNativeTail: equalRows(liveBody.slice(-5), liveTail),
+			extractedRowsEqualExpectedStartup: equalRows(
+				canonicalExtractedLiveRows,
+				expectedStartupStreamingRows,
+			),
+			nativeScreenTailHasFiveRows: expectedScreenTail.length === 5,
+			extractedHasOneHeader: extractedLiveHeaderIndexes.length === 1,
+			extractedBodyHasFiveRows: extractedLiveBody.length === 5,
+			extractedBodyEqualsNativeScreenTail: equalRows(extractedLiveBody, expectedScreenTail),
+			extractedBodyStartsWithWrappedContinuation:
+				extractedLiveBody[0]?.includes("KNOWN WRAPPED CONTINUATION") === true,
+			extractedBodyHasRowsFiveThroughEight: [5, 6, 7, 8].every((row) =>
 				extractedLiveBody.some((text) => text.includes(`LIVE rendered row ${row}`)),
-			) ||
-			extractedLiveBody.some((row) => /LIVE rendered row [123]/.test(row)) ||
-			extractedLiveBody.some((row) => row.includes("LIVE wrapping row 4")) ||
-			!probes.at(-1)?.restored ||
-			!probes.at(-1)?.descriptorEvidence?.all ||
-			!Object.values(probes.at(-1)?.descriptorEvidence?.fields ?? {}).every(Boolean) ||
-			!probes.at(-1)?.widgetRemoved ||
-			probes.at(-1)?.widgetOwnershipCount !== 0
-		) {
+			),
+			extractedBodyRowsOneThroughThreeAbsent: !extractedLiveBody.some((row) =>
+				/LIVE rendered row [123]/.test(row),
+			),
+			extractedBodyWrappingSourceAbsent: !extractedLiveBody.some((row) =>
+				row.includes("LIVE wrapping row 4"),
+			),
+		};
+		const shutdown = probes.at(-1);
+		const restoredPredicates = {
+			restored: shutdown?.restored === true,
+			descriptorAll: shutdown?.descriptorEvidence?.all === true,
+			descriptorFields: Object.values(shutdown?.descriptorEvidence?.fields ?? {}).every(Boolean),
+			widgetRemoved: shutdown?.widgetRemoved === true,
+			widgetOwnershipCountZero: shutdown?.widgetOwnershipCount === 0,
+			controllerInputsZero: shutdown?.controllerResources?.inputs === 0,
+			controllerTimersZero: shutdown?.controllerResources?.timers === 0,
+		};
+		const predicateGroups = {
+			call: callPredicates,
+			signature: signaturePredicates,
+			live: livePredicates,
+			restored: restoredPredicates,
+		};
+		const failedPredicates = Object.entries(predicateGroups).flatMap(([group, predicates]) =>
+			Object.entries(predicates).flatMap(([name, passed]) => (passed ? [] : [`${group}.${name}`])),
+		);
+		if (failedPredicates.length > 0) {
 			throw new Error(
-				`Pi ${version} live identity/tail/cleanup probe failed: ${JSON.stringify(probes)}`,
+				`Pi ${version} live identity/tail/cleanup probe failed: ${boundedJson({
+					failedPredicates,
+					predicates: predicateGroups,
+					extractedLiveRows,
+					canonicalExtractedLiveRows,
+					expectedStartupStreamingRows,
+					expectedScreenTail,
+					extractedLiveHeaderIndexes,
+					extractedLiveBody,
+					liveRows,
+					liveBody,
+					liveTail,
+					call,
+					signatures,
+					shutdown,
+				})}`,
 			);
 		}
 
