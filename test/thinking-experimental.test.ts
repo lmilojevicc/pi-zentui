@@ -236,7 +236,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		},
 	);
 
-	it("saves live Experimental selection without taking patch or input ownership until restart", () => {
+	it("preconfigures while disabled and requires restart for first enable and post-disable re-enable", () => {
 		const config: ThinkingStepsComponentConfig = { enabled: false, mode: "tree" };
 		const host = context();
 		const value = controller(config);
@@ -244,14 +244,11 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		expect(Object.getOwnPropertyDescriptor(prototype, "updateContent")).toEqual(originalDescriptor);
 
 		config.mode = "streaming";
-		expect(value.reconcile()).toEqual({
-			applied: false,
-			reason: "Restart Pi to apply saved Thinking changes.",
-		});
+		expect(value.reconcile()).toEqual({ applied: true });
 		config.enabled = true;
 		expect(value.reconcile()).toEqual({
 			applied: false,
-			reason: "Restart Pi to apply saved Thinking changes.",
+			reason: "Saved: Streaming · Active: Native · restart required",
 		});
 		expect(config).toEqual({ enabled: true, mode: "streaming" });
 		expect(Object.getOwnPropertyDescriptor(prototype, "updateContent")).toEqual(originalDescriptor);
@@ -259,8 +256,8 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			available: true,
 			active: false,
 			restartRequired: true,
-			reason: "Restart Pi to apply saved Thinking changes.",
 		});
+		expect(value.state.reason).toBeUndefined();
 		expect(host.input("\x14")).toBeUndefined();
 		expect(host.inputRegistrations()).toBe(0);
 		expect(host.stopInput).not.toHaveBeenCalled();
@@ -274,6 +271,349 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			restartRequired: false,
 		});
 		expect(host.inputRegistrations()).toBe(1);
+		config.enabled = false;
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.state).toMatchObject({ active: false, restartRequired: false });
+		config.enabled = true;
+		expect(value.reconcile()).toMatchObject({ applied: false });
+		expect(value.state).toMatchObject({ active: false, restartRequired: true });
+	});
+
+	it("switches startup Streaming to Tree to Rail live with one redraw and releases resources", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller(config, () => 2_000, requestRender);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const current = message("# One\n# Two\n# Three\n# Four\n# Five\n# Six", 1_000);
+		(current as { stopReason: string }).stopReason = "pending";
+		assistant.updateContent(current, true);
+		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking 0.0s");
+		expect(host.inputRegistrations()).toBe(1);
+		expect(vi.getTimerCount()).toBe(1);
+
+		config.mode = "tree";
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ • Six");
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		expect(host.stopInput).toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount()).toBe(0);
+
+		config.mode = "rail";
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(plain(assistant.render(80)).join("\n")).toContain("│ • Six");
+		expect(requestRender).toHaveBeenCalledTimes(2);
+		expect(host.inputRegistrations()).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(requestRender).toHaveBeenCalledTimes(2);
+		for (const method of Object.values(host.forbidden)) expect(method).not.toHaveBeenCalled();
+	});
+
+	it("keeps a structural mode active and acquires no resources when Streaming is selected", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "tree" };
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller(config, () => 2_000, requestRender);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		assistant.updateContent(message("# One\n# Two", 1_000), true);
+
+		config.mode = "streaming";
+		expect(value.reconcile()).toEqual({
+			applied: false,
+			reason: "Saved: Streaming · Active: Tree · restart required",
+		});
+		expect(value.state).toMatchObject({
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "tree",
+			restartRequired: true,
+		});
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ • Two");
+		expect(requestRender).not.toHaveBeenCalled();
+		expect(host.inputRegistrations()).toBe(0);
+		expect(host.stopInput).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("fails open native when startup Streaming cannot own listener cleanup", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		let leakedHandler: ((data: string) => { consume?: boolean } | undefined) | undefined;
+		(
+			host.ctx.ui as unknown as { onTerminalInput: (handler: typeof leakedHandler) => unknown }
+		).onTerminalInput = (handler) => {
+			leakedHandler = handler;
+			return { notCleanup: true };
+		};
+		const value = controller(config);
+		expect(value.startSession(host.ctx)).toMatchObject({
+			applied: false,
+			reason: expect.stringContaining("cleanup is unavailable"),
+		});
+		expect(value.state).toMatchObject({
+			rendererAvailable: true,
+			streamingAvailable: false,
+			active: false,
+			restartRequired: true,
+		});
+		const assistant = component();
+		assistant.updateContent(message("startup native reasoning"), true);
+		expect(plain(assistant.render(80)).join("\n")).toContain("startup native reasoning");
+		expect(leakedHandler?.("\x14")).toBeUndefined();
+		value.shutdown();
+		expect(leakedHandler?.("\x14")).toBeUndefined();
+	});
+
+	it("does not fold the first pending Streaming message when timer startup fails", () => {
+		let nativeChildren: Component[] | undefined;
+		installLegacyThinkingRenderer((_container, children) => {
+			nativeChildren = children;
+		});
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		const value = controller(config, () => 2_000);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const interval = vi.spyOn(globalThis, "setInterval").mockImplementationOnce(() => {
+			throw new Error("timer denied");
+		});
+		const assistant = component();
+		const pending = message("first pending native reasoning", 1_000);
+		(pending as { stopReason: string }).stopReason = "pending";
+		expect(() => assistant.updateContent(pending, true)).not.toThrow();
+		interval.mockRestore();
+
+		const children = (assistant as unknown as { contentContainer: { children: Component[] } })
+			.contentContainer.children;
+		expect(children).toBe(nativeChildren);
+		expect(children.every((child, index) => child === nativeChildren?.[index])).toBe(true);
+		expect(plain(assistant.render(80)).join("\n")).toContain("first pending native reasoning");
+		expect(value.state).toMatchObject({
+			rendererAvailable: true,
+			streamingAvailable: false,
+			active: false,
+			restartRequired: true,
+			reason: "Pi's thinking timer is unavailable",
+		});
+		expect(value.diagnostics).toMatchObject({ trackedComponents: 0, activeComponents: 0 });
+		expect(host.stopInput).toHaveBeenCalledTimes(1);
+	});
+
+	it("fails a live transition transactionally when a tracked layout becomes incompatible", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "rail" };
+		const host = context();
+		const value = controller(config, () => 5_000);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const original = message("# Original Rail", 1_000);
+		(original as { stopReason: string }).stopReason = "pending";
+		assistant.updateContent(original, true);
+		const tracked = (
+			value as unknown as { states: WeakMap<object, { args: unknown[] }> }
+		).states.get(assistant);
+		expect(tracked).toBeDefined();
+		if (tracked) tracked.args = [message("incompatible native replacement", 2_000), true];
+
+		config.mode = "tree";
+		const result = value.reconcile();
+		expect(result).toEqual({
+			applied: false,
+			reason:
+				"Saved: Tree · Active: Native · Renderer unavailable · restart required · Pi's private assistant renderer shape is incompatible",
+		});
+		expect(value.state).toMatchObject({
+			available: false,
+			active: false,
+			restartRequired: true,
+			reason: "Pi's private assistant renderer shape is incompatible",
+		});
+		expect(value.state.activeMode).toBeUndefined();
+		expect(value.diagnostics).toMatchObject({ trackedComponents: 0, activeComponents: 0 });
+		expect(plain(assistant.render(80)).join("\n")).toContain("incompatible native replacement");
+		expect(host.stopInput).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("contains throwing listener cleanup while leaving the selected structural mode active", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		host.stopInput.mockImplementation(() => {
+			throw new Error("cleanup denied");
+		});
+		const value = controller(config);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		assistant.updateContent(message("# Transition cleanup"), false);
+		config.mode = "tree";
+		let result: ReturnType<ThinkingExperimentalController["reconcile"]> | undefined;
+		expect(() => {
+			result = value.reconcile();
+		}).not.toThrow();
+		expect(result).toEqual({
+			applied: true,
+			reason:
+				"Saved: Tree · Active: Tree · Streaming unavailable · Pi's terminal input listener cleanup is unavailable",
+		});
+		expect(value.state).toMatchObject({
+			active: true,
+			activeMode: "tree",
+			streamingAvailable: false,
+			restartRequired: false,
+		});
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ · Transition cleanup");
+		expect(() => value.shutdown()).not.toThrow();
+	});
+
+	it("disables Streaming to native with a canonical warning when cleanup throws", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		host.stopInput.mockImplementation(() => {
+			throw new Error("cleanup denied");
+		});
+		const value = controller(config);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const pending = message("# Disable cleanup");
+		(pending as { stopReason: string }).stopReason = "pending";
+		assistant.updateContent(pending, true);
+		expect(vi.getTimerCount()).toBe(1);
+
+		config.enabled = false;
+		expect(value.reconcile()).toEqual({
+			applied: true,
+			reason:
+				"Saved: Disabled · Active: Native · Streaming unavailable · Pi's terminal input listener cleanup is unavailable",
+		});
+		expect(value.state).toMatchObject({
+			active: false,
+			streamingAvailable: false,
+			streamingPoisoned: true,
+			restartRequired: false,
+			reason: "Pi's terminal input listener cleanup is unavailable",
+		});
+		expect(host.stopInput).toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(host.input("\x14")).toBeUndefined();
+		const nativeOutput = plain(assistant.render(80)).join("\n");
+		expect(nativeOutput).toContain("Disable cleanup");
+		expect(nativeOutput).not.toContain("Thinking 0.0s");
+
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(host.stopInput).toHaveBeenCalledTimes(1);
+		expect(value.state).toMatchObject({
+			streamingAvailable: false,
+			streamingPoisoned: true,
+		});
+	});
+
+	it("keeps a failed timer handle inert and retries its cleanup at shutdown", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller(config, Date.now, requestRender);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const pending = message("# Timer cleanup");
+		(pending as { stopReason: string }).stopReason = "pending";
+		assistant.updateContent(pending, true);
+		expect(vi.getTimerCount()).toBe(1);
+		const clear = vi.spyOn(globalThis, "clearInterval").mockImplementationOnce(() => {
+			throw new Error("timer cleanup denied");
+		});
+
+		config.mode = "tree";
+		expect(value.reconcile()).toEqual({
+			applied: true,
+			reason:
+				"Saved: Tree · Active: Tree · Streaming unavailable · Pi's thinking timer cleanup is unavailable",
+		});
+		expect(value.state).toMatchObject({
+			active: true,
+			activeMode: "tree",
+			streamingAvailable: false,
+			streamingPoisoned: true,
+			restartRequired: false,
+			reason: "Pi's thinking timer cleanup is unavailable",
+		});
+		expect(host.stopInput).toHaveBeenCalledTimes(1);
+		expect(host.input("\x14")).toBeUndefined();
+		expect(host.inputRegistrations()).toBe(1);
+		expect(vi.getTimerCount()).toBe(1);
+		expect(
+			(value as unknown as { interval?: ReturnType<typeof setInterval> }).interval,
+		).toBeDefined();
+		const rendersAfterTransition = requestRender.mock.calls.length;
+		vi.advanceTimersByTime(2_000);
+		expect(clear).toHaveBeenCalledTimes(1);
+		expect(requestRender).toHaveBeenCalledTimes(rendersAfterTransition);
+		expect(value.diagnostics.lastTimerWork).toBe(0);
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ • Timer cleanup");
+
+		expect(() => value.shutdown()).not.toThrow();
+		expect(clear).toHaveBeenCalledTimes(2);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(
+			(value as unknown as { interval?: ReturnType<typeof setInterval> }).interval,
+		).toBeUndefined();
+	});
+
+	it("keeps an always-throwing cleared timer callback inert with an honest reason", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		vi.useFakeTimers();
+		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller(config, Date.now, requestRender);
+		expect(value.startSession(host.ctx)).toEqual({ applied: true });
+		const assistant = component();
+		const pending = message("# Permanent timer cleanup");
+		(pending as { stopReason: string }).stopReason = "pending";
+		assistant.updateContent(pending, true);
+		const clear = vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {
+			throw new Error("timer cleanup denied");
+		});
+
+		config.mode = "rail";
+		expect(value.reconcile()).toEqual({
+			applied: true,
+			reason:
+				"Saved: Rail · Active: Rail · Streaming unavailable · Pi's thinking timer cleanup is unavailable",
+		});
+		const rendersAfterTransition = requestRender.mock.calls.length;
+		vi.advanceTimersByTime(2_000);
+		expect(clear).toHaveBeenCalledTimes(1);
+		expect(requestRender).toHaveBeenCalledTimes(rendersAfterTransition);
+		expect(host.inputRegistrations()).toBe(1);
+		expect(value.state).toMatchObject({
+			active: true,
+			activeMode: "rail",
+			streamingAvailable: false,
+			streamingPoisoned: true,
+			reason: "Pi's thinking timer cleanup is unavailable",
+		});
+
+		expect(() => value.shutdown()).not.toThrow();
+		expect(clear).toHaveBeenCalledTimes(2);
+		expect(vi.getTimerCount()).toBe(1);
+		expect(
+			(value as unknown as { interval?: ReturnType<typeof setInterval> }).interval,
+		).toBeDefined();
+		expect(value.state.reason).toBe("Pi's thinking timer cleanup is unavailable");
 	});
 
 	it("renders the final five native terminal rows, toggles full native reasoning, and refolds", () => {
@@ -831,11 +1171,8 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		expect(plain(assistant.render(40)).join("\n")).toContain("Thought for 1.0s");
 
 		config.enabled = false;
-		expect(value.reconcile()).toEqual({
-			applied: false,
-			reason: "Restart Pi to apply saved Thinking changes.",
-		});
-		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.state).toMatchObject({ active: false, restartRequired: false });
 		value.shutdown();
 		expect(requestRender).toHaveBeenCalledTimes(3);
 		expect(plain(assistant.render(40)).join("\n")).not.toMatch(/Thinking \d|Thought for/);
@@ -872,8 +1209,8 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		expect(plain(restored.render(80)).join("\n")).not.toContain("Thought for");
 
 		config.enabled = false;
-		expect(value.reconcile()).toMatchObject({ applied: false });
-		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.state).toMatchObject({ active: false, restartRequired: false });
 		value.shutdown();
 		expect(plain(assistant.render(80)).join("\n")).toContain("private reasoning");
 		expect(host.stopInput).toHaveBeenCalledTimes(1);
@@ -912,8 +1249,8 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		expect(plain(hiddenToVisible.render(80)).join("\n")).toContain("Thinking 0.0s");
 
 		config.enabled = false;
-		expect(value.reconcile()).toMatchObject({ applied: false });
-		expect(value.state).toMatchObject({ active: true, restartRequired: true });
+		expect(value.reconcile()).toEqual({ applied: true });
+		expect(value.state).toMatchObject({ active: false, restartRequired: false });
 		value.shutdown();
 		const hiddenNative = plain(visibleToHidden.render(80)).join("\n");
 		expect(hiddenNative).toContain("Thinking...");
@@ -1033,7 +1370,11 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 				applied: false,
 				reason: expect.stringContaining("no usable configured binding"),
 			});
-			expect(value.state).toMatchObject({ available: false, active: false });
+			expect(value.state).toMatchObject({
+				rendererAvailable: true,
+				streamingAvailable: false,
+				active: false,
+			});
 			value.shutdown();
 			controllers.delete(value);
 		}
@@ -1058,7 +1399,12 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		assistant.updateContent(message("must restore native", 3_000), true);
 		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking");
 		expect(host.input("\x19")).toBeUndefined();
-		expect(throwing.state).toMatchObject({ available: false, active: false });
+		expect(throwing.state).toMatchObject({
+			rendererAvailable: true,
+			streamingAvailable: false,
+			active: false,
+			reason: "Pi's thinking-toggle matcher failed at runtime",
+		});
 		const restored = plain(assistant.render(80)).join("\n");
 		expect(restored).toContain("must restore native");
 		expect(restored).not.toMatch(/Thinking \d|Thought(?: for)?/);

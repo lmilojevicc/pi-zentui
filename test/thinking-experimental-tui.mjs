@@ -19,6 +19,7 @@ import {
 
 const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? [
 	"0.80.5",
+	"0.82.1",
 	"0.83.0",
 	"0.84.0",
 	"0.84.4",
@@ -115,9 +116,31 @@ function assertBoundedJsonFixtures() {
 	if (diagnostic.length > 12_000) throw new Error("Structural diagnostic bound simulation failed");
 }
 
+const streamingHeaderPattern = /^(\s*)Thinking \d+\.\d+s {2}\(ctrl\+t to expand\)$/;
+
+function canonicalizeStreamingElapsed(rows) {
+	return rows.map((row) =>
+		row.replace(streamingHeaderPattern, "$1Thinking <elapsed>s  (ctrl+t to expand)"),
+	);
+}
+
+function assertStreamingElapsedVarianceFixtures() {
+	const expected = [" Thinking <elapsed>s  (ctrl+t to expand)", " exact native tail row"];
+	const startup = [" Thinking 0.0s  (ctrl+t to expand)", " exact native tail row"];
+	const delayedLinux = [" Thinking 0.1s  (ctrl+t to expand)", " exact native tail row"];
+	const malformed = [" Thinking soon  (ctrl+t to expand)", " exact native tail row"];
+	if (
+		JSON.stringify(canonicalizeStreamingElapsed(startup)) !== JSON.stringify(expected) ||
+		JSON.stringify(canonicalizeStreamingElapsed(delayedLinux)) !== JSON.stringify(expected) ||
+		JSON.stringify(canonicalizeStreamingElapsed(malformed)) === JSON.stringify(expected)
+	)
+		throw new Error("Streaming elapsed-time variance simulation failed");
+}
+
 assertExtensionLoaderDiagnosticFixtures();
 assertStructuralLinkSemanticsFixtures();
 assertBoundedJsonFixtures();
+assertStreamingElapsedVarianceFixtures();
 
 const completedThinkingRows = [
 	"PTY exact row 1  ",
@@ -168,6 +191,42 @@ const liveAssistant = {
 	timestamp: Date.parse("2024-01-01T00:00:20.000Z"),
 };
 
+const resourceProbeSource = `
+const state = { inputs: 0, timers: new Set() };
+globalThis.__ZENTUI_RESOURCE_PROBE__ = state;
+const fromThinkingController = () => String(new Error().stack).includes("thinking-experimental");
+const nativeSetInterval = globalThis.setInterval;
+const nativeClearInterval = globalThis.clearInterval;
+globalThis.setInterval = function (callback, delay, ...args) {
+	const owned = fromThinkingController();
+	const handle = Reflect.apply(nativeSetInterval, this, [callback, delay, ...args]);
+	if (owned) state.timers.add(handle);
+	return handle;
+};
+globalThis.clearInterval = function (handle) {
+	state.timers.delete(handle);
+	return Reflect.apply(nativeClearInterval, this, [handle]);
+};
+export default function (pi) {
+	pi.on("session_start", (_event, ctx) => {
+		const nativeInput = ctx.ui.onTerminalInput.bind(ctx.ui);
+		ctx.ui.onTerminalInput = (handler) => {
+			const owned = fromThinkingController();
+			const cleanup = nativeInput(handler);
+			if (!owned) return cleanup;
+			state.inputs += 1;
+			let active = true;
+			return () => {
+				if (!active) return;
+				active = false;
+				cleanup();
+				state.inputs -= 1;
+			};
+		};
+	});
+}
+`;
+
 const probeSource = `
 import { appendFileSync, writeFileSync } from "node:fs";
 import {
@@ -175,7 +234,7 @@ import {
 	getMarkdownTheme,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Markdown, SettingsList, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { hasThinkingExperimentalMarkdownIdentity } from "./extensions/zentui/thinking-experimental.ts";
 
 const originalUpdate = AssistantMessageComponent.prototype.updateContent;
@@ -187,6 +246,36 @@ function predecessorProbe(...args) {
 }
 Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", { ...originalDescriptor, value: predecessorProbe });
 const nativeUpdate = predecessorProbe;
+const nativeDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
+const settingsInputDescriptor = Object.getOwnPropertyDescriptor(SettingsList.prototype, "handleInput");
+if (process.env.ZENTUI_DIRECT_RAIL === "1" && settingsInputDescriptor?.value) {
+	Object.defineProperty(SettingsList.prototype, "handleInput", {
+		...settingsInputDescriptor,
+		value: function directRailProbeInput(data) {
+			if (data === "\\x1c") {
+				const item = this.items?.[this.selectedIndex];
+				if (item?.currentValue === "Streaming" && item.values?.includes("Rail")) {
+					// Make one real SettingsList activation select Rail without notifying the
+					// controller about the intermediate cyclic Tree value.
+					item.currentValue = "Tree";
+					return Reflect.apply(settingsInputDescriptor.value, this, [" "]);
+				}
+			}
+			return Reflect.apply(settingsInputDescriptor.value, this, [data]);
+		},
+	});
+}
+const compareDescriptor = (before, after) => {
+	const fields = {
+		value: after?.value === before?.value,
+		get: after?.get === before?.get,
+		set: after?.set === before?.set,
+		configurable: after?.configurable === before?.configurable,
+		enumerable: after?.enumerable === before?.enumerable,
+		writable: after?.writable === before?.writable,
+	};
+	return { fields, all: Object.values(fields).every(Boolean) };
+};
 const probePath = process.env.ZENTUI_PROBE_PATH;
 const fixture = ${JSON.stringify(assistant)};
 const liveFixture = ${JSON.stringify(liveAssistant)};
@@ -198,14 +287,22 @@ const LIVE_SECTION_START = "__ZENTUI_EXPERIMENTAL_LIVE_START_7D91B2__";
 const LIVE_SECTION_END = "__ZENTUI_EXPERIMENTAL_LIVE_END_7D91B2__";
 const COMPLETED_SECTION_START = "__ZENTUI_EXPERIMENTAL_COMPLETED_START_4A62C9__";
 const COMPLETED_SECTION_END = "__ZENTUI_EXPERIMENTAL_COMPLETED_END_4A62C9__";
+const TRANSITION_SECTION_START = "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__";
+const TRANSITION_SECTION_END = "__ZENTUI_EXPERIMENTAL_TRANSITION_END_52F0A8__";
 
 let removeProbeWidget;
 let structuralWidths = [];
 let structuralGenerations = [];
 let removeLiveProbeWidget;
 let stopProbeInput;
+const ownedProbeWidgets = new Set();
 export default function (pi) {
 	pi.on("session_start", (_event, ctx) => {
+		const setProbeWidget = (key, factory, options) => {
+			ctx.ui.setWidget(key, factory, options);
+			if (factory) ownedProbeWidgets.add(key);
+			else ownedProbeWidgets.delete(key);
+		};
 		if (mode === "rail" || mode === "tree") {
 			const labels = Array.from(
 				{ length: 8 },
@@ -363,17 +460,33 @@ export default function (pi) {
 				[],
 			);
 			Reflect.apply(originalUpdate, nativeHidden, [baseStructuralFixture, true]);
+			const transition = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
+			const transitionFixture = {
+				...liveFixture,
+				content: [{ type: "thinking", thinking: Array.from({ length: 6 }, (_, index) => "# Live transition " + (index + 1)).join("\\n") }],
+			};
+			transition.updateContent(transitionFixture, true);
 			const widget = {
 				render(width) {
 					structuralWidths.push(width);
 					const marker = "Z" + generation + "W" + width;
-					return ["«" + marker + "»", ...tested.render(width), "«/" + marker + "»"];
+					const resources = globalThis.__ZENTUI_RESOURCE_PROBE__;
+					return [
+						"«" + marker + "»",
+						...tested.render(width),
+						"«/" + marker + "»",
+						TRANSITION_SECTION_START,
+						...transition.render(width),
+						TRANSITION_SECTION_END,
+						"__ZENTUI_RESOURCES__ input=" + resources.inputs + " timer=" + resources.timers.size,
+					];
 				},
 				invalidate() {
 					tested.invalidate();
+					transition.invalidate();
 				},
 			};
-			ctx.ui.setWidget("zentui-structural-probe", () => widget, { placement: "aboveEditor" });
+			setProbeWidget("zentui-structural-probe", () => widget, { placement: "aboveEditor" });
 			stopProbeInput = ctx.ui.onTerminalInput((data) => {
 				if (data !== "\\x1d" || generation >= specs.length - 1) return;
 				generation += 1;
@@ -381,7 +494,7 @@ export default function (pi) {
 				process.stdout.emit("resize");
 				return { consume: true };
 			});
-			removeProbeWidget = () => ctx.ui.setWidget("zentui-structural-probe", undefined);
+			removeProbeWidget = () => setProbeWidget("zentui-structural-probe", undefined);
 			writeFileSync(
 				probePath,
 				JSON.stringify({
@@ -479,7 +592,7 @@ export default function (pi) {
 				tested.invalidate();
 			},
 		};
-		ctx.ui.setWidget("zentui-stream-live-probe", () => liveProbeWidget, { placement: "aboveEditor" });
+		setProbeWidget("zentui-stream-live-probe", () => liveProbeWidget, { placement: "aboveEditor" });
 		const completed = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		const completedFixture = { ...fixture, content: fixture.content.filter((part) => part.type === "thinking") };
 		completed.updateContent(completedFixture, false);
@@ -502,11 +615,33 @@ export default function (pi) {
 				completed.invalidate();
 			},
 		};
-		ctx.ui.setWidget("zentui-stream-completed-probe", () => completedProbeWidget, { placement: "aboveEditor" });
-		removeLiveProbeWidget = () => ctx.ui.setWidget("zentui-stream-live-probe", undefined);
+		setProbeWidget("zentui-stream-completed-probe", () => completedProbeWidget, { placement: "aboveEditor" });
+		const transition = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
+		const transitionFixture = {
+			...liveFixture,
+			content: [{ type: "thinking", thinking: Array.from({ length: 6 }, (_, index) => "# Live transition " + (index + 1)).join("\\n") }],
+		};
+		transition.updateContent(transitionFixture, true);
+		const transitionProbeWidget = {
+			render(width) {
+				const resources = globalThis.__ZENTUI_RESOURCE_PROBE__;
+				return [
+					TRANSITION_SECTION_START,
+					...transition.render(width),
+					TRANSITION_SECTION_END,
+					"__ZENTUI_RESOURCES__ input=" + resources.inputs + " timer=" + resources.timers.size,
+				];
+			},
+			invalidate() {
+				transition.invalidate();
+			},
+		};
+		setProbeWidget("zentui-stream-transition-probe", () => transitionProbeWidget, { placement: "aboveEditor" });
+		removeLiveProbeWidget = () => setProbeWidget("zentui-stream-live-probe", undefined);
 		removeProbeWidget = () => {
 			removeLiveProbeWidget?.();
-			ctx.ui.setWidget("zentui-stream-completed-probe", undefined);
+			setProbeWidget("zentui-stream-completed-probe", undefined);
+			setProbeWidget("zentui-stream-transition-probe", undefined);
 		};
 		stopProbeInput = ctx.ui.onTerminalInput((data) => {
 			if (data !== "\\x07") return;
@@ -546,13 +681,24 @@ export default function (pi) {
 		removeProbeWidget = undefined;
 		stopProbeInput?.();
 		stopProbeInput = undefined;
-		const restored = AssistantMessageComponent.prototype.updateContent === nativeUpdate;
+		const shutdownDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
+		const descriptorEvidence = compareDescriptor(nativeDescriptor, shutdownDescriptor);
+		const resources = globalThis.__ZENTUI_RESOURCE_PROBE__;
 		appendFileSync(
 			probePath,
-			JSON.stringify({ restored, widgetRemoved: true, structuralWidths, structuralGenerations }) +
-				"\\n",
+			JSON.stringify({
+				restored: descriptorEvidence.all,
+				descriptorEvidence,
+				widgetRemoved: ownedProbeWidgets.size === 0,
+				widgetOwnershipCount: ownedProbeWidgets.size,
+				controllerResources: { inputs: resources.inputs, timers: resources.timers.size },
+				structuralWidths,
+				structuralGenerations,
+			}) + "\\n",
 		);
 		Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", originalDescriptor);
+		if (settingsInputDescriptor)
+			Object.defineProperty(SettingsList.prototype, "handleInput", settingsInputDescriptor);
 	});
 }
 `;
@@ -565,7 +711,7 @@ environment = os.environ.copy()
 environment.update(json.loads(sys.argv[2]))
 probe_path = environment["ZENTUI_PROBE_PATH"]
 supervisor_path = environment["ZENTUI_SUPERVISOR_PATH"]
-rows = 30
+rows = 40
 cols = 80 if environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree") else 100
 
 class Screen:
@@ -842,16 +988,58 @@ try:
             reap_leader(False)
             reevaluate()
             if status is not None and not matched and label != "process exit":
-                raise RuntimeError("Pi exited before " + label)
+                raise RuntimeError("Pi exited before " + label + ": " + raw.decode("utf-8", "replace")[-4000:])
             if matched and quiet_since is not None and time.monotonic() - quiet_since >= 0.15:
                 return
         raise TimeoutError("deadline waiting for " + label + ": " + screen.text()[-2000:])
 
-    folded = live_section = expanded = refolded = quiescence_snapshot = ""
+    folded = live_section = expanded = refolded = tree_transition = rail_transition = quiescence_snapshot = ""
+    transition_sequence = []
     structural_snapshots = []
+
+    def switch_thinking_mode(action, expected_mode, expected_active, expected_row):
+        os.write(master, b"/zentui\r")
+        pump_until(lambda: "Appearance (1/9)" in screen.text(), "settings open")
+        os.write(master, b"\t\t\t")
+        pump_until(lambda: "Thinking (Experimental) (4/9)" in screen.text(), "Thinking settings section")
+        os.write(master, b"\x1b[B")
+        before = screen.text()
+        previous = [value for value in ("Streaming", "Tree", "Rail") if "Mode     " + value in before]
+        if len(previous) != 1: raise AssertionError("could not parse previous Thinking mode: " + before[-2000:])
+        os.write(master, action)
+        expected_label = "Mode     " + expected_mode
+        expected_status = "Saved: " + expected_mode + " · Active: " + expected_active
+        if expected_mode == "Streaming" and expected_active != "Streaming": expected_status += " · restart required"
+        pump_until(lambda: expected_label in screen.text() and expected_status in screen.text(), "Thinking mode " + expected_mode)
+        settings_snapshot = screen.text()
+        status_rows = [row.strip() for row in settings_snapshot.split("\n") if row.strip().startswith("Saved: ")]
+        status_regions = [row.split(" Rail shows", 1)[0].split(" Live switching", 1)[0] for row in status_rows]
+        if not status_regions or any(row != expected_status for row in status_regions):
+            raise AssertionError("unexpected complete Thinking status regions: " + repr(status_regions))
+        os.write(master, b"\x1b")
+        expected_resource = 1 if expected_active == "Streaming" else 0
+        expected_resources = "__ZENTUI_RESOURCES__ input=" + str(expected_resource) + " timer=" + str(expected_resource)
+        def exact_resource_rows():
+            return [row.strip() for row in screen.text().split("\n") if row.strip().startswith("__ZENTUI_RESOURCES__")]
+        pump_until(lambda: expected_row in screen.text() and exact_resource_rows() == [expected_resources] and "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__" in screen.text() and "__ZENTUI_EXPERIMENTAL_TRANSITION_END_52F0A8__" in screen.text(), expected_mode + " transition screen")
+        snapshot = screen.text()
+        transition_sequence.append({"from": previous[0].lower(), "to": expected_mode.lower(), "mode": expected_active.lower(), "saved": expected_mode.lower(), "active": expected_active.lower(), "status": expected_status, "statusRows": status_regions, "resources": expected_resources, "settingsScreen": settings_snapshot, "screen": snapshot})
+        return snapshot
+
     if environment.get("ZENTUI_QUIESCENCE_SIMULATION") == "1":
         pump_until(lambda: "TRANSIENT_READY" in screen.text() and "STABLE_GATE" in screen.text(), "stable simulated state")
         quiescence_snapshot = screen.text()
+        pump_until(lambda: status is not None, "process exit")
+    elif environment.get("ZENTUI_ACTIVE_STREAMING_SHUTDOWN") == "1":
+        pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__" in screen.text() and "__ZENTUI_RESOURCES__ input=1 timer=1" in screen.text(), "active Streaming shutdown readiness")
+        folded = screen.text()
+        os.write(master, b"\x04")
+        pump_until(lambda: status is not None, "process exit")
+    elif environment.get("ZENTUI_DIRECT_RAIL") == "1":
+        pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__" in screen.text() and "__ZENTUI_RESOURCES__ input=1 timer=1" in screen.text(), "direct Rail transition readiness")
+        folded = screen.text()
+        rail_transition = switch_thinking_mode(b"\x1c", "Rail", "Rail", "│ • Live transition 6")
+        os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
     elif environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree"):
         def sentinel_rows(snapshot, start, end):
@@ -882,6 +1070,13 @@ try:
                 os.write(master, b"\x1d")
                 next_start = "«Z" + str(generation + 1) + "W80»"
                 pump_until(lambda next_start=next_start: next_start in screen.text(), "structural generation " + str(generation + 1))
+        mode = environment.get("ZENTUI_THINKING_MODE")
+        if mode == "rail":
+            tree_transition = switch_thinking_mode(b" ", "Tree", "Tree", "└─ • Live transition 6")
+            switch_thinking_mode(b" ", "Streaming", "Tree", "└─ • Live transition 6")
+        else:
+            rail_transition = switch_thinking_mode(b" ", "Rail", "Rail", "│ • Live transition 6")
+            switch_thinking_mode(b" ", "Streaming", "Rail", "│ • Live transition 6")
         os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
     else:
@@ -899,6 +1094,9 @@ try:
         os.write(master, b"\x14")
         pump_until(lambda: "PTY exact row 8" not in screen.text() and "__ZENTUI_EXPERIMENTAL_COMPLETED_START_4A62C9__" in screen.text(), "refolded screen")
         refolded = screen.text()
+
+        tree_transition = switch_thinking_mode(b" ", "Tree", "Tree", "└─ • Live transition 6")
+        rail_transition = switch_thinking_mode(b" ", "Rail", "Rail", "│ • Live transition 6")
         os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
 finally:
@@ -919,6 +1117,9 @@ print(json.dumps({
     "liveSection": live_section,
     "expanded": expanded,
     "refolded": refolded,
+    "treeTransition": tree_transition,
+    "railTransition": rail_transition,
+    "transitionSequence": transition_sequence,
     "quiescenceSnapshot": quiescence_snapshot,
     "structuralSnapshots": structural_snapshots,
     "raw": raw.decode("utf-8", "replace"),
@@ -956,6 +1157,57 @@ function extractSentinelRows(screen, start, end) {
 	if (startIndex < 0 || endIndex < 0) return [];
 	return rows.slice(startIndex + 1, endIndex).map((row) => row.trimEnd());
 }
+
+function topLevelTransientArtifacts(rootPath) {
+	if (!existsSync(rootPath)) return [];
+	return readdirSync(rootPath, { withFileTypes: true })
+		.filter((entry) => /\.(?:tmp|lock)$/.test(entry.name))
+		.map((entry) => join(rootPath, entry.name));
+}
+
+function transientArtifacts(rootPath) {
+	if (!existsSync(rootPath)) return [];
+	const artifacts = topLevelTransientArtifacts(rootPath);
+	for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
+		if (entry.isDirectory()) artifacts.push(...transientArtifacts(join(rootPath, entry.name)));
+	}
+	return artifacts;
+}
+
+function assertTransientArtifactFixtures() {
+	const fixture = join(workspace, "artifact-scan-fixture");
+	mkdirSync(join(fixture, "nested"), { recursive: true });
+	const topTmp = join(fixture, "leftover.tmp");
+	const topLock = join(fixture, "leftover.lock");
+	const nestedLock = join(fixture, "nested", "nested.lock");
+	writeFileSync(topTmp, "fixture");
+	writeFileSync(topLock, "fixture");
+	writeFileSync(nestedLock, "fixture");
+	const topLevel = topLevelTransientArtifacts(fixture).sort();
+	const recursive = transientArtifacts(fixture).sort();
+	if (
+		JSON.stringify(topLevel) !== JSON.stringify([topLock, topTmp].sort()) ||
+		JSON.stringify(recursive) !== JSON.stringify([nestedLock, topLock, topTmp].sort())
+	) {
+		throw new Error("Transient artifact scan simulation failed");
+	}
+	rmSync(fixture, { recursive: true, force: true });
+}
+
+function assertNoTransientArtifacts(version, phase, versionRoot, agentDir, home) {
+	const artifacts = [
+		...topLevelTransientArtifacts(versionRoot),
+		...transientArtifacts(agentDir),
+		...transientArtifacts(home),
+	];
+	if (artifacts.length) {
+		throw new Error(
+			`Pi ${version} left temporary artifacts after ${phase}: ${JSON.stringify(artifacts)}`,
+		);
+	}
+}
+
+assertTransientArtifactFixtures();
 
 async function readSupervisorMetadata(path, fallbackPythonPid) {
 	const deadline = Date.now() + 2_500;
@@ -1268,9 +1520,11 @@ while True: time.sleep(1)
 			},
 		];
 		writeFileSync(session, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+		const resourceProbe = join(versionRoot, "resource-probe.ts");
 		const probe = join(versionRoot, "probe.ts");
 		const probePath = join(versionRoot, "probe.jsonl");
 		const supervisorPath = join(versionRoot, "supervisor.json");
+		writeFileSync(resourceProbe, resourceProbeSource);
 		writeFileSync(probe, probeSource);
 		const codingAgent = attestation.resolved.codingAgent;
 		const cliRelative = codingAgent.manifest.bin?.pi;
@@ -1282,6 +1536,8 @@ while True: time.sleep(1)
 			cli,
 			"--offline",
 			"--no-extensions",
+			"-e",
+			resourceProbe,
 			"-e",
 			join(versionRoot, "extensions", "zentui", "index.ts"),
 			"-e",
@@ -1336,6 +1592,92 @@ while True: time.sleep(1)
 			" PTY exact row 7",
 			" PTY exact row 8",
 		];
+		const transitionStart = "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__";
+		const transitionEnd = "__ZENTUI_EXPERIMENTAL_TRANSITION_END_52F0A8__";
+		const treeTransitionRows = extractSentinelRows(
+			result.treeTransition,
+			transitionStart,
+			transitionEnd,
+		);
+		const railTransitionRows = extractSentinelRows(
+			result.railTransition,
+			transitionStart,
+			transitionEnd,
+		);
+		const expectedTreeTransitionRows = [
+			"",
+			" ┆ Thinking",
+			" ├─ · Live transition 2",
+			" ├─ · Live transition 3",
+			" ├─ · Live transition 4",
+			" ├─ · Live transition 5",
+			" └─ • Live transition 6",
+		];
+		const expectedRailTransitionRows = [
+			"",
+			" │ Thinking",
+			" │ Live transition 1",
+			" │ Live transition 2",
+			" │ Live transition 3",
+			" │ Live transition 4",
+			" │ Live transition 5",
+			" │ • Live transition 6",
+		];
+		const expectedTransitionPairs = [
+			["streaming", "tree"],
+			["tree", "rail"],
+		];
+		if (
+			JSON.stringify(result.transitionSequence?.map(({ from, to }) => [from, to])) !==
+			JSON.stringify(expectedTransitionPairs)
+		)
+			throw new Error(
+				`Pi ${version} exact transition sequence was incorrect: ${JSON.stringify(result.transitionSequence)}`,
+			);
+		const startupResourceRows = result.folded
+			.split("\n")
+			.map((row) => row.trim())
+			.filter((row) => /^__ZENTUI_RESOURCES__ input=\d+ timer=\d+$/.test(row));
+		if (
+			JSON.stringify(startupResourceRows) !==
+			JSON.stringify(["__ZENTUI_RESOURCES__ input=1 timer=1"])
+		)
+			throw new Error(
+				`Pi ${version} startup Streaming resources were not exactly 1/1: ${JSON.stringify(startupResourceRows)}`,
+			);
+		for (const transition of result.transitionSequence) {
+			const resourceRows = transition.screen
+				.split("\n")
+				.map((row) => row.trim())
+				.filter((row) => /^__ZENTUI_RESOURCES__ input=\d+ timer=\d+$/.test(row));
+			const resourceMatch = resourceRows[0]?.match(
+				/^__ZENTUI_RESOURCES__ input=(\d+) timer=(\d+)$/,
+			);
+			const expectedResource = transition.mode === "streaming" ? 1 : 0;
+			if (
+				!transition.settingsScreen.split("\n").some((row) => row.trim() === transition.status) ||
+				resourceRows.length !== 1 ||
+				Number(resourceMatch?.[1]) !== expectedResource ||
+				Number(resourceMatch?.[2]) !== expectedResource ||
+				resourceRows[0] !== transition.resources
+			)
+				throw new Error(
+					`Pi ${version} transition state/resources were incorrect: ${JSON.stringify(transition)}`,
+				);
+			const rows = extractSentinelRows(transition.screen, transitionStart, transitionEnd);
+			const expectedRows =
+				transition.mode === "tree"
+					? expectedTreeTransitionRows
+					: transition.mode === "rail"
+						? expectedRailTransitionRows
+						: undefined;
+			if (expectedRows && JSON.stringify(rows) !== JSON.stringify(expectedRows))
+				throw new Error(
+					`Pi ${version} ${transition.mode} direct transition rows were incorrect: ${JSON.stringify(rows)}`,
+				);
+			if (transition.mode === "streaming" && !rows.some((row) => row.includes("Thinking")))
+				throw new Error(`Pi ${version} direct Streaming transition did not fold`);
+		}
 		if (JSON.stringify(foldedCompletedRows) !== JSON.stringify(expectedFoldedCompletedRows))
 			throw new Error(
 				`Pi ${version} exact folded completed rows were incorrect: ${JSON.stringify(foldedCompletedRows)}`,
@@ -1348,6 +1690,14 @@ while True: time.sleep(1)
 			throw new Error(
 				`Pi ${version} exact refolded completed rows were incorrect: ${JSON.stringify(refoldedCompletedRows)}`,
 			);
+		if (JSON.stringify(treeTransitionRows) !== JSON.stringify(expectedTreeTransitionRows))
+			throw new Error(
+				`Pi ${version} exact live Tree transition rows were incorrect: ${JSON.stringify(treeTransitionRows)}`,
+			);
+		if (JSON.stringify(railTransitionRows) !== JSON.stringify(expectedRailTransitionRows))
+			throw new Error(
+				`Pi ${version} exact live Rail transition rows were incorrect: ${JSON.stringify(railTransitionRows)}`,
+			);
 		if (!existsSync(probePath)) throw new Error(`Pi ${version} probe artifact missing`);
 		const probes = readFileSync(probePath, "utf8")
 			.trim()
@@ -1359,8 +1709,17 @@ while True: time.sleep(1)
 		const liveTail = live?.nativeTail ?? [];
 		const expectedScreenTail = (live?.nativeScreenTail ?? []).map((row) => row.trimEnd());
 		const extractedLiveRows = result.liveSection.split("\n").map((row) => row.trimEnd());
+		const expectedStartupStreamingRows = [
+			" Thinking <elapsed>s  (ctrl+t to expand)",
+			" padding words KNOWN WRAPPED CONTINUATION",
+			" LIVE rendered row 5",
+			" LIVE rendered row 6",
+			" LIVE rendered row 7",
+			" LIVE rendered row 8",
+		];
+		const canonicalExtractedLiveRows = canonicalizeStreamingElapsed(extractedLiveRows);
 		const extractedLiveHeaderIndexes = extractedLiveRows.flatMap((row, index) =>
-			/^Thinking \d+\.\d+s {2}\(ctrl\+t to expand\)$/.test(row.trimStart()) ? [index] : [],
+			streamingHeaderPattern.test(row) ? [index] : [],
 		);
 		const extractedLiveBody = extractedLiveRows.filter(
 			(_row, index) => index !== extractedLiveHeaderIndexes[0],
@@ -1374,48 +1733,222 @@ while True: time.sleep(1)
 			(signature ?? [])
 				.filter((child) => child.constructor === "Markdown")
 				.map((child) => child.text);
-		if (
-			probes.length !== 2 ||
-			!live?.ready ||
-			!live.installed ||
-			!live.markdownIdentity ||
-			!live.importedAssistantIdentity ||
-			!live.importedMarkdownIdentity ||
-			live.wrapperCalls !== 1 ||
-			live.testedCalls?.length !== 1 ||
-			call?.count !== (oldContract ? 1 : 2) ||
-			call?.messageIdentity !== true ||
-			(oldContract ? call?.isStreaming !== undefined : call?.isStreaming !== true) ||
-			!live.hiddenFolded ||
-			!live.hiddenStatePreserved ||
-			countConstructor(signatures?.collision, "FoldedThinkingSection") !== 2 ||
-			JSON.stringify(markdownTexts(signatures?.collision)) !== JSON.stringify(["collision B"]) ||
-			countConstructor(signatures?.equal, "FoldedThinkingSection") !== 1 ||
-			JSON.stringify(markdownTexts(signatures?.equal)) !== JSON.stringify(["equal source"]) ||
-			countConstructor(signatures?.contiguous, "FoldedThinkingSection") !==
-				(runtimeVersion === "0.80.5" ? 2 : 1) ||
-			countConstructor(signatures?.toolSeparated, "FoldedThinkingSection") !== 2 ||
-			markdownTexts(signatures?.toolSeparated).length !== 0 ||
-			!liveRows.some((row) => row.includes("Thinking")) ||
-			liveRows.some((row) => /LIVE rendered row [123]/.test(row)) ||
-			JSON.stringify(liveBody.slice(-5)) !== JSON.stringify(liveTail) ||
-			expectedScreenTail.length !== 5 ||
-			extractedLiveHeaderIndexes.length !== 1 ||
-			extractedLiveBody.length !== 5 ||
-			JSON.stringify(extractedLiveBody) !== JSON.stringify(expectedScreenTail) ||
-			!extractedLiveBody[0]?.includes("KNOWN WRAPPED CONTINUATION") ||
-			![5, 6, 7, 8].every((row) =>
+		const equalRows = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+		const callPredicates = {
+			probeCount: probes.length === 2,
+			ready: live?.ready === true,
+			installed: live?.installed === true,
+			markdownIdentity: live?.markdownIdentity === true,
+			importedAssistantIdentity: live?.importedAssistantIdentity === true,
+			importedMarkdownIdentity: live?.importedMarkdownIdentity === true,
+			wrapperCallCount: live?.wrapperCalls === 1,
+			testedCallCount: live?.testedCalls?.length === 1,
+			argumentCount: call?.count === (oldContract ? 1 : 2),
+			messageIdentity: call?.messageIdentity === true,
+			streamingArgument: oldContract ? call?.isStreaming === undefined : call?.isStreaming === true,
+			hiddenFolded: live?.hiddenFolded === true,
+			hiddenStatePreserved: live?.hiddenStatePreserved === true,
+		};
+		const signaturePredicates = {
+			collisionThinkingCount:
+				countConstructor(signatures?.collision, "FoldedThinkingSection") === 2,
+			collisionMarkdown: equalRows(markdownTexts(signatures?.collision), ["collision B"]),
+			equalThinkingCount: countConstructor(signatures?.equal, "FoldedThinkingSection") === 1,
+			equalMarkdown: equalRows(markdownTexts(signatures?.equal), ["equal source"]),
+			contiguousThinkingCount:
+				countConstructor(signatures?.contiguous, "FoldedThinkingSection") ===
+				(runtimeVersion === "0.80.5" ? 2 : 1),
+			toolSeparatedThinkingCount:
+				countConstructor(signatures?.toolSeparated, "FoldedThinkingSection") === 2,
+			toolSeparatedMarkdownCount: markdownTexts(signatures?.toolSeparated).length === 0,
+		};
+		const livePredicates = {
+			liveHeaderPresent: liveRows.some((row) => row.includes("Thinking")),
+			liveRowsOneThroughThreeAbsent: !liveRows.some((row) => /LIVE rendered row [123]/.test(row)),
+			liveBodyTailEqualsNativeTail: equalRows(liveBody.slice(-5), liveTail),
+			extractedRowsEqualExpectedStartup: equalRows(
+				canonicalExtractedLiveRows,
+				expectedStartupStreamingRows,
+			),
+			nativeScreenTailHasFiveRows: expectedScreenTail.length === 5,
+			extractedHasOneHeader: extractedLiveHeaderIndexes.length === 1,
+			extractedBodyHasFiveRows: extractedLiveBody.length === 5,
+			extractedBodyEqualsNativeScreenTail: equalRows(extractedLiveBody, expectedScreenTail),
+			extractedBodyStartsWithWrappedContinuation:
+				extractedLiveBody[0]?.includes("KNOWN WRAPPED CONTINUATION") === true,
+			extractedBodyHasRowsFiveThroughEight: [5, 6, 7, 8].every((row) =>
 				extractedLiveBody.some((text) => text.includes(`LIVE rendered row ${row}`)),
-			) ||
-			extractedLiveBody.some((row) => /LIVE rendered row [123]/.test(row)) ||
-			extractedLiveBody.some((row) => row.includes("LIVE wrapping row 4")) ||
-			!probes.at(-1)?.restored ||
-			!probes.at(-1)?.widgetRemoved
-		) {
+			),
+			extractedBodyRowsOneThroughThreeAbsent: !extractedLiveBody.some((row) =>
+				/LIVE rendered row [123]/.test(row),
+			),
+			extractedBodyWrappingSourceAbsent: !extractedLiveBody.some((row) =>
+				row.includes("LIVE wrapping row 4"),
+			),
+		};
+		const shutdown = probes.at(-1);
+		const restoredPredicates = {
+			restored: shutdown?.restored === true,
+			descriptorAll: shutdown?.descriptorEvidence?.all === true,
+			descriptorFields: Object.values(shutdown?.descriptorEvidence?.fields ?? {}).every(Boolean),
+			widgetRemoved: shutdown?.widgetRemoved === true,
+			widgetOwnershipCountZero: shutdown?.widgetOwnershipCount === 0,
+			controllerInputsZero: shutdown?.controllerResources?.inputs === 0,
+			controllerTimersZero: shutdown?.controllerResources?.timers === 0,
+		};
+		const predicateGroups = {
+			call: callPredicates,
+			signature: signaturePredicates,
+			live: livePredicates,
+			restored: restoredPredicates,
+		};
+		const failedPredicates = Object.entries(predicateGroups).flatMap(([group, predicates]) =>
+			Object.entries(predicates).flatMap(([name, passed]) => (passed ? [] : [`${group}.${name}`])),
+		);
+		if (failedPredicates.length > 0) {
 			throw new Error(
-				`Pi ${version} live identity/tail/cleanup probe failed: ${JSON.stringify(probes)}`,
+				`Pi ${version} live identity/tail/cleanup probe failed: ${boundedJson({
+					failedPredicates,
+					predicates: predicateGroups,
+					extractedLiveRows,
+					canonicalExtractedLiveRows,
+					expectedStartupStreamingRows,
+					expectedScreenTail,
+					extractedLiveHeaderIndexes,
+					extractedLiveBody,
+					liveRows,
+					liveBody,
+					liveTail,
+					call,
+					signatures,
+					shutdown,
+				})}`,
 			);
 		}
+
+		writeFileSync(
+			join(agentDir, "zentui.json"),
+			JSON.stringify({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming" },
+					editor: { enabled: false },
+					userMessages: { enabled: false },
+					workingLine: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: { style: "native" },
+				},
+			}),
+		);
+		const directProbePath = join(versionRoot, "probe-direct-rail.jsonl");
+		const directSupervisorPath = join(versionRoot, "supervisor-direct-rail.json");
+		const directRail = await runDriver(
+			python,
+			command,
+			{
+				...environment,
+				ZENTUI_PROBE_PATH: directProbePath,
+				ZENTUI_SUPERVISOR_PATH: directSupervisorPath,
+				ZENTUI_DIRECT_RAIL: "1",
+			},
+			versionRoot,
+		);
+		const directProbes = readFileSync(directProbePath, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const directTransition = directRail.transitionSequence?.[0];
+		const directRows = extractSentinelRows(
+			directTransition?.screen ?? "",
+			transitionStart,
+			transitionEnd,
+		);
+		const directResources = (directTransition?.screen ?? "")
+			.split("\n")
+			.map((row) => row.trim())
+			.filter((row) => row.startsWith("__ZENTUI_RESOURCES__"));
+		const directShutdown = directProbes.at(-1);
+		if (
+			directRail.exit !== 0 ||
+			directRail.groupAlive ||
+			hasExtensionLoaderDiagnostic(directRail.raw) ||
+			JSON.stringify(directRail.transitionSequence?.map(({ from, to }) => [from, to])) !==
+				JSON.stringify([["streaming", "rail"]]) ||
+			directTransition?.saved !== "rail" ||
+			directTransition?.active !== "rail" ||
+			directTransition?.status !== "Saved: Rail · Active: Rail" ||
+			directTransition?.statusRows?.some((row) => row !== "Saved: Rail · Active: Rail") ||
+			JSON.stringify(directResources) !==
+				JSON.stringify(["__ZENTUI_RESOURCES__ input=0 timer=0"]) ||
+			JSON.stringify(directRows) !== JSON.stringify(expectedRailTransitionRows) ||
+			directShutdown?.controllerResources?.inputs !== 0 ||
+			directShutdown?.controllerResources?.timers !== 0 ||
+			directShutdown?.restored !== true ||
+			directShutdown?.descriptorEvidence?.all !== true ||
+			!Object.values(directShutdown?.descriptorEvidence?.fields ?? {}).every(Boolean) ||
+			directShutdown?.widgetRemoved !== true ||
+			directShutdown?.widgetOwnershipCount !== 0
+		)
+			throw new Error(
+				`Pi ${version} direct Streaming->Rail PTY probe failed: ${boundedJson({ directTransition, directRows, directResources, directShutdown, exit: directRail.exit, groupAlive: directRail.groupAlive })}`,
+			);
+
+		writeFileSync(
+			join(agentDir, "zentui.json"),
+			JSON.stringify({
+				components: {
+					thinkingSteps: { enabled: true, mode: "streaming" },
+					editor: { enabled: false },
+					userMessages: { enabled: false },
+					workingLine: { enabled: false },
+					selectorBorders: { enabled: false },
+					footer: { style: "native" },
+				},
+			}),
+		);
+		const activeShutdownProbePath = join(versionRoot, "probe-active-shutdown.jsonl");
+		const activeShutdownSupervisorPath = join(versionRoot, "supervisor-active-shutdown.json");
+		const activeShutdown = await runDriver(
+			python,
+			command,
+			{
+				...environment,
+				ZENTUI_PROBE_PATH: activeShutdownProbePath,
+				ZENTUI_SUPERVISOR_PATH: activeShutdownSupervisorPath,
+				ZENTUI_ACTIVE_STREAMING_SHUTDOWN: "1",
+			},
+			versionRoot,
+		);
+		const activeShutdownProbes = readFileSync(activeShutdownProbePath, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const activeShutdownFinal = activeShutdownProbes.at(-1);
+		const activeStartupResources = activeShutdown.folded
+			.split("\n")
+			.map((row) => row.trim())
+			.filter((row) => /^__ZENTUI_RESOURCES__ input=\d+ timer=\d+$/.test(row));
+		if (
+			activeShutdown.exit !== 0 ||
+			activeShutdown.groupAlive ||
+			hasExtensionLoaderDiagnostic(activeShutdown.raw) ||
+			(activeShutdown.transitionSequence?.length ?? -1) !== 0 ||
+			JSON.stringify(activeStartupResources) !==
+				JSON.stringify(["__ZENTUI_RESOURCES__ input=1 timer=1"]) ||
+			activeShutdownFinal?.controllerResources?.inputs !== 0 ||
+			activeShutdownFinal?.controllerResources?.timers !== 0 ||
+			activeShutdownFinal?.restored !== true ||
+			activeShutdownFinal?.descriptorEvidence?.all !== true ||
+			!Object.values(activeShutdownFinal?.descriptorEvidence?.fields ?? {}).every(Boolean) ||
+			activeShutdownFinal?.widgetRemoved !== true ||
+			activeShutdownFinal?.widgetOwnershipCount !== 0
+		)
+			throw new Error(
+				`Pi ${version} active Streaming shutdown PTY probe failed: ${boundedJson({ transitions: activeShutdown.transitionSequence, activeStartupResources, activeShutdownFinal, exit: activeShutdown.exit, groupAlive: activeShutdown.groupAlive })}`,
+			);
+		console.log(
+			`${runtimeVersion} direct/shutdown: Streaming->Rail rows=exact status="${directTransition.status}" resources=${directResources[0]} active-Streaming-EOF=1/1->${activeShutdownFinal.controllerResources.inputs}/${activeShutdownFinal.controllerResources.timers} descriptor=${JSON.stringify(activeShutdownFinal.descriptorEvidence.fields)} widgets=0 process-group=gone`,
+		);
+
 		for (const mode of ["rail", "tree"]) {
 			writeFileSync(
 				join(agentDir, "zentui.json"),
@@ -1449,6 +1982,46 @@ while True: time.sleep(1)
 				hasExtensionLoaderDiagnostic(modeResult.raw)
 			) {
 				throw new Error(`Pi ${version} ${mode} PTY/process probe failed`);
+			}
+			const expectedModeTransitions =
+				mode === "rail"
+					? [
+							["rail", "tree"],
+							["tree", "streaming"],
+						]
+					: [
+							["tree", "rail"],
+							["rail", "streaming"],
+						];
+			if (
+				JSON.stringify(modeResult.transitionSequence?.map(({ from, to }) => [from, to])) !==
+				JSON.stringify(expectedModeTransitions)
+			)
+				throw new Error(
+					`Pi ${version} ${mode} exact transition sequence was incorrect: ${JSON.stringify(modeResult.transitionSequence)}`,
+				);
+			for (const [index, transition] of modeResult.transitionSequence.entries()) {
+				const expectedActive = mode === "rail" ? "tree" : "rail";
+				const expectedSaved = index === 0 ? expectedActive : "streaming";
+				const expectedStatus = `Saved: ${expectedSaved[0].toUpperCase()}${expectedSaved.slice(1)} · Active: ${expectedActive[0].toUpperCase()}${expectedActive.slice(1)}${index === 1 ? " · restart required" : ""}`;
+				const expectedRows =
+					expectedActive === "tree" ? expectedTreeTransitionRows : expectedRailTransitionRows;
+				const rows = extractSentinelRows(transition.screen, transitionStart, transitionEnd);
+				const resources = transition.screen
+					.split("\n")
+					.map((row) => row.trim())
+					.filter((row) => row.startsWith("__ZENTUI_RESOURCES__"));
+				if (
+					transition.active !== expectedActive ||
+					transition.saved !== expectedSaved ||
+					transition.status !== expectedStatus ||
+					transition.statusRows.some((row) => row !== expectedStatus) ||
+					JSON.stringify(resources) !== JSON.stringify(["__ZENTUI_RESOURCES__ input=0 timer=0"]) ||
+					JSON.stringify(rows) !== JSON.stringify(expectedRows)
+				)
+					throw new Error(
+						`Pi ${version} ${mode} transition status/resources/screen mismatch: ${JSON.stringify(transition)}`,
+					);
 			}
 			const modeProbes = readFileSync(modeProbePath, "utf8")
 				.trim()
@@ -1568,8 +2141,13 @@ while True: time.sleep(1)
 				hiddenStatePreserved: structural?.hiddenStatePreserved === true,
 				width20Rendered: completedStructural?.structuralWidths?.includes(20) === true,
 				width80Rendered: completedStructural?.structuralWidths?.includes(80) === true,
-				descriptorRestored: completedStructural?.restored === true,
-				widgetRemoved: completedStructural?.widgetRemoved === true,
+				descriptorRestored:
+					completedStructural?.restored === true &&
+					completedStructural?.descriptorEvidence?.all === true &&
+					Object.values(completedStructural?.descriptorEvidence?.fields ?? {}).every(Boolean),
+				widgetRemoved:
+					completedStructural?.widgetRemoved === true &&
+					completedStructural?.widgetOwnershipCount === 0,
 			};
 			if (!Object.values(summaryPredicates).every(Boolean)) {
 				console.error(
@@ -1603,14 +2181,147 @@ while True: time.sleep(1)
 				),
 			];
 			console.log(
-				`${runtimeVersion} ${mode}: private-wrapper=exact args=${modeCall.count}:${String(modeCall.isStreaming)} contiguous-run=one-title labels=${mode === "rail" ? "all-8" : "latest-5"} exact-screen=${JSON.stringify(screenArrays)} ansi=current/dark/light:host-Markdown-exact+connector-accent-only links=${linkCapabilities.join("+")}:preserved width=20/80 ellipsis=yes active->settled=yes hidden=native-byte-exact:${JSON.stringify(hiddenExact)} label=Thinking... descriptor=restored process-group=gone`,
+				`${runtimeVersion} ${mode}: private-wrapper=exact args=${modeCall.count}:${String(modeCall.isStreaming)} contiguous-run=one-title labels=${mode === "rail" ? "all-8" : "latest-5"} exact-screen=${JSON.stringify(screenArrays)} ansi=current/dark/light:host-Markdown-exact+connector-accent-only links=${linkCapabilities.join("+")}:preserved width=20/80 ellipsis=yes active->settled=yes hidden=native-byte-exact:${JSON.stringify(hiddenExact)} label=Thinking... descriptor=${JSON.stringify(completedStructural.descriptorEvidence.fields)} process-group=gone`,
 			);
 		}
 
-		const artifacts = readdirSync(versionRoot).filter((name) => /\.tmp$|\.lock$/.test(name));
-		if (artifacts.length) throw new Error(`Pi ${version} left temporary artifacts: ${artifacts}`);
+		assertNoTransientArtifacts(version, "normal PTY cases", versionRoot, agentDir, home);
+
+		if (runtimeVersion === "0.84.4") {
+			writeFileSync(
+				join(agentDir, "zentui.json"),
+				JSON.stringify({
+					components: {
+						thinkingSteps: { enabled: true, mode: "streaming" },
+						editor: { enabled: false },
+						userMessages: { enabled: false },
+						workingLine: { enabled: false },
+						selectorBorders: { enabled: false },
+						footer: { style: "native" },
+					},
+				}),
+			);
+			const fullscreenProbePath = join(versionRoot, "probe-fullscreen.jsonl");
+			const fullscreenSupervisorPath = join(versionRoot, "supervisor-fullscreen.json");
+			const fullscreen = await runDriver(
+				python,
+				[...command, "--tui-mode", "fullscreen"],
+				{
+					...environment,
+					ZENTUI_PROBE_PATH: fullscreenProbePath,
+					ZENTUI_SUPERVISOR_PATH: fullscreenSupervisorPath,
+				},
+				versionRoot,
+			);
+			const fullscreenPairs = fullscreen.transitionSequence?.map(({ from, to }) => [from, to]);
+			const fullscreenProbes = readFileSync(fullscreenProbePath, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			const fullscreenShutdown = fullscreenProbes.at(-1);
+			const fullscreenTransitionsValid = fullscreen.transitionSequence?.every((transition) => {
+				const expected = transition.mode === "streaming" ? 1 : 0;
+				const resources = transition.screen
+					.split("\n")
+					.map((row) => row.trim())
+					.filter((row) => /^__ZENTUI_RESOURCES__ input=\d+ timer=\d+$/.test(row));
+				const parsed = resources[0]?.match(/^__ZENTUI_RESOURCES__ input=(\d+) timer=(\d+)$/);
+				const rows = extractSentinelRows(transition.screen, transitionStart, transitionEnd);
+				const expectedRows =
+					transition.mode === "tree"
+						? expectedTreeTransitionRows
+						: transition.mode === "rail"
+							? expectedRailTransitionRows
+							: undefined;
+				return (
+					transition.settingsScreen.split("\n").some((row) => row.trim() === transition.status) &&
+					resources.length === 1 &&
+					Number(parsed?.[1]) === expected &&
+					Number(parsed?.[2]) === expected &&
+					(expectedRows
+						? JSON.stringify(rows) === JSON.stringify(expectedRows)
+						: rows.some((row) => /^ Thinking \d+\.\d+s {2}\(ctrl\+t to expand\)$/.test(row)))
+				);
+			});
+			if (
+				fullscreen.exit !== 0 ||
+				fullscreen.groupAlive ||
+				hasExtensionLoaderDiagnostic(fullscreen.raw) ||
+				JSON.stringify(fullscreenPairs) !== JSON.stringify(expectedTransitionPairs) ||
+				fullscreenTransitionsValid !== true ||
+				fullscreenShutdown?.restored !== true ||
+				fullscreenShutdown?.widgetRemoved !== true ||
+				fullscreenShutdown?.widgetOwnershipCount !== 0 ||
+				fullscreenShutdown?.descriptorEvidence?.all !== true ||
+				!Object.values(fullscreenShutdown?.descriptorEvidence?.fields ?? {}).every(Boolean) ||
+				JSON.stringify(
+					fullscreen.folded
+						.split("\n")
+						.map((row) => row.trim())
+						.filter((row) => /^__ZENTUI_RESOURCES__ input=\d+ timer=\d+$/.test(row)),
+				) !== JSON.stringify(["__ZENTUI_RESOURCES__ input=1 timer=1"])
+			)
+				throw new Error(
+					`Pi 0.84.4 fullscreen live transition smoke failed: ${boundedJson({ fullscreenPairs, fullscreenTransitionsValid, fullscreenShutdown, exit: fullscreen.exit, groupAlive: fullscreen.groupAlive })}`,
+				);
+			writeFileSync(
+				join(agentDir, "zentui.json"),
+				JSON.stringify({
+					components: {
+						thinkingSteps: { enabled: true, mode: "streaming" },
+						editor: { enabled: false },
+						userMessages: { enabled: false },
+						workingLine: { enabled: false },
+						selectorBorders: { enabled: false },
+						footer: { style: "native" },
+					},
+				}),
+			);
+			const fullscreenActiveProbePath = join(versionRoot, "probe-fullscreen-active-shutdown.jsonl");
+			const fullscreenActiveSupervisorPath = join(
+				versionRoot,
+				"supervisor-fullscreen-active-shutdown.json",
+			);
+			const fullscreenActive = await runDriver(
+				python,
+				[...command, "--tui-mode", "fullscreen"],
+				{
+					...environment,
+					ZENTUI_PROBE_PATH: fullscreenActiveProbePath,
+					ZENTUI_SUPERVISOR_PATH: fullscreenActiveSupervisorPath,
+					ZENTUI_ACTIVE_STREAMING_SHUTDOWN: "1",
+				},
+				versionRoot,
+			);
+			const fullscreenActiveProbes = readFileSync(fullscreenActiveProbePath, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			const fullscreenActiveFinal = fullscreenActiveProbes.at(-1);
+			if (
+				fullscreenActive.exit !== 0 ||
+				fullscreenActive.groupAlive ||
+				hasExtensionLoaderDiagnostic(fullscreenActive.raw) ||
+				(fullscreenActive.transitionSequence?.length ?? -1) !== 0 ||
+				fullscreenActiveFinal?.controllerResources?.inputs !== 0 ||
+				fullscreenActiveFinal?.controllerResources?.timers !== 0 ||
+				fullscreenActiveFinal?.restored !== true ||
+				fullscreenActiveFinal?.descriptorEvidence?.all !== true ||
+				!Object.values(fullscreenActiveFinal?.descriptorEvidence?.fields ?? {}).every(Boolean) ||
+				fullscreenActiveFinal?.widgetRemoved !== true ||
+				fullscreenActiveFinal?.widgetOwnershipCount !== 0
+			)
+				throw new Error(
+					`Pi 0.84.4 fullscreen active Streaming shutdown failed: ${boundedJson({ transitions: fullscreenActive.transitionSequence, fullscreenActiveFinal, exit: fullscreenActive.exit, groupAlive: fullscreenActive.groupAlive })}`,
+				);
+			assertNoTransientArtifacts(version, "fullscreen PTY cases", versionRoot, agentDir, home);
+			console.log(
+				`0.84.4 fullscreen: live=Streaming->Tree,Tree->Rail entering-Streaming=restart-only rows/status/resources=exact active-Streaming-EOF=1/1->${fullscreenActiveFinal.controllerResources.inputs}/${fullscreenActiveFinal.controllerResources.timers} descriptor=${JSON.stringify(fullscreenActiveFinal.descriptorEvidence.fields)} widget-ownership=0 process-group=gone artifacts=none`,
+			);
+		}
+
 		console.log(
-			`${runtimeVersion}: measured=${JSON.stringify(attestation.versions)} live=Thinking sentinel-rows=${JSON.stringify(extractedLiveRows)} header-index=${extractedLiveHeaderIndexes[0]} native-tail=${JSON.stringify(expectedScreenTail)} exact=5/5 wrapped=row4-continuation+rows5-8 args=${call.count}:${String(call.isStreaming)} wrapperCalls=${live.wrapperCalls} identities=exact ordered-collisions=thinking2+text1/equal1+text1 contiguous=${runtimeVersion === "0.80.5" ? "legacy2" : "coalesced1"} tool-separated=2 binding=validated-ctrl+t restored-completed=Thought folded=${JSON.stringify(foldedCompletedRows)} expanded=${JSON.stringify(expandedCompletedRows)} refolded=${JSON.stringify(refoldedCompletedRows)} hidden-start=preserved widget=removed handshake=${result.supervisor.handshake} cleanup-signals=${JSON.stringify(result.supervisor.cleanupSignals ?? [])} python=${result.supervisor.pythonPid}:reaped pi=${result.supervisor.piPid}:reaped group=${result.supervisor.piPgid}:gone`,
+			`${runtimeVersion}: measured=${JSON.stringify(attestation.versions)} live=Thinking sentinel-rows=${JSON.stringify(extractedLiveRows)} header-index=${extractedLiveHeaderIndexes[0]} native-tail=${JSON.stringify(expectedScreenTail)} exact=5/5 wrapped=row4-continuation+rows5-8 args=${call.count}:${String(call.isStreaming)} wrapperCalls=${live.wrapperCalls} identities=exact ordered-collisions=thinking2+text1/equal1+text1 contiguous=${runtimeVersion === "0.80.5" ? "legacy2" : "coalesced1"} tool-separated=2 binding=validated-ctrl+t descriptor=${JSON.stringify(probes.at(-1).descriptorEvidence.fields)} restored-completed=Thought folded=${JSON.stringify(foldedCompletedRows)} expanded=${JSON.stringify(expandedCompletedRows)} refolded=${JSON.stringify(refoldedCompletedRows)} live-transitions=Streaming->Tree,Tree->Rail entering-Streaming=restart-only states/resources=${JSON.stringify(result.transitionSequence.map(({ from, to, status, resources }) => ({ from, to, status, resources })))} tree=${JSON.stringify(treeTransitionRows)} rail=${JSON.stringify(railTransitionRows)} hidden-start=preserved widget=removed artifacts=none handshake=${result.supervisor.handshake} cleanup-signals=${JSON.stringify(result.supervisor.cleanupSignals ?? [])} python=${result.supervisor.pythonPid}:reaped pi=${result.supervisor.piPid}:reaped group=${result.supervisor.piPgid}:gone`,
 		);
 	}
 } finally {

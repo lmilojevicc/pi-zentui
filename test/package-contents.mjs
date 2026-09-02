@@ -17,6 +17,7 @@ assert.ok(Array.isArray(files), "npm pack must report its package file list");
 for (const required of [
 	"extensions/zentui/thinking-steps.ts",
 	"extensions/zentui/thinking-experimental.ts",
+	"extensions/zentui/thinking-status.ts",
 ]) {
 	assert.ok(
 		files.some(({ path }) => path === required),

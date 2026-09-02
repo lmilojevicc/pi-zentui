@@ -298,7 +298,35 @@ describe("settings previews", () => {
 			}),
 		);
 		expect(output).toContain("Thinking 7.1s  (configured thinking toggle to expand)");
-		expect(output).toContain("saved streaming · active tree · restart required");
+		expect(output).toContain("Saved: Streaming · Active: Tree · restart required");
+	});
+
+	it.each([
+		{ active: true, activeMode: "rail" as const, expected: "active rail" },
+		{ active: false, activeMode: undefined, expected: "active native" },
+	])("keeps saved, active, restart, and unavailable reason in status ($expected)", (fixture) => {
+		const current = config();
+		current.components.thinkingSteps.enabled = true;
+		current.components.thinkingSteps.mode = "streaming";
+		const output = plain(
+			renderThinkingStepsSettingsPreview(current, theme(), 72, {
+				state: {
+					available: true,
+					rendererAvailable: true,
+					streamingAvailable: false,
+					active: fixture.active,
+					...(fixture.activeMode ? { activeMode: fixture.activeMode } : {}),
+					startup: { enabled: true, mode: "rail" },
+					restartRequired: true,
+					reason: "Pi's terminal input listener is unavailable; restart required",
+				},
+			}),
+		);
+		expect(output).toContain(
+			`Saved: Streaming · ${fixture.expected.replace("active", "Active:").replace("rail", "Rail").replace("native", "Native")} · Streaming unavailable`,
+		);
+		expect(output).toContain("Pi's terminal input listener is unavailable");
+		expect(output.match(/restart required/gi)).toHaveLength(1);
 	});
 
 	it("uses direct accent connectors and native thinking/bold Markdown callbacks", () => {
@@ -328,7 +356,7 @@ describe("settings previews", () => {
 			current.components.thinkingSteps.mode = mode;
 			const rendered = renderThinkingStepsSettingsPreview(current, theme(), 20, false);
 			expect(rendered.every((row) => visibleWidth(row) <= 20)).toBe(true);
-			expect(plain(rendered)).toContain("private renderer una");
+			expect(plain(rendered)).toContain("Renderer unavailable");
 		}
 	});
 

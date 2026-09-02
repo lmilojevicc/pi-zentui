@@ -9,6 +9,7 @@ import {
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
 	type ThinkingStepsComponentConfig,
+	type ThinkingStepsMode,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 } from "../extensions/zentui/config";
@@ -106,6 +107,7 @@ function createHarness(
 	let command: Command | undefined;
 	let component: Component | undefined;
 	const notifications: string[] = [];
+	const notificationEvents: Array<{ message: string; severity: string }> = [];
 	let doneCalls = 0;
 	const sessionLifecycle = new SessionLifecycle();
 	const calls = {
@@ -232,8 +234,9 @@ function createHarness(
 		cwd: process.cwd(),
 		ui: {
 			theme: theme(),
-			notify(message: string) {
+			notify(message: string, severity = "info") {
 				notifications.push(message);
+				notificationEvents.push({ message, severity });
 			},
 			async custom(factory: (...args: unknown[]) => unknown) {
 				component = factory(
@@ -268,6 +271,7 @@ function createHarness(
 		ctx,
 		calls,
 		notifications,
+		notificationEvents,
 		sessionLifecycle,
 		doneCalls: () => doneCalls,
 	};
@@ -840,11 +844,11 @@ describe("component-oriented /zentui settings", () => {
 		expect(component.render(120).join("\n")).toContain("Thinking (Experimental)");
 		expectFocusOrder(component, ["Enabled", "Mode"]);
 		expect(component.render(120).join("\n")).toContain(
-			"every enable, disable, or mode change requires restart",
+			"Live switching supports Streaming → Rail/Tree and Rail ↔ Tree. Entering Streaming,",
 		);
 	});
 
-	it("shows saved and immutable active startup state honestly", async () => {
+	it("shows saved and active mode mismatch honestly", async () => {
 		const config = cloneConfig();
 		config.components.thinkingSteps.enabled = true;
 		config.components.thinkingSteps.mode = "streaming";
@@ -852,11 +856,14 @@ describe("component-oriented /zentui settings", () => {
 			thinkingStepsCapability: {
 				state: {
 					available: true,
+					rendererAvailable: true,
+					streamingAvailable: false,
 					active: true,
 					activeMode: "tree",
 					startup: { enabled: true, mode: "tree" },
 					displaced: false,
 					restartRequired: true,
+					reason: "Streaming listener unavailable; restart required",
 				},
 			},
 		});
@@ -864,9 +871,12 @@ describe("component-oriented /zentui settings", () => {
 		const component = harness.component();
 		goToSection(component, "Thinking");
 		const output = component.render(160).join("\n");
-		expect(output).toContain("Saved: Streaming");
-		expect(output).toContain("Active startup: Tree");
-		expect(output).toContain("Restart Pi to apply");
+		expect(output).toContain(
+			"Saved: Streaming · Active: Tree · Streaming unavailable · restart required · Streaming listener unavailable",
+		);
+		expect(output.match(/restart required/gi)).toHaveLength(2);
+		// One status appears in the preview and one in the focused setting description;
+		// neither duplicates reason text that already contained the phrase.
 	});
 
 	it("keeps private-renderer unavailability non-focusable and fails open to native", async () => {
@@ -877,8 +887,7 @@ describe("component-oriented /zentui settings", () => {
 		const component = harness.component();
 		goToSection(component, "Thinking");
 		const output = component.render(120).join("\n");
-		expect(output).toContain("Private renderer unavailable");
-		expect(output).toContain("using native thinking");
+		expect(output).toContain("Saved: Disabled · Active: Native · Renderer unavailable");
 		expectFocusOrder(component, ["Enabled", "Mode"]);
 	});
 
@@ -892,12 +901,176 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		selectLabel(component, "Mode");
 		component.handleInput(" ");
-		expect(harness.calls.thinkingSteps).toEqual([{ enabled: true }, { mode: "streaming" }]);
+		expect(harness.calls.thinkingSteps).toEqual([{ enabled: true }, { mode: "rail" }]);
 		expect(harness.config.components.thinkingSteps).toEqual({
 			enabled: true,
-			mode: "streaming",
+			mode: "rail",
 		});
-		expect(harness.notifications).toContain("Thinking (Experimental): Streaming");
+		expect(harness.notifications).toContain("Thinking (Experimental): Rail");
+	});
+
+	it("cycles the real mode setting through Streaming to Tree", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(harness.calls.thinkingSteps).toEqual([{ mode: "tree" }]);
+		expect(harness.config.components.thinkingSteps.mode).toBe("tree");
+	});
+
+	it("rebuilds Thinking settings in focus with honest live-success status and preview", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+		};
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				if (patch.mode) state.activeMode = patch.mode;
+				return { applied: true };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		const output = component.render(160).join("\n");
+		expect(focusedRow(component)).toContain("> Mode");
+		expect(output).toContain("Saved: Tree · Active: Tree");
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: "Thinking (Experimental): Tree",
+			severity: "info",
+		});
+	});
+
+	it("rebuilds Thinking settings in focus with saved/active failure status and preview", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "rail" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "rail" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "tree" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.restartRequired = true;
+				return {
+					applied: false,
+					reason: "Saved: Streaming · Active: Rail · restart required",
+				};
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		const output = component.render(180).join("\n");
+		expect(focusedRow(component)).toContain("> Mode");
+		const expectedStatus = "Saved: Streaming · Active: Rail · restart required";
+		expect(output).toContain(expectedStatus);
+		expect(output).toContain("Thinking 7.1s");
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): Streaming (${expectedStatus})`,
+			severity: "warning",
+		});
+	});
+
+	it("includes a cleanup warning in a successful Thinking notification", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const warning =
+			"Saved: Tree · Active: Tree · Streaming unavailable · Pi's terminal input listener cleanup is unavailable";
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.activeMode = "tree";
+				state.streamingAvailable = false;
+				state.reason = "Pi's terminal input listener cleanup is unavailable";
+				return { applied: true, reason: warning };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Mode");
+		component.handleInput(" ");
+		expect(component.render(180).join("\n")).toContain(warning);
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): Tree (${warning})`,
+			severity: "warning",
+		});
+	});
+
+	it("shows a warning when disabling Streaming restores native output with degraded cleanup", async () => {
+		const config = cloneConfig();
+		config.components.thinkingSteps = { enabled: true, mode: "streaming" };
+		const state = {
+			available: true,
+			rendererAvailable: true,
+			streamingAvailable: true,
+			active: true,
+			activeMode: "streaming" as ThinkingStepsMode | undefined,
+			startup: { enabled: true, mode: "streaming" as ThinkingStepsMode },
+			displaced: false,
+			restartRequired: false,
+			reason: undefined as string | undefined,
+		};
+		const warning =
+			"Saved: Disabled · Active: Native · Streaming unavailable · Pi's terminal input listener cleanup is unavailable";
+		const harness = createHarness(config, {
+			thinkingStepsCapability: { state },
+			setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
+				Object.assign(config.components.thinkingSteps, patch);
+				state.active = false;
+				state.activeMode = undefined;
+				state.streamingAvailable = false;
+				state.reason = "Pi's terminal input listener cleanup is unavailable";
+				return { applied: true, reason: warning };
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Thinking");
+		selectLabel(component, "Enabled");
+		component.handleInput(" ");
+		expect(component.render(180).join("\n")).toContain(warning);
+		expect(harness.notificationEvents.at(-1)).toEqual({
+			message: `Thinking (Experimental): disabled (${warning})`,
+			severity: "warning",
+		});
 	});
 
 	it("restores Thinking-step rows after persistence failure and exposes no direct route", async () => {

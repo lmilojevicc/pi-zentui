@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 const root = join(import.meta.dirname, "..");
 
 describe("Thinking (Experimental) documentation", () => {
-	it("documents private restart gating, native Markdown rows, all modes, and bounded ownership", () => {
+	it("documents live transitions, restart gating, native Markdown rows, all modes, and bounded ownership", () => {
 		for (const path of ["README.md", "docs/configuration.md"]) {
 			const documentation = readFileSync(join(root, path), "utf8");
 			expect(documentation).toContain("Thinking (Experimental)");
-			expect(documentation).toMatch(/0\.80\.5.*0\.83\.0.*0\.84\.0.*0\.84\.4/s);
+			expect(documentation).toMatch(/0\.80\.5.*0\.82\.1.*0\.83\.0.*0\.84\.0.*0\.84\.4/s);
+			expect(documentation).toMatch(/switch.*live|live switching/i);
 			expect(documentation).toMatch(/restart/i);
 			expect(documentation).toMatch(/native.*Markdown|Pi `Markdown`/i);
 			expect(documentation).toMatch(/256/);
@@ -17,14 +18,17 @@ describe("Thinking (Experimental) documentation", () => {
 		}
 	});
 
-	it("uses the public Thinking copy and states the restart exception exactly", () => {
+	it("uses the public Thinking copy and states the live boundary exactly", () => {
 		const readme = readFileSync(join(root, "README.md"), "utf8");
 		expect(readme).toContain(
-			"Most changes apply live; Thinking (Experimental) changes are saved and require restarting Pi.",
+			"Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi.",
 		);
-		expect(readFileSync(join(root, "docs/configuration.md"), "utf8")).toContain(
-			"Rail parses each native contiguous thinking run",
+		expect(readme).not.toMatch(
+			/switches Rail, Tree, and Streaming live|Entering Streaming transactionally|Streaming → Tree → Rail → Streaming/,
 		);
+		const configuration = readFileSync(join(root, "docs/configuration.md"), "utf8");
+		expect(configuration).toContain("Rail parses each native contiguous thinking run");
+		expect(configuration).not.toMatch(/Streaming → Tree → Rail → Streaming/);
 		for (const path of [
 			"README.md",
 			"docs/configuration.md",

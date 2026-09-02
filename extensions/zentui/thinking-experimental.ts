@@ -17,6 +17,7 @@ import {
 	isPrototypePatchCurrent,
 	type PrototypePatchRegistration,
 } from "./prototype-patch-registry";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import { parseThinkingSteps, type ThinkingStep } from "./thinking-steps";
 
 /*
@@ -114,12 +115,21 @@ export type ThinkingExperimentalDiagnostics = Readonly<{
 }>;
 
 export type ThinkingExperimentalState = Readonly<{
+	/** Backward-compatible alias for whole renderer availability. */
 	available: boolean;
+	rendererAvailable: boolean;
+	streamingAvailable: boolean;
+	streamingPoisoned: boolean;
 	active: boolean;
 	activeMode?: ThinkingStepsMode;
 	startup: Readonly<ThinkingStepsComponentConfig>;
 	displaced: boolean;
 	restartRequired: boolean;
+	reason?: string;
+}>;
+
+export type ThinkingExperimentalApplyResult = Readonly<{
+	applied: boolean;
 	reason?: string;
 }>;
 
@@ -747,6 +757,11 @@ export class ThinkingExperimentalController {
 	private displaced = false;
 	private restartRequired = false;
 	private unavailableReason: string | undefined;
+	private streamingUnavailableReason: string | undefined;
+	private streamingListenerPoisoned = false;
+	private disposed = false;
+	private resourceToken = 0;
+	private timerToken = 0;
 	private patchRegistration: PrototypePatchRegistration | undefined;
 	private context: ExtensionContext | undefined;
 	private stopInput: (() => void) | undefined;
@@ -789,12 +804,15 @@ export class ThinkingExperimentalController {
 
 	get state(): ThinkingExperimentalState {
 		this.checkDisplacement();
+		const rendererAvailable = !this.unavailableReason && !this.displaced;
 		const reason = this.displaced
-			? "Private renderer patch ownership was displaced; restart required"
-			: (this.unavailableReason ??
-				(this.restartRequired ? "Restart Pi to apply saved Thinking changes." : undefined));
+			? "Private renderer patch ownership was displaced"
+			: (this.unavailableReason ?? this.streamingUnavailableReason);
 		return Object.freeze({
-			available: !this.unavailableReason && !this.displaced,
+			available: rendererAvailable,
+			rendererAvailable,
+			streamingAvailable: !this.streamingUnavailableReason,
+			streamingPoisoned: this.streamingListenerPoisoned,
 			active: this.active && !this.displaced,
 			...(this.activeMode ? { activeMode: this.activeMode } : {}),
 			startup: Object.freeze({ ...this.startup }),
@@ -802,6 +820,13 @@ export class ThinkingExperimentalController {
 			restartRequired: this.restartRequired,
 			...(reason ? { reason } : {}),
 		});
+	}
+
+	private failureResult(): ThinkingExperimentalApplyResult {
+		return {
+			applied: false,
+			reason: formatThinkingStatus(thinkingStatusLabels(this.getConfig(), this.state)),
+		};
 	}
 
 	get diagnostics(): ThinkingExperimentalDiagnostics {
@@ -812,56 +837,106 @@ export class ThinkingExperimentalController {
 		});
 	}
 
-	/** Activates the private renderer only during session startup, before transcript restoration. */
-	startSession(ctx: ExtensionContext): { applied: boolean; reason?: string } {
+	/** Activates the private renderer during session startup, before transcript restoration. */
+	startSession(ctx: ExtensionContext): ThinkingExperimentalApplyResult {
+		this.disposed = false;
+		this.resourceToken += 1;
+		this.streamingUnavailableReason = undefined;
+		this.streamingListenerPoisoned = false;
 		if (ctx.mode === "tui" && ctx.hasUI) this.context = ctx;
 		this.startup = { ...this.getConfig() };
 		this.restartRequired = false;
 		this.activeMode = undefined;
 		if (!this.startup.enabled) return { applied: true };
 		if (!this.context) {
-			return { applied: false, reason: "Thinking (Experimental) requires a TUI session" };
+			this.unavailableReason = "Thinking (Experimental) requires a TUI session";
+			this.restartRequired = true;
+			return this.failureResult();
 		}
-		if (this.unavailableReason) return { applied: false, reason: this.unavailableReason };
+		if (this.unavailableReason) {
+			this.restartRequired = true;
+			return this.failureResult();
+		}
 		if (this.startup.mode === "streaming" && !this.resolveToggleInput()) {
-			return {
-				applied: false,
-				reason: this.unavailableReason ?? "Experimental thinking toggle is unavailable",
-			};
+			this.restartRequired = true;
+			return this.failureResult();
 		}
 		if (!this.install()) {
-			return {
-				applied: false,
-				reason:
-					this.unavailableReason ?? "Experimental renderer unavailable; using native thinking",
-			};
+			this.unavailableReason ??= "Experimental renderer unavailable; using native thinking";
+			this.restartRequired = true;
+			return this.failureResult();
 		}
 		if (this.checkDisplacement()) {
 			this.restartRequired = true;
-			return {
-				applied: false,
-				reason: "Experimental renderer was displaced; restart required, using native thinking",
-			};
+			return this.failureResult();
+		}
+		if (this.startup.mode === "streaming") {
+			const acquired = this.acquireStreamingResources();
+			if (!acquired.applied) {
+				this.restartRequired = true;
+				return this.failureResult();
+			}
 		}
 		this.active = true;
 		this.activeMode = this.startup.mode;
-		if (this.activeMode === "streaming") this.installInputListener();
-		if (!this.active) {
-			return {
-				applied: false,
-				reason: this.unavailableReason ?? "Experimental input handling is unavailable",
-			};
-		}
 		return { applied: true };
 	}
 
-	/** Persists live settings while retaining the immutable startup renderer snapshot. */
-	reconcile(): { applied: boolean; reason?: string } {
+	/** Applies healthy installed transitions while preserving persistence as the authority. */
+	reconcile(): ThinkingExperimentalApplyResult {
 		const desired = this.getConfig();
-		this.restartRequired =
-			desired.enabled !== this.startup.enabled || desired.mode !== this.startup.mode;
-		if (!this.restartRequired) return { applied: true };
-		return { applied: false, reason: "Restart Pi to apply saved Thinking changes." };
+		if (!desired.enabled) {
+			this.restartRequired = false;
+			return this.active ? this.deactivate() : { applied: true };
+		}
+		if (this.active && this.activeMode === desired.mode) {
+			this.restartRequired = false;
+			return { applied: true };
+		}
+		if (
+			!this.active ||
+			!this.installed ||
+			this.displaced ||
+			this.unavailableReason ||
+			this.checkDisplacement()
+		) {
+			this.restartRequired = true;
+			return this.failureResult();
+		}
+		const previousMode = this.activeMode;
+		if (!previousMode) {
+			this.restartRequired = true;
+			return this.failureResult();
+		}
+		if (desired.mode === "streaming") {
+			// Streaming owns terminal input and a timer. Never acquire either from a
+			// settings callback: entering Streaming is an explicit restart boundary.
+			this.restartRequired = true;
+			return this.failureResult();
+		}
+		const streamingCleanupSucceeded =
+			previousMode !== "streaming" || this.releaseStreamingResources();
+		this.expanded = false;
+		this.activeMode = desired.mode;
+		this.restartRequired = false;
+		this.rerenderTracked();
+		const result = this.liveTransitionResult(desired.mode);
+		if (!result.applied || streamingCleanupSucceeded) return result;
+		return {
+			applied: true,
+			reason: formatThinkingStatus(thinkingStatusLabels(this.getConfig(), this.state)),
+		};
+	}
+
+	private liveTransitionResult(mode: ThinkingStepsMode): ThinkingExperimentalApplyResult {
+		if (this.active && this.activeMode === mode && !this.displaced && !this.unavailableReason) {
+			return { applied: true };
+		}
+		this.restartRequired = true;
+		if (!this.unavailableReason && !this.streamingUnavailableReason) {
+			this.unavailableReason = "Experimental renderer failed during the live transition";
+		}
+		return this.failureResult();
 	}
 
 	private install(): boolean {
@@ -952,7 +1027,25 @@ export class ThinkingExperimentalController {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
 							return nativeResult;
 						}
-						this.track(component, message, args, predecessor, incomplete, nativeHidden);
+						const trackedState = this.track(
+							component,
+							message,
+							args,
+							predecessor,
+							incomplete,
+							nativeHidden,
+						);
+						// Tracking can synchronously acquire the first Streaming timer. If that
+						// transaction fails, failActiveStreaming has already restored native UI.
+						if (
+							!this.active ||
+							this.activeMode !== mode ||
+							this.displaced ||
+							this.unavailableReason ||
+							this.states.get(component) !== trackedState ||
+							(mode === "streaming" && (this.streamingListenerPoisoned || !this.stopInput))
+						)
+							return nativeResult;
 						if (mode === "streaming" && this.expanded) return nativeResult;
 						if (
 							!replaceThinkingChildren(
@@ -1000,15 +1093,16 @@ export class ThinkingExperimentalController {
 		predecessor: (this: unknown, ...args: unknown[]) => unknown,
 		incomplete: boolean,
 		nativeHidden: HiddenState,
-	): void {
-		this.states.set(component, {
+	): TrackedState {
+		const trackedState: TrackedState = {
 			message,
 			args: [...args],
 			predecessor,
 			incomplete,
 			nativeHidden,
 			folded: false,
-		});
+		};
+		this.states.set(component, trackedState);
 		let reference = this.references.get(component);
 		if (!reference) {
 			reference = new WeakRef(component);
@@ -1034,6 +1128,7 @@ export class ThinkingExperimentalController {
 		}
 		this.pruneTimings();
 		this.reconcileTimer();
+		return trackedState;
 	}
 
 	private headerFor(message: AssistantMessage, incomplete: boolean, hidden: boolean): string {
@@ -1055,6 +1150,7 @@ export class ThinkingExperimentalController {
 	}
 
 	private resolveToggleInput(): boolean {
+		if (this.streamingListenerPoisoned) return false;
 		if (this.toggleInput) return true;
 		const action = "app.thinking.toggle";
 		if (!this.getHostKeybindings) {
@@ -1131,22 +1227,68 @@ export class ThinkingExperimentalController {
 	}
 
 	private failToggleCapability(reason: string): false {
-		this.unavailableReason = reason;
-		this.active = false;
-		this.stopTimer();
-		this.stopInput?.();
-		this.stopInput = undefined;
-		this.rerenderTracked(true);
-		this.clearTrackedSnapshots();
-		this.toggleInput = undefined;
+		this.poisonStreamingListener(reason);
 		return false;
 	}
 
-	private installInputListener(): void {
-		if (this.stopInput || !this.context || !this.toggleInput) return;
+	private poisonStreamingListener(
+		reason = "Pi's terminal input listener cleanup is unavailable",
+	): void {
+		this.streamingListenerPoisoned = true;
+		this.streamingUnavailableReason = reason;
+		this.toggleInput = undefined;
+	}
+
+	private cleanupInput(stopInput: (() => void) | undefined): boolean {
+		if (!stopInput) return true;
 		try {
-			const stopInput = this.context.ui.onTerminalInput((data) => {
-				if (!this.active || this.checkDisplacement()) return;
+			stopInput();
+			return true;
+		} catch {
+			this.poisonStreamingListener();
+			return false;
+		}
+	}
+
+	private failActiveStreaming(reason: string): void {
+		// Invalidate first so a retained or currently executing callback can never act again.
+		this.resourceToken += 1;
+		this.releaseStreamingResources();
+		this.poisonStreamingListener(reason);
+		this.active = false;
+		this.activeMode = undefined;
+		this.restartRequired = true;
+		this.rerenderTracked(true, true);
+		this.clearTrackedSnapshots();
+		this.clearLiveState();
+	}
+
+	private acquireStreamingResources(): { applied: boolean; reason?: string } {
+		if (this.stopInput || this.interval) {
+			return { applied: false, reason: "Experimental input resources are already owned" };
+		}
+		if (this.streamingListenerPoisoned) {
+			return {
+				applied: false,
+				reason:
+					this.streamingUnavailableReason ?? "Pi's terminal input listener cleanup is unavailable",
+			};
+		}
+		if (!this.context || !this.toggleInput) {
+			return { applied: false, reason: "Experimental input handling is unavailable" };
+		}
+		const token = ++this.resourceToken;
+		let stopInput: unknown;
+		try {
+			stopInput = this.context.ui.onTerminalInput((data) => {
+				if (
+					this.disposed ||
+					token !== this.resourceToken ||
+					!this.active ||
+					this.activeMode !== "streaming" ||
+					this.checkDisplacement()
+				)
+					return;
 				const input = this.toggleInput;
 				if (!input) return;
 				let matches = false;
@@ -1159,7 +1301,7 @@ export class ThinkingExperimentalController {
 						matches = parsed !== undefined && input.keys.includes(parsed);
 					}
 				} catch {
-					this.failToggleCapability("Pi's thinking-toggle matcher failed at runtime");
+					this.failActiveStreaming("Pi's thinking-toggle matcher failed at runtime");
 					return;
 				}
 				if (!matches) return;
@@ -1169,14 +1311,64 @@ export class ThinkingExperimentalController {
 				}
 				return { consume: true };
 			});
-			if (typeof stopInput !== "function") {
-				this.failToggleCapability("Pi's terminal input listener cleanup is unavailable");
-				return;
-			}
-			this.stopInput = stopInput;
 		} catch {
-			this.failToggleCapability("Pi's terminal input listener is unavailable");
+			// Registration may retain the callback before throwing. Invalidate it and never
+			// attempt another registration in this session because ownership is unknowable.
+			this.resourceToken += 1;
+			this.poisonStreamingListener("Pi's terminal input listener registration is unavailable");
+			return { applied: false, reason: this.streamingUnavailableReason };
 		}
+		if (typeof stopInput !== "function") {
+			// The host may have retained the callback without giving us a release mechanism.
+			// Poison Streaming for this session and leave that callback permanently inert.
+			this.resourceToken += 1;
+			this.poisonStreamingListener();
+			return { applied: false, reason: this.streamingUnavailableReason };
+		}
+		const releaseInput = stopInput as () => void;
+		let interval: ReturnType<typeof setInterval> | undefined;
+		try {
+			if (this.activeEntries().length > 0) interval = this.createStreamingTimer(token);
+		} catch {
+			// Registration succeeded but the acquisition transaction did not. Invalidate the
+			// candidate callback before cleanup and poison Streaming even when cleanup succeeds.
+			this.resourceToken += 1;
+			this.cleanupInput(releaseInput);
+			this.poisonStreamingListener("Pi's thinking timer is unavailable");
+			return { applied: false, reason: this.streamingUnavailableReason };
+		}
+		this.stopInput = releaseInput;
+		this.interval = interval;
+		return { applied: true };
+	}
+
+	private createStreamingTimer(resourceToken = this.resourceToken): ReturnType<typeof setInterval> {
+		const timerToken = ++this.timerToken;
+		return setInterval(() => {
+			// Timer/resource release invalidates callbacks before attempting host cleanup.
+			// A host that throws from clearInterval may retain this callback, so stale
+			// callbacks must be wholly inert while a later release retries the same handle.
+			if (
+				this.disposed ||
+				resourceToken !== this.resourceToken ||
+				timerToken !== this.timerToken ||
+				!this.active ||
+				this.activeMode !== "streaming"
+			)
+				return;
+			if (this.checkDisplacement()) return;
+			this.rerenderActive();
+			this.reconcileTimer();
+		}, 1000);
+	}
+
+	private releaseStreamingResources(): boolean {
+		this.resourceToken += 1;
+		const timerCleanupSucceeded = this.stopTimer();
+		const stopInput = this.stopInput;
+		this.stopInput = undefined;
+		const inputCleanupSucceeded = this.cleanupInput(stopInput);
+		return timerCleanupSucceeded && inputCleanupSucceeded;
 	}
 
 	private trackedEntries(): Array<[object, TrackedState]> {
@@ -1263,13 +1455,20 @@ export class ThinkingExperimentalController {
 		}
 	}
 
-	private restoreNative(entries: Array<[object, TrackedState]>): number {
+	private restoreNative(
+		entries: Array<[object, TrackedState]>,
+		preserveVisibleUnfolded = false,
+	): number {
 		let processed = 0;
 		for (const [component, state] of entries) {
 			processed += 1;
 			const instance = component as PatchableAssistant;
 			try {
-				renderWithHiddenState(instance, state.predecessor, state.args, state.nativeHidden);
+				// A visible native predecessor has already produced the authoritative children
+				// when first-message timer acquisition fails inside track(). Preserve their exact
+				// identity rather than invoking the predecessor a second time.
+				if (!preserveVisibleUnfolded || state.folded || state.nativeHidden.value === true)
+					renderWithHiddenState(instance, state.predecessor, state.args, state.nativeHidden);
 			} catch {
 				// A stale transcript component must never break restoration of later components.
 			} finally {
@@ -1328,7 +1527,7 @@ export class ThinkingExperimentalController {
 						state.folded = true;
 					}
 				} catch {
-					this.dropComponent(component);
+					this.failShape("Pi's private assistant renderer failed during a live rerender");
 				}
 				if (this.shapeFailureDuringRerender) break;
 			}
@@ -1345,9 +1544,11 @@ export class ThinkingExperimentalController {
 		return processed;
 	}
 
-	private rerenderTracked(nativeOnly = false): void {
+	private rerenderTracked(nativeOnly = false, preserveVisibleUnfolded = false): void {
 		const entries = this.trackedEntries();
-		const processed = this.rerenderEntries(entries, nativeOnly);
+		const processed = nativeOnly
+			? this.restoreNative(entries, preserveVisibleUnfolded)
+			: this.rerenderEntries(entries);
 		if (processed > 0) this.requestHostRender();
 	}
 
@@ -1362,7 +1563,7 @@ export class ThinkingExperimentalController {
 	}
 
 	private reconcileTimer(): void {
-		if (!this.active || this.activeMode !== "streaming") {
+		if (!this.active || this.activeMode !== "streaming" || !this.stopInput) {
 			this.stopTimer();
 			return;
 		}
@@ -1370,21 +1571,29 @@ export class ThinkingExperimentalController {
 			this.stopTimer();
 			return;
 		}
-		if (!this.interval) {
-			this.interval = setInterval(() => {
-				if (!this.active || this.checkDisplacement()) {
-					this.stopTimer();
-					return;
-				}
-				this.rerenderActive();
-				this.reconcileTimer();
-			}, 1000);
+		if (!this.interval && !this.streamingListenerPoisoned) {
+			try {
+				this.interval = this.createStreamingTimer();
+			} catch {
+				this.failActiveStreaming("Pi's thinking timer is unavailable");
+			}
 		}
 	}
 
-	private stopTimer(): void {
-		if (this.interval) clearInterval(this.interval);
-		this.interval = undefined;
+	private stopTimer(): boolean {
+		const interval = this.interval;
+		if (!interval) return true;
+		this.timerToken += 1;
+		try {
+			clearInterval(interval);
+			this.interval = undefined;
+			return true;
+		} catch {
+			// Keep the exact handle so shutdown or another release can retry it. Streaming
+			// remains poisoned, preventing any replacement timer/listener acquisition.
+			this.poisonStreamingListener("Pi's thinking timer cleanup is unavailable");
+			return false;
+		}
 	}
 
 	private checkDisplacement(): boolean {
@@ -1405,9 +1614,7 @@ export class ThinkingExperimentalController {
 				// Restore every component synchronously before relinquishing input/timer ownership.
 				this.rerenderTracked(true);
 				this.clearTrackedSnapshots();
-				this.stopTimer();
-				this.stopInput?.();
-				this.stopInput = undefined;
+				this.releaseStreamingResources();
 			}
 		}
 		return this.displaced;
@@ -1416,9 +1623,9 @@ export class ThinkingExperimentalController {
 	private failShape(reason: string): void {
 		this.unavailableReason = reason;
 		this.active = false;
-		this.stopTimer();
-		this.stopInput?.();
-		this.stopInput = undefined;
+		this.activeMode = undefined;
+		this.restartRequired = true;
+		this.releaseStreamingResources();
 		if (this.rerendering) {
 			this.shapeFailureDuringRerender = reason;
 			return;
@@ -1440,19 +1647,22 @@ export class ThinkingExperimentalController {
 		this.currentMessage = undefined;
 	}
 
-	private deactivate(): void {
+	private deactivate(): ThinkingExperimentalApplyResult {
 		this.active = false;
 		this.activeMode = undefined;
 		this.expanded = false;
-		this.stopTimer();
-		this.stopInput?.();
-		this.stopInput = undefined;
+		const streamingCleanupSucceeded = this.releaseStreamingResources();
 		this.rerenderTracked(true);
 		// Cached host components stay native until Pi next rebuilds/updates them. Dropping
 		// snapshots is intentional: reactivation must never replay pre-disable content.
 		this.clearTrackedSnapshots();
 		this.clearLiveState();
 		this.toggleInput = undefined;
+		if (streamingCleanupSucceeded) return { applied: true };
+		return {
+			applied: true,
+			reason: formatThinkingStatus(thinkingStatusLabels(this.getConfig(), this.state)),
+		};
 	}
 
 	beginMessage(event: unknown): void {
@@ -1544,6 +1754,7 @@ export class ThinkingExperimentalController {
 	}
 
 	shutdown(): void {
+		this.disposed = true;
 		this.deactivate();
 		this.startup = { enabled: false, mode: "tree" };
 		this.restartRequired = false;
