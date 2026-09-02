@@ -3,6 +3,7 @@ import {
 	isValidUserMessageOsc8Payload,
 	sanitizeRenderedUserMessageLines,
 	sanitizeRenderedUserMessageText,
+	sanitizeSgrOnlySourceText,
 	sanitizeUserMessageSourceText,
 } from "../extensions/zentui/user-message-osc";
 
@@ -111,6 +112,63 @@ describe("sanitizeUserMessageSourceText", () => {
 		);
 		const expected = Array.from({ length: 20_000 }, (_, index) => String(index)).join(" ");
 		expect(sanitizeUserMessageSourceText(source)).toBe(expected);
+	});
+});
+
+describe("sanitizeSgrOnlySourceText", () => {
+	it.each([
+		["empty", "", ""],
+		["standard", "before\x1b[31;1mred\x1b[0m after", "beforered after"],
+		["256 color", "\x1b[38;5;202mvalue\x1b[39m", "value"],
+		["colon parameters", "\x1b[38:2::137:180:250mvalue\x1b[m", "value"],
+		[
+			"observed truecolor sequences",
+			"\x1b[38;2;137;180;250mfirst\x1b[39m \x1b[38;2;186;194;222msecond\x1b[39m",
+			"first second",
+		],
+	] as const)("strips strict 7-bit CSI SGR for %s", (_name, source, expected) => {
+		expect(sanitizeSgrOnlySourceText(source)).toBe(expected);
+	});
+
+	it("preserves source whitespace exactly", () => {
+		expect(sanitizeSgrOnlySourceText("\t\x1b[1m first  \nsecond\t\x1b[22m\n")).toBe(
+			"\t first  \nsecond\t\n",
+		);
+	});
+
+	it.each([
+		["cursor", "value\x1b[2A"],
+		["erase", "value\x1b[2J"],
+		["OSC", "\x1b]0;title\x07value"],
+		["OSC 8", "\x1b]8;;https://example.test\x07link\x1b]8;;\x07"],
+		["7-bit DCS", "\x1bPpayload\x1b\\"],
+		["7-bit SOS", "\x1bXpayload\x1b\\"],
+		["7-bit PM", "\x1b^payload\x1b\\"],
+		["7-bit APC", "\x1b_payload\x1b\\"],
+		["generic escape", "\x1b(0value"],
+		["BEL", "a\x07b"],
+		["NUL", "a\x00b"],
+		["form feed", "a\x0cb"],
+		["DEL", "a\x7fb"],
+		["C1", "a\x85b"],
+		["8-bit CSI", "a\x9b31mb"],
+		["8-bit DCS", "a\x90payload\x9cb"],
+		["8-bit SOS", "a\x98payload\x9cb"],
+		["8-bit PM", "a\x9epayload\x9cb"],
+		["8-bit APC", "a\x9fpayload\x9cb"],
+	] as const)("rejects %s controls mixed with safe SGR", (_name, source) => {
+		expect(sanitizeSgrOnlySourceText(`\x1b[1m${source}\x1b[0m`)).toBeUndefined();
+	});
+
+	it.each([
+		["incomplete", "\x1b[38;2;137;180;250"],
+		["private", "\x1b[?25m"],
+		["intermediate", "\x1b[1 m"],
+		["invalid parameter", "\x1b[31.1m"],
+		["non-SGR CSI", "\x1b[31H"],
+		["cancelled", "\x1b[31\x18m"],
+	] as const)("rejects %s SGR-like input", (_name, source) => {
+		expect(sanitizeSgrOnlySourceText(source)).toBeUndefined();
 	});
 });
 

@@ -221,13 +221,27 @@ function filterBalancedUserMessageTerminalText(text: string, options: FilterOpti
 	return filterUserMessageTerminalText(text, { ...options, preserveValidOsc8: false }).text;
 }
 
+const sourceFilterOptions = {
+	preserveValidOsc8: false,
+	preserveSourceWhitespace: true,
+} as const;
+
 /** Strip every terminal control from untrusted source text before Markdown rendering. */
 export function sanitizeUserMessageSourceText(text: string): string {
 	return filterBalancedUserMessageTerminalText(text, {
-		preserveValidOsc8: false,
-		preserveSourceWhitespace: true,
+		...sourceFilterOptions,
 		preserveSgr: false,
 	});
+}
+
+/** Strip strict 7-bit CSI SGR, rejecting source that contains any other terminal control. */
+export function sanitizeSgrOnlySourceText(text: string): string | undefined {
+	const sgrPreserved = filterBalancedUserMessageTerminalText(text, {
+		...sourceFilterOptions,
+		preserveSgr: true,
+	});
+	if (sgrPreserved !== text) return undefined;
+	return sanitizeUserMessageSourceText(text);
 }
 
 /**
