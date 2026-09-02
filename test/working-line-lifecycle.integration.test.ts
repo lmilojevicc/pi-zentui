@@ -210,7 +210,13 @@ describe("working-line extension lifecycle integration", () => {
 		});
 		expect(row()).toContain("↑150 ↓9");
 		await emit(handlers, "agent_end", current.ctx);
-		expect(current.calls.filter(([name]) => name === "message")).toEqual([["message", ""]]);
+		// every full-row repaint is paired with the owned-message re-assert
+		const indicatorSets = current.calls.filter(
+			([name, value]) => name === "indicator" && value !== undefined,
+		).length;
+		expect(
+			current.calls.filter(([name, value]) => name === "message" && value === ""),
+		).toHaveLength(indicatorSets);
 		expect(current.forbidden).not.toHaveBeenCalled();
 		const beforeLateEnds = current.calls.length;
 		await emit(handlers, "message_end", current.ctx, {
@@ -404,7 +410,8 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "message_update", current.ctx, {
 			message: { role: "user", usage: { input: 99, output: 99 } },
 		});
-		expect(current.calls).toHaveLength(writesBeforeUpdates + 1);
+		// one visible repaint = owned-message re-assert + indicator rebuild
+		expect(current.calls).toHaveLength(writesBeforeUpdates + 2);
 		expect(row()).toContain("↑0 ↓0");
 		await emit(handlers, "message_end", current.ctx, {
 			message: { ...partial, usage: { input: 42, output: 6 } },
@@ -527,7 +534,8 @@ describe("working-line extension lifecycle integration", () => {
 				partial,
 			},
 		});
-		expect(current.calls).toHaveLength(beforeDeltas + 2);
+		// two visible repaints, each paired with the owned-message re-assert
+		expect(current.calls).toHaveLength(beforeDeltas + 4);
 		expect(rows().some((row) => row.includes("↑10 ↓5"))).toBe(true);
 		expect(rows().at(-1)).toContain("↑10 ↓8");
 		expect(rows().at(-1)).not.toMatch(/thinking|thought for/);
@@ -693,7 +701,8 @@ describe("working-line extension lifecycle integration", () => {
 			});
 		}
 		const elapsedMs = performance.now() - started;
-		expect(current.calls).toHaveLength(callsBeforeStreaming + 20);
+		// 20 visible repaints, each paired with the owned-message re-assert
+		expect(current.calls).toHaveLength(callsBeforeStreaming + 40);
 		expect(elapsedMs).toBeLessThan(10_000);
 		await emit(handlers, "session_shutdown", current.ctx);
 	});

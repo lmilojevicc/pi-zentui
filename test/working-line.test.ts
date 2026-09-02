@@ -1176,16 +1176,17 @@ describe("working-line runtime ownership", () => {
 		expect(text()).toMatch(/B · read · ↑120 ↓7/);
 		harness.controller.finishTool("a", harness.ctx);
 		expect(text()).toMatch(/B · ↑120 ↓7/);
-		expect(harness.calls.every(([name]) => name === "indicator")).toBe(true);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls.filter(([name]) => name === "indicator")).toHaveLength(5);
+		// each full-row repaint is paired with the owned-message re-assert
+		expect(harness.calls.filter(([name]) => name === "message")).toHaveLength(5);
 		harness.controller.finishTool("missing", harness.ctx);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls).toHaveLength(10);
 		harness.controller.startTurn(harness.ctx);
 		expect(text()).toMatch(/↑120 ↓7/);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls).toHaveLength(10);
 		harness.current.components.workingLine.segments.tool = false;
 		harness.controller.reconcile(harness.ctx);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls).toHaveLength(10);
 		harness.controller.dispose(harness.ctx);
 		harness.clock.reset();
 	});
@@ -1773,15 +1774,15 @@ describe("working-line runtime ownership", () => {
 		vi.advanceTimersByTime(999);
 		expect(harness.calls).toEqual([]);
 		vi.advanceTimersByTime(1);
-		expect(harness.calls).toHaveLength(1);
-		expect(harness.calls[0]?.[0]).toBe("indicator");
+		expect(harness.calls).toHaveLength(2);
+		expect(harness.calls.at(-1)?.[0]).toBe("indicator");
 		expect(
 			stripTerminalSequences(
-				(harness.calls[0]?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
+				(harness.calls.at(-1)?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
 			),
 		).toContain(" · 1s");
 		vi.advanceTimersByTime(1000);
-		expect(harness.calls).toHaveLength(2);
+		expect(harness.calls).toHaveLength(4);
 		expect(
 			stripTerminalSequences(
 				(harness.calls.at(-1)?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",

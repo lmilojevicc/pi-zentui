@@ -40,7 +40,10 @@ export const MAX_WORKING_LINE_STYLE_TOKENS = 4;
 export const MAX_WORKING_LINE_STYLE_CODE_UNITS = 48;
 export const MAX_WORKING_LINE_ENTRIES_EXAMINED = 256;
 
-const WORKING_LINE_FALLBACKS: Record<"low" | "mid" | "high", SourceStyleFallback> = {
+const WORKING_LINE_FALLBACKS: Record<
+	"low" | "mid" | "high",
+	SourceStyleFallback
+> = {
 	low: { theme: "dim", terminal: "bright-black" },
 	mid: { theme: "muted", terminal: "cyan" },
 	high: { theme: "bold accent", terminal: "bold cyan" },
@@ -55,7 +58,10 @@ type GraphemeCell = { text: string; start: number; width: number };
 
 type WorkingLineUi = {
 	setWorkingMessage(message?: string): void;
-	setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+	setWorkingIndicator(options?: {
+		frames?: string[];
+		intervalMs?: number;
+	}): void;
 };
 
 type WorkingLineContext = {
@@ -82,7 +88,8 @@ export class AgentDurationClock {
 	}
 
 	finish(now = Date.now()): void {
-		if (this.startedAt !== undefined) this.completedMs = Math.max(0, now - this.startedAt);
+		if (this.startedAt !== undefined)
+			this.completedMs = Math.max(0, now - this.startedAt);
 		this.startedAt = undefined;
 		this.notify();
 		this.stopTimer();
@@ -99,7 +106,9 @@ export class AgentDurationClock {
 	}
 
 	elapsedMs(now = Date.now()): number | undefined {
-		return this.startedAt === undefined ? this.completedMs : Math.max(0, now - this.startedAt);
+		return this.startedAt === undefined
+			? this.completedMs
+			: Math.max(0, now - this.startedAt);
 	}
 
 	subscribe(listener: AgentDurationListener): () => void {
@@ -140,7 +149,9 @@ function segmentGraphemes(value: string): Iterable<string> {
 	try {
 		const Segmenter = Intl.Segmenter;
 		if (typeof Segmenter === "function") {
-			const segments = new Segmenter(undefined, { granularity: "grapheme" }).segment(value);
+			const segments = new Segmenter(undefined, {
+				granularity: "grapheme",
+			}).segment(value);
 			return {
 				*[Symbol.iterator]() {
 					for (const part of segments) yield part.segment;
@@ -170,7 +181,8 @@ function truncateGraphemes(
 		width += nextWidth;
 		codeUnits += grapheme.length;
 	}
-	while (output.length > 0 && /^\s+$/u.test(output.at(-1) ?? "")) output.pop();
+	while (output.length > 0 && /^\s+$/u.test(output.at(-1) ?? ""))
+		output.pop();
 	return output.join("");
 }
 
@@ -185,14 +197,19 @@ function boundRawWorkingLineInput(value: string): string {
 
 function trimGraphemeWhitespace(value: string): string {
 	const graphemes = [...segmentGraphemes(value)];
-	while (graphemes.length > 0 && /^\s+$/u.test(graphemes[0] ?? "")) graphemes.shift();
-	while (graphemes.length > 0 && /^\s+$/u.test(graphemes.at(-1) ?? "")) graphemes.pop();
+	while (graphemes.length > 0 && /^\s+$/u.test(graphemes[0] ?? ""))
+		graphemes.shift();
+	while (graphemes.length > 0 && /^\s+$/u.test(graphemes.at(-1) ?? ""))
+		graphemes.pop();
 	return graphemes.join("");
 }
 
 function stripC1TerminalSequences(value: string): string {
 	return value
-		.replaceAll(/[\u0090\u0098\u009d\u009e\u009f][\s\S]*?(?:\u0007|\u009c|\x1b\\|$)/g, "")
+		.replaceAll(
+			/[\u0090\u0098\u009d\u009e\u009f][\s\S]*?(?:\u0007|\u009c|\x1b\\|$)/g,
+			"",
+		)
 		.replaceAll(/\u009b[0-?]*[ -/]*[@-~]/g, "");
 }
 
@@ -200,10 +217,15 @@ function stripC1TerminalSequences(value: string): string {
 export function normalizeWorkingLineMessage(value: unknown): string {
 	if (typeof value !== "string") return "";
 	const bounded = boundRawWorkingLineInput(value);
-	const withoutTerminalSequences = stripVTControlCharacters(stripC1TerminalSequences(bounded));
+	const withoutTerminalSequences = stripVTControlCharacters(
+		stripC1TerminalSequences(bounded),
+	);
 	const withoutControls = withoutTerminalSequences
 		.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-		.replaceAll(/[\u034f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u206f]/g, "");
+		.replaceAll(
+			/[\u034f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u206f]/g,
+			"",
+		);
 	const normalized = trimGraphemeWhitespace(
 		withoutControls.normalize("NFC").replaceAll(/\s+/gu, " "),
 	);
@@ -230,7 +252,9 @@ export function normalizeWorkingLineMessages(values: unknown): string[] {
 	return output;
 }
 
-export function effectiveWorkingLineMessages(config: WorkingLineComponentConfig): string[] {
+export function effectiveWorkingLineMessages(
+	config: WorkingLineComponentConfig,
+): string[] {
 	if (!config.messages.custom) return [WORKING_LINE_FALLBACK_MESSAGE];
 	const custom = normalizeWorkingLineMessages(config.messages.values);
 	return custom.length > 0 ? custom : [WORKING_LINE_FALLBACK_MESSAGE];
@@ -241,10 +265,14 @@ export function selectWorkingLineMessage(
 	random: () => number = Math.random,
 ): string {
 	const pool = effectiveWorkingLineMessages(config);
-	if (!config.messages.custom || pool.length <= 1) return pool[0] ?? WORKING_LINE_FALLBACK_MESSAGE;
+	if (!config.messages.custom || pool.length <= 1)
+		return pool[0] ?? WORKING_LINE_FALLBACK_MESSAGE;
 	const sample = random();
 	const finite = Number.isFinite(sample) ? sample : 0;
-	const index = Math.min(pool.length - 1, Math.max(0, Math.floor(finite * pool.length)));
+	const index = Math.min(
+		pool.length - 1,
+		Math.max(0, Math.floor(finite * pool.length)),
+	);
 	return pool[index] ?? WORKING_LINE_FALLBACK_MESSAGE;
 }
 
@@ -263,12 +291,19 @@ function lcm(left: number, right: number): number {
 	return (left / gcd(left, right)) * right;
 }
 
-function schedulePeriod(intervalMs: number, cycleAdvances: number, quantumMs: number): number {
+function schedulePeriod(
+	intervalMs: number,
+	cycleAdvances: number,
+	quantumMs: number,
+): number {
 	const product = intervalMs * cycleAdvances;
 	return product / gcd(quantumMs, product);
 }
 
-function graphemeCells(message: string): { cells: GraphemeCell[]; width: number } {
+function graphemeCells(message: string): {
+	cells: GraphemeCell[];
+	width: number;
+} {
 	const cells: GraphemeCell[] = [];
 	let start = 0;
 	for (const text of segmentGraphemes(message)) {
@@ -288,9 +323,13 @@ function classicTier(cell: GraphemeCell, tick: number): Tier {
 	return "low";
 }
 
-function kittHead(tick: number, width: number): { position: number; direction: 1 | -1 } {
+function kittHead(
+	tick: number,
+	width: number,
+): { position: number; direction: 1 | -1 } {
 	const span = width + KITT_TRAIL_CELLS - 1;
-	if (tick < span) return { position: tick - (KITT_TRAIL_CELLS - 1), direction: 1 };
+	if (tick < span)
+		return { position: tick - (KITT_TRAIL_CELLS - 1), direction: 1 };
 	return {
 		position: span * 2 - 2 - tick - (KITT_TRAIL_CELLS - 1),
 		direction: -1,
@@ -302,12 +341,16 @@ function kittTier(cell: GraphemeCell, tick: number, width: number): Tier {
 	const cellEnd = cell.start + cell.width;
 	if (position >= cell.start && position < cellEnd) return "high";
 	const cellCenter = cell.start + Math.max(0, cell.width - 1) / 2;
-	const distance = direction === 1 ? position - cellCenter : cellCenter - position;
+	const distance =
+		direction === 1 ? position - cellCenter : cellCenter - position;
 	if (distance > 0 && distance <= KITT_TRAIL_CELLS) return "mid";
 	return "low";
 }
 
-function textPeriod(animation: WorkingLineTextAnimation, width: number): number {
+function textPeriod(
+	animation: WorkingLineTextAnimation,
+	width: number,
+): number {
 	switch (animation) {
 		case "classic":
 			return width + CLASSIC_PADDING_CELLS * 2;
@@ -355,10 +398,16 @@ function textTickForSpatialPhase(
 		return position + CLASSIC_PADDING_CELLS;
 	}
 	if (spatial.direction === 1) {
-		const position = Math.min(width - 1, Math.max(-(KITT_TRAIL_CELLS - 1), spatial.position));
+		const position = Math.min(
+			width - 1,
+			Math.max(-(KITT_TRAIL_CELLS - 1), spatial.position),
+		);
 		return position + KITT_TRAIL_CELLS - 1;
 	}
-	const position = Math.min(width - 2, Math.max(-(KITT_TRAIL_CELLS - 2), spatial.position));
+	const position = Math.min(
+		width - 2,
+		Math.max(-(KITT_TRAIL_CELLS - 2), spatial.position),
+	);
 	return width * 2 + 1 - position;
 }
 
@@ -375,11 +424,16 @@ export function remapWorkingLineTextTick(
 	return textTickForSpatialPhase(
 		toAnimation,
 		toWidth,
-		spatial ? { ...spatial, position: spatial.position + fromOrigin - toOrigin } : undefined,
+		spatial
+			? { ...spatial, position: spatial.position + fromOrigin - toOrigin }
+			: undefined,
 	);
 }
 
-function styleForTier(colors: PolishedTuiColors, tier: Tier): ColorSpec | undefined {
+function styleForTier(
+	colors: PolishedTuiColors,
+	tier: Tier,
+): ColorSpec | undefined {
 	switch (tier) {
 		case "low":
 			return colors.workingLineLow;
@@ -391,7 +445,9 @@ function styleForTier(colors: PolishedTuiColors, tier: Tier): ColorSpec | undefi
 }
 
 /** Normalize only Working-line palette specs before they are repeated across generated frames. */
-export function normalizeWorkingLineStyleSpec(value: ColorSpec | undefined): ColorSpec | undefined {
+export function normalizeWorkingLineStyleSpec(
+	value: ColorSpec | undefined,
+): ColorSpec | undefined {
 	if (value === undefined) return undefined;
 	const tokens: string[] = [];
 	const seen = new Set<string>();
@@ -405,7 +461,8 @@ export function normalizeWorkingLineStyleSpec(value: ColorSpec | undefined): Col
 		const separator = tokens.length > 0 ? 1 : 0;
 		if (
 			tokens.length === MAX_WORKING_LINE_STYLE_TOKENS ||
-			codeUnits + separator + token.length > MAX_WORKING_LINE_STYLE_CODE_UNITS
+			codeUnits + separator + token.length >
+				MAX_WORKING_LINE_STYLE_CODE_UNITS
 		) {
 			return undefined;
 		}
@@ -486,7 +543,9 @@ function renderAnimatedText(
 		if (previous?.tier === tier) previous.text += cell.text;
 		else runs.push({ tier, text: cell.text });
 	}
-	return runs.map((run) => renderTier(theme, config, colors, run.tier, run.text)).join("");
+	return runs
+		.map((run) => renderTier(theme, config, colors, run.tier, run.text))
+		.join("");
 }
 
 export type WorkingLineRuntimeSegments = {
@@ -544,8 +603,12 @@ export function formatWorkingLineThought(
 
 export function normalizeWorkingLineToolLabel(value: unknown): string {
 	const normalized = normalizeWorkingLineMessage(value);
-	if (visibleWidth(normalized) <= MAX_WORKING_LINE_TOOL_CELLS) return normalized;
-	const prefix = truncateGraphemes(normalized, MAX_WORKING_LINE_TOOL_CELLS - 1);
+	if (visibleWidth(normalized) <= MAX_WORKING_LINE_TOOL_CELLS)
+		return normalized;
+	const prefix = truncateGraphemes(
+		normalized,
+		MAX_WORKING_LINE_TOOL_CELLS - 1,
+	);
 	return prefix ? `${prefix}…` : "";
 }
 
@@ -558,7 +621,8 @@ export function formatWorkingLineTokens(
 		!Number.isSafeInteger(tokens.output) ||
 		tokens.input < 0 ||
 		tokens.output < 0 ||
-		(tokens.outputApproximate !== undefined && typeof tokens.outputApproximate !== "boolean")
+		(tokens.outputApproximate !== undefined &&
+			typeof tokens.outputApproximate !== "boolean")
 	) {
 		return undefined;
 	}
@@ -576,11 +640,15 @@ function truncateWithEllipsis(value: string, capacity: number): string {
 export type ComposedWorkingLine = { message: string; row: string };
 
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
-export function workingLineSpinnerWidth(spinnerId: WorkingLineComponentConfig["spinner"]): number {
+export function workingLineSpinnerWidth(
+	spinnerId: WorkingLineComponentConfig["spinner"],
+): number {
 	const frames: readonly string[] = WORKING_LINE_SPINNERS[spinnerId].frames;
 	const width = visibleWidth(frames[0] ?? "");
 	if (width <= 0 || frames.some((frame) => visibleWidth(frame) !== width)) {
-		throw new Error("Working-line spinner frames must share a positive fixed width");
+		throw new Error(
+			"Working-line spinner frames must share a positive fixed width",
+		);
 	}
 	return width;
 }
@@ -591,16 +659,24 @@ export function composeWorkingLineRow(
 	message: string,
 	runtime: WorkingLineRuntimeSegments = {},
 ): ComposedWorkingLine {
-	const normalized = normalizeWorkingLineMessage(message) || WORKING_LINE_FALLBACK_MESSAGE;
+	const normalized =
+		normalizeWorkingLineMessage(message) || WORKING_LINE_FALLBACK_MESSAGE;
 	const maximumRowCells =
-		MAX_WORKING_LINE_FRAME_CELLS - workingLineSpinnerWidth(config.spinner) - visibleWidth(" ");
+		MAX_WORKING_LINE_FRAME_CELLS -
+		workingLineSpinnerWidth(config.spinner) -
+		visibleWidth(" ");
 	const delimiter = " · ";
-	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
-	const mandatoryWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
+	const tokens = config.segments.tokens
+		? formatWorkingLineTokens(runtime.tokens)
+		: undefined;
+	const mandatoryWidth = tokens
+		? visibleWidth(delimiter) + visibleWidth(tokens)
+		: 0;
 	const messageCapacity = maximumRowCells - mandatoryWidth;
 	const fittedMessage = truncateWithEllipsis(normalized, messageCapacity);
 	const segments: string[] = [fittedMessage];
-	let remaining = maximumRowCells - visibleWidth(fittedMessage) - mandatoryWidth;
+	let remaining =
+		maximumRowCells - visibleWidth(fittedMessage) - mandatoryWidth;
 	const elapsed =
 		config.segments.elapsed && runtime.elapsedMs !== undefined
 			? formatWorkingLineElapsed(runtime.elapsedMs)
@@ -610,27 +686,38 @@ export function composeWorkingLineRow(
 			? formatWorkingLineThought(runtime.thought)
 			: undefined;
 	const tool =
-		config.segments.tool && runtime.tool ? normalizeWorkingLineToolLabel(runtime.tool) : undefined;
+		config.segments.tool && runtime.tool
+			? normalizeWorkingLineToolLabel(runtime.tool)
+			: undefined;
 	const accepted = new Set<"thought" | "elapsed" | "tool">();
 	for (const [key, label] of [
 		["thought", thought],
 		["elapsed", elapsed],
 	] as const) {
-		if (label && remaining >= visibleWidth(delimiter) + visibleWidth(label)) {
+		if (
+			label &&
+			remaining >= visibleWidth(delimiter) + visibleWidth(label)
+		) {
 			remaining -= visibleWidth(delimiter) + visibleWidth(label);
 			accepted.add(key);
 		}
 	}
 	let fittedTool = "";
 	if (tool && remaining > visibleWidth(delimiter)) {
-		fittedTool = truncateWithEllipsis(tool, remaining - visibleWidth(delimiter));
+		fittedTool = truncateWithEllipsis(
+			tool,
+			remaining - visibleWidth(delimiter),
+		);
 		if (fittedTool) accepted.add("tool");
 	}
 	if (accepted.has("tool")) segments.push(fittedTool);
 	if (accepted.has("elapsed") && elapsed) segments.push(elapsed);
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
-	return { message: normalized, row: segments.filter(Boolean).join(delimiter) };
+	return {
+		message: normalized,
+		row: segments.filter(Boolean).join(delimiter),
+	};
 }
 
 type ScheduleDefinition = {
@@ -646,8 +733,16 @@ function exactSchedule(
 	textCycle: number,
 ): ScheduleDefinition {
 	const quantumMs = Math.max(30, gcd(spinnerIntervalMs, textIntervalMs));
-	const spinnerPeriod = schedulePeriod(spinnerIntervalMs, spinnerCycle, quantumMs);
-	const textSchedulePeriod = schedulePeriod(textIntervalMs, textCycle, quantumMs);
+	const spinnerPeriod = schedulePeriod(
+		spinnerIntervalMs,
+		spinnerCycle,
+		quantumMs,
+	);
+	const textSchedulePeriod = schedulePeriod(
+		textIntervalMs,
+		textCycle,
+		quantumMs,
+	);
 	const frameCount = lcm(spinnerPeriod, textSchedulePeriod);
 	return {
 		frameCount,
@@ -681,7 +776,10 @@ function fallbackSchedule(
 		spinnerCycle,
 		Math.round(idealSpinnerAdvances / spinnerCycle) * spinnerCycle,
 	);
-	const textAdvances = Math.max(1, Math.round((frameCount * quantumMs) / textIntervalMs));
+	const textAdvances = Math.max(
+		1,
+		Math.round((frameCount * quantumMs) / textIntervalMs),
+	);
 	return {
 		frameCount,
 		stateAt: (index) => ({
@@ -690,7 +788,8 @@ function fallbackSchedule(
 		}),
 		metadata: {
 			quantumMs,
-			effectiveSpinnerIntervalMs: (frameCount * quantumMs) / spinnerAdvances,
+			effectiveSpinnerIntervalMs:
+				(frameCount * quantumMs) / spinnerAdvances,
 			effectiveTextIntervalMs: (frameCount * quantumMs) / textAdvances,
 			exact: false,
 			spinnerSeamless: spinnerAdvances % spinnerCycle === 0,
@@ -712,7 +811,8 @@ function bestFallbackFrameCount(
 	for (let count = 1; count <= maximum; count += 1) {
 		const advances = Math.max(
 			spinnerCycle,
-			Math.round((count * quantumMs) / spinnerIntervalMs / spinnerCycle) * spinnerCycle,
+			Math.round((count * quantumMs) / spinnerIntervalMs / spinnerCycle) *
+				spinnerCycle,
 		);
 		const effective = (count * quantumMs) / advances;
 		const error = Math.abs(effective - spinnerIntervalMs);
@@ -744,14 +844,18 @@ function renderWorkingLineSchedule(
 	for (let index = 0; index < definition.frameCount; index += 1) {
 		const scheduled = definition.stateAt(scheduleStartFrame + index);
 		const state = {
-			spinnerTick: spinnerStartTick + scheduled.spinnerTick - scheduleOrigin.spinnerTick,
+			spinnerTick:
+				spinnerStartTick +
+				scheduled.spinnerTick -
+				scheduleOrigin.spinnerTick,
 			textTick: normalizedPhaseTick(
 				textStartTick + scheduled.textTick - scheduleOrigin.textTick,
 				textCycle,
 			),
 		};
 		const spinnerGlyph =
-			spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
+			spinner.frames[state.spinnerTick % spinner.frames.length] ??
+			spinner.frames[0];
 		const frame = config.animateSpinnerColor
 			? `${renderAnimatedText(
 					theme,
@@ -800,19 +904,28 @@ export function buildWorkingLineFrames(
 	const spinnerPhase = Number.isFinite(spinnerStartTick)
 		? Math.max(0, Math.floor(spinnerStartTick))
 		: 0;
-	const animatedTextWidth = config.animateSpinnerColor ? frameWidth : rowWidth;
-	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + visibleWidth(" ");
+	const animatedTextWidth = config.animateSpinnerColor
+		? frameWidth
+		: rowWidth;
+	const textOrigin = config.animateSpinnerColor
+		? 0
+		: spinnerWidth + visibleWidth(" ");
 	const textCycle = textPeriod(config.textAnimation, animatedTextWidth);
 	const textPhase = normalizedPhaseTick(textStartTick, textCycle);
 
 	if (config.textAnimation === "disabled") {
-		const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
-			spinnerTick: spinnerPhase + index,
-			textTick: 0,
-		}));
+		const frameStates = Array.from(
+			{ length: spinner.frames.length },
+			(_, index) => ({
+				spinnerTick: spinnerPhase + index,
+				textTick: 0,
+			}),
+		);
 		let codeUnits = 0;
 		const frames = frameStates.map((state) => {
-			const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
+			const glyph =
+				spinner.frames[state.spinnerTick % spinner.frames.length] ??
+				spinner.frames[0];
 			const frame = `${renderAnimatedText(
 				theme,
 				config,
@@ -824,7 +937,9 @@ export function buildWorkingLineFrames(
 			)}${SGR_RESET}`;
 			codeUnits += frame.length;
 			if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS)
-				throw new Error("Working-line animation exceeds its memory cap");
+				throw new Error(
+					"Working-line animation exceeds its memory cap",
+				);
 			return frame;
 		});
 		return {
@@ -932,16 +1047,27 @@ export function buildWorkingLineSpinnerFrames(
 	colors: PolishedTuiColors,
 	theme: ThemeLike,
 	startTick = 0,
-): { frames: string[]; frameStates: WorkingLineFrameState[]; intervalMs: number } {
+): {
+	frames: string[];
+	frameStates: WorkingLineFrameState[];
+	intervalMs: number;
+} {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
 	workingLineSpinnerWidth(config.spinner);
-	const phase = Number.isFinite(startTick) ? Math.max(0, Math.floor(startTick)) : 0;
-	const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
-		spinnerTick: phase + index,
-		textTick: 0,
-	}));
+	const phase = Number.isFinite(startTick)
+		? Math.max(0, Math.floor(startTick))
+		: 0;
+	const frameStates = Array.from(
+		{ length: spinner.frames.length },
+		(_, index) => ({
+			spinnerTick: phase + index,
+			textTick: 0,
+		}),
+	);
 	const frames = frameStates.map((state) => {
-		const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
+		const glyph =
+			spinner.frames[state.spinnerTick % spinner.frames.length] ??
+			spinner.frames[0];
 		return `${renderTier(theme, config, colors, "high", glyph)}${SGR_RESET}`;
 	});
 	return { frames, frameStates, intervalMs: config.spinnerIntervalMs };
@@ -954,7 +1080,9 @@ export function buildWorkingLinePreviewFrames(
 	spinnerStartTick = 0,
 	textStartTick = spinnerStartTick,
 ): WorkingLineFrames {
-	const message = effectiveWorkingLineMessages(config)[0] ?? WORKING_LINE_FALLBACK_MESSAGE;
+	const message =
+		effectiveWorkingLineMessages(config)[0] ??
+		WORKING_LINE_FALLBACK_MESSAGE;
 	return buildWorkingLineFrames(
 		config,
 		colors,
@@ -972,9 +1100,13 @@ export function buildWorkingLinePreviewFrames(
 }
 
 function workingLineUi(ctx: WorkingLineContext): WorkingLineUi | undefined {
-	if (ctx.hasUI === false || (ctx.mode !== undefined && ctx.mode !== "tui")) return undefined;
+	if (ctx.hasUI === false || (ctx.mode !== undefined && ctx.mode !== "tui"))
+		return undefined;
 	const ui = ctx.ui as unknown as Partial<WorkingLineUi>;
-	if (typeof ui.setWorkingMessage !== "function" || typeof ui.setWorkingIndicator !== "function") {
+	if (
+		typeof ui.setWorkingMessage !== "function" ||
+		typeof ui.setWorkingIndicator !== "function"
+	) {
 		return undefined;
 	}
 	return ui as WorkingLineUi;
@@ -1034,14 +1166,16 @@ export class WorkingLineController {
 		private readonly durationClock: AgentDurationClock = new AgentDurationClock(),
 		private readonly random: () => number = Math.random,
 		private readonly now: () => number = Date.now,
-		private readonly getThought: () => WorkingLineRuntimeSegments["thought"] = () => this.thought,
+		private readonly getThought: () => WorkingLineRuntimeSegments["thought"] = () =>
+			this.thought,
 	) {}
 
 	startSession(ctx: WorkingLineContext): WorkingLineReconcileResult {
 		this.clearRuntime();
 		this.selectedMessage = undefined;
 		this.installedPhase = undefined;
-		if (!this.getConfig().components.workingLine.enabled) return { applied: true };
+		if (!this.getConfig().components.workingLine.enabled)
+			return { applied: true };
 		return this.install(ctx);
 	}
 
@@ -1078,13 +1212,23 @@ export class WorkingLineController {
 		this.reconcileElapsedUpdates(ctx);
 	}
 
-	updateTokens(tokens: WorkingLineRuntimeSegments["tokens"], ctx: WorkingLineContext): void {
+	updateTokens(
+		tokens: WorkingLineRuntimeSegments["tokens"],
+		ctx: WorkingLineContext,
+	): void {
 		this.updateMetrics(tokens, this.getThought(), ctx);
 	}
 
-	startTool(toolCallId: string, toolName: string, ctx: WorkingLineContext): void {
+	startTool(
+		toolCallId: string,
+		toolName: string,
+		ctx: WorkingLineContext,
+	): void {
 		this.activeTools.delete(toolCallId);
-		this.activeTools.set(toolCallId, normalizeWorkingLineToolLabel(toolName));
+		this.activeTools.set(
+			toolCallId,
+			normalizeWorkingLineToolLabel(toolName),
+		);
 		this.updateIndicator(ctx);
 	}
 
@@ -1146,29 +1290,42 @@ export class WorkingLineController {
 		if (!ui) {
 			this.installed = false;
 			this.deactivateElapsedUpdates();
-			return { applied: false, reason: "Working line requires a newer Pi TUI" };
+			return {
+				applied: false,
+				reason: "Working line requires a newer Pi TUI",
+			};
 		}
 		const rootConfig = this.getConfig();
 		const config = rootConfig.components.workingLine;
 		const nextMessage =
-			selectedMessage ?? this.selectedMessage ?? effectiveWorkingLineMessages(config)[0];
+			selectedMessage ??
+			this.selectedMessage ??
+			effectiveWorkingLineMessages(config)[0];
 		const snapshot = this.installationSnapshot();
 		try {
-			if (!this.ownsMessage) {
-				this.ownsMessage = true;
-				ui.setWorkingMessage("");
-			}
-			this.applyIndicator(ui, rootConfig, nextMessage, forceIndicator, rebasePhase);
+			this.applyIndicator(
+				ui,
+				rootConfig,
+				nextMessage,
+				forceIndicator,
+				rebasePhase,
+			);
 			this.selectedMessage = nextMessage;
 			this.reconcileElapsedUpdates(ctx);
 			return { applied: true };
 		} catch {
 			this.recoverOrReleaseAfterFailure(ui, snapshot);
-			return { applied: false, reason: "Pi could not apply the Working line" };
+			return {
+				applied: false,
+				reason: "Pi could not apply the Working line",
+			};
 		}
 	}
 
-	private makeFrameKey(rootConfig: ZentuiConfig, selectedMessage: string | undefined): string {
+	private makeFrameKey(
+		rootConfig: ZentuiConfig,
+		selectedMessage: string | undefined,
+	): string {
 		const config = rootConfig.components.workingLine;
 		const { row } = composeWorkingLineRow(
 			config,
@@ -1180,7 +1337,11 @@ export class WorkingLineController {
 			config.spinner,
 			config.spinnerIntervalMs,
 			...(config.textAnimation === "disabled"
-				? [config.textAnimation, config.colorSource, rootConfig.colors.workingLineMid]
+				? [
+						config.textAnimation,
+						config.colorSource,
+						rootConfig.colors.workingLineMid,
+					]
 				: [
 						config.textIntervalMs,
 						config.textAnimation,
@@ -1198,7 +1359,9 @@ export class WorkingLineController {
 		const thought = this.getThought() ?? this.thought;
 		return {
 			tool: [...this.activeTools.values()].at(-1),
-			elapsedMs: this.agentActive ? this.durationClock.elapsedMs() : undefined,
+			elapsedMs: this.agentActive
+				? this.durationClock.elapsedMs()
+				: undefined,
 			thought,
 			tokens: this.tokens,
 		};
@@ -1219,15 +1382,26 @@ export class WorkingLineController {
 		let spatial: TextSpatialPhase | undefined;
 		let scheduleStartFrame = 0;
 		let intervalFraction = 0;
-		if (!rebase && this.installedPhase && this.installedPhase.frameStates.length > 0) {
-			const elapsedMs = Math.max(0, sampledAtMs - this.installedPhase.frameEpochMs);
-			const elapsedFrames = Math.floor(elapsedMs / this.installedPhase.intervalMs);
-			scheduleStartFrame = this.installedPhase.scheduleFrame + elapsedFrames;
+		if (
+			!rebase &&
+			this.installedPhase &&
+			this.installedPhase.frameStates.length > 0
+		) {
+			const elapsedMs = Math.max(
+				0,
+				sampledAtMs - this.installedPhase.frameEpochMs,
+			);
+			const elapsedFrames = Math.floor(
+				elapsedMs / this.installedPhase.intervalMs,
+			);
+			scheduleStartFrame =
+				this.installedPhase.scheduleFrame + elapsedFrames;
 			const remainderMs = elapsedMs % this.installedPhase.intervalMs;
 			intervalFraction = remainderMs / this.installedPhase.intervalMs;
 			const sampled =
-				this.installedPhase.frameStates[elapsedFrames % this.installedPhase.frameStates.length] ??
-				this.installedPhase.frameStates[0];
+				this.installedPhase.frameStates[
+					elapsedFrames % this.installedPhase.frameStates.length
+				] ?? this.installedPhase.frameStates[0];
 			spinnerTick = sampled?.spinnerTick ?? 0;
 			spatial = textSpatialPhase(
 				this.installedPhase.textAnimation,
@@ -1246,14 +1420,23 @@ export class WorkingLineController {
 					? spinnerWidth + 1 + visibleWidth(composed.row)
 					: visibleWidth(composed.row);
 		const textOrigin =
-			config.textAnimation !== "disabled" && !config.animateSpinnerColor ? spinnerWidth + 1 : 0;
+			config.textAnimation !== "disabled" && !config.animateSpinnerColor
+				? spinnerWidth + 1
+				: 0;
 		const relativeSpatial = spatial
 			? {
 					...spatial,
-					position: spatial.position + (this.installedPhase?.textOrigin ?? 0) - textOrigin,
+					position:
+						spatial.position +
+						(this.installedPhase?.textOrigin ?? 0) -
+						textOrigin,
 				}
 			: undefined;
-		const textTick = textTickForSpatialPhase(config.textAnimation, textWidth, relativeSpatial);
+		const textTick = textTickForSpatialPhase(
+			config.textAnimation,
+			textWidth,
+			relativeSpatial,
+		);
 		const generated = buildWorkingLineFrames(
 			config,
 			rootConfig.colors,
@@ -1268,9 +1451,19 @@ export class WorkingLineController {
 		// the logical fractional dwell in this epoch keeps later rebuilds wall-clock-correct; the
 		// visible replacement can still jitter by less than one interval because the API cannot
 		// schedule a fractional first interval.
-		const frameEpochMs = sampledAtMs - intervalFraction * generated.intervalMs;
+		const frameEpochMs =
+			sampledAtMs - intervalFraction * generated.intervalMs;
+		// Re-assert on every repaint: other extensions (e.g. thinking-fold) write the shared
+		// unkeyed working message mid-turn and reset it to undefined on message_end, which
+		// makes Pi fall back to its default "Working..." appended after the owned row.
+		// Must run before ownsIndicator flips so a failure here still releases cleanly.
+		this.ownsMessage = true;
+		ui.setWorkingMessage("");
 		this.ownsIndicator = true;
-		const indicatorOptions = { frames: generated.frames, intervalMs: generated.intervalMs };
+		const indicatorOptions = {
+			frames: generated.frames,
+			intervalMs: generated.intervalMs,
+		};
 		ui.setWorkingIndicator(indicatorOptions);
 		this.installedPhase = {
 			frameEpochMs: rebase ? this.now() : frameEpochMs,
@@ -1288,7 +1481,8 @@ export class WorkingLineController {
 
 	private updateIndicator(ctx: WorkingLineContext): void {
 		const rootConfig = this.getConfig();
-		if (!rootConfig.components.workingLine.enabled || !this.installed) return;
+		if (!rootConfig.components.workingLine.enabled || !this.installed)
+			return;
 		const ui = workingLineUi(ctx);
 		if (!ui) return;
 		const snapshot = this.installationSnapshot();
@@ -1308,7 +1502,8 @@ export class WorkingLineController {
 			this.installed &&
 			this.agentActive &&
 			config.enabled &&
-			(config.segments.elapsed || (config.segments.thought && thoughtActive));
+			(config.segments.elapsed ||
+				(config.segments.thought && thoughtActive));
 		if (!needed) {
 			this.deactivateElapsedUpdates();
 			return;
@@ -1317,7 +1512,11 @@ export class WorkingLineController {
 		this.elapsedUpdatesActive = true;
 		const generation = ++this.elapsedUpdatesGeneration;
 		this.stopElapsedUpdates = this.durationClock.subscribe(() => {
-			if (!this.elapsedUpdatesActive || generation !== this.elapsedUpdatesGeneration) return;
+			if (
+				!this.elapsedUpdatesActive ||
+				generation !== this.elapsedUpdatesGeneration
+			)
+				return;
 			const latest = this.elapsedUpdatesContext;
 			if (latest) this.updateIndicator(latest);
 		});
@@ -1347,8 +1546,15 @@ export class WorkingLineController {
 		};
 	}
 
-	private recoverOrReleaseAfterFailure(ui: WorkingLineUi, snapshot: InstallationSnapshot): void {
-		if (!snapshot.installed || !snapshot.ownsIndicator || !snapshot.indicatorOptions) {
+	private recoverOrReleaseAfterFailure(
+		ui: WorkingLineUi,
+		snapshot: InstallationSnapshot,
+	): void {
+		if (
+			!snapshot.installed ||
+			!snapshot.ownsIndicator ||
+			!snapshot.indicatorOptions
+		) {
 			this.releaseAfterFailure(ui);
 			return;
 		}
