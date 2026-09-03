@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { EventBus, Theme } from "@earendil-works/pi-coding-agent";
 import { Loader, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,24 @@ const runtime = vi.hoisted(() => ({
 	spinnerIntervalMs: 100,
 	textIntervalMs: 60,
 }));
+
+const startupGate = vi.hoisted(() => ({
+	pending: undefined as Promise<void> | undefined,
+}));
+
+vi.mock("../extensions/zentui/accent-rail-layout-patch", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../extensions/zentui/accent-rail-layout-patch")>();
+	return {
+		...actual,
+		async retainAccentRailLayoutPatchInstallation(
+			...args: Parameters<typeof actual.retainAccentRailLayoutPatchInstallation>
+		) {
+			if (startupGate.pending) await startupGate.pending;
+			return actual.retainAccentRailLayoutPatchInstallation(...args);
+		},
+	};
+});
 
 vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/config")>();
@@ -40,6 +58,11 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 });
 
 import zentui from "../extensions/zentui/index";
+import {
+	ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT,
+	ZENTUI_WORKING_LINE_SEGMENT_EVENT,
+	ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
+} from "../extensions/zentui/working-line-extension-segments";
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
 
@@ -73,11 +96,27 @@ function loaderPhase(rendered: string): [string, number | undefined] {
 	];
 }
 
-function loadExtension() {
-	const handlers = new Map<string, Handler[]>();
+type LoadedHandlers = Map<string, Handler[]> & { events: EventBus };
+
+function loadExtension(): LoadedHandlers {
+	const handlers = new Map<string, Handler[]>() as LoadedHandlers;
+	const eventHandlers = new Map<string, Set<(data: unknown) => void>>();
+	const events: EventBus = {
+		emit(channel, data) {
+			for (const handler of eventHandlers.get(channel) ?? []) handler(data);
+		},
+		on(channel, handler) {
+			const current = eventHandlers.get(channel) ?? new Set();
+			current.add(handler);
+			eventHandlers.set(channel, current);
+			return () => current.delete(handler);
+		},
+	};
+	handlers.events = events;
 	zentui({
 		registerEntryRenderer() {},
 		appendEntry() {},
+		events,
 		on(name: string, handler: Handler) {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
@@ -94,6 +133,12 @@ async function emit(
 	event: unknown = {},
 ) {
 	for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
+}
+
+function capability(handlers: LoadedHandlers) {
+	const result = { supported: false, active: false };
+	handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT, result);
+	return result as typeof result & { version: number };
 }
 
 function harness() {
@@ -152,6 +197,7 @@ beforeEach(() => {
 	runtime.spinner = "star-bloom";
 	runtime.spinnerIntervalMs = 100;
 	runtime.textIntervalMs = 60;
+	startupGate.pending = undefined;
 });
 
 describe("working-line extension lifecycle integration", () => {
@@ -226,6 +272,194 @@ describe("working-line extension lifecycle integration", () => {
 			["message", undefined],
 		]);
 		expect(current.forbidden).not.toHaveBeenCalled();
+	});
+
+	it("composes keyed extension segments into the owned animated row", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		const row = () => {
+			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+		};
+		await emit(handlers, "session_start", current.ctx);
+		expect(capability(handlers)).toEqual({
+			supported: true,
+			active: true,
+			version: ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
+		});
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "tps",
+			text: "24.3 tok/s · TTFT 820ms",
+		});
+		expect(row()).toContain("Stable · 24.3 tok/s · TTFT 820ms");
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "queue",
+			text: "queue 2",
+		});
+		expect(row()).toContain("queue 2 · 24.3 tok/s · TTFT 820ms");
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, { key: "tps" });
+		expect(row()).toContain("Stable · queue 2");
+		expect(row()).not.toContain("tok/s");
+		await emit(handlers, "session_shutdown", current.ctx);
+		expect(capability(handlers).active).toBe(false);
+	});
+
+	it("suspends capability and routing synchronously while a replacement session starts", async () => {
+		const handlers = loadExtension();
+		const first = harness();
+		await emit(handlers, "session_start", first.ctx);
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:session",
+			text: "session A",
+		});
+		expect(capability(handlers).active).toBe(true);
+
+		let releaseStartup = () => {};
+		startupGate.pending = new Promise<void>((resolve) => {
+			releaseStartup = resolve;
+		});
+		const second = harness();
+		const starting = emit(handlers, "session_start", second.ctx);
+		expect(capability(handlers).active).toBe(false);
+		const firstCallsAfterSuspension = first.calls.length;
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:session",
+			text: "must not reach session A",
+		});
+		expect(first.calls).toHaveLength(firstCallsAfterSuspension);
+		expect(second.calls).toEqual([]);
+
+		releaseStartup();
+		await starting;
+		startupGate.pending = undefined;
+		expect(capability(handlers).active).toBe(true);
+		const installed = second.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(installed?.frames?.[0] ?? "")).not.toContain("session A");
+		expect(stripTerminalSequences(installed?.frames?.[0] ?? "")).not.toContain("must not reach");
+		await emit(handlers, "session_shutdown", second.ctx);
+	});
+
+	it("reports inactive across missing APIs, disable, re-enable, and session boundaries", async () => {
+		const handlers = loadExtension();
+		const missingApi = harness();
+		(missingApi.ctx.ui as { setWorkingIndicator?: unknown }).setWorkingIndicator = undefined;
+		await emit(handlers, "session_start", missingApi.ctx);
+		expect(capability(handlers)).toEqual({
+			supported: true,
+			active: false,
+			version: ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
+		});
+		await emit(handlers, "session_shutdown", missingApi.ctx);
+		expect(capability(handlers).active).toBe(false);
+
+		const enabled = harness();
+		await emit(handlers, "session_start", enabled.ctx);
+		expect(capability(handlers).active).toBe(true);
+		await emit(handlers, "session_shutdown", enabled.ctx);
+		expect(capability(handlers).active).toBe(false);
+
+		runtime.enabled = false;
+		const disabled = harness();
+		await emit(handlers, "session_start", disabled.ctx);
+		expect(capability(handlers).active).toBe(false);
+		await emit(handlers, "session_shutdown", disabled.ctx);
+
+		runtime.enabled = true;
+		const reenabled = harness();
+		await emit(handlers, "session_start", reenabled.ctx);
+		expect(capability(handlers).active).toBe(true);
+		await emit(handlers, "session_shutdown", reenabled.ctx);
+		expect(capability(handlers).active).toBe(false);
+	});
+
+	it("reports inactive when the initial indicator setter fails", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		const setIndicator = current.ctx.ui.setWorkingIndicator.bind(current.ctx.ui);
+		let fail = true;
+		current.ctx.ui.setWorkingIndicator = (value?: unknown) => {
+			if (value !== undefined && fail) {
+				fail = false;
+				throw new Error("indicator unavailable");
+			}
+			setIndicator(value);
+		};
+		await emit(handlers, "session_start", current.ctx);
+		expect(capability(handlers).active).toBe(false);
+		await emit(handlers, "session_shutdown", current.ctx);
+	});
+
+	it("invalidates released state, ignores inactive updates, and accepts a current republish", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		await emit(handlers, "session_start", current.ctx);
+		expect(capability(handlers).active).toBe(true);
+		const setIndicator = current.ctx.ui.setWorkingIndicator.bind(current.ctx.ui);
+		let failures = 2;
+		current.ctx.ui.setWorkingIndicator = (value?: unknown) => {
+			if (value !== undefined && failures > 0) {
+				failures -= 1;
+				throw new Error("indicator unavailable");
+			}
+			setIndicator(value);
+		};
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:queue",
+			text: "stale queue 2",
+		});
+		expect(capability(handlers).active).toBe(false);
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:queue",
+			text: "current queue 3",
+		});
+
+		await emit(handlers, "agent_start", current.ctx);
+		expect(capability(handlers).active).toBe(true);
+		const reinstalled = current.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(reinstalled?.frames?.[0] ?? "")).not.toContain("stale queue");
+		expect(stripTerminalSequences(reinstalled?.frames?.[0] ?? "")).not.toContain("current queue");
+
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:queue",
+			text: "current queue 3",
+		});
+		const republished = current.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(republished?.frames?.[0] ?? "")).toContain("current queue 3");
+		await emit(handlers, "session_shutdown", current.ctx);
+	});
+
+	it("renders an identical keyed replay after a transient segment update failure", async () => {
+		const handlers = loadExtension();
+		const current = harness();
+		await emit(handlers, "session_start", current.ctx);
+		const setIndicator = current.ctx.ui.setWorkingIndicator.bind(current.ctx.ui);
+		let fail = true;
+		current.ctx.ui.setWorkingIndicator = (value?: unknown) => {
+			if (value !== undefined && fail) {
+				fail = false;
+				throw new Error("transient indicator failure");
+			}
+			setIndicator(value);
+		};
+		const update = { key: "@scope/publisher:queue", text: "queue 2" };
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		const afterFailure = current.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(afterFailure?.frames?.[0] ?? "")).not.toContain("queue 2");
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		const afterReplay = current.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(afterReplay?.frames?.[0] ?? "")).toContain("queue 2");
+		expect(capability(handlers).active).toBe(true);
+		await emit(handlers, "session_shutdown", current.ctx);
 	});
 
 	it("compacts live provider usage", async () => {
