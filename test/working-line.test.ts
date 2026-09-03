@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { stripVTControlCharacters } from "node:util";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { EventBus, Theme } from "@earendil-works/pi-coding-agent";
 import { Loader, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
@@ -35,6 +35,10 @@ import {
 	WorkingLineController,
 	workingLineSpinnerWidth,
 } from "../extensions/zentui/working-line";
+import {
+	WorkingLineExtensionSegments,
+	ZENTUI_WORKING_LINE_SEGMENT_EVENT,
+} from "../extensions/zentui/working-line-extension-segments";
 
 function theme(): Theme {
 	return {
@@ -1097,6 +1101,7 @@ describe("working-line runtime ownership", () => {
 		harness.controller.finishAgent(harness.ctx);
 		harness.controller.dispose(harness.ctx);
 		harness.clock.reset();
+		expect(harness.controller.isAvailable()).toBe(false);
 		expect(harness.calls).toEqual([]);
 	});
 
@@ -1105,6 +1110,7 @@ describe("working-line runtime ownership", () => {
 		for (const ui of [{ setWorkingMessage: vi.fn() }, { setWorkingIndicator: vi.fn() }]) {
 			const result = harness.controller.startSession({ hasUI: true, mode: "tui", ui });
 			expect(result.applied).toBe(false);
+			expect(harness.controller.isAvailable()).toBe(false);
 			expect(Object.values(ui).every((fn) => !fn.mock.calls.length)).toBe(true);
 		}
 		expect(harness.calls).toEqual([]);
@@ -1133,6 +1139,42 @@ describe("working-line runtime ownership", () => {
 			["indicator", undefined],
 			["message", undefined],
 		]);
+	});
+
+	it("accepts render-equivalent extension text and deduplicates its identical replay", () => {
+		const harness = runtime(true);
+		harness.controller.startSession(harness.ctx);
+		const eventHandlers = new Map<string, Set<(data: unknown) => void>>();
+		const events: EventBus = {
+			emit(channel, data) {
+				for (const handler of eventHandlers.get(channel) ?? []) handler(data);
+			},
+			on(channel, handler) {
+				const current = eventHandlers.get(channel) ?? new Set();
+				current.add(handler);
+				eventHandlers.set(channel, current);
+				return () => current.delete(handler);
+			},
+		};
+		const publish = vi.fn((segments: readonly string[]) =>
+			harness.controller.updateExtensionSegments(segments, harness.ctx),
+		);
+		new WorkingLineExtensionSegments(events, () => harness.controller.isAvailable(), publish);
+
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, { key: "publisher:value", text: "queue 2" });
+		const indicatorWrites = harness.calls.filter(([name]) => name === "indicator").length;
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "publisher:value",
+			text: "  queue   2  ",
+		});
+		expect(harness.calls.filter(([name]) => name === "indicator")).toHaveLength(indicatorWrites);
+		expect(publish).toHaveBeenCalledTimes(2);
+
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "publisher:value",
+			text: "  queue   2  ",
+		});
+		expect(publish).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not rewrite Static frames for text-speed or spinner-color participation changes", () => {
@@ -1749,6 +1791,7 @@ describe("working-line runtime ownership", () => {
 		};
 		const controller = new WorkingLineController(() => current, theme);
 		expect(controller.startSession(ctx).applied).toBe(true);
+		expect(controller.isAvailable()).toBe(true);
 		current.components.workingLine.spinnerIntervalMs += 1;
 		failureSets = 2;
 		expect(controller.reconcile(ctx).applied).toBe(false);
@@ -1760,10 +1803,12 @@ describe("working-line runtime ownership", () => {
 		]);
 		expect(indicatorSurface).toBeUndefined();
 		expect(messageSurface).toBeUndefined();
+		expect(controller.isAvailable()).toBe(false);
 		const afterRelease = calls.length;
 		controller.updateTokens({ input: 1, output: 1 }, ctx);
 		expect(calls).toHaveLength(afterRelease);
 		expect(controller.reconcile(ctx).applied).toBe(true);
+		expect(controller.isAvailable()).toBe(true);
 		expect(calls.slice(-2)).toEqual(["message-set", "indicator-set"]);
 	});
 
@@ -2009,14 +2054,25 @@ describe("working-line runtime ownership", () => {
 		harness.controller.startTurn(harness.ctx);
 		harness.current.components.workingLine.enabled = true;
 		expect(harness.controller.reconcile(harness.ctx).applied).toBe(true);
+		expect(harness.controller.isAvailable()).toBe(true);
 		expect(harness.controller.currentMessage()).toBe("B");
 		harness.current.components.workingLine.enabled = false;
+		expect(harness.controller.isAvailable()).toBe(false);
 		harness.controller.reconcile(harness.ctx);
+		expect(harness.controller.isAvailable()).toBe(false);
+		harness.current.components.workingLine.enabled = true;
+		expect(harness.controller.reconcile(harness.ctx).applied).toBe(true);
+		expect(harness.controller.isAvailable()).toBe(true);
 		harness.controller.dispose(harness.ctx);
+		expect(harness.controller.isAvailable()).toBe(false);
 		harness.controller.dispose(harness.ctx);
 		expect(
 			harness.calls.map(([name, value]) => [name, value === undefined ? "reset" : "set"]),
 		).toEqual([
+			["message", "set"],
+			["indicator", "set"],
+			["indicator", "reset"],
+			["message", "reset"],
 			["message", "set"],
 			["indicator", "set"],
 			["indicator", "reset"],

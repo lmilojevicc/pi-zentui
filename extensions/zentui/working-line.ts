@@ -1055,6 +1055,7 @@ export class WorkingLineController {
 	private tokens: WorkingLineRuntimeSegments["tokens"];
 	private thought: WorkingLineRuntimeSegments["thought"];
 	private extensionSegments: readonly string[] = [];
+	private extensionSegmentsDirty = false;
 	private readonly activeTools = new Map<string, string>();
 	private elapsedUpdatesActive = false;
 	private elapsedUpdatesContext: WorkingLineContext | undefined;
@@ -1068,6 +1069,7 @@ export class WorkingLineController {
 		private readonly random: () => number = Math.random,
 		private readonly now: () => number = Date.now,
 		private readonly getThought: () => WorkingLineRuntimeSegments["thought"] = () => this.thought,
+		private readonly onUnavailable: () => void = () => {},
 	) {}
 
 	startSession(ctx: WorkingLineContext): WorkingLineReconcileResult {
@@ -1115,15 +1117,22 @@ export class WorkingLineController {
 		this.updateMetrics(tokens, this.getThought(), ctx);
 	}
 
-	updateExtensionSegments(segments: readonly string[], ctx: WorkingLineContext): void {
-		if (
+	updateExtensionSegments(segments: readonly string[], ctx: WorkingLineContext): boolean {
+		const unchanged =
 			this.extensionSegments.length === segments.length &&
-			this.extensionSegments.every((value, index) => value === segments[index])
-		) {
-			return;
+			this.extensionSegments.every((value, index) => value === segments[index]);
+		if (unchanged && !this.extensionSegmentsDirty) return true;
+		if (!unchanged) {
+			this.extensionSegments = [...segments];
+			this.extensionSegmentsDirty = true;
 		}
-		this.extensionSegments = [...segments];
-		this.updateIndicator(ctx);
+		return this.updateIndicator(ctx);
+	}
+
+	/** Drops extension state that is no longer valid for the current owned Working row. */
+	invalidateExtensionSegments(): void {
+		this.extensionSegments = [];
+		this.extensionSegmentsDirty = false;
 	}
 
 	startTool(toolCallId: string, toolName: string, ctx: WorkingLineContext): void {
@@ -1180,6 +1189,16 @@ export class WorkingLineController {
 		return this.selectedMessage;
 	}
 
+	/** Whether this controller currently claims both required public Working-row surfaces. */
+	isAvailable(): boolean {
+		return (
+			this.getConfig().components.workingLine.enabled &&
+			this.installed &&
+			this.ownsIndicator &&
+			this.ownsMessage
+		);
+	}
+
 	private install(
 		ctx: WorkingLineContext,
 		forceIndicator = false,
@@ -1190,6 +1209,7 @@ export class WorkingLineController {
 		if (!ui) {
 			this.installed = false;
 			this.deactivateElapsedUpdates();
+			this.invalidateUnavailableExtensionSegments();
 			return { applied: false, reason: "Working line requires a newer Pi TUI" };
 		}
 		const rootConfig = this.getConfig();
@@ -1257,7 +1277,10 @@ export class WorkingLineController {
 		rebase = false,
 	): void {
 		const key = this.makeFrameKey(rootConfig, selectedMessage);
-		if (!force && this.installed && this.frameKey === key) return;
+		if (!force && this.installed && this.frameKey === key) {
+			this.extensionSegmentsDirty = false;
+			return;
+		}
 		const config = rootConfig.components.workingLine;
 		const sampledAtMs = this.now();
 		let spinnerTick = 0;
@@ -1329,19 +1352,22 @@ export class WorkingLineController {
 		this.installed = true;
 		this.frameKey = key;
 		this.installedIndicatorOptions = indicatorOptions;
+		this.extensionSegmentsDirty = false;
 	}
 
-	private updateIndicator(ctx: WorkingLineContext): void {
+	private updateIndicator(ctx: WorkingLineContext): boolean {
 		const rootConfig = this.getConfig();
-		if (!rootConfig.components.workingLine.enabled || !this.installed) return;
+		if (!rootConfig.components.workingLine.enabled || !this.installed) return false;
 		const ui = workingLineUi(ctx);
-		if (!ui) return;
+		if (!ui) return false;
 		const snapshot = this.installationSnapshot();
 		try {
 			this.applyIndicator(ui, rootConfig);
+			return !this.extensionSegmentsDirty;
 		} catch {
 			// A transient last-writer/public-API failure must not break the agent turn.
 			this.recoverOrReleaseAfterFailure(ui, snapshot);
+			return false;
 		}
 	}
 
@@ -1418,6 +1444,15 @@ export class WorkingLineController {
 		}
 	}
 
+	private invalidateUnavailableExtensionSegments(): void {
+		this.invalidateExtensionSegments();
+		try {
+			this.onUnavailable();
+		} catch {
+			// Availability cleanup is fail-open like the public Working-row release.
+		}
+	}
+
 	private releaseAfterFailure(ui: WorkingLineUi): void {
 		this.deactivateElapsedUpdates();
 		if (this.ownsIndicator) {
@@ -1440,6 +1475,7 @@ export class WorkingLineController {
 		this.frameKey = undefined;
 		this.installedPhase = undefined;
 		this.installedIndicatorOptions = undefined;
+		this.invalidateUnavailableExtensionSegments();
 	}
 
 	private reset(ctx: WorkingLineContext): void {
@@ -1474,6 +1510,6 @@ export class WorkingLineController {
 		this.activeTools.clear();
 		this.tokens = undefined;
 		this.thought = undefined;
-		this.extensionSegments = [];
+		this.invalidateExtensionSegments();
 	}
 }

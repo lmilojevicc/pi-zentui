@@ -7,6 +7,7 @@ import {
 	WorkingLineExtensionSegments,
 	ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT,
 	ZENTUI_WORKING_LINE_SEGMENT_EVENT,
+	ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
 } from "../extensions/zentui/working-line-extension-segments";
 
 function eventBus(): EventBus {
@@ -31,14 +32,22 @@ describe("working-line extension segments", () => {
 		new WorkingLineExtensionSegments(
 			events,
 			() => active,
-			() => {},
+			() => undefined,
 		);
 		const capability = { supported: false, active: false };
 		events.emit(ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT, capability);
-		expect(capability).toEqual({ supported: true, active: false });
+		expect(capability).toEqual({
+			supported: true,
+			active: false,
+			version: ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
+		});
 		active = true;
 		events.emit(ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT, capability);
-		expect(capability).toEqual({ supported: true, active: true });
+		expect(capability).toEqual({
+			supported: true,
+			active: true,
+			version: ZENTUI_WORKING_LINE_SEGMENT_PROTOCOL_VERSION,
+		});
 	});
 
 	it("ignores segment values while the Working line is inactive", () => {
@@ -65,6 +74,40 @@ describe("working-line extension segments", () => {
 		expect(onChange).toHaveBeenLastCalledWith(["updated"]);
 		segments.clear();
 		expect(onChange).toHaveBeenLastCalledWith([]);
+	});
+
+	it("retries an identical keyed snapshot after its first publication is rejected", () => {
+		const events = eventBus();
+		const onChange = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+		new WorkingLineExtensionSegments(events, () => true, onChange);
+		const update = { key: "@scope/publisher:queue", text: "queue 2" };
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		expect(onChange).toHaveBeenCalledTimes(2);
+		expect(onChange).toHaveBeenNthCalledWith(1, ["queue 2"]);
+		expect(onChange).toHaveBeenNthCalledWith(2, ["queue 2"]);
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		expect(onChange).toHaveBeenCalledTimes(2);
+	});
+
+	it("invalidates keyed state when a rejected publication makes the integration inactive", () => {
+		const events = eventBus();
+		let active = true;
+		const onChange = vi.fn(() => {
+			active = false;
+			return false;
+		});
+		new WorkingLineExtensionSegments(events, () => active, onChange);
+		const update = { key: "@scope/publisher:queue", text: "queue 2" };
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		expect(onChange).toHaveBeenCalledTimes(1);
+
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		active = true;
+		onChange.mockReturnValue(true);
+		events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, update);
+		expect(onChange).toHaveBeenCalledTimes(2);
 	});
 
 	it("rejects malformed and over-limit updates and bounds unique keys", () => {

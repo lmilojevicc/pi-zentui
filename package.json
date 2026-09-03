@@ -20,7 +20,8 @@
 		"tui"
 	],
 	"files": [
-		"extensions"
+		"extensions",
+		"docs/configuration.md"
 	],
 	"scripts": {
 		"lint": "biome check .",
