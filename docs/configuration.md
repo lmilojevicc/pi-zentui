@@ -45,6 +45,18 @@ Useful slash-command shortcuts:
 
 `footer`, `statusline`, `status`, and `status line` are aliases. Enable selects Starship, disable selects Native, and toggle selects Native only from Starship; Native or Hidden toggle to Starship.
 
+### Extension-status hyperlinks
+
+An extension's **Original** color mode preserves SGR styling and HTTP/HTTPS
+OSC 8 hyperlinks supplied by that extension. For example, set
+`components.footer.styles.starship.extensionStatuses.colorModes.github-pr` to
+`"original"` to retain a PR link from a GitHub status extension. Open it with
+your terminal's link-opening gesture. Other URL schemes and unrelated terminal
+controls (including clipboard, title, and cursor commands) are removed.
+
+Zentui color mode continues to show plain status text. Zentui does not infer a
+URL when an extension supplies only a label.
+
 ## Complete default configuration
 
 Copy this example and change only the values you need. Optional editor source-aware overrides such as `editorRail`, `editorGitBranch`, and `editorThinkingMax` are intentionally omitted.
