@@ -55,6 +55,12 @@ import {
 } from "./config";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
+import {
+	componentPresets,
+	getComponentPreset,
+	matchingComponentPreset,
+	type PresetId,
+} from "./presets";
 import type { SessionLifecycle } from "./session-lifecycle";
 import {
 	renderEditorSettingsPreview,
@@ -213,6 +219,7 @@ function experimentalThinkingCapability(
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
+	applyPreset: (id: PresetId, ctx: ExtensionContext) => ApplyResult;
 	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
 	setPolished: (patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setPolishedCopyFriendly: (
@@ -310,6 +317,7 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 };
 
 const directCommandSuggestions = [
+	...componentPresets.map(({ id }) => `preset ${id}`),
 	"editor enable",
 	"editor disable",
 	"editor toggle",
@@ -471,12 +479,20 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [messages|user-messages|working-line], or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [messages|user-messages|working-line], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
 	const component = config.components.selectorBorders;
 	return [
+		{
+			id: "preset",
+			label: "Preset",
+			description:
+				"Apply Editor, Footer, and User messages together once. Preserves colors and other settings; closes this panel. Custom means no matching combination.",
+			currentValue: matchingComponentPreset(config)?.label ?? "Custom",
+			values: componentPresets.map(({ label }) => label),
+		},
 		{
 			id: "selectorBordersEnabled",
 			label: "Selector borders",
@@ -1133,11 +1149,38 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 		deps.setFooterComponent(patch, ctx);
 	};
 
+	const applyPreset = (id: PresetId, ctx: ExtensionContext) => {
+		try {
+			const result = deps.applyPreset(id, ctx);
+			deps.requestRender();
+			if (ctx.hasUI) {
+				const detail = result.reason?.trim();
+				ctx.ui.notify(
+					`Preset saved: ${getComponentPreset(id)?.label}${detail ? ` (${detail})` : !result.applied ? " (reload Pi to apply this change)" : ""}`,
+					!result.applied || detail ? "warning" : "info",
+				);
+			}
+		} catch (error) {
+			if (ctx.hasUI)
+				ctx.ui.notify(
+					`Could not update Zentui settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+		}
+	};
+
 	pi.registerCommand("zentui", {
 		description: "Configure Zentui",
 		getArgumentCompletions: argumentCompletions,
 		handler: async (_args, ctx) => {
 			const args = typeof _args === "string" ? _args : "";
+			const words = args.trim().split(/\s+/);
+			if (words[0]?.toLowerCase() === "preset") {
+				const preset = words.length === 2 ? getComponentPreset(words[1] ?? "") : undefined;
+				if (preset) applyPreset(preset.id, ctx);
+				else if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
+				return;
+			}
 			const format = parseFormatCommand(args);
 			if (format) {
 				try {
@@ -1315,6 +1358,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							listTheme,
 							(id, newValue) => {
 								try {
+									if (id === "preset") {
+										const preset = componentPresets.find(({ label }) => label === newValue);
+										if (!preset) return;
+										finishSettings("close");
+										deps.sessionLifecycle.defer(() => applyPreset(preset.id, ctx));
+										return;
+									}
 									const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
 									if (id === "editorEnabled" && enabled !== undefined) {
 										finishSettings("close");

@@ -97,6 +97,21 @@ Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking
 ~/.pi/agent/zentui.json
 ```
 
+### Component presets
+
+Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
+
+| ID | Editor (enabled) | Footer | User messages |
+| --- | --- | --- | --- |
+| `opencode` | Opencode | Starship | Framed |
+| `opencode-copy-friendly` | Opencode (copy-friendly) | Starship | Framed (copy-friendly) |
+| `rail` | Accent Rail | Starship | Compact (accent rail) |
+| `minimalist` | Minimalist | Hidden (zero rows) | Zentui styling disabled |
+
+Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
+
+The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset closes settings before applying live editor changes; if editor ownership prevents application, the saved choice may require reloading Pi.
+
 A small starter config:
 
 ```json

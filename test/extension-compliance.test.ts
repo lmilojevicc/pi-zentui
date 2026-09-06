@@ -108,6 +108,7 @@ type SettingsCommandDeps = Parameters<typeof registerZentuiSettingsCommand>[1];
 const settingsCommandDefaults: SettingsCommandDeps = {
 	sessionLifecycle: inactiveSessionLifecycle,
 	getConfig: () => defaultConfig,
+	applyPreset: () => ({ applied: true }),
 	setEditorComponent: () => ({ applied: true }),
 	setPolished() {},
 	setPolishedCopyFriendly() {},
@@ -6069,6 +6070,7 @@ describe("Pi docs compliance", () => {
 					) as { handleInput?: (data: string) => void };
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
@@ -6131,6 +6133,7 @@ describe("Pi docs compliance", () => {
 						handleInput?: (data: string) => void;
 					};
 					rendered = component.render?.(80).join("\n") ?? "";
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -7195,4 +7198,297 @@ describe("three-state Footer lifecycle", () => {
 		expect(harness.branchSubscriptions).toHaveBeenCalledTimes(2);
 		await emit(handlers, "session_shutdown", ctx);
 	});
+});
+
+describe("component preset lifecycle", () => {
+	it("enables an editor through a preset while preserving its predecessor and draft", async () => {
+		writeFileSync(
+			join(isolatedAgentDir.path, "zentui.json"),
+			JSON.stringify({ projectRefreshIntervalMs: 0, components: { editor: { enabled: false } } }),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const ctx = makeContext({ ui: { notify() {} } });
+		const predecessor = () => ({ render: () => ["predecessor"], invalidate() {} });
+		ctx.ui.setEditorComponent(predecessor);
+		ctx.ui.setEditorText("draft before enabling");
+		try {
+			await emit(handlers, "session_start", ctx);
+			expect(ctx.ui.getEditorComponent()).toBe(predecessor);
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			await command.handler("preset rail", ctx);
+			expect(ctx.ui.getEditorComponent()).not.toBe(predecessor);
+			expect(ctx.ui.getEditorText()).toBe("draft before enabling");
+			await command.handler("editor disable", ctx);
+			expect(ctx.ui.getEditorComponent()).toBe(predecessor);
+			expect(ctx.ui.getEditorText()).toBe("draft before enabling");
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+		}
+	});
+
+	it("reports blocked editor transfer while persisting the entire preset and reconciling independent surfaces", async () => {
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(
+			configPath,
+			JSON.stringify({ projectRefreshIntervalMs: 0, components: { editor: { enabled: false } } }),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notify = vi.fn();
+		let footer: ReturnType<FooterFactory> | undefined;
+		const ctx = makeContext({
+			ui: {
+				notify,
+				getEditorText() {
+					throw new Error("transfer blocked");
+				},
+				setFooter(next: FooterFactory | undefined) {
+					footer?.dispose?.();
+					footer = next?.({ requestRender() {} }, makeTheme(), {
+						onBranchChange: () => () => {},
+						getExtensionStatuses: () => new Map(),
+					});
+				},
+			},
+		});
+		try {
+			await emit(handlers, "session_start", ctx);
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("preset minimalist", ctx);
+			expect(ctx.ui.getEditorComponent()).toBeUndefined();
+			expect(footer?.render(80)).toEqual([]);
+			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+			expect(JSON.parse(readFileSync(configPath, "utf8")).components).toMatchObject({
+				editor: { enabled: true, style: "minimalist" },
+				footer: { style: "hidden" },
+				userMessages: { enabled: false },
+			});
+			expect(notify).toHaveBeenCalledWith(
+				expect.stringMatching(/Preset saved: Minimalist.*reload Pi/),
+				"warning",
+			);
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+		}
+	});
+	it("warns when a preset retains a prior-instance editor after failed startup transfer", async () => {
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(configPath, JSON.stringify({ projectRefreshIntervalMs: 0 }));
+		const firstHandlers = loadExtension();
+		const commands = new Map<string, unknown>();
+		const reloadedHandlers = loadExtension({ commands });
+		const notify = vi.fn();
+		let transferBlocked = false;
+		let editorFactory: unknown;
+		let editorText = "unsent draft";
+		let footer: ReturnType<FooterFactory> | undefined;
+		const getEditorText = vi.fn(() => {
+			if (transferBlocked) throw new Error("expanded text unavailable");
+			return editorText;
+		});
+		const setEditorText = vi.fn((text: string) => {
+			editorText = text;
+		});
+		const setEditorComponent = vi.fn((factory: unknown) => {
+			editorFactory = factory;
+		});
+		const ctx = makeContext({
+			ui: {
+				notify,
+				getEditorText,
+				setEditorText,
+				setEditorComponent,
+				getEditorComponent: () => editorFactory,
+				setFooter(next: FooterFactory | undefined) {
+					footer?.dispose?.();
+					footer = next?.({ requestRender() {} }, makeTheme(), {
+						onBranchChange: () => () => {},
+						getExtensionStatuses: () => new Map(),
+					});
+				},
+			},
+		});
+		try {
+			await emit(firstHandlers, "session_start", ctx);
+			const firstFactory = editorFactory;
+			expect(firstFactory).toBeTypeOf("function");
+			transferBlocked = true;
+			getEditorText.mockClear();
+			setEditorText.mockClear();
+			setEditorComponent.mockClear();
+			await emit(reloadedHandlers, "session_start", ctx);
+			expect(getEditorText).toHaveBeenCalled();
+			expect(editorFactory).toBe(firstFactory);
+			notify.mockClear();
+
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("preset minimalist", ctx);
+
+			expect(editorFactory).toBe(firstFactory);
+			expect(editorText).toBe("unsent draft");
+			expect(setEditorComponent).not.toHaveBeenCalled();
+			expect(setEditorText).not.toHaveBeenCalled();
+			expect(footer?.render(80)).toEqual([]);
+			expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+			expect(JSON.parse(readFileSync(configPath, "utf8")).components).toMatchObject({
+				editor: { enabled: true, style: "minimalist" },
+				footer: { style: "hidden" },
+				userMessages: { enabled: false },
+			});
+			expect(notify).toHaveBeenCalledWith(
+				expect.stringMatching(/Preset saved: Minimalist.*another Zentui instance.*reload Pi/),
+				"warning",
+			);
+		} finally {
+			transferBlocked = false;
+			await emit(reloadedHandlers, "session_shutdown", ctx);
+			await emit(firstHandlers, "session_shutdown", ctx);
+		}
+	});
+
+	it("transitions all four presets without reacquiring selectors, Working line, or Thinking", async () => {
+		initTheme(undefined, false);
+		vi.useFakeTimers();
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(
+			configPath,
+			JSON.stringify({
+				projectRefreshIntervalMs: 0,
+				components: {
+					footer: { styles: { starship: { format: "$time" } } },
+					workingLine: { enabled: true },
+				},
+			}),
+		);
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		let footer: ReturnType<FooterFactory> | undefined;
+		const branchCleanup = vi.fn();
+		const subscribe = vi.fn(() => branchCleanup);
+		const render = vi.fn();
+		const setWorkingMessage = vi.fn();
+		const setWorkingIndicator = vi.fn();
+		const ctx = makeContext({
+			ui: {
+				notify() {},
+				setWorkingMessage,
+				setWorkingIndicator,
+				setFooter(next: FooterFactory | undefined) {
+					footer?.dispose?.();
+					footer = next?.({ requestRender: render }, makeTheme(), {
+						onBranchChange: subscribe,
+						getExtensionStatuses: () => new Map(),
+					});
+				},
+			},
+		});
+		try {
+			await emit(handlers, "session_start", ctx);
+			ctx.ui.setEditorText("unsent draft");
+			const editor = ctx.ui.getEditorComponent();
+			const nativeThinking = AssistantMessageComponent.prototype.updateContent;
+			const displacedSelector = () => ["other selector"];
+			ModelSelectorComponent.prototype.render = displacedSelector;
+			const workingMessageCalls = setWorkingMessage.mock.calls.length;
+			const workingIndicatorCalls = setWorkingIndicator.mock.calls.length;
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			for (const id of ["opencode-copy-friendly", "rail", "minimalist", "opencode"]) {
+				await command.handler(`preset ${id}`, ctx);
+				expect(ctx.ui.getEditorComponent()).toBe(editor);
+				expect(ctx.ui.getEditorText()).toBe("unsent draft");
+				expect(ModelSelectorComponent.prototype.render).toBe(displacedSelector);
+				expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeThinking);
+				expect(setWorkingMessage).toHaveBeenCalledTimes(workingMessageCalls);
+				expect(setWorkingIndicator).toHaveBeenCalledTimes(workingIndicatorCalls);
+				if (id === "minimalist") {
+					expect(footer?.render(100)).toEqual([]);
+					expect(UserMessageComponent.prototype.render).toBe(originalUserMessageRender);
+					expect(branchCleanup).toHaveBeenCalledTimes(1);
+					const before = render.mock.calls.length;
+					vi.advanceTimersByTime(1000);
+					expect(render).toHaveBeenCalledTimes(before);
+				} else {
+					expect(footer?.render(100).length).toBeGreaterThan(0);
+					expect(UserMessageComponent.prototype.render).not.toBe(originalUserMessageRender);
+				}
+			}
+			expect(subscribe).toHaveBeenCalledTimes(2);
+			const before = render.mock.calls.length;
+			vi.advanceTimersByTime(1000);
+			expect(render.mock.calls.length).toBeGreaterThan(before);
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+			vi.useRealTimers();
+		}
+	});
+
+	it("preserves active config and all surfaces when a preset save fails", async () => {
+		const configPath = join(isolatedAgentDir.path, "zentui.json");
+		writeFileSync(configPath, JSON.stringify({ projectRefreshIntervalMs: 0 }));
+		const commands = new Map<string, unknown>();
+		const handlers = loadExtension({ commands });
+		const notify = vi.fn();
+		const setFooter = vi.fn();
+		const ctx = makeContext({ ui: { notify, setFooter } });
+		try {
+			await emit(handlers, "session_start", ctx);
+			const editor = ctx.ui.getEditorComponent();
+			const messages = UserMessageComponent.prototype.render;
+			const calls = setFooter.mock.calls.length;
+			writeFileSync(configPath, "{ corrupt");
+			await (
+				commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+			).handler("preset minimalist", ctx);
+			expect(ctx.ui.getEditorComponent()).toBe(editor);
+			expect(UserMessageComponent.prototype.render).toBe(messages);
+			expect(setFooter).toHaveBeenCalledTimes(calls);
+			expect(notify).toHaveBeenCalledWith(expect.stringContaining("Refusing to save"), "error");
+			expect(readFileSync(configPath, "utf8")).toBe("{ corrupt");
+		} finally {
+			await emit(handlers, "session_shutdown", ctx);
+		}
+	});
+
+	it.each(["rpc", "print", "json"])(
+		"persists in %s without acquiring TUI surfaces",
+		async (mode) => {
+			const commands = new Map<string, unknown>();
+			const handlers = loadExtension({ commands });
+			const setFooter = vi.fn();
+			const setEditorComponent = vi.fn();
+			const ctx = makeContext({
+				mode,
+				hasUI: mode === "rpc",
+				ui: { notify() {}, setFooter, setEditorComponent },
+			});
+			try {
+				await emit(handlers, "session_start", ctx);
+				const messages = UserMessageComponent.prototype.render;
+				const selectors = ModelSelectorComponent.prototype.render;
+				await (
+					commands.get("zentui") as { handler(args: string, ctx: unknown): Promise<void> }
+				).handler("preset minimalist", ctx);
+				expect(
+					JSON.parse(readFileSync(join(isolatedAgentDir.path, "zentui.json"), "utf8")).components,
+				).toEqual({
+					editor: { enabled: true, style: "minimalist" },
+					footer: { style: "hidden" },
+					userMessages: { enabled: false },
+				});
+				expect(setFooter).not.toHaveBeenCalled();
+				expect(setEditorComponent).not.toHaveBeenCalled();
+				expect(UserMessageComponent.prototype.render).toBe(messages);
+				expect(ModelSelectorComponent.prototype.render).toBe(selectors);
+			} finally {
+				await emit(handlers, "session_shutdown", ctx);
+			}
+		},
+	);
 });

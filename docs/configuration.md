@@ -8,7 +8,7 @@ Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing
 
 The interactive `/zentui` menu is split into nine component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections:
 
-1. **Appearance** — selector-border enablement, style, and colors; icon mode.
+1. **Appearance** — component Preset; selector-border enablement, style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
@@ -44,6 +44,32 @@ Useful slash-command shortcuts:
 ```
 
 `footer`, `statusline`, `status`, and `status line` are aliases. Enable selects Starship, disable selects Native, and toggle selects Native only from Starship; Native or Hidden toggle to Starship.
+
+### Component presets
+
+Use the first **Appearance → Preset** row, or one of these exact commands:
+
+```text
+/zentui preset opencode
+/zentui preset opencode-copy-friendly
+/zentui preset rail
+/zentui preset minimalist
+```
+
+| Preset ID | `components.editor` | `components.footer.style` | `components.userMessages` |
+| --- | --- | --- | --- |
+| `opencode` | `enabled: true`, `style: "opencode"` | `"starship"` | `enabled: true`, `style: "framed"` |
+| `opencode-copy-friendly` | `enabled: true`, `style: "opencode-copy-friendly"` | `"starship"` | `enabled: true`, `style: "framed-copy-friendly"` |
+| `rail` | `enabled: true`, `style: "accent-rail"` | `"starship"` | `enabled: true`, `style: "compact"` |
+| `minimalist` | `enabled: true`, `style: "minimalist"` | `"hidden"` | `enabled: false` (style preserved) |
+
+These are one-time, atomic selection patches, not ongoing profiles. Only the listed leaves are written, with the existing obsolete copy-friendly/Footer-enabled migration flags removed when their styles are explicitly selected. Colors and color sources, per-style options, icons, Footer segments/templates/path settings, all other components, and unknown fields remain untouched. Unsupported future style IDs are preserved unless the preset explicitly replaces that style; Minimalist even preserves an unsupported dormant message style. Existing legacy option resolution continues to work.
+
+**Custom** is a derived display state, not a selectable preset or a saved key. Matching checks only the listed selection leaves, not colors/options or current runtime ownership; Minimalist ignores dormant message style. Unsupported active selected styles do not match. Hand-editing or individually changing a selection can show Custom; returning to a matching combination restores the preset label. No `preset` config key is used, and nothing is automatically reapplied on startup. New-install defaults remain unchanged and match Opencode.
+
+The existing Minimalist editor stays enabled with its saved metadata/options. Disabled User messages releases only Zentui styling, leaving native or predecessor rendering intact. Hidden installs an owned zero-row Footer, whereas Native releases Zentui's Footer to Pi or a predecessor; `/zentui statusline disable` still selects Native, not Hidden.
+
+The settings panel closes before deferred preset application so it cannot overwrite a newly enabled editor. Saves fail without changing active settings or overwriting corrupt/unreadable JSON. Live application reconciles only Editor, User messages, Footer, and dependent timers. Editor ownership restrictions are reported as saved-but-not-applied/reload-required; Footer host failures retain existing fail-open behavior. Direct preset commands also save in non-TUI modes without installing TUI components. Unknown IDs, missing IDs, and extra arguments do not change settings.
 
 ### Extension-status hyperlinks
 

@@ -24,6 +24,7 @@ import {
 	type ResolvedIcons,
 	resolveConfiguredIcons,
 } from "./icons";
+import type { ComponentPreset } from "./presets";
 import { isSupportedColorSpec } from "./style";
 import { normalizeWorkingLineMessages } from "./working-line";
 import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
@@ -1640,6 +1641,16 @@ function deleteLegacyMessageCopyFriendly(record: ConfigRecord): void {
 	if (!isRecord(styles)) return;
 	const framed = styles.framed;
 	if (isRecord(framed)) delete framed.copyFriendly;
+}
+
+/** A preset is a one-time, selection-only transaction; do not normalize unrelated leaves. */
+export function saveComponentPreset(preset: ComponentPreset, path = configPath): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.components = overlayKnown(record.components, preset.components);
+		deleteLegacyEditorCopyFriendly(record);
+		deleteLegacyFooterEnabled(record);
+		if (preset.components.userMessages.style !== undefined) deleteLegacyMessageCopyFriendly(record);
+	});
 }
 
 function applyEditorComponentPatch(
