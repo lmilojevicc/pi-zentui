@@ -177,6 +177,7 @@ function renderTopRight(
 	availableWidth: number,
 	renderBorder: (text: string) => string,
 	renderThinking: (text: string) => string,
+	fit = false,
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
@@ -236,9 +237,20 @@ function renderTopRight(
 				}
 			}
 		}
+		if (fit && visibleWidth(joinParts([...parts, context])) > availableWidth) {
+			// Descriptive adornments yield before the context percentage. Keep the
+			// established cost/model/thinking order in the remaining prefix budget.
+			context = renderStyleForSource(uiTheme, source, style, `${percent}%`);
+			const contextWidth = visibleWidth(context);
+			if (contextWidth > availableWidth) return "";
+			const prefixBudget = Math.max(0, availableWidth - contextWidth - 3);
+			const prefix = prefixBudget > 0 ? truncateToWidth(joinParts(parts), prefixBudget, "…") : "";
+			return joinParts([...(prefix ? [prefix] : []), context]);
+		}
 		parts.push(context);
 	}
-	return joinParts(parts);
+	const joined = joinParts(parts);
+	return fit ? truncateToWidth(joined, availableWidth, "…") : joined;
 }
 
 function renderBottomLeft(
@@ -303,6 +315,7 @@ function renderLabeledBorder(options: {
 	left: string;
 	leftFallbacks?: string[];
 	right: string;
+	fitRight?: (width: number) => string;
 	leftCorner: string;
 	rightCorner: string;
 	renderBorder: (text: string) => string;
@@ -331,7 +344,10 @@ function renderLabeledBorder(options: {
 			}
 		}
 		left = leftBudget > 0 ? truncateToWidth(left, leftBudget, "…") : "";
-		right = rightBudget > 0 ? truncateToWidth(right, rightBudget, "…") : "";
+		right =
+			rightBudget > 0
+				? (options.fitRight?.(rightBudget) ?? truncateToWidth(right, rightBudget, "…"))
+				: "";
 		return leftBudget < leftNatural;
 	};
 	let leftTruncated = fitLabels();
@@ -436,6 +452,8 @@ export function renderMinimalistFrame({
 		left: topLeft,
 		leftFallbacks: topFallbacks,
 		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder, renderThinking),
+		fitRight: (budget) =>
+			renderTopRight(metadata, uiTheme, config, budget, renderBorder, renderThinking, true),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,

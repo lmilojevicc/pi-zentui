@@ -319,6 +319,12 @@ Copy this example and change only the values you need. Optional editor source-aw
 - Active third-party statuses from `ctx.ui.setStatus()` can be placed left, middle, or right, hidden per key, and assigned independent color modes.
 - The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
 
+### Footer layout authority
+
+Under `components.footer.styles.starship`, `segments` toggles choose the **built-in wide layout** when `format` is empty. An explicit wide `format` chooses its own variables instead. With `responsive` enabled, Zentui tries the wide layout, then reflows it, then uses the independent `compactFormat` template if it still cannot fit. `compactMaxLines` limits compact rows, not their segment selection.
+
+Templates can show a disabled built-in segment or omit an enabled one: disabling Current directory and enabling Session cost can hide cwd and show cost at wide widths, while the default compact template still shows `$cwd` and omits `$cost`. Edit `format` or `compactFormat` to change those templates; `/zentui format clear` resets only the wide layout. Git counts remain a formatting choice for git-status values in both built-in and template layouts. `/zentui` segment descriptions disclose these boundaries; toggles never rewrite templates.
+
 ### Footer path display
 
 `components.footer.styles.starship.pathDisplay.mode` accepts `basename`, `full`, or the opt-in `repository`; the unchanged default is `basename`. Repository mode removes the repository directory name: at `/repo` it renders `.`, and at `/repo/extensions/zentui` it renders `extensions/zentui`. Zentui finds the nearest ancestor with a `.git` directory or worktree `.git` file without starting an extra Git process.

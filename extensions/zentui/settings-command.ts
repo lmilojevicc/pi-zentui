@@ -326,6 +326,12 @@ const footerSegmentSettingDescriptions: Record<FooterSegmentSettingId, string> =
 	gitMetrics: "Show aggregate added/deleted line counts.",
 };
 
+function footerSegmentDescription(key: FooterSegmentSettingId): string {
+	if (key === "gitCounts")
+		return "Show numeric ahead/behind and stash counts in built-in segments and template git-status variables.";
+	return `Built-in layout: ${footerSegmentSettingDescriptions[key]} Explicit wide format and compactFormat templates choose their own segments, independent of these toggles.`;
+}
+
 const directCommandSuggestions = [
 	...componentPresets.map(({ id }) => `preset ${id}`),
 	"editor enable",
@@ -870,14 +876,16 @@ function buildStarshipFooterStyleItems(config: PolishedTuiConfig): SettingItem[]
 		{
 			id: "responsiveFooter",
 			label: "Responsive footer",
-			description: "Use the compact template when space is tight.",
+			description:
+				"Reflow the wide layout, then use compactFormat when it cannot fit. An explicit wide format and the compact template choose segments independently of segment toggles.",
 			currentValue: featureValue(footer.responsive),
 			values: featureStateValues,
 		},
 		{
 			id: "compactFooterMaxLines",
 			label: "Compact footer rows",
-			description: "Maximum compact rows before cropping.",
+			description:
+				"Maximum compactFormat template rows before cropping; does not change template segments.",
 			currentValue: String(footer.compactMaxLines),
 			values: compactFooterMaxLineValues,
 		},
@@ -942,7 +950,7 @@ function buildSegmentsItems(config: PolishedTuiConfig): SettingItem[] {
 	return nonGitSegmentKeys.map((key) => ({
 		id: footerSegmentSettingId(key),
 		label: footerSegmentSettingLabels[key],
-		description: footerSegmentSettingDescriptions[key],
+		description: footerSegmentDescription(key),
 		currentValue: featureValue(segments[key]),
 		values: featureStateValues,
 	}));
@@ -958,7 +966,7 @@ function buildGitItems(config: PolishedTuiConfig): SettingItem[] {
 	const segment = (key: FooterSegmentSettingId): SettingItem => ({
 		id: footerSegmentSettingId(key),
 		label: footerSegmentSettingLabels[key],
-		description: footerSegmentSettingDescriptions[key],
+		description: footerSegmentDescription(key),
 		currentValue: featureValue(starship.segments[key]),
 		values: featureStateValues,
 	});
@@ -1199,7 +1207,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							format.value === undefined
-								? "Footer format cleared (using default layout)"
+								? "Footer wide format cleared (using built-in segments; compactFormat unchanged)"
 								: `Footer format: ${format.value}`,
 							"info",
 						);

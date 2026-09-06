@@ -11,13 +11,21 @@ import {
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallbackStrict,
 } from "./style";
-import { sanitizeUserMessageSourceText } from "./user-message-osc";
+import {
+	sanitizeRenderedUserMessageLines,
+	sanitizeUserMessageSourceText,
+} from "./user-message-osc";
 
 export type UserMessageStyleRenderInput = {
 	text: string;
 	width: number;
 	theme?: Theme;
 	config: ZentuiConfig;
+	markdown?: {
+		theme: MarkdownTheme;
+		defaultTextStyle: ConstructorParameters<typeof Markdown>[4];
+		options: ConstructorParameters<typeof Markdown>[5];
+	};
 };
 
 function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): string {
@@ -43,10 +51,29 @@ export function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
 	};
 }
 
-function renderMarkdown(text: string, width: number, theme: Theme | undefined): string[] {
-	const renderer = new Markdown(text, 0, 0, makeMarkdownTheme(theme), {
-		color: (content) => themeFg(theme, "userMessageText", content),
-	});
+function renderMarkdown(input: UserMessageStyleRenderInput, width: number): string[] {
+	const { text, theme, markdown } = input;
+	const transform = markdown?.options?.transform;
+	const renderer = new Markdown(
+		text,
+		0,
+		0,
+		markdown?.theme ?? makeMarkdownTheme(theme),
+		markdown?.defaultTextStyle ?? {
+			color: (content) => themeFg(theme, "userMessageText", content),
+		},
+		{
+			...markdown?.options,
+			preserveOrderedListMarkers: true,
+			preserveBackslashEscapes: true,
+			...(transform
+				? {
+						transform: (source: string, availableWidth: number) =>
+							sanitizeUserMessageSourceText(transform(source, availableWidth)),
+					}
+				: {}),
+		},
+	);
 	const lines = renderer.render(Math.max(1, width));
 	return lines.length > 0 ? lines : [""];
 }
@@ -88,11 +115,12 @@ function renderRail(theme: Theme | undefined, config: ZentuiConfig): string {
 	return `${accent(theme, config, config.icons.rail)} `;
 }
 
-function renderFramed({ text, width, theme, config }: UserMessageStyleRenderInput): string[] {
+function renderFramed(input: UserMessageStyleRenderInput): string[] {
+	const { width, theme, config } = input;
 	if (width <= 0) return [""];
 	const rail = renderRail(theme, config);
 	const contentWidth = Math.max(1, width - visibleWidth(rail));
-	const body = renderMarkdown(text, contentWidth, theme);
+	const body = renderMarkdown(input, contentWidth);
 	const row = (line: string) => {
 		const available = Math.max(0, width - visibleWidth(rail));
 		return truncateToWidth(`${rail}${fillLine(line, available)}`, width, "");
@@ -101,45 +129,43 @@ function renderFramed({ text, width, theme, config }: UserMessageStyleRenderInpu
 	return [rule, row(""), ...body.map(row), row(""), rule];
 }
 
-function renderFramedCopyFriendly({
-	text,
-	width,
-	theme,
-	config,
-}: UserMessageStyleRenderInput): string[] {
+function renderFramedCopyFriendly(input: UserMessageStyleRenderInput): string[] {
+	const { width, theme, config } = input;
 	if (width <= 0) return [""];
 	const prefix = width > 1 ? " " : "";
-	const body = renderMarkdown(text, width - prefix.length, theme).map((line) =>
+	const body = renderMarkdown(input, width - prefix.length).map((line) =>
 		fillLine(`${prefix}${line}`, width),
 	);
 	const rule = truncateToWidth(border(theme, config, "─".repeat(width)), width, "");
 	return [rule, "", ...body, "", rule];
 }
 
-function renderCompact({ text, width, theme, config }: UserMessageStyleRenderInput): string[] {
+function renderCompact(input: UserMessageStyleRenderInput): string[] {
+	const { width, theme, config } = input;
 	if (width <= 0) return [""];
 	const rail = renderRail(theme, config);
 	const railWidth = visibleWidth(rail);
 	if (width <= railWidth) {
-		return renderMarkdown(text, width, theme).map((line) =>
+		return renderMarkdown(input, width).map((line) =>
 			truncateToWidth(trimMarkdownPadding(line), width, ""),
 		);
 	}
 	const contentWidth = width - railWidth;
-	return renderMarkdown(text, contentWidth, theme).map((line) =>
+	return renderMarkdown(input, contentWidth).map((line) =>
 		truncateToWidth(`${rail}${trimMarkdownPadding(line)}`, width, ""),
 	);
 }
 
-function renderLabeled({ text, width, theme, config }: UserMessageStyleRenderInput): string[] {
+function renderLabeled(input: UserMessageStyleRenderInput): string[] {
+	const { width, theme, config } = input;
 	if (width <= 0) return [""];
 	if (width <= 2) {
-		return renderMarkdown(text, width, theme).map((line) => truncateToWidth(line, width, ""));
+		return renderMarkdown(input, width).map((line) => truncateToWidth(line, width, ""));
 	}
 
 	const horizontalPadding = width >= 5 ? 1 : 0;
 	const contentWidth = Math.max(1, width - 2 - horizontalPadding * 2);
-	const body = renderMarkdown(text, contentWidth, theme);
+	const body = renderMarkdown(input, contentWidth);
 	const top =
 		width >= 9
 			? `${border(theme, config, "╭─")}${accent(theme, config, " User ")}${border(
@@ -208,8 +234,10 @@ function renderSelectedUserMessageStyle(input: UserMessageStyleRenderInput): str
 export function renderUserMessageStyle(input: UserMessageStyleRenderInput): string[] {
 	// Raw user input is a terminal trust boundary. Strip every source control,
 	// including OSC 8; Markdown may add its own validated links afterward.
-	return renderSelectedUserMessageStyle({
-		...input,
-		text: sanitizeUserMessageSourceText(input.text),
-	});
+	return sanitizeRenderedUserMessageLines(
+		renderSelectedUserMessageStyle({
+			...input,
+			text: sanitizeUserMessageSourceText(input.text),
+		}),
+	);
 }

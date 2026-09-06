@@ -1847,3 +1847,46 @@ describe("preset commands and Appearance selection", () => {
 		},
 	);
 });
+
+describe("Footer layout authority disclosure", () => {
+	it("explains built-in segment toggles versus independent wide and compact templates", async () => {
+		const cfg = cloneConfig();
+		const starship = cfg.components.footer.styles.starship;
+		starship.segments.cwd = false;
+		starship.segments.cost = true;
+		starship.format = "$cwd";
+		const templates = [starship.format, starship.compactFormat];
+		const harness = createHarness(cfg);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Footer");
+		selectLabel(component, "Responsive footer");
+		expect(component.render(200).join("\n")).toContain("Reflow the wide layout");
+		expect(component.render(200).join("\n")).toContain("independently of segment toggles");
+		component.handleInput("\t");
+		for (const label of ["Current directory", "Session cost"]) {
+			selectLabel(component, label);
+			const help = component.render(200).join("\n");
+			expect(help).toContain("Built-in layout:");
+			expect(help).toContain(
+				"Explicit wide format and compactFormat templates choose their own segments",
+			);
+			component.handleInput(" ");
+		}
+		expect([starship.format, starship.compactFormat]).toEqual(templates);
+		expect(harness.calls.segments).toEqual([{ cwd: true }, { cost: false }]);
+		component.handleInput("\t");
+		selectLabel(component, "Git counts");
+		expect(component.render(200).join("\n")).toContain(
+			"built-in segments and template git-status variables",
+		);
+	});
+
+	it("clarifies that clearing format leaves compactFormat unchanged", async () => {
+		const harness = createHarness();
+		await harness.command().handler("format clear", harness.ctx);
+		expect(harness.notifications).toContain(
+			"Footer wide format cleared (using built-in segments; compactFormat unchanged)",
+		);
+	});
+});

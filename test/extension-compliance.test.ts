@@ -802,6 +802,7 @@ describe("Pi docs compliance", () => {
 		).toEqual(new Set(["cwd"]));
 	});
 	it("installs enabled copy-friendly framed messages while the editor is disabled", async () => {
+		initTheme("dark", false);
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
@@ -2161,8 +2162,9 @@ describe("Pi docs compliance", () => {
 		const raw = new UserMessageComponent("hello").render(80).join("\n");
 		expect(raw).toMatch(/\[accent\]│|\u001b\[34m│\u001b\[0m/);
 		expect(raw).toMatch(/\[borderMuted\]────|\u001b\[90m────/);
-		expect(rendered).toContain("[userMessageText]");
-		expect(rendered).toContain("[bold]");
+		expect(raw).toContain("hello");
+		expect(rendered).toContain("zentui");
+		expect(lines.join("\n")).not.toContain("[userMessageText]");
 		expect(rendered).not.toContain("**zentui**");
 		expect(rendered).not.toContain("claude-sonnet");
 		expect(rendered).not.toContain("Anthropic");
@@ -2203,7 +2205,8 @@ describe("Pi docs compliance", () => {
 	});
 
 	it("caches rendered user messages across repeated renders", () => {
-		const getChildren = vi.fn(() => [{ text: "hello ".repeat(2000) }]);
+		const native = new UserMessageComponent("hello ".repeat(2000));
+		const getChildren = vi.fn(() => native.children);
 		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);
 		const theme = { ...makeTaggedTheme(), fg } as unknown as Theme;
 		installUserMessageStyle(
@@ -2223,11 +2226,11 @@ describe("Pi docs compliance", () => {
 		const secondRender = renderMessage(80);
 
 		expect(secondRender).toEqual(firstRender);
-		expect(getChildren).toHaveBeenCalledTimes(1);
+		expect(getChildren).toHaveBeenCalledTimes(2);
 		expect(fg).toHaveBeenCalledTimes(fgCallsAfterFirstRender);
 
 		renderMessage(79);
-		expect(getChildren).toHaveBeenCalledTimes(1);
+		expect(getChildren).toHaveBeenCalledTimes(3);
 		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
 	});
 
@@ -2300,8 +2303,9 @@ describe("Pi docs compliance", () => {
 
 		expect(cachedRender).toBe(firstRender);
 		expect(invalidate).toHaveBeenCalledTimes(1);
-		expect(invalidatedRender).toContain("[second:userMessageText]hello");
-		expect(invalidatedRender).not.toContain("[first:userMessageText]hello");
+		expect(invalidatedRender).toContain("[second:accent]");
+		expect(invalidatedRender).not.toContain("[first:accent]");
+		expect(invalidatedRender).toContain("hello");
 	});
 
 	it("renders selector borders from their independent canonical color source", () => {

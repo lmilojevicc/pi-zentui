@@ -21,30 +21,45 @@ export type RuntimeReadResult = { kind: "ok"; runtime?: RuntimeInfo } | { kind: 
 type RuntimeCacheEntry = {
 	fingerprint: string;
 	runtime: RuntimeInfo | undefined;
+	expiresAt: number;
 };
 
 const RUNTIME_CACHE_MAX = 32;
+const VERSION_CACHE_TTL_MS = 60_000;
+const VERSION_RETRY_MS = 5_000;
 const runtimeInfoCache = new Map<string, RuntimeCacheEntry>();
 
 export function clearRuntimeInfoCache(): void {
 	runtimeInfoCache.clear();
 }
 
-function topLevelFingerprint(entries: readonly string[]): string {
-	return entries.slice().sort().join("\0");
+function topLevelFingerprint(cwd: string, entries: readonly string[]): string {
+	const markers = entries
+		.filter((entry) => versionMarkers.has(entry))
+		.sort()
+		.map((entry) => {
+			try {
+				const stat = statSync(join(cwd, entry));
+				return `${entry}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+			} catch {
+				return `${entry}:missing`;
+			}
+		});
+	return [...entries.slice().sort(), ...markers].join("\0");
 }
 
 function cacheRuntimeInfo(
 	cwd: string,
 	fingerprint: string,
 	runtime: RuntimeInfo | undefined,
+	ttl = VERSION_CACHE_TTL_MS,
 ): void {
 	// Drop prior fingerprints for the same cwd so stale marker sets do not linger.
 	for (const key of runtimeInfoCache.keys()) {
 		if (key === cwd || key.startsWith(`${cwd}\0`)) runtimeInfoCache.delete(key);
 	}
 	const key = `${cwd}\0${fingerprint}`;
-	runtimeInfoCache.set(key, { fingerprint, runtime });
+	runtimeInfoCache.set(key, { fingerprint, runtime, expiresAt: Date.now() + ttl });
 	while (runtimeInfoCache.size > RUNTIME_CACHE_MAX) {
 		const oldest = runtimeInfoCache.keys().next().value;
 		if (oldest === undefined) break;
@@ -160,10 +175,10 @@ function extractVersion(output: string | undefined, pattern?: RegExp): string | 
 
 function versionFromCommands(
 	commands: readonly VersionCommand[],
-): () => Promise<string | undefined> {
-	return async () => {
+): (cwd: string) => Promise<string | undefined> {
+	return async (cwd) => {
 		for (const { command, args = [], pattern } of commands) {
-			const version = extractVersion(await runVersion(command, args), pattern);
+			const version = extractVersion(await runVersion(command, args, cwd), pattern);
 			if (version) return version;
 		}
 		return undefined;
@@ -220,7 +235,7 @@ const runtimes: RuntimeDef[] = [
 		style: "bold red",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["bun.lock", "bun.lockb"] },
-		version: async () => prefixVersion(await runVersion("bun", ["--version"])),
+		version: async (cwd) => prefixVersion(await runVersion("bun", ["--version"], cwd)),
 	},
 	{
 		name: "deno",
@@ -228,8 +243,8 @@ const runtimes: RuntimeDef[] = [
 		style: "green bold",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["deno.json", "deno.jsonc", "deno.lock"] },
-		version: async () =>
-			extractVersion(await runVersion("deno", ["--version"]), /deno\s+([0-9][^\s]*)/i),
+		version: async (cwd) =>
+			extractVersion(await runVersion("deno", ["--version"], cwd), /deno\s+([0-9][^\s]*)/i),
 	},
 	{
 		name: "lua",
@@ -249,11 +264,11 @@ const runtimes: RuntimeDef[] = [
 			folders: ["lua"],
 			excludedFiles: ["xmake.lua"],
 		},
-		version: async () => {
-			const lua = await runVersion("lua", ["-v"]);
+		version: async (cwd) => {
+			const lua = await runVersion("lua", ["-v"], cwd);
 			const luaMatch = lua?.match(/Lua\s+([0-9][^\s]*)/i);
 			if (luaMatch?.[1]) return prefixVersion(luaMatch[1]);
-			const luajit = await runVersion("luajit", ["-v"]);
+			const luajit = await runVersion("luajit", ["-v"], cwd);
 			const luajitMatch = luajit?.match(/LuaJIT\s+([0-9][^\s]*)/i);
 			return prefixVersion(luajitMatch?.[1]);
 		},
@@ -267,7 +282,7 @@ const runtimes: RuntimeDef[] = [
 			files: ["package.json", ".node-version", ".nvmrc"],
 			excludedFiles: ["bunfig.toml", "bun.lock", "bun.lockb"],
 		},
-		version: async () => prefixVersion(await runVersion("node", ["--version"])),
+		version: async (cwd) => prefixVersion(await runVersion("node", ["--version"], cwd)),
 	},
 	{
 		name: "python",
@@ -284,11 +299,11 @@ const runtimes: RuntimeDef[] = [
 				"setup.cfg",
 			],
 		},
-		version: async () => {
-			const python3 = await runVersion("python3", ["--version"]);
+		version: async (cwd) => {
+			const python3 = await runVersion("python3", ["--version"], cwd);
 			const python3Match = python3?.match(/Python\s+([0-9][^\s]*)/i);
 			if (python3Match?.[1]) return prefixVersion(python3Match[1]);
-			const python = await runVersion("python", ["--version"]);
+			const python = await runVersion("python", ["--version"], cwd);
 			const pythonMatch = python?.match(/Python\s+([0-9][^\s]*)/i);
 			return prefixVersion(pythonMatch?.[1]);
 		},
@@ -299,8 +314,8 @@ const runtimes: RuntimeDef[] = [
 		style: "bold cyan",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["go.mod"] },
-		version: async () =>
-			extractVersion(await runVersion("go", ["version"]), /go version go([0-9][^\s]*)/i),
+		version: async (cwd) =>
+			extractVersion(await runVersion("go", ["version"], cwd), /go version go([0-9][^\s]*)/i),
 	},
 	{
 		name: "rust",
@@ -308,8 +323,8 @@ const runtimes: RuntimeDef[] = [
 		style: "bold red",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["Cargo.toml"] },
-		version: async () =>
-			extractVersion(await runVersion("rustc", ["--version"]), /rustc\s+([0-9][^\s]*)/i),
+		version: async (cwd) =>
+			extractVersion(await runVersion("rustc", ["--version"], cwd), /rustc\s+([0-9][^\s]*)/i),
 	},
 	{
 		name: "java",
@@ -317,8 +332,8 @@ const runtimes: RuntimeDef[] = [
 		style: "red dimmed",
 		priority: PRIORITY_COMMON,
 		detect: { files: [".java-version"] },
-		version: async () => {
-			const output = await runVersion("java", ["-version"]);
+		version: async (cwd) => {
+			const output = await runVersion("java", ["-version"], cwd);
 			const quoted = output?.match(/"([0-9][^"]*)"/);
 			if (quoted?.[1]) return prefixVersion(quoted[1]);
 			const plain = output?.match(/version\s+([0-9][^\s]*)/i);
@@ -331,8 +346,8 @@ const runtimes: RuntimeDef[] = [
 		style: "bold red",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["Gemfile", ".ruby-version"] },
-		version: async () =>
-			extractVersion(await runVersion("ruby", ["--version"]), /ruby\s+([0-9][^\s]*)/i),
+		version: async (cwd) =>
+			extractVersion(await runVersion("ruby", ["--version"], cwd), /ruby\s+([0-9][^\s]*)/i),
 	},
 	{
 		name: "php",
@@ -340,8 +355,8 @@ const runtimes: RuntimeDef[] = [
 		style: "147 bold",
 		priority: PRIORITY_COMMON,
 		detect: { files: ["composer.json"] },
-		version: async () =>
-			extractVersion(await runVersion("php", ["--version"]), /PHP\s+([0-9][^\s]*)/i),
+		version: async (cwd) =>
+			extractVersion(await runVersion("php", ["--version"], cwd), /PHP\s+([0-9][^\s]*)/i),
 	},
 	{
 		name: "buf",
@@ -785,6 +800,16 @@ const runtimes: RuntimeDef[] = [
 	},
 ];
 
+// Include manager selectors even when they do not determine the runtime family.
+const versionMarkers = new Set([
+	...runtimes.flatMap((runtime) => runtime.detect.files ?? []),
+	".tool-versions",
+	"mise.toml",
+	".mise.toml",
+	"rust-toolchain",
+	"rust-toolchain.toml",
+]);
+
 // Sort once at module load — stable sort preserves definition order within same priority
 const sortedRuntimes = [...runtimes].sort((a, b) => a.priority - b.priority);
 
@@ -814,10 +839,10 @@ export async function readRuntimeInfo(cwd: string): Promise<RuntimeReadResult> {
 		return { kind: "error" };
 	}
 
-	const fingerprint = topLevelFingerprint(entries);
+	const fingerprint = topLevelFingerprint(cwd, entries);
 	const cacheKey = `${cwd}\0${fingerprint}`;
 	const cached = runtimeInfoCache.get(cacheKey);
-	if (cached && cached.fingerprint === fingerprint) {
+	if (cached && cached.fingerprint === fingerprint && Date.now() < cached.expiresAt) {
 		return { kind: "ok", runtime: cached.runtime };
 	}
 
@@ -833,7 +858,12 @@ export async function readRuntimeInfo(cwd: string): Promise<RuntimeReadResult> {
 			style: runtime.style,
 			version: await runtime.version(cwd),
 		};
-		cacheRuntimeInfo(cwd, fingerprint, info);
+		cacheRuntimeInfo(
+			cwd,
+			fingerprint,
+			info,
+			info.version || runtime.version === noVersion ? VERSION_CACHE_TTL_MS : VERSION_RETRY_MS,
+		);
 		return { kind: "ok", runtime: info };
 	} catch {
 		return { kind: "error" };
