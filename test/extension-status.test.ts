@@ -48,6 +48,35 @@ describe("sanitizeExtensionStatusText", () => {
 });
 
 describe("sanitizeExtensionStatusOriginalText", () => {
+	it.each(["\x07", "\x1b\\"])(
+		"closes a surviving link when a title swallows its closer (%j)",
+		(end) => {
+			const open = "\x1b]8;;https://example.com/\x07";
+			expect(
+				sanitizeExtensionStatusOriginalText(`${open}A\x1b]0;title\x1b]8;;${end}${end} tail`),
+			).toBe(`${open}A tail\x1b]8;;\x07`);
+		},
+	);
+
+	it.each(["\x07", "\x1b\\"])("does not restore a link opener swallowed by a title (%j)", (end) => {
+		expect(
+			sanitizeExtensionStatusOriginalText(
+				`\x1b]0;title\x1b]8;;https://example.com/${end}${end}plain`,
+			),
+		).toBe("plain");
+	});
+
+	it.each(["javascript:alert(1)", "file:///tmp/report", "not-a-url"])(
+		"closes the surviving link before a later invalid target %j",
+		(url) => {
+			const open = "\x1b]8;;https://example.com/\x07";
+			expect(
+				sanitizeExtensionStatusOriginalText(
+					`${open}A\x1b]0;title\x1b]8;;\x07\x07\x1b]8;;${url}\x07plain`,
+				),
+			).toBe(`${open}A\x1b]8;;\x07plain`);
+		},
+	);
 	it.each(["\x07", "\x1b\\"])("preserves HTTP(S) OSC 8 links terminated by %j", (end) => {
 		const source = `\x1b]8;id=pr;https://example.com/pull/123${end}PR #123\x1b]8;;${end}`;
 		expect(sanitizeExtensionStatusOriginalText(source)).toBe(

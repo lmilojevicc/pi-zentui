@@ -1,6 +1,7 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { CompactFooterMaxLines } from "./config";
 import type { CompactBoundaryKind } from "./footer-format";
+import { truncateFooterText } from "./footer-text";
 
 export type FooterZones = {
 	left: string;
@@ -59,7 +60,7 @@ function fitChunk(chunk: string, innerWidth: number): PackedRow {
 		return { text: chunk, endsWithRendererEllipsis: false };
 	}
 	return {
-		text: truncateToWidth(chunk, innerWidth, "…"),
+		text: truncateFooterText(chunk, innerWidth, "…"),
 		endsWithRendererEllipsis: true,
 	};
 }
@@ -68,7 +69,7 @@ function appendOmissionMarker(row: PackedRow, innerWidth: number): PackedRow {
 	if (row.endsWithRendererEllipsis) return row;
 	if (innerWidth <= 1) return { text: "…", endsWithRendererEllipsis: true };
 	return {
-		text: `${truncateToWidth(row.text, innerWidth - 1, "")}…`,
+		text: `${truncateFooterText(row.text, innerWidth - 1, "")}…`,
 		endsWithRendererEllipsis: true,
 	};
 }
@@ -118,5 +119,5 @@ export function packCompactChunks(
 	}
 
 	if (current) rows.push(omitted ? appendOmissionMarker(current, innerWidth) : current);
-	return rows.map((row) => truncateToWidth(row.text, innerWidth, ""));
+	return rows.map((row) => truncateFooterText(row.text, innerWidth, ""));
 }

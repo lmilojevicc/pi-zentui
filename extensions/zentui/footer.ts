@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
@@ -22,6 +22,7 @@ import {
 	packCompactChunks,
 	reflowFullFooter,
 } from "./footer-layout";
+import { truncateFooterText } from "./footer-text";
 import {
 	buildContextDisplayLabel,
 	buildSessionDurationLabel,
@@ -77,7 +78,7 @@ function fitStatusTexts(statusTexts: string[], maxWidth: number, separator: stri
 		}
 
 		if (fitted.length === 0) {
-			return maxWidth > 1 ? truncateToWidth(text, maxWidth, "…") : "";
+			return maxWidth > 1 ? truncateFooterText(text, maxWidth, "…") : "";
 		}
 		break;
 	}
@@ -101,10 +102,10 @@ function composeBuiltInFooterContent(left: string, right: string, innerWidth: nu
 	const leftWidth = visibleWidth(left);
 	const rightWidth = visibleWidth(right);
 	return leftWidth >= innerWidth
-		? truncateToWidth(left, innerWidth, "")
+		? truncateFooterText(left, innerWidth, "")
 		: leftWidth + 1 + rightWidth <= innerWidth
 			? `${left}${" ".repeat(innerWidth - leftWidth - rightWidth)}${right}`
-			: truncateToWidth(left, innerWidth, "");
+			: truncateFooterText(left, innerWidth, "");
 }
 
 function composeFooterContent(
@@ -700,8 +701,8 @@ export function installFooter(
 					);
 				const frameRows = (rows: string[]) =>
 					rows.map((row) => {
-						const framed = width > 2 ? ` ${truncateToWidth(row, width - 2, "")} ` : row;
-						return truncateToWidth(framed, width, "");
+						const framed = width > 2 ? ` ${truncateFooterText(row, width - 2, "")} ` : row;
+						return truncateFooterText(framed, width, "");
 					});
 
 				if (!config.components.footer.styles.starship.responsive)
@@ -732,8 +733,8 @@ export function installFooter(
 				if (reflowed) return frameRows(reflowed);
 
 				const chunkBudget = compactChunkBudget(innerWidth);
-				const compactCwdLabel = truncateToWidth(cwdLabel, chunkBudget, "…");
-				const compactSessionNameLabel = truncateToWidth(
+				const compactCwdLabel = truncateFooterText(cwdLabel, chunkBudget, "…");
+				const compactSessionNameLabel = truncateFooterText(
 					sessionNameLabel,
 					Math.max(1, chunkBudget - visibleWidth("in ")),
 					"…",
@@ -742,7 +743,7 @@ export function installFooter(
 					1,
 					chunkBudget - visibleWidth("on ") - (statusBlock ? visibleWidth(statusBlock) + 1 : 0),
 				);
-				const compactBranchLabel = truncateToWidth(
+				const compactBranchLabel = truncateFooterText(
 					renderVariable("git_branch"),
 					compactBranchBudget,
 					"…",
@@ -784,7 +785,7 @@ export function installFooter(
 					);
 					const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
 					if (["cwd", "session_name", "git_branch"].some((name) => references.has(name))) {
-						rendered = truncateToWidth(rendered, chunkBudget, "…");
+						rendered = truncateFooterText(rendered, chunkBudget, "…");
 					}
 					if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
 				}

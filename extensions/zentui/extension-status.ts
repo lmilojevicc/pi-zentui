@@ -43,31 +43,32 @@ function hasVisibleStatusText(value: string): boolean {
 export function sanitizeExtensionStatusOriginalText(value: string): string {
 	// Preserve only SGR and HTTP(S) OSC 8 links. Never pass title/clipboard/cursor controls.
 	const marker = `__ZENTUI_${randomUUID()}_`;
-	const sequences: string[] = [];
-	const protect = (sequence: string) => `${marker}${sequences.push(sequence) - 1}__`;
-	let activeLink = false;
+	const sequences: Array<{ sequence: string; url: string | undefined }> = [];
 	const protectedValue = value.replace(
 		/\x1b\[[0-9;:]*m|\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)/g,
-		(sequence, url: string | undefined) => {
-			if (url === undefined) return protect(sequence);
-			const close = activeLink ? protect("\x1b]8;;\x07") : "";
-			activeLink = false;
-			if (!url || /[\s\x00-\x1f\x7f-\x9f]/.test(url)) return close;
-			try {
-				const parsed = new URL(url);
-				if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return close;
-				activeLink = true;
-				return close + protect(`\x1b]8;;${parsed.href}\x07`);
-			} catch {
-				return close;
-			}
-		},
+		(sequence, url: string | undefined) => `${marker}${sequences.push({ sequence, url }) - 1}__`,
 	);
 	const cleaned = normalizeStatusWhitespace(stripVTControlCharacters(protectedValue));
-	const restored = cleaned.replace(
-		new RegExp(`${marker}(\\d+)__`, "g"),
-		(_match, index) => sequences[Number(index)] ?? "",
-	);
+	// Other controls can swallow placeholders. Track only sequences that survive
+	// stripping, including invalid targets that must end any surviving link.
+	let activeLink = false;
+	const restored = cleaned.replace(new RegExp(`${marker}(\\d+)__`, "g"), (_match, index) => {
+		const entry = sequences[Number(index)];
+		if (!entry) return "";
+		const { sequence, url } = entry;
+		if (url === undefined) return sequence;
+		const close = activeLink ? "\x1b]8;;\x07" : "";
+		activeLink = false;
+		if (!url || /[\s\x00-\x1f\x7f-\x9f]/.test(url)) return close;
+		try {
+			const parsed = new URL(url);
+			if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return close;
+			activeLink = true;
+			return `${close}\x1b]8;;${parsed.href}\x07`;
+		} catch {
+			return close;
+		}
+	});
 	const result = restored + (activeLink ? "\x1b]8;;\x07" : "");
 	return hasVisibleStatusText(result) ? result : "";
 }
