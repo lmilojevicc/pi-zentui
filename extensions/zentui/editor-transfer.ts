@@ -20,6 +20,20 @@ export type EditorTransferResult =
 	| { ok: false; reason: EditorTransferFailureReason };
 
 /**
+ * Pi custom UI saves raw editor text and restores it with setText(), which clears
+ * collapsed paste storage. Expand nonempty drafts before that snapshot is taken.
+ * Hosts without public text APIs retain their existing custom-UI behavior.
+ */
+export function prepareEditorTextForCustomUi(
+	ui: Pick<EditorTransferUi, "getEditorText" | "setEditorText">,
+): void {
+	if (typeof ui.getEditorText !== "function" || typeof ui.setEditorText !== "function") return;
+	const text = ui.getEditorText();
+	if (typeof text !== "string") throw new Error("expanded editor text could not be read safely");
+	if (text) ui.setEditorText(text);
+}
+
+/**
  * Prepare the active editor's public expanded text before Pi replaces its factory.
  * This intentionally transfers prompt contents only; editor-private state is never inspected.
  */

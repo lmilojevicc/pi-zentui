@@ -142,6 +142,7 @@ function createHarness(
 			}
 			return { applied: true };
 		},
+		reconcilePresetEditor: () => ({ applied: true }),
 		setEditorComponent(patch: Partial<EditorComponentConfig>) {
 			calls.editor.push(patch);
 			Object.assign(config.components.editor, patch);
@@ -1658,6 +1659,37 @@ describe("component-oriented /zentui settings", () => {
 });
 
 describe("preset commands and Appearance selection", () => {
+	it.each(["snapshot", "non-string", "preparation"])(
+		"does not open a destructive panel after %s fails",
+		async (failure) => {
+			const custom = vi.fn();
+			const setEditorText = vi.fn(() => {
+				if (failure === "preparation") throw new Error("preparation failed");
+			});
+			const harness = createHarness(
+				cloneConfig(),
+				{},
+				{
+					custom,
+					getEditorText() {
+						if (failure === "snapshot") throw new Error("snapshot failed");
+						return failure === "non-string" ? undefined : "draft";
+					},
+					setEditorText,
+				},
+			);
+			await harness.command().handler("", harness.ctx);
+			expect(custom).not.toHaveBeenCalled();
+			expect(harness.notificationEvents).toEqual([
+				{
+					severity: "error",
+					message: expect.stringContaining("Could not open Zentui settings safely"),
+				},
+			]);
+			if (failure !== "preparation") expect(setEditorText).not.toHaveBeenCalled();
+		},
+	);
+
 	it.each(componentPresets)("applies $id as a single command dependency", async ({ id }) => {
 		const harness = createHarness();
 		await harness.command().handler(`preset ${id}`, harness.ctx);
@@ -1712,34 +1744,38 @@ describe("preset commands and Appearance selection", () => {
 		expect(focusedRow(harness.component())).toMatch(/Preset.*Opencode/);
 	});
 
-	it("closes before deferring a preset that enables the editor, and starts Custom at Opencode", async () => {
-		vi.useFakeTimers();
+	it("keeps focus while cycling presets from Custom and recomputes Custom after individual changes", async () => {
 		const config = cloneConfig();
 		config.components.editor.enabled = false;
-		const applyPreset = vi.fn(() => {
-			expect(harness.doneCalls()).toBe(1);
-			return { applied: true };
-		});
-		const harness = createHarness(config, { applyPreset });
+		const harness = createHarness(config);
 		harness.sessionLifecycle.start();
 		await harness.command().handler("", harness.ctx);
-		expect(focusedRow(harness.component())).toContain("Custom");
-		harness.component().handleInput("\r");
+		const component = harness.component();
+		expect(focusedRow(component)).toContain("Custom");
+		for (const preset of componentPresets) {
+			component.handleInput("\r");
+			expect(focusedRow(component)).toContain(preset.label);
+			expect(component.render(200)[1]).toContain("Appearance");
+			expect(harness.doneCalls()).toBe(0);
+		}
+		expect(harness.calls.presets).toEqual(componentPresets.map(({ id }) => id));
+		component.handleInput("\t");
+		component.handleInput("\x1b[B");
+		component.handleInput("\r");
+		expect(focusedRow(component)).toContain("Editor style");
+		component.handleInput("\x1b[Z");
+		expect(focusedRow(component)).toContain("Custom");
+		component.handleInput("\x1b");
 		expect(harness.doneCalls()).toBe(1);
-		expect(applyPreset).not.toHaveBeenCalled();
-		vi.runAllTimers();
-		expect(applyPreset).toHaveBeenCalledWith("opencode", harness.ctx);
 		harness.sessionLifecycle.shutdown();
 	});
 
-	it("cancels deferred preset saves on shutdown", async () => {
-		vi.useFakeTimers();
+	it("ignores preset input after shutdown without saving", async () => {
 		const harness = createHarness();
 		harness.sessionLifecycle.start();
 		await harness.command().handler("", harness.ctx);
-		harness.component().handleInput("\r");
 		harness.sessionLifecycle.shutdown();
-		vi.runAllTimers();
+		harness.component().handleInput("\r");
 		expect(harness.calls.presets).toEqual([]);
 	});
 
@@ -1784,6 +1820,13 @@ describe("preset commands and Appearance selection", () => {
 				vi.runAllTimers();
 			}
 			expect(config).toEqual(before);
+			if (source === "settings") {
+				expect(harness.doneCalls()).toBe(0);
+				expect(focusedRow(harness.component())).toMatch(/Preset.*Opencode/);
+				harness.component().handleInput("\r");
+				expect(focusedRow(harness.component())).toMatch(/Preset.*Opencode/);
+				harness.notificationEvents.pop();
+			}
 			expect(harness.notificationEvents).toEqual([
 				{ severity: "error", message: "Could not update Zentui settings: disk full" },
 			]);

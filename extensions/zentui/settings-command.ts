@@ -53,6 +53,7 @@ import {
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
 } from "./config";
+import { prepareEditorTextForCustomUi } from "./editor-transfer";
 import { sanitizeExtensionStatusText } from "./extension-status";
 import { isIconMode } from "./icons";
 import {
@@ -219,8 +220,17 @@ function experimentalThinkingCapability(
 type SettingsCommandDeps = {
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
-	applyPreset: (id: PresetId, ctx: ExtensionContext) => ApplyResult;
-	setEditorComponent: (patch: EditorPatch, ctx: ExtensionContext) => ApplyResult;
+	applyPreset: (
+		id: PresetId,
+		ctx: ExtensionContext,
+		options?: { deferEditor?: boolean },
+	) => ApplyResult;
+	reconcilePresetEditor: (ctx: ExtensionContext) => ApplyResult;
+	setEditorComponent: (
+		patch: EditorPatch,
+		ctx: ExtensionContext,
+		options?: { deferEditor?: boolean },
+	) => ApplyResult;
 	setPolished: (patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setPolishedCopyFriendly: (
 		patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
@@ -489,7 +499,7 @@ function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "preset",
 			label: "Preset",
 			description:
-				"Apply Editor, Footer, and User messages together once. Preserves colors and other settings; closes this panel. Custom means no matching combination.",
+				"Apply Editor, Footer, and User messages together once. Preserves colors and other settings; editor installation waits until this panel closes. Custom means no matching combination.",
 			currentValue: matchingComponentPreset(config)?.label ?? "Custom",
 			values: componentPresets.map(({ label }) => label),
 		},
@@ -1253,8 +1263,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 			let requestedSection = initialSection ?? "appearance";
 			let requestedFocusId: string | undefined;
 			while (true) {
+				try {
+					prepareEditorTextForCustomUi(ctx.ui);
+				} catch (error) {
+					ctx.ui.notify(
+						`Could not open Zentui settings safely: ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+					return;
+				}
 				const initialFocusId = requestedFocusId;
 				requestedFocusId = undefined;
+				const generation = deps.sessionLifecycle.currentGeneration();
+				let pendingPresetEditor = false;
 				const outcome = await ctx.ui.custom<SettingsOutcome>((tui, theme, _keybindings, done) => {
 					const listTheme = deps.settingsListTheme ?? getSettingsListTheme();
 					let activeSection = requestedSection;
@@ -1361,12 +1382,23 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									if (id === "preset") {
 										const preset = componentPresets.find(({ label }) => label === newValue);
 										if (!preset) return;
-										finishSettings("close");
-										deps.sessionLifecycle.defer(() => applyPreset(preset.id, ctx));
+										if (!deps.sessionLifecycle.isCurrent(generation)) return;
+										const result = deps.applyPreset(preset.id, ctx, { deferEditor: true });
+										pendingPresetEditor = true;
+										settingsList = makeSettingsList("preset");
+										notifyChange("Preset saved", preset.label, result);
 										return;
 									}
 									const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
 									if (id === "editorEnabled" && enabled !== undefined) {
+										if (pendingPresetEditor) {
+											const result = deps.setEditorComponent({ enabled }, ctx, {
+												deferEditor: true,
+											});
+											notifyChange("Editor", newValue, result);
+											finishSettings("close");
+											return;
+										}
 										finishSettings("close");
 										deps.sessionLifecycle.defer(() => {
 											try {
@@ -1888,6 +1920,25 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						},
 					};
 				});
+				// Pi restores its saved editor text before custom() resolves. Reconcile only
+				// now, using the latest config and observed factory, never a captured factory.
+				if (pendingPresetEditor && !deps.sessionLifecycle.isCurrent(generation)) return;
+				if (pendingPresetEditor) {
+					try {
+						const result = deps.reconcilePresetEditor(ctx);
+						if (!result.applied || result.reason) {
+							ctx.ui.notify(
+								`Preset saved: editor (${result.reason ?? "reload Pi to apply this change"})`,
+								"warning",
+							);
+						}
+					} catch (error) {
+						ctx.ui.notify(
+							`Could not apply preset editor; reload Pi: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
+					}
+				}
 				if (outcome === "close" || outcome === undefined) return;
 				if (
 					outcome === "edit-working-line-spinner-speed" ||

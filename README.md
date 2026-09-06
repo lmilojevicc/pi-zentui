@@ -110,7 +110,7 @@ Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
 
 Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
 
-The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset closes settings before applying live editor changes; if editor ownership prevents application, the saved choice may require reloading Pi.
+The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
 
 A small starter config:
 

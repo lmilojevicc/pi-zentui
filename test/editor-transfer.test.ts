@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { replaceEditorComponentWithExpandedText } from "../extensions/zentui/editor-transfer";
+import {
+	prepareEditorTextForCustomUi,
+	replaceEditorComponentWithExpandedText,
+} from "../extensions/zentui/editor-transfer";
 
 type Editor = {
 	getText(): string;
@@ -256,5 +259,25 @@ describe("safe editor component transfer", () => {
 
 		expect(submitted).toEqual([payload]);
 		expect(submitted[0]).not.toContain("[paste #");
+	});
+});
+
+describe("prepareEditorTextForCustomUi", () => {
+	it("prepares nonempty expanded drafts but leaves empty editors untouched", () => {
+		const setEditorText = vi.fn();
+		prepareEditorTextForCustomUi({ getEditorText: () => "expanded\npaste", setEditorText });
+		expect(setEditorText).toHaveBeenCalledExactlyOnceWith("expanded\npaste");
+		setEditorText.mockClear();
+		prepareEditorTextForCustomUi({ getEditorText: () => "", setEditorText });
+		expect(setEditorText).not.toHaveBeenCalled();
+	});
+
+	it("leaves older hosts with incomplete text APIs alone", () => {
+		const getEditorText = vi.fn();
+		const setEditorText = vi.fn();
+		prepareEditorTextForCustomUi({ getEditorText });
+		prepareEditorTextForCustomUi({ setEditorText });
+		expect(getEditorText).not.toHaveBeenCalled();
+		expect(setEditorText).not.toHaveBeenCalled();
 	});
 });

@@ -1225,14 +1225,14 @@ export default function (pi: ExtensionAPI) {
 	registerZentuiSettingsCommand(pi, {
 		sessionLifecycle,
 		getConfig: getCurrentConfig,
-		applyPreset(id, ctx) {
+		applyPreset(id, ctx, options) {
 			const preset = getComponentPreset(id);
 			if (!preset) throw new Error(`Unknown Zentui preset: ${id}`);
 			const previousFooterStyle = effectiveFooterStyle();
 			currentConfig = saveComponentPreset(preset);
 			if (!isTuiContext(ctx)) return { applied: true };
 			activeTheme = ctx.ui.theme;
-			const result = reconcileEditor(ctx);
+			const result = options?.deferEditor ? undefined : reconcileEditor(ctx);
 			if (currentConfig.components.editor.style !== "minimalist") {
 				setMinimalistDecorationActive(false);
 			}
@@ -1247,10 +1247,21 @@ export default function (pi: ExtensionAPI) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
-		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext) {
+		reconcilePresetEditor(ctx) {
+			if (!isTuiContext(ctx) || !sessionLifecycle.isCurrent()) return { applied: true };
+			const result = reconcileEditor(ctx);
+			reconcileProjectRefresh(ctx);
+			reconcileAgentTimer();
+			refresh();
+			return {
+				applied: !result || result.ok,
+				reason: result && !result.ok ? result.reason : undefined,
+			};
+		},
+		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext, options) {
 			currentConfig = saveEditorComponentPatch(patch);
 			let result: EditorChangeResult | undefined;
-			if (patch.enabled !== undefined && isTuiContext(ctx)) {
+			if (patch.enabled !== undefined && isTuiContext(ctx) && !options?.deferEditor) {
 				result = reconcileEditor(ctx);
 			}
 			if (patch.style !== undefined && patch.style !== "minimalist") {
