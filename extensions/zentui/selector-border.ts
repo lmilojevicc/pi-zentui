@@ -3,9 +3,14 @@ import {
 	SettingsSelectorComponent,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
-import { EDITOR_BORDER_STYLE, renderChromeBorder, renderEditorBorder } from "./style";
+import {
+	EDITOR_BORDER_FALLBACK,
+	renderEditorBorder,
+	renderStyleForSourceOrFallback,
+} from "./style";
 
 type PatchableSelectorPrototype = {
 	render: (width: number) => string[];
@@ -28,10 +33,11 @@ function renderBorderLine(
 ): string {
 	const text = "─".repeat(Math.max(1, width));
 	if (theme && config) {
-		return renderChromeBorder(
+		return renderStyleForSourceOrFallback(
 			theme,
 			config.components.selectorBorders.colorSource,
-			EDITOR_BORDER_STYLE,
+			componentColor(config, "selectorBorders", "border"),
+			EDITOR_BORDER_FALLBACK,
 			text,
 		);
 	}

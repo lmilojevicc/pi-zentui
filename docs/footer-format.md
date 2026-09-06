@@ -9,7 +9,9 @@ Set `components.footer.styles.starship.format` for complete control over the Sta
 - conditional groups `( ... )` that disappear when every nested variable is empty
 - `$fill` layout boundaries
 
-A custom format overrides `components.footer.styles.starship.segments`. Empty or omitted format uses the segment layout.
+A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template.
+
+`/zentui footer` renders labeled synthetic production-renderer samples at meaningful widths up to the terminal width. These samples are not installed UI; long-model/high-context/status fixture values appear only when your layout selects them. Native has no reproducible predecessor sample, and Hidden means zero rows. Short terminal heights prioritize navigation. The default format and compact template remain unchanged.
 
 ## Examples
 

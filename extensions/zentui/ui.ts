@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
 import { omitTrailingNativeCompletionCountRow, renderCompletionPalette } from "./completion-menu";
+import { componentColor } from "./component-colors";
 import type { EditorStyle, ZentuiConfig } from "./config";
 import {
 	type EditorMetadataZones,
@@ -344,7 +345,7 @@ function lowRailPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): str
 		? `${renderStyleForSourceOrFallback(
 				uiTheme,
 				config.components.editor.colorSource,
-				config.colors.editorPrompt ?? config.colors.editorAccent,
+				componentColor(config, "editor", "prompt") ?? componentColor(config, "editor", "accent"),
 				EDITOR_ACCENT_FALLBACK,
 				promptIcon,
 			)}${reset} `
@@ -359,7 +360,7 @@ function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: stri
 		: `${renderStyleForSourceOrFallback(
 				uiTheme,
 				config.components.editor.colorSource,
-				config.colors.editorAccent,
+				componentColor(config, "editor", "accent"),
 				EDITOR_ACCENT_FALLBACK,
 				config.icons.rail,
 			)}${reset} `;
@@ -832,7 +833,7 @@ export function renderPolishedEditorFrame({
 		renderStyleForSourceOrFallback(
 			uiTheme,
 			colorSource,
-			config.colors.editorBorder,
+			componentColor(config, "editor", "border"),
 			EDITOR_BORDER_FALLBACK,
 			text,
 		);

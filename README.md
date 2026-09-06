@@ -14,7 +14,7 @@
 
 ## What is this?
 
-Zentui gives Pi surfaces independent, opt-in treatments:
+Zentui gives Pi surfaces independently selectable treatments:
 
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
@@ -91,7 +91,7 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer` or `/zentui git`). Inactive options retain their saved preferences. Footer samples use the production renderer at 40/60/80/120 columns when the terminal has room, with synthetic data—not installed UI. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json
@@ -112,35 +112,36 @@ Presets apply once, saving only these component selections. Colors, color source
 
 The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
 
-A small starter config:
+### Minimal overrides
+
+Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line and Thinking (Experimental) remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons assume a Nerd Font without detecting one; ASCII changes icons, not the entire UI.
+
+Change only what you need. For example, this changes only the Editor's accent:
 
 ```json
 {
   "components": {
-    "editor": {
-      "enabled": true,
-      "style": "accent-rail"
-    },
-    "userMessages": {
-      "enabled": true,
-      "style": "framed"
-    },
-    "thinkingSteps": {
-      "enabled": false,
-      "mode": "tree"
-    },
-    "workingLine": {
-      "enabled": false
-    },
-    "footer": {
-      "style": "starship"
-    }
-  },
-  "icons": {
-    "mode": "auto"
+    "editor": { "colors": { "accent": "bold blue" } }
   }
 }
 ```
+
+Each owner's **Color overrides** action edits raw styles independently. **Reset / inherit** deletes the local key; an empty string intentionally removes styling. Shared `colors` remain live historical fallbacks before **and after** migration. Color sources remain independent too.
+
+To adopt **only User messages**, explicitly leave the other default-enabled surfaces alone:
+
+```json
+{
+  "components": {
+    "editor": { "enabled": false },
+    "userMessages": { "enabled": true, "style": "framed" },
+    "selectorBorders": { "enabled": false },
+    "footer": { "style": "native" }
+  }
+}
+```
+
+Disabled/Native leaves Pi or a predecessor in control. Hidden instead intentionally owns zero Footer rows. Ordinary saves snapshot only the edited owner. `/zentui migrate` is a separate confirmed all-owner selection/source/style-option snapshot; it preserves aliases, unknown fields, and shared color inheritance, and never copies generated palettes. See the configuration reference for exact owner color keys and reset behavior.
 
 Detailed reference:
 

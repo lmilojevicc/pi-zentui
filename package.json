@@ -21,7 +21,8 @@
 	],
 	"files": [
 		"extensions",
-		"docs/configuration.md"
+		"docs/configuration.md",
+		"docs/footer-format.md"
 	],
 	"scripts": {
 		"lint": "biome check .",

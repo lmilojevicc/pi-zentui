@@ -4,24 +4,46 @@ import {
 	type Box,
 	getCapabilities,
 	type Markdown,
-	setCapabilities,
+	resetCapabilitiesCache,
 	Text,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { defaultConfig } from "../extensions/zentui/config";
 import { installUserMessageStyle } from "../extensions/zentui/user-message";
 
+// Pi themes bake capabilities during initialization; native ESM dependencies can
+// have a separate cache from Vitest's imports. Set the environment before either
+// module graph loads, including terminal hints for hosts predating PI_* flags.
+const restoreEnvironment = vi.hoisted(() => {
+	const overrides = {
+		PI_HYPERLINKS: "1",
+		PI_TRUE_COLOR: "1",
+		COLORTERM: "truecolor",
+		TERM: "xterm-256color",
+		TERM_PROGRAM: "kitty",
+		TMUX: undefined,
+	};
+	const previous = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+	for (const [key, value] of Object.entries(overrides)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	return () => {
+		for (const [key, value] of Object.entries(previous)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	};
+});
 initTheme("dark", false);
 const cleanups: Array<() => void> = [];
-let capabilities = getCapabilities();
-beforeEach(() => {
-	capabilities = getCapabilities();
-	setCapabilities({ ...capabilities, hyperlinks: true });
-});
 afterEach(() => {
 	for (const cleanup of cleanups.splice(0).reverse()) cleanup();
-	setCapabilities(capabilities);
+});
+afterAll(() => {
+	restoreEnvironment();
+	resetCapabilitiesCache();
 });
 const plain = (rows: string[]) => stripVTControlCharacters(rows.join("\n"));
 type Transform = (
@@ -52,8 +74,28 @@ const nativeOptions = (
 ).children?.[0]?.options;
 const supportsNativeOptions = Boolean(nativeOptions);
 const supportsNativeTransform = typeof nativeOptions?.transform === "function";
+// Markdown's direct option and UserMessage's registered chain are separate APIs.
+const supportsMarkdownTransform = (() => {
+	const renderProbe = message("probe");
+	const child = (renderProbe.children[0] as Box).children[0];
+	const options = Reflect.get(child, "options");
+	if (!options) return false;
+	let called = false;
+	options.transform = () => {
+		called = true;
+		return "probe";
+	};
+	renderProbe.render(40);
+	return called;
+})();
 
 describe("native user-message adapter", () => {
+	it("initializes generated hyperlinks and theme truecolor independently of the runner terminal", () => {
+		expect(getCapabilities()).toMatchObject({ hyperlinks: true, trueColor: true });
+		const output = message("[docs](https://markdown.example)").render(80).join("\n");
+		expect(output).toMatch(/\x1b\]8;;https:\/\/markdown\.example(?:\x07|\x1b\\)/);
+		expect(output).toMatch(/\x1b\[38;2;[0-9;]+m/);
+	});
 	it.each(["framed", "framed-copy-friendly", "compact", "labeled"] as const)(
 		"preserves lists and literal escapes in %s",
 		(style) => {
@@ -278,17 +320,17 @@ describe("native user-message source boundary independent of framing", () => {
 	);
 
 	it.each(["render", "transform"])(
-		"restores source/options exactly after a throwing %s",
+		"restores source/options after a throwing %s, or native continuation when transforms are unsupported",
 		(failure) => {
 			const { result, markdown } = shapedMessage(unsafeSource, "root sibling");
 			const options = Reflect.get(markdown, "options");
-			if (failure === "transform")
-				options.transform = function (this: object, source: string, width: number) {
-					expect(this).toBe(options);
-					expect(source).not.toContain(rawOpen);
-					expect(width).toBe(38);
-					throw new Error("failure");
-				};
+			const transform = vi.fn(function (this: object, source: string, width: number) {
+				expect(this).toBe(options);
+				expect(source).not.toContain(rawOpen);
+				expect(width).toBe(38);
+				throw new Error("failure");
+			});
+			if (failure === "transform") options.transform = transform;
 			else
 				markdown.render = function () {
 					expect(this).toBe(markdown);
@@ -298,10 +340,32 @@ describe("native user-message source boundary independent of framing", () => {
 				Object.getOwnPropertyDescriptor(markdown, key),
 			);
 			install("compact");
-			expect(() => result.render(40)).toThrow("failure");
+			if (failure === "transform" && !supportsMarkdownTransform) {
+				// Pi 0.80.5 Markdown has options but does not execute transform.
+				// Unsupported callbacks must not be invented by the source adapter.
+				const output = result.render(40).join("\n");
+				expect(transform).not.toHaveBeenCalled();
+				expect(output).not.toContain(rawOpen);
+				expect(output).not.toContain(rawSgr);
+				expect(plain([output])).toContain("RAW_LINK RAW_SGR");
+				expect(plain([output])).toContain("SIBLING");
+			} else {
+				expect(() => result.render(40)).toThrow("failure");
+				if (failure === "transform") expect(transform).toHaveBeenCalledOnce();
+			}
 			expect(
 				["text", "options"].map((key) => Object.getOwnPropertyDescriptor(markdown, key)),
 			).toEqual(descriptors);
+			if (failure === "transform" && supportsMarkdownTransform) {
+				options.transform = (source: string) => `${source}${rawOpen}AFTER_FAILURE\x1b]8;;\x07`;
+				const continued = result.render(40).join("\n");
+				expect(continued).not.toContain(rawOpen);
+				expect(continued).not.toContain(rawSgr);
+				expect(plain([continued])).toContain("AFTER_FAILURE");
+				expect(
+					["text", "options"].map((key) => Object.getOwnPropertyDescriptor(markdown, key)),
+				).toEqual(descriptors);
+			}
 		},
 	);
 });

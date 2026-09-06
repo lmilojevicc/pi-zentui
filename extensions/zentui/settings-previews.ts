@@ -1,9 +1,13 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { renderAccentRailEditorFrame } from "./accent-rail-editor";
 import type { PolishedTuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import { createFooterFactory } from "./footer";
+import { formatOsLabel } from "./format";
+import { emptyGitStatus } from "./git";
 import { renderMinimalistFrame } from "./minimalist-editor";
+import type { FooterState } from "./state";
 import { safeThemeFg } from "./style";
 import { createThinkingStepsRows } from "./thinking-experimental";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
@@ -242,4 +246,101 @@ export function renderThinkingStepsSettingsPreview(
 			).render(previewWidth)
 		: native.render(previewWidth);
 	return boundedRows([...statusRows, ...rows], previewWidth);
+}
+
+/** Static production-renderer samples. No host UI, probes, timers, or live subscriptions. */
+export function renderFooterSettingsPreview(
+	config: PolishedTuiConfig,
+	theme: Theme,
+	width: number,
+	maxRows = Number.POSITIVE_INFINITY,
+): string[] {
+	if (width <= 0 || maxRows <= 0) return [];
+	const note = (text: string) =>
+		wrapTextWithAnsi(text, width).map((row) => safeThemeFg(theme, "muted", row));
+	if (config.components.footer.style === "native")
+		return note(
+			"Native — Zentui leaves the Footer unowned. Pi or a predecessor controls its output; no native renderer is available for this sample.",
+		);
+	if (config.components.footer.style === "hidden")
+		return note(
+			"Hidden — the installed choice intentionally owns zero Footer rows. This explanation is not a Footer row; the sample installs nothing.",
+		);
+	const safeConfig = previewConfig(config);
+	const starship = safeConfig.components.footer.styles.starship;
+	const state: FooterState = {
+		...emptyGitStatus(),
+		branch: "feat/component-independent-settings",
+		modified: 3,
+		staged: 2,
+		untracked: 1,
+		ahead: 2,
+		behind: 1,
+		modelLabel: "sonnet-long-context-preview",
+		modelId: "sonnet-long-context-preview",
+		modelName: "Sonnet Long Context Preview",
+		providerLabel: "Anthropic",
+		contextLabel: "94.2%/200k",
+		tokenLabel: "↑128k ↓8.4k",
+		cacheReadLabel: "R96k",
+		cacheWriteLabel: "W12k",
+		costLabel: "$1.234",
+		usageTotals: {
+			input: 128000,
+			output: 8400,
+			cacheRead: 96000,
+			cacheWrite: 12000,
+			cost: 1.234,
+			latestCacheHitRate: 75,
+		},
+		autoCompaction: true,
+		subscription: false,
+		sessionStartEpoch: 1,
+		runtime: { name: "Node.js", version: "22.12.0", symbol: "", style: "bold green" },
+	};
+	const ctx = {
+		cwd: "/workspace/zentui/extensions/settings",
+		sessionManager: { getSessionName: () => "Settings review" },
+		getContextUsage: () => ({ percent: 94.2, tokens: 188400, contextWindow: 200000 }),
+	} as unknown as ExtensionContext;
+	const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : text);
+	const component = createFooterFactory(ctx, state, () => safeConfig, {
+		setRequestRender() {},
+		scheduleProjectRefresh() {},
+		getRepositoryRoot: () => "/workspace/zentui",
+		ambientLabels: {
+			sessionDuration: "12m 34s",
+			username: (icon) => withIcon(icon, "user@sample"),
+			time: (icon) => withIcon(icon, "14:35"),
+			os: (icon, mode) => formatOsLabel(icon, mode, "linux"),
+		},
+	})({ requestRender() {} } as never, theme, {
+		onBranchChange: () => () => {},
+		getExtensionStatuses: () =>
+			new Map([
+				["sample:checks", "checks passed"],
+				["sample:review", "review pending"],
+			]),
+	} as never);
+	try {
+		const widths = [40, 60, 80, 120].filter((value) => value <= width);
+		if (!widths.length) widths.push(width);
+		const introduction = note(
+			`Starship samples — synthetic data, not active/installed UI. ${starship.format ? "Custom wide format chooses variables." : "Built-in wide layout follows segment toggles."} ${starship.responsive ? "Reflow then compactFormat; compact chooses its own variables." : "Responsive off; compactFormat is inactive."}`,
+		);
+		const samples = widths.map((sampleWidth) => [
+			safeThemeFg(theme, "muted", truncateToWidth(`Sample · ${sampleWidth} columns`, width, "")),
+			...component.render(sampleWidth).map((row) => truncateToWidth(row, sampleWidth, "")),
+		]);
+		const full = [...introduction, ...samples.flat()];
+		if (full.length <= maxRows) return full;
+		// Keep a complete widest sample when height is limited; never crop its layout rows.
+		const short = note("Synthetic sample — not installed");
+		for (const sample of samples.toReversed()) {
+			if (short.length + sample.length <= maxRows) return [...short, ...sample];
+		}
+		return [];
+	} finally {
+		component.dispose?.();
+	}
 }

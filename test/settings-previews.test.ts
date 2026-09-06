@@ -1,15 +1,18 @@
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	defaultConfig,
 	type EditorStyle,
 	type PolishedTuiConfig,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
+import * as footerModule from "../extensions/zentui/footer";
+import * as formatModule from "../extensions/zentui/format";
 import {
 	renderEditorSettingsPreview,
+	renderFooterSettingsPreview,
 	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_ROWS,
@@ -442,4 +445,119 @@ describe("settings previews", () => {
 		expect(plain(secondEditor)).toBe(plain(firstEditor));
 		expect(plain(secondMessage)).toBe(plain(firstMessage));
 	});
+});
+
+describe("production Footer settings samples", () => {
+	it.each([0, 1, 20, 40, 60, 80, 120, 160])(
+		"renders directly at meaningful widths constrained to %i",
+		(width) => {
+			const current = config();
+			const before = structuredClone(current);
+			const first = renderFooterSettingsPreview(current, theme(), width);
+			expect(first).toEqual(renderFooterSettingsPreview(current, theme(), width));
+			expect(current).toEqual(before);
+			expect(first.every((row) => visibleWidth(row) <= width)).toBe(true);
+			if (width === 0) expect(first).toEqual([]);
+			for (const sampleWidth of [40, 60, 80, 120]) {
+				if (sampleWidth <= width) expect(plain(first)).toContain(`Sample · ${sampleWidth} columns`);
+				else expect(plain(first)).not.toContain(`Sample · ${sampleWidth} columns`);
+			}
+		},
+	);
+	it("uses production rows at 40/60/80/120 rather than rendering wide then cropping to 72", () => {
+		const original = footerModule.createFooterFactory;
+		const render = vi.fn<(width: number) => string[]>();
+		const factory = vi.spyOn(footerModule, "createFooterFactory").mockImplementation((...args) => {
+			const nativeFactory = original(...args);
+			return (...inputs) => {
+				const component = nativeFactory(...inputs);
+				render.mockImplementation((width) => component.render(width));
+				return { ...component, render };
+			};
+		});
+		try {
+			const rows = renderFooterSettingsPreview(config(), theme(), 120);
+			expect(render.mock.calls.map(([width]) => width)).toEqual([40, 60, 80, 120]);
+			for (const [index, sampleWidth] of [40, 60, 80, 120].entries()) {
+				const start = plain(rows).split("\n").indexOf(`Sample · ${sampleWidth} columns`);
+				const rendered = render.mock.results[index]?.value as string[];
+				expect(rows.slice(start + 1, start + 1 + rendered.length)).toEqual(rendered);
+			}
+			expect(rows.some((row) => visibleWidth(row) > 72)).toBe(true);
+		} finally {
+			factory.mockRestore();
+		}
+	});
+	it("is inert, deterministic for ambient variables, and preserves custom/compact template authority", () => {
+		const current = config();
+		const starship = current.components.footer.styles.starship;
+		starship.format = "$cwd $model $context $username $time $session_duration $os";
+		starship.compactFormat = "$model$wrap$context$wrap$extensions";
+		starship.segments.modelInfo = false;
+		const before = structuredClone(current);
+		const forbidden = () => {
+			throw new Error("sample touched live environment");
+		};
+		const spies = [
+			vi.spyOn(footerModule, "installFooter").mockImplementation(forbidden),
+			vi.spyOn(formatModule, "formatUsernameHostLabel").mockImplementation(forbidden),
+			vi.spyOn(formatModule, "formatTimeLabel").mockImplementation(forbidden),
+			vi.spyOn(formatModule, "buildSessionDurationLabel").mockImplementation(forbidden),
+			vi.spyOn(globalThis, "setTimeout").mockImplementation(forbidden),
+			vi.spyOn(globalThis, "setInterval").mockImplementation(forbidden),
+		];
+		try {
+			const rows = renderFooterSettingsPreview(current, theme(), 120);
+			const text = plain(rows);
+			expect(text).toContain("synthetic data");
+			expect(text).toContain("not active/installed UI");
+			expect(text).toContain("Custom wide format chooses variables");
+			expect(text).toContain("compact chooses its own variables");
+			expect(text).toContain("sonnet-long-context-preview");
+			expect(text).toContain("94.2%");
+			expect(text).toContain("checks passed");
+			expect(text).toContain("review pending");
+			expect(current).toEqual(before);
+			expect(rows).toEqual(renderFooterSettingsPreview(current, theme(), 120));
+			for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+	});
+	it.each(["theme", "terminal"] as const)(
+		"honors %s source, local overrides, and shared inheritance",
+		(source) => {
+			const current = config();
+			current.components.footer.colorSource = source;
+			current.components.footer.styles.starship.format = "$cwd";
+			current.components.footer.styles.starship.responsive = false;
+			current.colors.cwd = "green";
+			const shared = renderFooterSettingsPreview(current, theme(), 120);
+			current.components.footer.colors = { cwd: "red" };
+			const local = renderFooterSettingsPreview(current, theme(), 120);
+			expect(local).not.toEqual(shared);
+			expect(plain(local)).toContain("compactFormat is inactive");
+			current.colors.cwd = "red";
+			delete current.components.footer.colors.cwd;
+			expect(renderFooterSettingsPreview(current, theme(), 120)).toEqual(local);
+		},
+	);
+	it.each(["native", "hidden"] as const)(
+		"explains %s without constructing or installing a Footer",
+		(style) => {
+			const current = config();
+			current.components.footer.style = style;
+			const create = vi.spyOn(footerModule, "createFooterFactory");
+			try {
+				const text = plain(renderFooterSettingsPreview(current, theme(), 120));
+				expect(create).not.toHaveBeenCalled();
+				if (style === "native") {
+					expect(text).toContain("unowned");
+					expect(text).toContain("no native renderer");
+				} else expect(text).toContain("zero Footer rows");
+			} finally {
+				create.mockRestore();
+			}
+		},
+	);
 });

@@ -5,6 +5,7 @@ import {
 	fillTerminalLine,
 	renderCompletionRows,
 } from "./completion-menu";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style";
@@ -69,7 +70,7 @@ export function renderAccentRailEditorFrame({
 	const rail = renderStyleForSourceOrFallback(
 		uiTheme,
 		config.components.editor.colorSource,
-		config.colors.editorRail,
+		componentColor(config, "editor", "rail"),
 		ACCENT_RAIL_FALLBACK,
 		selectedRail(config),
 	);

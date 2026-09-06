@@ -8,11 +8,15 @@ const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-behavior-compatibility-"));
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("Run through npm run test:behavior-compatibility");
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.84.0", "0.85.1"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.80.5", "0.84.0", "0.85.1"];
 const packages = ["pi-ai", "pi-coding-agent", "pi-tui"];
 const tests = [
 	"editor-mouse.test.ts",
 	"user-message-native.test.ts",
+	"user-message-native-reduced-capabilities.test.ts",
+	"settings-command.test.ts",
+	"settings-keys.test.ts",
+	"settings-list-selection.test.ts",
 	"user-message-styles.test.ts",
 	"user-message-osc.test.ts",
 	"runtime.test.ts",

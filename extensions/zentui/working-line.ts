@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { workingLineColor } from "./component-colors";
 import type {
 	ColorSpec,
 	PolishedTuiColors,
@@ -379,17 +380,6 @@ export function remapWorkingLineTextTick(
 	);
 }
 
-function styleForTier(colors: PolishedTuiColors, tier: Tier): ColorSpec | undefined {
-	switch (tier) {
-		case "low":
-			return colors.workingLineLow;
-		case "mid":
-			return colors.workingLineMid;
-		case "high":
-			return colors.workingLineHigh;
-	}
-}
-
 /** Normalize only Working-line palette specs before they are repeated across generated frames. */
 export function normalizeWorkingLineStyleSpec(value: ColorSpec | undefined): ColorSpec | undefined {
 	if (value === undefined) return undefined;
@@ -426,7 +416,7 @@ function renderTier(
 	return renderStyleForSourceOrFallback(
 		theme,
 		config.colorSource,
-		normalizeWorkingLineStyleSpec(styleForTier(colors, tier)),
+		normalizeWorkingLineStyleSpec(workingLineColor(config, colors, tier)),
 		WORKING_LINE_FALLBACKS[tier],
 		text,
 	);
@@ -457,7 +447,7 @@ export function snapshotWorkingLineHighStyle(
 	const rendered = renderWorkingLineHigh(
 		theme,
 		config.colorSource,
-		colors.workingLineHigh,
+		workingLineColor(config, colors, "high"),
 		sentinel,
 	);
 	const position = rendered.indexOf(sentinel);
@@ -1244,15 +1234,19 @@ export class WorkingLineController {
 			config.spinner,
 			config.spinnerIntervalMs,
 			...(config.textAnimation === "disabled"
-				? [config.textAnimation, config.colorSource, rootConfig.colors.workingLineMid]
+				? [
+						config.textAnimation,
+						config.colorSource,
+						workingLineColor(config, rootConfig.colors, "mid"),
+					]
 				: [
 						config.textIntervalMs,
 						config.textAnimation,
 						config.animateSpinnerColor,
 						config.colorSource,
-						rootConfig.colors.workingLineLow,
-						rootConfig.colors.workingLineMid,
-						rootConfig.colors.workingLineHigh,
+						workingLineColor(config, rootConfig.colors, "low"),
+						workingLineColor(config, rootConfig.colors, "mid"),
+						workingLineColor(config, rootConfig.colors, "high"),
 					]),
 			row,
 		]);

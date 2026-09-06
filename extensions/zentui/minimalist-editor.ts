@@ -1,6 +1,7 @@
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
@@ -106,23 +107,38 @@ function joinStyled(parts: string[], separator: string): string {
 function thinkingStyle(config: ZentuiConfig, level: string): string | undefined {
 	switch (level.toLowerCase()) {
 		case "minimal":
-			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMinimal") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "low":
-			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingLow") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "medium":
-			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMedium") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "high":
-			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingHigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "xhigh":
-			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "max":
 			return (
-				config.colors.editorThinkingMax ??
-				config.colors.editorThinkingXhigh ??
-				config.colors.editorThinking
+				componentColor(config, "editor", "thinkingMax") ??
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
 			);
 		default:
-			return config.colors.editorThinking;
+			return componentColor(config, "editor", "thinking");
 	}
 }
 
@@ -154,7 +170,7 @@ function renderTopLeft(
 				? renderStyleForSourceOrFallback(
 						uiTheme,
 						source,
-						config.colors.sessionDuration,
+						componentColor(config, "editor", "sessionDuration"),
 						EDITOR_ACCENT_FALLBACK,
 						duration,
 					)
@@ -165,7 +181,14 @@ function renderTopLeft(
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
 	if (config.components.editor.styles.minimalist.showSessionName && sessionName) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.sessionName, sessionName));
+		parts.push(
+			renderStyleForSource(
+				uiTheme,
+				source,
+				componentColor(config, "editor", "sessionName"),
+				sessionName,
+			),
+		);
 	}
 	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
 }
@@ -187,7 +210,9 @@ function renderTopRight(
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";
 	if (cost) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.cost, cost));
+		parts.push(
+			renderStyleForSource(uiTheme, source, componentColor(config, "editor", "cost"), cost),
+		);
 	}
 	const model = sanitizeEditorMetadataText(metadata.modelLabel ?? "");
 	if (model) {
@@ -195,7 +220,7 @@ function renderTopRight(
 			renderStyleForSourceOrFallback(
 				uiTheme,
 				source,
-				config.colors.editorModel,
+				componentColor(config, "editor", "model"),
 				MINIMALIST_MODEL_FALLBACK,
 				model,
 			),
@@ -213,10 +238,10 @@ function renderTopRight(
 		);
 		const style =
 			tier === "error"
-				? config.colors.contextError
+				? componentColor(config, "editor", "contextError")
 				: tier === "warning"
-					? config.colors.contextWarning
-					: config.colors.contextNormal;
+					? componentColor(config, "editor", "contextWarning")
+					: componentColor(config, "editor", "contextNormal");
 		const total =
 			config.components.editor.styles.minimalist.contextFormat === "percent-total" &&
 			metadata.contextWindow !== undefined &&
@@ -266,14 +291,16 @@ function renderBottomLeft(
 				renderStyleForSourceOrFallback(
 					uiTheme,
 					source,
-					config.colors.editorGitBranch,
+					componentColor(config, "editor", "gitBranch"),
 					MINIMALIST_BRANCH_FALLBACK,
 					branch,
 				),
 			]
 		: [];
 	if (metadata.dirty) {
-		parts.push(renderStyleForSource(uiTheme, source, config.colors.gitStatus, "*"));
+		parts.push(
+			renderStyleForSource(uiTheme, source, componentColor(config, "editor", "gitStatus"), "*"),
+		);
 	}
 	if ((metadata.ahead ?? 0) > 0) {
 		parts.push(safeThemeFg(uiTheme, "success", `↑${metadata.ahead}`));
@@ -306,7 +333,12 @@ function renderBottomRight(
 ): string {
 	const cwd = sanitizeEditorMetadataText(minimalistCwdLabel(metadata, config));
 	return cwd
-		? renderStyleForSource(uiTheme, config.components.editor.colorSource, config.colors.cwd, cwd)
+		? renderStyleForSource(
+				uiTheme,
+				config.components.editor.colorSource,
+				componentColor(config, "editor", "cwd"),
+				cwd,
+			)
 		: "";
 }
 
@@ -400,7 +432,7 @@ export function renderMinimalistFrame({
 		renderStyleForSourceOrFallback(
 			uiTheme,
 			source,
-			config.colors.editorBorder,
+			componentColor(config, "editor", "border"),
 			EDITOR_BORDER_FALLBACK,
 			text,
 		);

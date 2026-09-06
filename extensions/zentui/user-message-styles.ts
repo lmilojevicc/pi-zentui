@@ -5,6 +5,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -92,7 +93,7 @@ function accent(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 		? renderStyleForSourceOrFallbackStrict(
 				theme,
 				config.components.userMessages.colorSource,
-				config.colors.editorAccent,
+				componentColor(config, "userMessages", "accent"),
 				EDITOR_ACCENT_FALLBACK,
 				text,
 			)
@@ -104,7 +105,7 @@ function border(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 		? renderStyleForSourceOrFallbackStrict(
 				theme,
 				config.components.userMessages.colorSource,
-				config.colors.editorBorder,
+				componentColor(config, "userMessages", "border"),
 				EDITOR_BORDER_FALLBACK,
 				text,
 			)
@@ -192,27 +193,29 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 			return [
 				"framed",
 				messages.colorSource,
-				config.colors.editorAccent ?? "",
-				config.colors.editorBorder ?? "",
+				componentColor(config, "userMessages", "accent") ?? "<inherit>",
+				componentColor(config, "userMessages", "border") ?? "<inherit>",
 				config.icons.rail,
 			].join("\0");
 		case "framed-copy-friendly":
-			return ["framed-copy-friendly", messages.colorSource, config.colors.editorBorder ?? ""].join(
-				"\0",
-			);
+			return [
+				"framed-copy-friendly",
+				messages.colorSource,
+				componentColor(config, "userMessages", "border") ?? "<inherit>",
+			].join("\0");
 		case "compact":
 			return [
 				"compact",
 				messages.colorSource,
-				config.colors.editorAccent ?? "",
+				componentColor(config, "userMessages", "accent") ?? "<inherit>",
 				config.icons.rail,
 			].join("\0");
 		case "labeled":
 			return [
 				"labeled",
 				messages.colorSource,
-				config.colors.editorAccent ?? "",
-				config.colors.editorBorder ?? "",
+				componentColor(config, "userMessages", "accent") ?? "<inherit>",
+				componentColor(config, "userMessages", "border") ?? "<inherit>",
 				"User:v1",
 			].join("\0");
 	}

@@ -69,7 +69,7 @@ User config is created at:
 ~/.pi/agent/zentui.json
 ```
 
-Use `colors` for Starship-style color strings, hex/256-color values, or Pi theme tokens. Canonical color-source ownership is independent through `components.editor.colorSource`, `components.userMessages.colorSource`, `components.selectorBorders.colorSource`, and `components.footer.colorSource`. `/zentui` exposes separate controls for Editor, previous User messages, selector borders, and—while Starship is selected—the Footer; changing one does not change the others.
+Use sparse `components.<owner>.colors` for owner-local Starship-style strings, hex/256-color values, or Pi theme tokens; shared `colors` remain historical fallbacks. Reset deletes an override to resume inheritance. Ordinary saves snapshot only the edited owner. `/zentui migrate` is the separate confirmed all-owner selection snapshot; it never disables shared color inheritance or copies generated palettes. Canonical color-source ownership is independent through `components.editor.colorSource`, `components.userMessages.colorSource`, `components.selectorBorders.colorSource`, and `components.footer.colorSource`. `/zentui` exposes separate controls for Editor, previous User messages, selector borders, and—while Starship is selected—the Footer; changing one does not change the others.
 
 ## Things to preserve
 
