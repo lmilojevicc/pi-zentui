@@ -91,7 +91,7 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer` or `/zentui git`). Inactive options retain their saved preferences. Footer samples use the production renderer at 40/60/80/120 columns when the terminal has room, with synthetic data—not installed UI. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, Segments, Git, and Extensions. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer` or `/zentui git`). Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json

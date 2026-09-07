@@ -73,7 +73,6 @@ import { settingsKeys } from "./settings-keys";
 import { selectOwnedSetting } from "./settings-list-selection";
 import {
 	renderEditorSettingsPreview,
-	renderFooterSettingsPreview,
 	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
@@ -2018,11 +2017,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								);
 								const height = tui.terminal?.rows ?? 80;
 								const help = keys.help(width).map((line) => safeThemeFg(theme, "muted", line));
-								const preferredVisible = activeSection === "footer" && height < 36 ? 4 : 8;
-								const nextVisible = Math.max(
-									1,
-									Math.min(preferredVisible, height - help.length - 8),
-								);
+								const nextVisible = Math.max(1, Math.min(8, height - help.length - 8));
 								if (nextVisible !== listVisible) {
 									listVisible = nextVisible;
 									settingsList = makeSettingsList(currentItems[selectedIndex]?.id);
@@ -2033,19 +2028,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								while (settingsRows.length && visibleWidth(settingsRows.at(-1) ?? "") === 0)
 									settingsRows.pop();
 								const bodyBudget = Math.max(1, height - 4 - help.length);
-								const previewRows =
-									activeSection === "footer"
-										? renderFooterSettingsPreview(
-												deps.getConfig(),
-												theme,
-												width,
-												bodyBudget - settingsRows.length - 2,
-											)
-										: renderPreviewRows(Math.max(0, width - 4));
+								const previewRows = renderPreviewRows(Math.max(0, width - 4));
 								while (previewRows.length > 0 && visibleWidth(previewRows.at(-1) ?? "") === 0)
 									previewRows.pop();
 								const indentedPreviewRows = previewRows.map((line) =>
-									truncateToWidth(activeSection === "footer" ? line : `  ${line}`, width, ""),
+									truncateToWidth(`  ${line}`, width, ""),
 								);
 								const showPreview =
 									indentedPreviewRows.length + 2 + settingsRows.length <= bodyBudget;

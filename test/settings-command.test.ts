@@ -1387,7 +1387,7 @@ describe("component-oriented /zentui settings", () => {
 		},
 	);
 
-	it.each(["Appearance", "Segments", "Git", "Extensions"] as const)(
+	it.each(["Appearance", "Footer", "Segments", "Git", "Extensions"] as const)(
 		"does not add preview spacer rows in %s",
 		async (section) => {
 			const harness = createHarness();
@@ -1462,12 +1462,22 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		expect(vi.getTimerCount()).toBe(0);
 		component.handleInput("\t");
-		expect(component.render(100).join("\n")).toContain("Thinking");
+		expectStackedPreview(component.render(100), "Verify compatibility");
 		component.handleInput("\t");
 		const workingRows = component.render(100);
 		expectStackedPreview(workingRows, "Sautéing…");
 		component.handleInput("\t");
-		expect(component.render(100).join("\n")).toContain("Sample · 80 columns");
+		expect(harness.config.components.footer.style).toBe("starship");
+		for (const width of [40, 60, 80, 120, 160]) {
+			const rows = component.render(width);
+			expect(rows[3]).toContain("> Footer style");
+			expect(rows.join("\n")).not.toMatch(/samples?|synthetic|sonnet-long-context-preview/i);
+		}
+		expect(row(component, "Footer colors")).toContain("theme");
+		component.handleInput(" ");
+		expect(harness.calls.footer).toEqual([{ colorSource: "terminal" }]);
+		for (const label of ["Footer model label", "Responsive footer", "Color overrides"])
+			expect(row(component, label)).toContain(`> ${label}`);
 		component.handleInput("\t");
 		for (const section of ["Segments", "Git", "Extensions"] as const) {
 			expect(leadingEmptyRowCount(component.render(100)), section).toBe(0);
@@ -2211,7 +2221,7 @@ describe("settings clarity and navigation", () => {
 			if (!component) throw new Error("No panel");
 			for (let i = 0; i < 12; i++) {
 				const rows = component.render(40);
-				if (height === 24 && i === 0) expect(rows.join("\n")).toContain("Synthetic sample");
+				expect(rows.join("\n")).not.toMatch(/samples?|synthetic/i);
 				expect(rows.length).toBeLessThanOrEqual(height);
 				expect(rows.every((row) => visibleWidth(row) <= 40)).toBe(true);
 				const text = rows.join("\n");

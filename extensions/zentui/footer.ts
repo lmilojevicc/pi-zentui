@@ -181,7 +181,7 @@ function composeFooterContent(
 	return `${left}${" ".repeat(leftPadding)}${middle}${" ".repeat(rightPadding)}${right}`;
 }
 
-export function createFooterFactory(
+export function installFooter(
 	ctx: ExtensionContext,
 	state: FooterState,
 	getConfig: () => ZentuiConfig,
@@ -192,16 +192,9 @@ export function createFooterFactory(
 		getLiveContext?: () => LiveContextOverride | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
-		/** Inject ambient labels for deterministic, probe-free samples. */
-		ambientLabels?: {
-			sessionDuration: string;
-			username: (icon: string) => string;
-			time: (icon: string) => string;
-			os: (icon: string, mode: ZentuiConfig["icons"]["mode"]) => string;
-		};
 	},
-): NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> {
-	return (tui, theme, footerData) => {
+): void {
+	ctx.ui.setFooter((tui, theme, footerData) => {
 		hooks.setRequestRender(() => tui.requestRender());
 		hooks.setExtensionStatusesGetter?.(() => footerData.getExtensionStatuses());
 		const unsubscribeBranch = footerData.onBranchChange(() => {
@@ -433,8 +426,7 @@ export function createFooterFactory(
 										theme,
 										colorSource,
 										componentColor(config, "footer", "sessionDuration"),
-										hooks.ambientLabels?.sessionDuration ??
-											buildSessionDurationLabel(state.sessionStartEpoch),
+										buildSessionDurationLabel(state.sessionStartEpoch),
 									)
 								: "";
 						case "username":
@@ -442,21 +434,21 @@ export function createFooterFactory(
 								theme,
 								colorSource,
 								componentColor(config, "footer", "username"),
-								(hooks.ambientLabels?.username ?? formatUsernameHostLabel)(config.icons.username),
+								formatUsernameHostLabel(config.icons.username),
 							);
 						case "os":
 							return renderStyleForSource(
 								theme,
 								colorSource,
 								componentColor(config, "footer", "os"),
-								(hooks.ambientLabels?.os ?? formatOsLabel)(config.icons.os, iconMode),
+								formatOsLabel(config.icons.os, iconMode),
 							);
 						case "time":
 							return renderStyleForSource(
 								theme,
 								colorSource,
 								componentColor(config, "footer", "time"),
-								(hooks.ambientLabels?.time ?? formatTimeLabel)(config.icons.time),
+								formatTimeLabel(config.icons.time),
 							);
 						case "context":
 							return renderStyleForSource(theme, colorSource, contextColor, contextLabel);
@@ -645,9 +637,7 @@ export function createFooterFactory(
 						!state.sessionStartEpoch
 					)
 						return "";
-					const timeLabel =
-						hooks.ambientLabels?.sessionDuration ??
-						buildSessionDurationLabel(state.sessionStartEpoch);
+					const timeLabel = buildSessionDurationLabel(state.sessionStartEpoch);
 					const prefix = renderStyleForSource(theme, colorSource, "", "up for");
 					const time = renderStyleForSource(
 						theme,
@@ -662,7 +652,7 @@ export function createFooterFactory(
 							theme,
 							colorSource,
 							componentColor(config, "footer", "username"),
-							(hooks.ambientLabels?.username ?? formatUsernameHostLabel)(config.icons.username),
+							formatUsernameHostLabel(config.icons.username),
 						)
 					: "";
 				const osSegment = config.components.footer.styles.starship.segments.os
@@ -670,7 +660,7 @@ export function createFooterFactory(
 							theme,
 							colorSource,
 							componentColor(config, "footer", "os"),
-							(hooks.ambientLabels?.os ?? formatOsLabel)(config.icons.os, iconMode),
+							formatOsLabel(config.icons.os, iconMode),
 						)
 					: "";
 				const left = [
@@ -701,7 +691,7 @@ export function createFooterFactory(
 							theme,
 							colorSource,
 							componentColor(config, "footer", "time"),
-							(hooks.ambientLabels?.time ?? formatTimeLabel)(config.icons.time),
+							formatTimeLabel(config.icons.time),
 						)
 					: "";
 				const builtInContextLabel = [
@@ -886,11 +876,7 @@ export function createFooterFactory(
 				);
 			},
 		};
-	};
-}
-
-export function installFooter(...args: Parameters<typeof createFooterFactory>): void {
-	args[0].ui.setFooter(createFooterFactory(...args));
+	});
 }
 
 export function installHiddenFooter(ctx: ExtensionContext, onDispose?: () => void): void {
