@@ -604,3 +604,31 @@ Canonical `components` paths are the primary JSON interface. Component saves mat
 - Missing, empty, or malformed style values continue default and legacy migration behavior.
 
 The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output as of v0.20.2. They remain available throughout the 0.x release line; any removal requires a documented breaking release. This output deprecation is separate from accepted legacy flat JSON input.
+
+
+## Optional subagent summary
+
+The package includes an independent, disabled-by-default summary for
+[nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents).
+Enable it with `/zentui-subagents on`; disable it with `/zentui-subagents off`.
+The command saves `{ "enabled": true }` or `{ "enabled": false }` in
+`<getAgentDir()>/zentui-subagents.json`. Unknown settings are preserved; invalid
+settings are not overwritten. Other Zentui components are unaffected.
+
+When enabled, a passive widget above the editor shows up to six task/step rows
+with labels, owner-reported states, and current tools. Use the owner's
+`/subagents-fleet` command for details and task management. No mouse capture,
+terminal input listener, transcript reader, or task-control action is installed.
+
+The adapter uses only the versioned `subagents:rpc:v1` status request and
+`pi-subagents.async-status-snapshot` v1 response (checked against Nico 0.65.1).
+It is not a Tintin/pi-subagents adapter. Only entries published in the owner's
+bounded async snapshot are available; this is not a complete foreground task
+registry. The summary polls serially every 1.5 seconds after each request,
+with a 2.5-second request timeout. Unavailable or incompatible responses hide
+the summary, and unchanged snapshots do not repaint. Session replacement,
+shutdown, and disabling cancel reads, timers, and the owned widget. Child Pi
+processes marked `PI_SUBAGENT_CHILD=1` do not start the summary.
+
+Validation includes mocked protocol/lifecycle tests; live terminal acceptance
+with real background tasks remains separate from those checks.
