@@ -687,7 +687,7 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 6; index++) component.handleInput?.("\t");
 			for (let index = 0; index < 3; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
@@ -782,7 +782,7 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+			for (let index = 0; index < 6; index++) component.handleInput?.("\t");
 			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});

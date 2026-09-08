@@ -51,6 +51,7 @@ import {
 	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
+	saveSubagentSummaryComponentPatch,
 	saveThinkingStepsComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
@@ -93,6 +94,7 @@ import { installSelectorBorderStyle, removeSelectorBorderStyle } from "./selecto
 import { SessionLifecycle } from "./session-lifecycle";
 import { registerZentuiSettingsCommand } from "./settings-command";
 import { createInitialState, type FooterState, modelLabelFor, syncState } from "./state";
+import { SubagentSummaryController } from "./subagent-summary";
 import { resolveFooterTelemetry } from "./telemetry";
 import { ThinkingExperimentalController } from "./thinking-experimental";
 import { PolishedEditor, WrappedPolishedEditor } from "./ui";
@@ -290,6 +292,10 @@ export default function (pi: ExtensionAPI) {
 	};
 	const thinkingExperimental = new ThinkingExperimentalController(
 		() => currentConfig.components.thinkingSteps,
+	);
+	const subagentSummary = new SubagentSummaryController(
+		pi,
+		() => currentConfig.components.subagentSummary.enabled,
 	);
 	const thinkingStepsCapability = {
 		get state() {
@@ -1180,6 +1186,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const lifecycleGeneration = sessionLifecycle.start();
+		subagentSummary.dispose();
 		// A new generation must not expose or route extension segments through the previous
 		// session while asynchronous TUI startup is still pending.
 		workingLineSessionReady = false;
@@ -1210,6 +1217,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
+		subagentSummary.startSession(ctx);
 		liveContext.clear();
 		interactionMetrics.shutdown();
 		workingLineExtensions.invalidate();
@@ -1252,6 +1260,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		migrateSelections(ctx) {
 			currentConfig = migrateComponentSelections();
+			subagentSummary.reconcile();
 			if (!isTuiContext(ctx)) return;
 			activeTheme = ctx.ui.theme;
 			reconcileEditor(ctx);
@@ -1325,6 +1334,12 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveUserMessagesComponentPatch(patch);
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
+		},
+		subagentSummaryCapability: subagentSummary,
+		setSubagentSummaryEnabled(enabled) {
+			return subagentSummary.setEnabled(enabled, () => {
+				currentConfig = saveSubagentSummaryComponentPatch({ enabled });
+			});
 		},
 		thinkingStepsCapability,
 		setThinkingStepsComponent(
@@ -1423,6 +1438,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		workingLineSessionReady = false;
+		subagentSummary.dispose();
 		thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
@@ -1527,6 +1543,7 @@ export default function (pi: ExtensionAPI) {
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("session_tree", (event, ctx) => {
+		if (sessionLifecycle.isCurrent()) subagentSummary.resetTree();
 		liveContext.clear();
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});

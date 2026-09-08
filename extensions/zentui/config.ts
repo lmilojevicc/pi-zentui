@@ -269,7 +269,12 @@ export type ThinkingStepsComponentConfig = {
 	mode: ThinkingStepsMode;
 };
 
+export type SubagentSummaryComponentConfig = {
+	enabled: boolean;
+};
+
 export type ComponentsConfig = {
+	subagentSummary: SubagentSummaryComponentConfig;
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
 	thinkingSteps: ThinkingStepsComponentConfig;
@@ -494,6 +499,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 };
 
 const defaultComponents: ComponentsConfig = {
+	subagentSummary: { enabled: false },
 	editor: {
 		enabled: true,
 		style: "opencode",
@@ -1213,6 +1219,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessageStyles = recordValue(userMessages.styles);
 	const framed = recordValue(userMessageStyles.framed);
 	const thinkingSteps = recordValue(components.thinkingSteps);
+	const subagentSummary = recordValue(components.subagentSummary);
 	const workingLine = recordValue(components.workingLine);
 	const workingLineMessages = recordValue(workingLine.messages);
 	const workingLineSegments = recordValue(workingLine.segments);
@@ -1326,6 +1333,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				labeled: {},
 			},
 		},
+		subagentSummary: { enabled: parseBoolean(subagentSummary.enabled, false) },
 		thinkingSteps: {
 			enabled: parseBoolean(thinkingSteps.enabled, defaultComponents.thinkingSteps.enabled),
 			mode:
@@ -1819,6 +1827,19 @@ export function saveUserMessagesComponentPatch(
 	);
 }
 
+export function saveSubagentSummaryComponentPatch(
+	patch: Partial<SubagentSummaryComponentConfig>,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["subagentSummary"],
+		(components) => {
+			if (patch.enabled !== undefined) components.subagentSummary.enabled = patch.enabled;
+		},
+		path,
+	);
+}
+
 export function saveThinkingStepsComponentPatch(
 	patch: Partial<ThinkingStepsComponentConfig>,
 	path = configPath,
@@ -2246,7 +2267,15 @@ export function saveExtensionStatusColorMode(
 /** Explicit all-owner migration; callers must obtain confirmation before invoking. */
 export function migrateComponentSelections(path = configPath): PolishedTuiConfig {
 	return saveComponentsMutation(
-		["editor", "userMessages", "thinkingSteps", "workingLine", "selectorBorders", "footer"],
+		[
+			"editor",
+			"userMessages",
+			"thinkingSteps",
+			"workingLine",
+			"subagentSummary",
+			"selectorBorders",
+			"footer",
+		],
 		() => {},
 		path,
 	);

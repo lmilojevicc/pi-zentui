@@ -78,6 +78,7 @@ import {
 	SETTINGS_PREVIEW_MAX_WIDTH,
 } from "./settings-previews";
 import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
+import type { SubagentSummaryState } from "./subagent-summary";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import {
 	buildWorkingLinePreviewFrames,
@@ -168,6 +169,7 @@ const settingsSections = [
 	"userMessages",
 	"thinkingSteps",
 	"workingLine",
+	"subagents",
 	"footer",
 ] as const;
 const footerPages = ["segments", "git", "extensions"] as const;
@@ -258,6 +260,8 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	subagentSummaryCapability: Readonly<{ state: SubagentSummaryState }>;
+	setSubagentSummaryEnabled: (enabled: boolean, ctx: ExtensionContext) => ApplyResult;
 	thinkingStepsCapability: ThinkingStepsSettingsCapability;
 	setThinkingStepsComponent: (
 		patch: Partial<ThinkingStepsComponentConfig>,
@@ -299,6 +303,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	userMessages: "User messages",
 	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
+	subagents: "Subagents",
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
@@ -359,6 +364,7 @@ const sectionRoutes: Record<string, SettingsSection> = {
 	thinking: "thinkingSteps",
 	"thinking-steps": "thinkingSteps",
 	"working-line": "workingLine",
+	subagents: "subagents",
 	footer: "footer",
 	statusline: "footer",
 	status: "footer",
@@ -524,7 +530,7 @@ function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|subagents|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -1109,6 +1115,7 @@ function buildSectionItems(
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
 	thinkingStepsCapability: ThinkingStepsSettingsCapability,
+	subagentSummaryState: SubagentSummaryState,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -1131,6 +1138,16 @@ function buildSectionItems(
 			return buildUserMessagesItems(config);
 		case "thinkingSteps":
 			return buildThinkingStepsItems(config, thinkingStepsCapability);
+		case "subagents":
+			return [
+				{
+					id: "subagentSummaryEnabled",
+					label: "Subagent summary",
+					currentValue: featureValue(config.components.subagentSummary.enabled),
+					values: featureStateValues,
+					description: `Saved: ${featureValue(config.components.subagentSummary.enabled)}. Effective: ${subagentSummaryState.effectiveEnabled ? "enabled" : "disabled"}. ${subagentSummaryState.status}. Passive Nico async status above the editor; no extra AI. Requires a non-child TUI with ctx.mode = tui; unavailable mode fails closed. Timeouts do not prove the provider is absent. Preview users must explicitly re-enable here; zentui-subagents.json is untouched.`,
+				},
+			];
 		case "workingLine":
 			return buildWorkingLineItems(config);
 		case "footer":
@@ -1255,6 +1272,27 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 		deps.setFooterComponent(patch, ctx);
 	};
 
+	const setSubagents = (enabled: boolean, ctx: ExtensionContext) => {
+		const result = deps.setSubagentSummaryEnabled(enabled, ctx);
+		if (ctx.hasUI)
+			ctx.ui.notify(
+				`Subagent summary: ${result.applied ? featureValue(enabled) : "change not saved"}${result.reason ? ` (${result.reason})` : ""}`,
+				result.applied && !result.reason ? "info" : "warning",
+			);
+		return result;
+	};
+	pi.registerCommand("zentui-subagents", {
+		description: "Enable or disable the optional subagent summary (on/off)",
+		handler: async (args, ctx) => {
+			if (!deps.sessionLifecycle.isCurrent()) return;
+			if (args.trim() !== "on" && args.trim() !== "off") {
+				if (ctx.hasUI) ctx.ui.notify("Usage: /zentui-subagents on|off", "info");
+				return;
+			}
+			setSubagents(args.trim() === "on", ctx);
+		},
+	});
+
 	const applyPreset = (id: PresetId, ctx: ExtensionContext) => {
 		try {
 			const result = deps.applyPreset(id, ctx);
@@ -1357,7 +1395,17 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 				if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
 				return;
 			}
-			const mode = (ctx as typeof ctx & { mode?: string }).mode;
+			let mode: string | undefined;
+			try {
+				mode = (ctx as typeof ctx & { mode?: string }).mode;
+			} catch {
+				if (ctx.hasUI && initialSection === "subagents")
+					ctx.ui.notify(
+						"Subagent summary requires a non-child TUI context with readable ctx.mode = tui; unsupported context.",
+						"warning",
+					);
+				return;
+			}
 			if (!ctx.hasUI || (mode !== undefined && mode !== "tui")) return;
 
 			let requestedSection = initialSection ?? "appearance";
@@ -1507,6 +1555,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								deps.getConfig(),
 								deps.getActiveExtensionStatuses(),
 								deps.thinkingStepsCapability,
+								deps.subagentSummaryCapability.state,
 							);
 							const colorOwner =
 								activeSection === "appearance"
@@ -1717,6 +1766,12 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											setMessages({ colorSource: newValue }, ctx);
 											settingsList.updateValue(id, newValue);
 											notifyChange("Message colors", newValue);
+											return;
+										}
+										if (id === "subagentSummaryEnabled" && enabled !== undefined) {
+											setSubagents(enabled, ctx);
+											settingsList = makeSettingsList(id);
+											tui.requestRender();
 											return;
 										}
 										if (id === "thinkingStepsEnabled" && enabled !== undefined) {
@@ -2069,6 +2124,8 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						return {
 							render(width: number) {
 								if (width <= 0) return [];
+								// Provider status is read-only and can change between settings renders.
+								if (activeSection === "subagents") settingsList = makeSettingsList();
 								const border = renderStyleForSourceOrFallback(
 									theme,
 									deps.getConfig().components.selectorBorders.colorSource,

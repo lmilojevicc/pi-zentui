@@ -20,9 +20,10 @@ Zentui gives Pi surfaces independently selectable treatments:
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
 - **Thinking (Experimental)** — optional Rail, Tree, or Streaming private thinking renderers, without owning the Working line
 - **Working line** — optional ownership of Pi's complete in-progress row and settled turn summary
+- **Subagents** — optional passive Nico async summary above the editor; no extra AI
 - **Footer** — Pi's native Footer, a Starship-style statusline, or a hidden zero-row Footer
 
-Editor, User messages, Thinking (Experimental), Working line, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
+Editor, User messages, Thinking (Experimental), Working line, Subagents, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
 ## Highlights
 
@@ -32,6 +33,7 @@ Editor, User messages, Thinking (Experimental), Working line, and selector borde
 | User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
 | Thinking (Experimental) | disabled (`tree`) | Rail, Tree, Streaming |
 | Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
+| Subagents | disabled | Passive Nico async status, six data rows, 10-second terminal retention |
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
 
@@ -91,11 +93,24 @@ pi install git:github.com/lmilojevicc/pi-zentui
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, and Footer. With Starship selected, Footer contains **Segments →**, **Git →**, and **Extension statuses →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments`, `/zentui git`, and `/zentui extensions` open the Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation, without changing style or saved preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Subagents, and Footer. With Starship selected, Footer contains **Segments →**, **Git →**, and **Extension statuses →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments`, `/zentui git`, and `/zentui extensions` open the Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation, without changing style or saved preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json
 ```
+
+### Optional Subagents
+
+Use `/zentui subagents` or `/zentui-subagents on|off` for the independent, default-off
+Nico async summary. It reads local status only; no extra AI calls or conversation
+context. Six data rows prioritize active runs and fairly distribute immediate steps;
+recent terminal rows remain for 10 seconds, and overflow points to `/subagents-fleet`.
+This is not Tintin support or a complete foreground registry; upstream caps may
+exclude active tasks. TUI mode is required. See [provider limitations and lifecycle](docs/configuration.md#optional-subagent-summary).
+
+**Preview users must explicitly re-enable** in the canonical menu or alias.
+Zentui never reads/imports/deletes/rewrites the unshipped `zentui-subagents.json`.
+Only `components.subagentSummary.enabled` in `zentui.json` is saved.
 
 ### Component presets
 
@@ -108,13 +123,13 @@ Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
 | `rail` | Accent Rail | Starship | Compact (accent rail) |
 | `minimalist` | Minimalist | Hidden (zero rows) | Zentui styling disabled |
 
-Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
+Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, Subagents, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses the Footer; it is not Native.
 
 The displayed preset is derived from your current selections: individual changes may show **Custom**, and returning to a matching combination restores its name. No `preset` config key is saved or reapplied at startup. Defaults are unchanged and match Opencode. Selecting a preset keeps settings open for further adjustments. Editor installation waits until the panel closes; if editor ownership prevents application, the saved choice may require reloading Pi.
 
 ### Minimal overrides
 
-Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line and Thinking (Experimental) remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons assume a Nerd Font without detecting one; ASCII changes icons, not the entire UI.
+Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line, Thinking (Experimental), and Subagents remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons assume a Nerd Font without detecting one; ASCII changes icons, not the entire UI.
 
 Change only what you need. For example, this changes only the Editor's accent:
 
