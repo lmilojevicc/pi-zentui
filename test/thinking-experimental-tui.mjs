@@ -247,21 +247,19 @@ function predecessorProbe(...args) {
 Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", { ...originalDescriptor, value: predecessorProbe });
 const nativeUpdate = predecessorProbe;
 const nativeDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
-const settingsInputDescriptor = Object.getOwnPropertyDescriptor(SettingsList.prototype, "handleInput");
-if (process.env.ZENTUI_DIRECT_RAIL === "1" && settingsInputDescriptor?.value) {
-	Object.defineProperty(SettingsList.prototype, "handleInput", {
-		...settingsInputDescriptor,
-		value: function directRailProbeInput(data) {
-			if (data === "\\x1c") {
-				const item = this.items?.[this.selectedIndex];
-				if (item?.currentValue === "Streaming" && item.values?.includes("Rail")) {
-					// Make one real SettingsList activation select Rail without notifying the
-					// controller about the intermediate cyclic Tree value.
-					item.currentValue = "Tree";
-					return Reflect.apply(settingsInputDescriptor.value, this, [" "]);
-				}
+const settingsRenderDescriptor = Object.getOwnPropertyDescriptor(SettingsList.prototype, "render");
+if (process.env.ZENTUI_DIRECT_RAIL === "1" && settingsRenderDescriptor?.value) {
+	Object.defineProperty(SettingsList.prototype, "render", {
+		...settingsRenderDescriptor,
+		value: function directRailProbeRender(...args) {
+			const item = this.items?.find((item) => item.id === "thinkingStepsMode");
+			if (item?.currentValue === "Streaming" && JSON.stringify(item.values) === JSON.stringify(["Streaming", "Tree", "Rail"])) {
+				// Reorder only this fixture's choices so one real panel Space activation
+				// selects Rail directly, without an intermediate Tree controller update.
+				// The panel owns activation; it no longer delegates SettingsList.handleInput.
+				item.values = ["Streaming", "Rail", "Tree"];
 			}
-			return Reflect.apply(settingsInputDescriptor.value, this, [data]);
+			return Reflect.apply(settingsRenderDescriptor.value, this, args);
 		},
 	});
 }
@@ -697,8 +695,8 @@ export default function (pi) {
 			}) + "\\n",
 		);
 		Object.defineProperty(AssistantMessageComponent.prototype, "updateContent", originalDescriptor);
-		if (settingsInputDescriptor)
-			Object.defineProperty(SettingsList.prototype, "handleInput", settingsInputDescriptor);
+		if (settingsRenderDescriptor)
+			Object.defineProperty(SettingsList.prototype, "render", settingsRenderDescriptor);
 	});
 }
 `;
@@ -997,11 +995,17 @@ try:
     transition_sequence = []
     structural_snapshots = []
 
+    def settings_section_ready(label, index, selected_label):
+        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer"
+        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/6)"
+        lines = screen.text().split("\n")
+        return header in lines and any(row.startswith("→ " + selected_label + " ") for row in lines)
+
     def switch_thinking_mode(action, expected_mode, expected_active, expected_row):
         os.write(master, b"/zentui\r")
-        pump_until(lambda: "Appearance (1/9)" in screen.text(), "settings open")
+        pump_until(lambda: settings_section_ready("Appearance", 1, "Preset"), "settings open")
         os.write(master, b"\t\t\t")
-        pump_until(lambda: "Thinking (Experimental) (4/9)" in screen.text(), "Thinking settings section")
+        pump_until(lambda: settings_section_ready("Thinking (Experimental)", 4, "Enabled") and "Mode     " in screen.text(), "Thinking settings section")
         os.write(master, b"\x1b[B")
         before = screen.text()
         previous = [value for value in ("Streaming", "Tree", "Rail") if "Mode     " + value in before]
@@ -1038,7 +1042,7 @@ try:
     elif environment.get("ZENTUI_DIRECT_RAIL") == "1":
         pump_until(lambda: os.path.exists(probe_path) and os.path.getsize(probe_path) > 0 and "__ZENTUI_EXPERIMENTAL_TRANSITION_START_52F0A8__" in screen.text() and "__ZENTUI_RESOURCES__ input=1 timer=1" in screen.text(), "direct Rail transition readiness")
         folded = screen.text()
-        rail_transition = switch_thinking_mode(b"\x1c", "Rail", "Rail", "│ • Live transition 6")
+        rail_transition = switch_thinking_mode(b" ", "Rail", "Rail", "│ • Live transition 6")
         os.write(master, b"\x04")
         pump_until(lambda: status is not None, "process exit")
     elif environment.get("ZENTUI_THINKING_MODE") in ("rail", "tree"):

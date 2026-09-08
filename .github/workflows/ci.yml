@@ -53,6 +53,27 @@ jobs:
       - name: Test all-mode experimental actual TUI compatibility
         run: timeout --signal=TERM --kill-after=30s 15m npm run test:thinking-experimental-tui
 
+  behavior-component-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Focused behavior coverage, not private-adapter or full-package certification.
+      - name: Test matched Pi 0.84.0 and 0.85.1 behavior components
+        run: npm run test:behavior-compatibility
+
   supported-pi-compatibility:
     runs-on: ubuntu-latest
     timeout-minutes: 20

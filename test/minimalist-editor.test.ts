@@ -806,3 +806,71 @@ describe("minimalist editor frame", () => {
 		},
 	);
 });
+
+describe("minimalist information survival", () => {
+	it.each([20, 30, 40, 60])("reserves 99%% after long metadata at width %i", (width) => {
+		const cfg = config();
+		cfg.components.editor.styles.minimalist.contextGauge = true;
+		cfg.components.editor.styles.minimalist.contextFormat = "percent-total";
+		const lines = renderMinimalistFrame({
+			width,
+			editorLines: ["!界🙂"],
+			inputText: "!界🙂",
+			uiTheme: theme(),
+			config: cfg,
+			metadata: {
+				cwd: "/project",
+				modelLabel: "界🙂".repeat(40),
+				costLabel: "$0.123",
+				thinkingLevel: "high",
+				contextPercent: 99,
+				contextWindow: 200_000,
+				sessionName: "long session ".repeat(10),
+				agentDurationMs: 12_000,
+				agentActive: true,
+			},
+		});
+		expect(lines[0]).toContain("99%");
+		expect(lines[0]).toContain("$");
+		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+	});
+	it("leaves exact wide order and configured visibility intact", () => {
+		const cfg = config();
+		cfg.components.editor.styles.minimalist.showCost = false;
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: ["draft"],
+			inputText: "draft",
+			uiTheme: theme(),
+			config: cfg,
+			metadata: {
+				cwd: "/project",
+				modelLabel: "model",
+				costLabel: "$0.123",
+				thinkingLevel: "high",
+				contextPercent: 99,
+			},
+		});
+		expect(lines[0]).toContain("model – high – 99%");
+		expect(lines[0]).not.toContain("$0.123");
+	});
+});
+
+it("fits long minimalist metadata without context rather than clearing both labels", () => {
+	const lines = renderMinimalistFrame({
+		width: 40,
+		editorLines: ["draft"],
+		inputText: "draft",
+		uiTheme: theme(),
+		config: config(),
+		metadata: {
+			cwd: "/project",
+			modelLabel: "model".repeat(40),
+			costLabel: "$0.123",
+			thinkingLevel: "high",
+		},
+	});
+	expect(lines[0]).toContain("$0.123");
+	expect(lines[0]).toContain("model");
+	expect(visibleWidth(lines[0])).toBe(40);
+});

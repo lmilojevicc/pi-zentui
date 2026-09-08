@@ -11,6 +11,7 @@ import {
 	markAccentRailLayoutEditor,
 	retainAccentRailLayoutPatchInstallation,
 } from "./accent-rail-layout-patch";
+import { componentColor } from "./component-colors";
 import {
 	type AccentRailEditorStyleConfig,
 	type ContextStyle,
@@ -29,6 +30,7 @@ import {
 	type IconMode,
 	loadConfig,
 	type MinimalistConfig,
+	migrateComponentSelections,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
 	type PolishedEditorStyleConfig,
@@ -36,6 +38,7 @@ import {
 	type SelectorBordersComponentConfig,
 	type SeparatorStyle,
 	saveAccentRailEditorStylePatch,
+	saveComponentColor,
 	saveComponentPreset,
 	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
@@ -196,7 +199,7 @@ export default function (pi: ExtensionAPI) {
 				{
 					...options,
 					colorSource: currentConfig.components.workingLine.colorSource,
-					workingLineHigh: currentConfig.colors.workingLineHigh,
+					workingLineHigh: componentColor(currentConfig, "workingLine", "high"),
 				},
 				theme,
 			),
@@ -1246,6 +1249,27 @@ export default function (pi: ExtensionAPI) {
 				applied: !result || result.ok,
 				reason: result && !result.ok ? result.reason : undefined,
 			};
+		},
+		migrateSelections(ctx) {
+			currentConfig = migrateComponentSelections();
+			if (!isTuiContext(ctx)) return;
+			activeTheme = ctx.ui.theme;
+			reconcileEditor(ctx);
+			reconcileUserMessages();
+			reconcileSelectorBorders();
+			reconcileFooter(ctx);
+			workingLine.reconcile(ctx);
+			thinkingExperimental.reconcile();
+			syncFooterState(ctx);
+			reconcileProjectRefresh(ctx);
+			reconcileSessionTimer();
+			reconcileAgentTimer();
+			refresh();
+		},
+		setComponentColor(owner, key, value, ctx) {
+			currentConfig = saveComponentColor(owner, key, value);
+			if (owner === "workingLine") workingLine.reconcile(ctx);
+			refresh();
 		},
 		reconcilePresetEditor(ctx) {
 			if (!isTuiContext(ctx) || !sessionLifecycle.isCurrent()) return { applied: true };

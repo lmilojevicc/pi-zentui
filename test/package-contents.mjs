@@ -16,6 +16,7 @@ const files = packages[0]?.files;
 assert.ok(Array.isArray(files), "npm pack must report its package file list");
 for (const required of [
 	"docs/configuration.md",
+	"docs/footer-format.md",
 	"extensions/zentui/thinking-steps.ts",
 	"extensions/zentui/thinking-experimental.ts",
 	"extensions/zentui/thinking-status.ts",

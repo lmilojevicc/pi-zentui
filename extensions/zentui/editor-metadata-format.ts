@@ -1,4 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
@@ -135,23 +136,38 @@ export function sanitizeEditorMetadataText(value: string): string {
 function editorThinkingStyle(config: ZentuiConfig, level: string): string | undefined {
 	switch (level.toLowerCase()) {
 		case "minimal":
-			return config.colors.editorThinkingMinimal ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMinimal") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "low":
-			return config.colors.editorThinkingLow ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingLow") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "medium":
-			return config.colors.editorThinkingMedium ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingMedium") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "high":
-			return config.colors.editorThinkingHigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingHigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "xhigh":
-			return config.colors.editorThinkingXhigh ?? config.colors.editorThinking;
+			return (
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
+			);
 		case "max":
 			return (
-				config.colors.editorThinkingMax ??
-				config.colors.editorThinkingXhigh ??
-				config.colors.editorThinking
+				componentColor(config, "editor", "thinkingMax") ??
+				componentColor(config, "editor", "thinkingXhigh") ??
+				componentColor(config, "editor", "thinking")
 			);
 		default:
-			return config.colors.editorThinking;
+			return componentColor(config, "editor", "thinking");
 	}
 }
 
@@ -195,7 +211,7 @@ function renderVariable(
 			styled: renderStyleForSourceOrFallback(
 				uiTheme,
 				colorSource,
-				config.colors.editorModel,
+				componentColor(config, "editor", "model"),
 				EDITOR_ACCENT_FALLBACK,
 				plain,
 			),
@@ -207,7 +223,7 @@ function renderVariable(
 			styled: renderStyleForSourceOrFallback(
 				uiTheme,
 				colorSource,
-				config.colors.editorProvider,
+				componentColor(config, "editor", "provider"),
 				"text",
 				plain,
 			),

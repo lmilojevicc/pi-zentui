@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { componentColor } from "./component-colors";
 import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
@@ -265,11 +266,16 @@ export function installFooter(
 				const separator = renderStyleForSource(
 					theme,
 					colorSource,
-					config.colors.separator,
+					componentColor(config, "footer", "separator"),
 					separatorText[config.components.footer.styles.starship.separator],
 				);
 				const innerWidth = Math.max(1, width - 2);
-				const cwdLabel = renderStyleForSource(theme, colorSource, config.colors.cwd, formattedCwd);
+				const cwdLabel = renderStyleForSource(
+					theme,
+					colorSource,
+					componentColor(config, "footer", "cwd"),
+					formattedCwd,
+				);
 				const needsSessionName =
 					(config.components.footer.styles.starship.format
 						? wideReferences.has("session_name")
@@ -279,7 +285,12 @@ export function installFooter(
 					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
 					: "";
 				const sessionNameLabel = sessionName
-					? renderStyleForSource(theme, colorSource, config.colors.sessionName, sessionName)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "sessionName"),
+							sessionName,
+						)
 					: "";
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
 				const branchText = branch
@@ -304,26 +315,51 @@ export function installFooter(
 				);
 				const contextColor =
 					tier === "error"
-						? config.colors.contextError
+						? componentColor(config, "footer", "contextError")
 						: tier === "warning"
-							? config.colors.contextWarning
-							: config.colors.contextNormal;
+							? componentColor(config, "footer", "contextWarning")
+							: componentColor(config, "footer", "contextNormal");
 				const cacheReadLabel = state.cacheReadLabel
-					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheReadLabel)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "tokens"),
+							state.cacheReadLabel,
+						)
 					: "";
 				const cacheWriteLabel = state.cacheWriteLabel
-					? renderStyleForSource(theme, colorSource, config.colors.tokens, state.cacheWriteLabel)
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "tokens"),
+							state.cacheWriteLabel,
+						)
 					: "";
 				const subscriptionLabel = state.subscription
-					? renderStyleForSource(theme, colorSource, config.colors.cost, "(sub)")
+					? renderStyleForSource(
+							theme,
+							colorSource,
+							componentColor(config, "footer", "cost"),
+							"(sub)",
+						)
 					: "";
 				const autoCompactionLabel = state.autoCompaction
 					? renderStyleForSource(theme, colorSource, contextColor, "(auto)")
 					: "";
 				const gitColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitBranch, text);
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "gitBranch"),
+						text,
+					);
 				const gitStatusColor = (text: string) =>
-					renderStyleForSource(theme, colorSource, config.colors.gitStatus, text);
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "gitStatus"),
+						text,
+					);
 				const gitIcon = config.icons.git ? gitColor(config.icons.git) : "";
 				const gitCounts = config.components.footer.styles.starship.segments.gitCounts;
 				const stashLabel =
@@ -389,7 +425,7 @@ export function installFooter(
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.sessionDuration,
+										componentColor(config, "footer", "sessionDuration"),
 										buildSessionDurationLabel(state.sessionStartEpoch),
 									)
 								: "";
@@ -397,21 +433,21 @@ export function installFooter(
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.username,
+								componentColor(config, "footer", "username"),
 								formatUsernameHostLabel(config.icons.username),
 							);
 						case "os":
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.os,
+								componentColor(config, "footer", "os"),
 								formatOsLabel(config.icons.os, iconMode),
 							);
 						case "time":
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.time,
+								componentColor(config, "footer", "time"),
 								formatTimeLabel(config.icons.time),
 							);
 						case "context":
@@ -420,7 +456,7 @@ export function installFooter(
 							return renderStyleForSource(
 								theme,
 								colorSource,
-								config.colors.tokens,
+								componentColor(config, "footer", "tokens"),
 								state.tokenLabel,
 							);
 						case "cache_read":
@@ -428,7 +464,12 @@ export function installFooter(
 						case "cache_write":
 							return cacheWriteLabel;
 						case "cost":
-							return renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel);
+							return renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "cost"),
+								state.costLabel,
+							);
 						case "subscription":
 							return subscriptionLabel;
 						case "auto_compaction":
@@ -440,30 +481,40 @@ export function installFooter(
 								colorSource,
 								iconMode,
 								config.icons.package,
-								config.colors.packageVersion,
+								componentColor(config, "footer", "packageVersion"),
 							);
 						case "package_version":
 							return packageVersion?.version
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.packageVersion,
+										componentColor(config, "footer", "packageVersion"),
 										packageVersion.version,
 									)
 								: "";
 						case "sep":
-							return renderStyleForSource(theme, colorSource, config.colors.separator, " | ");
+							return renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "separator"),
+								" | ",
+							);
 						case "git_commit":
 							return formatGitCommitSegment(
 								theme,
 								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
-								config.colors.gitCommit,
+								componentColor(config, "footer", "gitCommit"),
 							);
 						case "git_tag":
 							return config.components.footer.styles.starship.gitCommit.showTag && commit?.tag
-								? renderStyleForSource(theme, colorSource, config.colors.gitCommit, commit.tag)
+								? renderStyleForSource(
+										theme,
+										colorSource,
+										componentColor(config, "footer", "gitCommit"),
+										commit.tag,
+									)
 								: "";
 						case "git_metrics":
 							return formatGitMetricsSegment(
@@ -471,15 +522,15 @@ export function installFooter(
 								state.metrics,
 								config.components.footer.styles.starship.gitMetrics,
 								colorSource,
-								config.colors.gitMetricsAdded,
-								config.colors.gitMetricsDeleted,
+								componentColor(config, "footer", "gitMetricsAdded"),
+								componentColor(config, "footer", "gitMetricsDeleted"),
 							);
 						case "git_added":
 							return state.metrics
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.gitMetricsAdded,
+										componentColor(config, "footer", "gitMetricsAdded"),
 										`+${state.metrics.added}`,
 									)
 								: "";
@@ -488,7 +539,7 @@ export function installFooter(
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										config.colors.gitMetricsDeleted,
+										componentColor(config, "footer", "gitMetricsDeleted"),
 										`−${state.metrics.deleted}`,
 									)
 								: "";
@@ -515,7 +566,12 @@ export function installFooter(
 									: "";
 							const inner = [shortHash, tag].filter(Boolean).join(" ");
 							branchParts.push(
-								renderStyleForSource(theme, colorSource, config.colors.gitCommit, `(${inner})`),
+								renderStyleForSource(
+									theme,
+									colorSource,
+									componentColor(config, "footer", "gitCommit"),
+									`(${inner})`,
+								),
 							);
 						}
 					}
@@ -532,7 +588,13 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const runtimeLabel = config.components.footer.styles.starship.segments.runtime
-					? formatRuntimeSegment(theme, runtime, config.colors.runtimePrefix, colorSource, iconMode)
+					? formatRuntimeSegment(
+							theme,
+							runtime,
+							componentColor(config, "footer", "runtimePrefix"),
+							colorSource,
+							iconMode,
+						)
 					: "";
 				const packageVersionLabel = config.components.footer.styles.starship.segments.packageVersion
 					? formatPackageVersionSegment(
@@ -541,7 +603,7 @@ export function installFooter(
 							colorSource,
 							iconMode,
 							config.icons.package,
-							config.colors.packageVersion,
+							componentColor(config, "footer", "packageVersion"),
 						)
 					: "";
 				// Skip standalone gitCommit when hash is already folded into the
@@ -555,7 +617,7 @@ export function installFooter(
 								commit,
 								config.components.footer.styles.starship.gitCommit,
 								colorSource,
-								config.colors.gitCommit,
+								componentColor(config, "footer", "gitCommit"),
 							)
 						: "";
 				const gitMetricsLabel = config.components.footer.styles.starship.segments.gitMetrics
@@ -564,8 +626,8 @@ export function installFooter(
 							state.metrics,
 							config.components.footer.styles.starship.gitMetrics,
 							colorSource,
-							config.colors.gitMetricsAdded,
-							config.colors.gitMetricsDeleted,
+							componentColor(config, "footer", "gitMetricsAdded"),
+							componentColor(config, "footer", "gitMetricsDeleted"),
 						)
 					: "";
 
@@ -580,7 +642,7 @@ export function installFooter(
 					const time = renderStyleForSource(
 						theme,
 						colorSource,
-						config.colors.sessionDuration,
+						componentColor(config, "footer", "sessionDuration"),
 						timeLabel,
 					);
 					return `${prefix} ${time}`;
@@ -589,7 +651,7 @@ export function installFooter(
 					? renderStyleForSource(
 							theme,
 							colorSource,
-							config.colors.username,
+							componentColor(config, "footer", "username"),
 							formatUsernameHostLabel(config.icons.username),
 						)
 					: "";
@@ -597,7 +659,7 @@ export function installFooter(
 					? renderStyleForSource(
 							theme,
 							colorSource,
-							config.colors.os,
+							componentColor(config, "footer", "os"),
 							formatOsLabel(config.icons.os, iconMode),
 						)
 					: "";
@@ -628,7 +690,7 @@ export function installFooter(
 					? renderStyleForSource(
 							theme,
 							colorSource,
-							config.colors.time,
+							componentColor(config, "footer", "time"),
 							formatTimeLabel(config.icons.time),
 						)
 					: "";
@@ -639,14 +701,24 @@ export function installFooter(
 					.filter(Boolean)
 					.join(" ");
 				const builtInTokenLabel = [
-					renderStyleForSource(theme, colorSource, config.colors.tokens, state.tokenLabel),
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "tokens"),
+						state.tokenLabel,
+					),
 					cacheReadLabel,
 					cacheWriteLabel,
 				]
 					.filter(Boolean)
 					.join(" ");
 				const builtInCostLabel = [
-					renderStyleForSource(theme, colorSource, config.colors.cost, state.costLabel),
+					renderStyleForSource(
+						theme,
+						colorSource,
+						componentColor(config, "footer", "cost"),
+						state.costLabel,
+					),
 					subscriptionLabel,
 				]
 					.filter(Boolean)
@@ -682,7 +754,12 @@ export function installFooter(
 				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
 					segment.colorMode === "original"
 						? segment.text
-						: renderStyleForSource(theme, colorSource, config.colors.extensionStatus, segment.text);
+						: renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "extensionStatus"),
+								segment.text,
+							);
 				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
 				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
 				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);

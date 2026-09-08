@@ -26,6 +26,7 @@ import {
 	getExtensionStatusPlacement,
 	hasUnsupportedComponentStyle,
 	mergeConfig,
+	migrateComponentSelections,
 	saveAccentRailEditorStylePatch,
 	saveColorSourcesPatch,
 	saveContextStylePatch,
@@ -1246,7 +1247,8 @@ describe("canonical snapshot persistence", () => {
 				},
 			},
 			(path) => {
-				const config = saveEditorComponentPatch({ enabled: true }, path);
+				saveEditorComponentPatch({ enabled: true }, path);
+				const config = migrateComponentSelections(path);
 				const raw = readRaw(path);
 				expect(Object.keys(raw.components)).toEqual(
 					expect.arrayContaining([
@@ -1279,9 +1281,10 @@ describe("canonical snapshot persistence", () => {
 		);
 	});
 
-	it("prevents legacy edits from recoupling surfaces after the first save", () => {
+	it("prevents legacy edits from recoupling surfaces after explicit migration", () => {
 		withConfig({ features: { editor: false, copyFriendly: true } }, (path) => {
 			saveEditorComponentPatch({ enabled: true }, path);
+			migrateComponentSelections(path);
 			const raw = readRaw(path);
 			expect(raw.components.editor.enabled).toBe(true);
 			expect(raw.components.userMessages.enabled).toBe(false);
@@ -1458,9 +1461,10 @@ describe("compatibility saver recipes", () => {
 		);
 	});
 
-	it("materializes a complete snapshot when a compatibility saver creates the file", () => {
+	it("materializes a complete snapshot on explicit migration after a compatibility save", () => {
 		withConfig(undefined, (path) => {
 			saveUiFeaturesPatch({ editor: false }, path);
+			migrateComponentSelections(path);
 			const raw = readRaw(path);
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(Object.keys(raw.components).sort()).toEqual([
@@ -2242,7 +2246,9 @@ describe("mergeConfig", () => {
 			expect(raw.colors.cost).toBe("success");
 			expect(raw.colorSources).toEqual({ editor: "terminal" });
 			expect(raw.components.footer.colorSource).toBe("terminal");
-			expect(raw.components.editor.colorSource).toBe("terminal");
+			expect(raw.components.editor).toBeUndefined();
+			migrateComponentSelections(path);
+			expect(readRaw(path).components.editor.colorSource).toBe("terminal");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -2302,8 +2308,10 @@ describe("mergeConfig", () => {
 			});
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(raw.components.footer.colorSource).toBe("terminal");
-			expect(raw.components.editor.colorSource).toBe("theme");
-			expect(raw.components.userMessages.colorSource).toBe("theme");
+			expect(Object.keys(raw.components)).toEqual(["footer"]);
+			migrateComponentSelections(path);
+			expect(readRaw(path).components.editor.colorSource).toBe("theme");
+			expect(readRaw(path).components.userMessages.colorSource).toBe("theme");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

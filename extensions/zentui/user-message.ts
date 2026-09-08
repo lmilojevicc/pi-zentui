@@ -1,5 +1,5 @@
 import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ZentuiConfig } from "./config";
 import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
 import {
@@ -7,7 +7,11 @@ import {
 	sanitizeRenderedUserMessageText,
 	sanitizeUserMessageSourceText,
 } from "./user-message-osc";
-import { renderUserMessageStyle, userMessageStyleCacheKey } from "./user-message-styles";
+import {
+	renderUserMessageStyle,
+	type UserMessageStyleRenderInput,
+	userMessageStyleCacheKey,
+} from "./user-message-styles";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -20,12 +24,12 @@ type PatchableUserMessagePrototype = {
 type Cleanup = () => void;
 
 type UserMessageRenderCache = {
-	hasMarkdownText: boolean;
-	text?: string;
-	width?: number;
+	markdown: object;
+	text: string;
+	width: number;
 	theme?: Theme;
-	configKey?: string;
-	renderedLines?: string[];
+	configKey: string;
+	renderedLines: string[];
 };
 
 const userMessageRenderCache = new WeakMap<object, UserMessageRenderCache>();
@@ -38,30 +42,151 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function findMarkdownText(value: unknown): string | undefined {
-	if (!isRecord(value)) return undefined;
-	if (typeof value.text === "string") return value.text;
-
-	const children = value.children;
-	if (!Array.isArray(children)) return undefined;
-
-	for (const child of children) {
-		const text = findMarkdownText(child);
-		if (text !== undefined) return text;
-	}
-
-	return undefined;
+function isNativeMarkdown(renderer: unknown): boolean {
+	return (
+		isRecord(renderer) &&
+		renderer.constructor?.name === "Markdown" &&
+		typeof renderer.text === "string" &&
+		["render", "setText", "invalidate"].every((key) => typeof renderer[key] === "function")
+	);
 }
 
-function getCachedMarkdownText(instance: object): string | undefined {
-	const cached = userMessageRenderCache.get(instance);
-	if (cached?.hasMarkdownText) return cached.text;
+const sanitizedMarkdownCache = new WeakMap<
+	object,
+	{ lines: unknown; text: string; options: unknown }
+>();
 
-	const text = findMarkdownText(instance);
-	if (text !== undefined) {
-		userMessageRenderCache.set(instance, { ...cached, hasMarkdownText: true, text });
+// Framing eligibility is deliberately narrower than the source trust boundary.
+// Unknown renderers still fail open: rendered controls alone cannot distinguish
+// raw input from renderer-generated hyperlinks or theme styles.
+function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: boolean) => T): T {
+	const restore: Array<() => void> = [];
+	const visited = new Set<object>();
+	const visit = (value: unknown) => {
+		if (!isRecord(value) || visited.has(value)) return;
+		visited.add(value);
+		if (isNativeMarkdown(value)) {
+			const text = Object.getOwnPropertyDescriptor(value, "text");
+			const options = Object.getOwnPropertyDescriptor(value, "options");
+			const cachedText = Object.getOwnPropertyDescriptor(value, "cachedText");
+			if (!text?.writable || !options?.writable || !cachedText?.writable) return;
+			if (!isRecord(options.value)) return;
+			const transform = options.value.transform;
+			if (transform !== undefined && typeof transform !== "function") return;
+			const source = sanitizeUserMessageSourceText(text.value);
+			const safeOptions = {
+				...options.value,
+				...(transform
+					? {
+							transform: (input: string, width: number) =>
+								sanitizeUserMessageSourceText(
+									Reflect.apply(transform, options.value, [input, width]),
+								),
+						}
+					: {}),
+			};
+			const cached = sanitizedMarkdownCache.get(value);
+			restore.push(() => {
+				Object.defineProperty(value, "text", text);
+				Object.defineProperty(value, "options", options);
+				// Never let a native/unpatched render reuse a source-sanitized cache.
+				// Keep the lines only for the next guarded render; invalidate() clears
+				// them normally, and cleanup needs no retained component references.
+				sanitizedMarkdownCache.set(value, {
+					lines: value.cachedText === source ? value.cachedLines : undefined,
+					text: source,
+					options: options.value,
+				});
+				Object.defineProperty(value, "cachedText", { ...cachedText, value: undefined });
+			});
+			value.text = source;
+			value.options = safeOptions;
+			value.cachedText =
+				cached?.lines &&
+				cached.lines === value.cachedLines &&
+				cached.text === source &&
+				cached.options === options.value
+					? source
+					: undefined;
+			return;
+		}
+		if (Array.isArray(value.children)) for (const child of value.children) visit(child);
+	};
+	try {
+		try {
+			visit(instance);
+		} catch {
+			// Uninspectable predecessor state remains outside the native adapter.
+		}
+		return render(restore.length > 0);
+	} finally {
+		for (const undo of restore.reverse()) undo();
 	}
-	return text;
+}
+
+// Normal user messages have no public framing renderer. Only adapt the native
+// zero-padding Markdown child; unfamiliar component trees delegate unchanged.
+// Shape checks also support separate same-version Pi TUI package instances.
+function nativeMarkdown(instance: PatchableUserMessagePrototype):
+	| {
+			renderer: Markdown;
+			text: string;
+			input: NonNullable<UserMessageStyleRenderInput["markdown"]>;
+	  }
+	| undefined {
+	const children = instance.children;
+	if (!Array.isArray(children) || children.length !== 1) return undefined;
+	const box = children[0];
+	if (!isRecord(box) || !Array.isArray(box.children) || box.children.length !== 1) return undefined;
+	const renderer = box.children[0];
+	if (!isNativeMarkdown(renderer)) return undefined;
+	const child = renderer as unknown as Record<string, unknown>;
+	if (
+		typeof child.text !== "string" ||
+		child.paddingX !== 0 ||
+		child.paddingY !== 0 ||
+		!isRecord(child.theme)
+	)
+		return undefined;
+	for (const key of [
+		"heading",
+		"link",
+		"linkUrl",
+		"code",
+		"codeBlock",
+		"codeBlockBorder",
+		"quote",
+		"quoteBorder",
+		"hr",
+		"listBullet",
+		"bold",
+		"italic",
+		"underline",
+		"strikethrough",
+	]) {
+		if (typeof child.theme[key] !== "function") return undefined;
+	}
+	if (child.options !== undefined && !isRecord(child.options)) return undefined;
+	if (
+		isRecord(child.options) &&
+		child.options.transform !== undefined &&
+		typeof child.options.transform !== "function"
+	)
+		return undefined;
+	if (child.defaultTextStyle !== undefined && !isRecord(child.defaultTextStyle)) return undefined;
+	return {
+		renderer: renderer as unknown as Markdown,
+		text: child.text,
+		input: {
+			theme: child.theme as unknown as NonNullable<
+				UserMessageStyleRenderInput["markdown"]
+			>["theme"],
+			defaultTextStyle: child.defaultTextStyle as NonNullable<
+				UserMessageStyleRenderInput["markdown"]
+			>["defaultTextStyle"],
+			options: child.options as NonNullable<UserMessageStyleRenderInput["markdown"]>["options"],
+		},
+	};
 }
 
 function renderZentuiUserMessage(
@@ -72,12 +197,14 @@ function renderZentuiUserMessage(
 ): string[] | undefined {
 	if (!isRecord(instance)) return undefined;
 
-	const text = getCachedMarkdownText(instance);
-	if (text === undefined) return undefined;
+	const native = nativeMarkdown(instance);
+	if (!native) return undefined;
+	const text = native.text;
 	const configKey = userMessageStyleCacheKey(config);
 	const cached = userMessageRenderCache.get(instance);
 	if (
-		cached?.hasMarkdownText &&
+		cached?.markdown === native.renderer &&
+		cached.text === text &&
 		cached.width === width &&
 		cached.theme === theme &&
 		cached.configKey === configKey &&
@@ -87,13 +214,14 @@ function renderZentuiUserMessage(
 	}
 
 	const lines = renderUserMessageStyle({
+		markdown: native.input,
 		text,
 		width,
 		theme,
 		config,
 	});
 	userMessageRenderCache.set(instance, {
-		hasMarkdownText: true,
+		markdown: native.renderer,
 		text,
 		width,
 		theme,
@@ -130,7 +258,9 @@ function renderSafeSourceFallback(
 ): string[] | undefined {
 	let text: string | undefined;
 	try {
-		text = isRecord(instance) ? getCachedMarkdownText(instance) : undefined;
+		// A plain fallback is only for an eligible frame that failed to render.
+		// Never replace an unfamiliar predecessor tree (and its siblings) with it.
+		text = isRecord(instance) ? nativeMarkdown(instance)?.text : undefined;
 	} catch {
 		return undefined;
 	}
@@ -171,7 +301,15 @@ export function installUserMessageStyle(
 			"user-message-render",
 			({ predecessor, receiver, args }) => {
 				const renderPredecessor = () =>
-					sanitizePredecessorRender(Reflect.apply(predecessor, receiver, args));
+					withSanitizedMarkdownSources(receiver, (adapted) => {
+						const result = sanitizePredecessorRender(Reflect.apply(predecessor, receiver, args));
+						return adapted &&
+							Array.isArray(result) &&
+							result.length > 0 &&
+							result.every((row) => typeof row === "string")
+							? withPromptZoneMarkers(result)
+							: result;
+					});
 				const width = args[0];
 				if (typeof width !== "number") return renderPredecessor();
 				try {
@@ -181,15 +319,15 @@ export function installUserMessageStyle(
 						getTheme(),
 						getConfig(),
 					);
-					if (!lines) return renderPredecessor();
-					return lines.length ? withPromptZoneMarkers(lines) : lines;
+					if (lines) return lines.length ? withPromptZoneMarkers(lines) : lines;
 				} catch {
 					const safeFallback = renderSafeSourceFallback(
 						receiver as PatchableUserMessagePrototype,
 						width,
 					);
-					return safeFallback ?? renderPredecessor();
+					if (safeFallback) return safeFallback;
 				}
+				return renderPredecessor();
 			},
 		);
 	} catch (error) {
