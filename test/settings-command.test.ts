@@ -327,6 +327,38 @@ afterEach(() => {
 });
 
 describe("component-oriented /zentui settings", () => {
+	it.each([
+		["disabled", false, "Show background subagent activity above the editor."],
+		["checking", true, "Show background subagent activity above the editor."],
+		["compatible", true, "Show background subagent activity above the editor."],
+		["status unavailable", true, "Status unavailable."],
+		["incompatible", true, "Status unavailable."],
+		["unsupported context", true, "Status unavailable."],
+		["disabled this session; not saved", true, "Off for this session; could not save."],
+	] as const)("keeps Subagents help concise for %s", async (status, savedEnabled, description) => {
+		const config = cloneConfig();
+		config.components.subagentSummary.enabled = savedEnabled;
+		const harness = createHarness(config, {
+			subagentSummaryCapability: {
+				state: {
+					status,
+					savedEnabled,
+					effectiveEnabled:
+						savedEnabled &&
+						status !== "disabled this session; not saved" &&
+						status !== "unsupported context",
+				},
+			},
+		});
+		await harness.command().handler("subagents", harness.ctx);
+		const rows = harness.component().render(160);
+		expect(rows.some((line) => line.trim() === description)).toBe(true);
+		expect(rows.join("\n")).not.toMatch(
+			/Saved:|Effective:|ctx\.mode|provider|migration|timeouts|preview users|zentui-subagents\.json|Passive Nico/i,
+		);
+		expect(focusedRow(harness.component())).toContain(savedEnabled ? "enabled" : "disabled");
+	});
+
 	it("uses the exact seven-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);

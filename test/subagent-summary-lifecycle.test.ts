@@ -216,9 +216,7 @@ test("failed off stops before persistence, latches through unrelated saves/tree;
 	await vi.advanceTimersByTimeAsync(10_000);
 	expect(h.requests).toHaveLength(1);
 	await h.commands.get("zentui")?.handler("subagents", h.ctx);
-	expect(h.panel().render(220).join("\n")).toContain(
-		"Saved: enabled. Effective: disabled. disabled this session; not saved",
-	);
+	expect(h.panel().render(220).join("\n")).toContain("Off for this session; could not save.");
 	await h.commands.get("zentui-subagents")?.handler("on", h.ctx);
 	expect(h.requests).toHaveLength(2);
 	expect(JSON.parse(readFileSync(configPath, "utf8")).future).toEqual({ keep: true });

@@ -1145,7 +1145,14 @@ function buildSectionItems(
 					label: "Subagent summary",
 					currentValue: featureValue(config.components.subagentSummary.enabled),
 					values: featureStateValues,
-					description: `Saved: ${featureValue(config.components.subagentSummary.enabled)}. Effective: ${subagentSummaryState.effectiveEnabled ? "enabled" : "disabled"}. ${subagentSummaryState.status}. Passive Nico async status above the editor; no extra AI. Requires a non-child TUI with ctx.mode = tui; unavailable mode fails closed. Timeouts do not prove the provider is absent. Preview users must explicitly re-enable here; zentui-subagents.json is untouched.`,
+					description:
+						subagentSummaryState.status === "disabled this session; not saved"
+							? "Off for this session; could not save."
+							: ["status unavailable", "incompatible", "unsupported context"].includes(
+										subagentSummaryState.status,
+									)
+								? "Status unavailable."
+								: "Show background subagent activity above the editor.",
 				},
 			];
 		case "workingLine":
