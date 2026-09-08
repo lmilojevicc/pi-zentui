@@ -60,6 +60,6 @@
 		"@earendil-works/pi-tui": "^0.84.0",
 		"@types/node": "^26.0.0",
 		"typescript": "^7.0.2",
-		"vitest": "^4.1.8"
+		"vitest": "^5.0.0"
 	}
 }
