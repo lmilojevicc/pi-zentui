@@ -15,6 +15,9 @@ assert.equal(packages.length, 1, "npm pack must report exactly one package");
 const files = packages[0]?.files;
 assert.ok(Array.isArray(files), "npm pack must report its package file list");
 for (const required of [
+	"extensions/zentui/subagent-summary.ts",
+	"extensions/zentui/subagent-summary-rpc.ts",
+	"extensions/zentui/subagent-summary-view.ts",
 	"docs/configuration.md",
 	"docs/footer-format.md",
 	"extensions/zentui/thinking-steps.ts",
@@ -26,6 +29,12 @@ for (const required of [
 		`npm pack must include ${required}`,
 	);
 }
+
+assert.deepEqual(
+	files.filter(({ path }) => /^extensions\/[^/]+\/index\.ts$/.test(path)).map(({ path }) => path),
+	["extensions/zentui/index.ts"],
+);
+assert.ok(!files.some(({ path }) => path.startsWith("extensions/subagent-summary/")));
 
 const renderer = readFileSync("extensions/zentui/thinking-experimental.ts", "utf8");
 assert.match(renderer, /Copyright \(c\) 2026 Zach Yuen/);

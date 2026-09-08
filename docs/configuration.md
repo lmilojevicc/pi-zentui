@@ -6,7 +6,7 @@ Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing
 
 ## Start with minimal overrides
 
-Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line and Thinking (Experimental) are disabled.
+Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line, Thinking (Experimental), and Subagents are disabled.
 
 Change just one surface:
 
@@ -35,14 +35,15 @@ Native releases Zentui's ownership; Hidden deliberately installs a zero-row Foot
 
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into six component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
+The interactive `/zentui` menu is split into seven component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
 1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
-6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
+6. **Subagents** — independent, default-off passive Nico async summary above the editor; saved/effective state and provider compatibility status.
+7. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
    - **Extension statuses →** — Starship placement and color controls for active published keyed Footer statuses; not extension management or Working line integrations.
@@ -61,6 +62,7 @@ Every section and Footer child page has a direct route and completion:
 /zentui user-messages
 /zentui thinking
 /zentui working-line
+/zentui subagents
 /zentui footer
 /zentui segments
 /zentui git
@@ -189,6 +191,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
         "labeled": {}
       }
     },
+    "subagentSummary": { "enabled": false },
     "thinkingSteps": {
       "enabled": false,
       "mode": "tree"
@@ -699,3 +702,76 @@ Legacy coupled saver APIs remain explicit multi-owner compatibility transactions
 - Missing, empty, or malformed style values continue default and legacy migration behavior.
 
 The flat properties returned by `mergeConfig`, `loadConfig`, and save helpers are deprecated compatibility output as of v0.20.2. They remain available throughout the 0.x release line; any removal requires a documented breaking release. This output deprecation is separate from accepted legacy flat JSON input.
+
+
+## Optional subagent summary
+
+**Preview users must explicitly re-enable** through **`/zentui subagents` → Subagent summary**
+or `/zentui-subagents on`. The unshipped `zentui-subagents.json` is never read,
+imported, deleted, or rewritten—not even by `/zentui migrate`. Leave it in place
+or remove it yourself. There is no automatic transition or second settings authority.
+
+The independent, default-off component consumes
+[nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents)'s async status.
+The menu and `/zentui-subagents on|off` aliases save only
+`components.subagentSummary.enabled` in `<getAgentDir()>/zentui.json`:
+
+```json
+{ "components": { "subagentSummary": { "enabled": true } } }
+```
+
+No Editor, Footer, Working line, colors, or presets are required or changed.
+Presets leave this selection untouched; the explicit all-owner migration snapshots
+its current canonical selection along with other owners. Saves use the same atomic,
+symlink-preserving persistence and preserve unrelated/future settings.
+Disable stops locally **before saving**. If saving fails, the settings panel reports
+**disabled this session; not saved**, preserving the file and suppressing polling
+through unrelated saves and tree navigation. Only explicit successful enable or
+session replacement releases that suppression. Failed enable never starts polling.
+
+When enabled in a non-child TUI, a passive keyed widget above the editor shows
+at most **six data rows, one heading, and one optional overflow hint** (eight content
+lines total). Each row has a label, owner-reported state, and optional current tool.
+Active (`queued`/`running`) top-level runs come first, then active immediate `step`
+children distributed round-robin across runs. Child labels include explicit parent
+context. Unknown states are neutral and follow active work. Terminal states
+(`complete`, `failed`, `partial`, `paused`, `stopped`, `rejected`) follow only when
+the owner's numeric `endedAt` is within the last **10 seconds**. Paused is terminal
+for this projection, not a claim that the task cannot resume. Missing, invalid, or
+future end timestamps do not qualify. Retention is reevaluated on every successful
+poll; Zentui never invents first-seen or completion times.
+
+Use the owner's `/subagents-fleet` for details and task management. The summary
+installs no mouse or terminal-input listener, transcript reader, task-control action,
+model call, or conversation-context injection. Status payloads stay display-local;
+labels may still reveal task names on screen. Terminal controls are stripped,
+strings are bounded before sanitization, and themed rows truncate to terminal width.
+There are no extra colors, styles, timing controls, or diagnostic commands.
+
+This adapter uses only `subagents:rpc:v1` `status` and
+`pi-subagents.async-status-snapshot` v1. It is **not Tintin support or a complete
+foreground registry**. It inspects at most 20 runs and eight immediate children
+per run, only `kind: "step"` children; it does not traverse nested descendants.
+The owner's own caps and ordering can exclude active tasks before Zentui sees them.
+Upstream run/child/byte omissions and local inspection/display overflow produce a
+generic fleet-details hint, including omission-only snapshots; they are not added
+into a misleading combined count. Intentionally expired terminal rows are not overflow.
+
+Polling waits **1.5 seconds after each local settlement**, with a **2.5-second
+request timeout**. Empty, incompatible, and failed reads clear stale rows; unchanged
+rendered content does not replace the widget. The menu distinguishes checking,
+compatible, unavailable, incompatible, and unsupported context. A timeout is **not
+proof that the provider is absent**. There is no persistent empty or error widget.
+Session replacement, tree navigation, shutdown, and disable cancel local waits and
+remove only Zentui's widget key; they do not abort owner-side work or tasks.
+UUID/version/channel correlation is not authentication or snapshot-session validation.
+
+Activation requires `ctx.hasUI && ctx.mode === "tui"` and no `PI_SUBAGENT_CHILD`.
+RPC, print/JSON, child, and missing/inaccessible mode contexts do not poll; saved
+enablement can remain true with an unsupported-context explanation. Stock Pi 0.80.5
+exposes `ctx.mode`; no private/global mode inference is used by this component.
+
+Maintained unit, actual Pi event-bus, canonical extension lifecycle, and settings tests
+are separate from real-owner acceptance. Protocol sources were compared against
+Nico 0.65.1 and installed 0.66.0; this is not a real-task runtime guarantee. No archived
+owner package or model tasks are executed by the maintained tests.

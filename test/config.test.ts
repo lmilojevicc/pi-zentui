@@ -95,6 +95,7 @@ describe("canonical config resolution", () => {
 	it("provides complete canonical defaults and the established palette defaults", () => {
 		const config = mergeConfig({});
 		expect(config.components).toEqual({
+			subagentSummary: { enabled: false },
 			editor: {
 				enabled: true,
 				style: "opencode",
@@ -1471,6 +1472,7 @@ describe("compatibility saver recipes", () => {
 				"editor",
 				"footer",
 				"selectorBorders",
+				"subagentSummary",
 				"thinkingSteps",
 				"userMessages",
 				"workingLine",

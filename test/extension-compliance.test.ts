@@ -121,6 +121,10 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setAccentRail() {},
 	setMinimalist() {},
 	setUserMessagesComponent() {},
+	subagentSummaryCapability: {
+		state: { status: "disabled", savedEnabled: false, effectiveEnabled: false },
+	},
+	setSubagentSummaryEnabled: () => ({ applied: true }),
 	thinkingStepsCapability: { available: false },
 	setThinkingStepsComponent: () => ({ applied: true }),
 	setWorkingLineComponent: () => ({ applied: true }),
@@ -187,6 +191,7 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					: messages.colorSource,
 				styles: { ...messages.styles },
 			},
+			subagentSummary: { ...config.components.subagentSummary },
 			thinkingSteps: { ...config.components.thinkingSteps },
 			workingLine: {
 				...config.components.workingLine,
@@ -5744,7 +5749,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/6)");
+		expect(themeLines.join("\n")).toContain("(1/7)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab Sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5862,7 +5867,7 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
@@ -5934,7 +5939,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -6159,7 +6164,7 @@ describe("Pi docs compliance", () => {
 		render?: (width: number) => string[];
 		handleInput?: (data: string) => void;
 	}) {
-		for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+		for (let index = 0; index < 6; index++) component.handleInput?.("\t");
 		for (let index = 0; index < 20; index++) {
 			if (component.render?.(120).some((line) => line.startsWith("> Extension statuses"))) {
 				component.handleInput?.("\r");
@@ -6223,8 +6228,8 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(rendered).toContain("Working line");
-		expect(rendered).toContain("Spinner speed");
+		expect(rendered).toContain("Subagents");
+		expect(rendered).toContain("Subagent summary");
 		expect(rendered).not.toContain("No active statuses");
 	});
 
@@ -7173,7 +7178,7 @@ describe("three-state Footer lifecycle", () => {
 			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 5; index++) settings.handleInput("\t");
+			for (let index = 0; index < 6; index++) settings.handleInput("\t");
 			settings.handleInput(" ");
 		};
 		const ctx = makeContext({ ui: harness.ui });

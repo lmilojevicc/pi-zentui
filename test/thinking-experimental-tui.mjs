@@ -296,6 +296,13 @@ let stopProbeInput;
 const ownedProbeWidgets = new Set();
 export default function (pi) {
 	pi.on("session_start", (_event, ctx) => {
+		// Actual loader evidence: the canonical entrypoint owns both commands once.
+		const commands = pi.getCommands();
+		for (const name of ["zentui", "zentui-subagents"]) {
+			const registrations = commands.filter((command) => command.name === name || command.name.startsWith(name + ":"));
+			if (registrations.length !== 1 || registrations[0].name !== name)
+				throw new Error("Duplicate or missing Zentui command: " + name);
+		}
 		const setProbeWidget = (key, factory, options) => {
 			ctx.ui.setWidget(key, factory, options);
 			if (factory) ownedProbeWidgets.add(key);
@@ -996,8 +1003,8 @@ try:
     structural_snapshots = []
 
     def settings_section_ready(label, index, selected_label):
-        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer"
-        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/6)"
+        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Subagents / Footer"
+        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/7)"
         lines = screen.text().split("\n")
         return header in lines and any(row.startswith("→ " + selected_label + " ") for row in lines)
 

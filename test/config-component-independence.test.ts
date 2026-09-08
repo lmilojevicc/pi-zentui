@@ -27,6 +27,7 @@ import {
 	savePolishedEditorStylePatch,
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
+	saveSubagentSummaryComponentPatch,
 	saveThinkingStepsComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
@@ -47,6 +48,7 @@ const raw = (path: string) => JSON.parse(fs.readFileSync(path, "utf8"));
 afterEach(() => vi.clearAllMocks());
 
 const ownerSaves = [
+	["subagentSummary", (p: string) => saveSubagentSummaryComponentPatch({ enabled: true }, p)],
 	["editor", (p: string) => saveEditorComponentPatch({ colorSource: "terminal" }, p)],
 	["editor", (p: string) => savePolishedEditorStylePatch({ completionMenu: "native" }, p)],
 	[
@@ -78,6 +80,7 @@ describe("owner-only component persistence", () => {
 					"footer",
 					"workingLine",
 					"thinkingSteps",
+					"subagentSummary",
 					"future",
 				].map((key) => [
 					key,
