@@ -731,7 +731,7 @@ describe("responsive footer dependency reconciliation", () => {
 				render(width: number): string[];
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 7; index++) component.handleInput("\t");
+
 			const label = target === "showTag" ? "Show exact-match tag" : "Ignore submodules";
 			for (let attempts = 0; attempts < 12; attempts++) {
 				if (component.render(140).some((line) => line.includes(`> ${label}`))) break;
@@ -744,13 +744,13 @@ describe("responsive footer dependency reconciliation", () => {
 		await settleProjectRefresh();
 
 		const initialReads = mocks.readGitStatus.mock.calls.length;
-		await command.handler("", ctx);
+		await command.handler("git", ctx);
 		await settleProjectRefresh();
 		expect(mocks.readGitStatus).toHaveBeenCalledTimes(initialReads + 1);
 		expect(mocks.readGitStatus.mock.calls.at(-1)?.[1]).toMatchObject({ readExactTag: false });
 
 		target = "ignoreSubmodules";
-		await command.handler("", ctx);
+		await command.handler("git", ctx);
 		await settleProjectRefresh();
 		expect(mocks.readGitStatus).toHaveBeenCalledTimes(initialReads + 2);
 		expect(mocks.readGitStatus.mock.calls.at(-1)?.[1]).toMatchObject({ ignoreSubmodules: true });
@@ -762,7 +762,7 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			for (let index = 0; index < 6; index++) component.handleInput?.("\t");
+
 			for (let index = 0; index < 11; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
@@ -770,7 +770,7 @@ describe("responsive footer dependency reconciliation", () => {
 		await emit(handlers, "session_start", ctx);
 		await settleProjectRefresh();
 		expect(mocks.readPackageVersionResult).not.toHaveBeenCalled();
-		await command.handler("", ctx);
+		await command.handler("segments", ctx);
 		await settleProjectRefresh();
 		expect(mocks.config.footerSegments.packageVersion).toBe(true);
 		expect(mocks.readPackageVersionResult).toHaveBeenCalledOnce();

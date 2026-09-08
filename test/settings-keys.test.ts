@@ -26,3 +26,16 @@ describe("settings injected keybinding hints", () => {
 		expect(keys.help(40).join("\n")).toContain("unbound Close");
 	});
 });
+
+describe("nested Footer keybinding hints", () => {
+	it("labels the configured cancel key Back without losing Sections or changing top-level Close", () => {
+		const keys = settingsKeys({ getKeys: (id) => (id === "tui.select.cancel" ? ["q"] : []) });
+		for (const width of [20, 32, 40, 200]) {
+			const help = keys.help(width, "Back").join("\n");
+			expect(help).toContain("q Back");
+			expect(help).toContain("Sections");
+			expect(help).not.toContain("Close");
+			expect(keys.help(width).join("\n")).toContain("q Close");
+		}
+	});
+});

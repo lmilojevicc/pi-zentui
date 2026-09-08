@@ -5744,7 +5744,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/9)");
+		expect(themeLines.join("\n")).toContain("(1/6)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab Sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5993,7 +5993,7 @@ describe("Pi docs compliance", () => {
 					},
 				},
 			);
-			await command?.handler("", {
+			await command?.handler("git", {
 				hasUI: true,
 				mode: "tui",
 				ui: {
@@ -6003,7 +6003,6 @@ describe("Pi docs compliance", () => {
 						const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 							handleInput?: (data: string) => void;
 						};
-						for (let index = 0; index < 7; index += 1) component.handleInput?.("\t");
 						component.handleInput?.("\x1b[B");
 						for (let index = 0; index < presses; index += 1) component.handleInput?.(" ");
 					},
@@ -6156,36 +6155,22 @@ describe("Pi docs compliance", () => {
 		expect(changes).toEqual([{ colorSource: "terminal" }]);
 	});
 
-	function navigateToSettingsSection(
-		component: { handleInput?: (data: string) => void },
-		section:
-			| "Appearance"
-			| "Editor"
-			| "User messages"
-			| "Thinking"
-			| "Working line"
-			| "Footer"
-			| "Segments"
-			| "Git"
-			| "Extensions",
-	) {
-		const sections = [
-			"Appearance",
-			"Editor",
-			"User messages",
-			"Thinking",
-			"Working line",
-			"Footer",
-			"Segments",
-			"Git",
-			"Extensions",
-		];
-		for (let index = 0; index < sections.indexOf(section); index += 1) {
-			component.handleInput?.("\t");
+	function openExtensionStatusesSettings(component: {
+		render?: (width: number) => string[];
+		handleInput?: (data: string) => void;
+	}) {
+		for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+		for (let index = 0; index < 20; index++) {
+			if (component.render?.(120).some((line) => line.startsWith("> Extension statuses"))) {
+				component.handleInput?.("\r");
+				return;
+			}
+			component.handleInput?.("\x1b[B");
 		}
+		throw new Error("Could not open Footer > Extension statuses");
 	}
 
-	it("cycles extension segments tabs backward with shift+tab", async () => {
+	it("leaves Footer > Extension statuses for the previous top-level section with shift+tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6231,18 +6216,19 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToSettingsSection(component, "Extensions");
+					openExtensionStatusesSettings(component);
 					component.handleInput?.("\x1b[Z");
 					rendered = component.render?.(120).join("\n") ?? "";
 				},
 			},
 		});
 
-		expect(rendered).toContain("Git branch");
+		expect(rendered).toContain("Working line");
+		expect(rendered).toContain("Spinner speed");
 		expect(rendered).not.toContain("No active statuses");
 	});
 
-	it("renders active third-party statuses in the extension segments tab", async () => {
+	it("renders active third-party statuses in the Footer > Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6292,7 +6278,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToSettingsSection(component, "Extensions");
+					openExtensionStatusesSettings(component);
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},
@@ -6303,7 +6289,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("right");
 	});
 
-	it("shows a read-only empty extension segments tab", async () => {
+	it("shows a read-only empty Footer > Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
@@ -6352,7 +6338,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToSettingsSection(component, "Extensions");
+					openExtensionStatusesSettings(component);
 					component.handleInput?.("\x1b[B");
 					rendered = component.render?.(120).join("\n") ?? "";
 					component.handleInput?.("\x1b");
@@ -6365,7 +6351,7 @@ describe("Pi docs compliance", () => {
 		expect(placements).toEqual([]);
 	});
 
-	it("cycles active third-party status placement from the extension segments tab", async () => {
+	it("cycles active third-party status placement from the Footer > Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
 		let dependencyRenderRequests = 0;
@@ -6422,8 +6408,8 @@ describe("Pi docs compliance", () => {
 						makeTaggedTheme(),
 						{},
 						() => {},
-					) as { handleInput?: (data: string) => void };
-					navigateToSettingsSection(component, "Extensions");
+					) as { render?: (width: number) => string[]; handleInput?: (data: string) => void };
+					openExtensionStatusesSettings(component);
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
@@ -6435,7 +6421,7 @@ describe("Pi docs compliance", () => {
 		expect(tuiRenderRequests).toBeGreaterThanOrEqual(9);
 	});
 
-	it("does not show inactive saved placements in the extension segments tab", async () => {
+	it("does not show inactive saved placements in the Footer > Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6484,7 +6470,7 @@ describe("Pi docs compliance", () => {
 						render?: (width: number) => string[];
 						handleInput?: (data: string) => void;
 					};
-					navigateToSettingsSection(component, "Extensions");
+					openExtensionStatusesSettings(component);
 					rendered = component.render?.(80).join("\n") ?? "";
 				},
 			},

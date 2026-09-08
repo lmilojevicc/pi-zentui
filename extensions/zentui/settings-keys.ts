@@ -32,15 +32,19 @@ export function settingsKeys(manager: SettingsKeybindings) {
 		matches(data: string, action: keyof typeof actions) {
 			return keys(action).some((key) => matchesKey(data, key as KeyId));
 		},
-		help(width: number): string[] {
+		help(width: number, cancelLabel: "Close" | "Back" = "Close"): string[] {
 			const spaceChanges = !(["up", "down", "cancel"] as const).some((action) =>
 				keys(action).some((key) => matchesKey(" ", key as KeyId)),
 			);
 			const label = (action: keyof typeof actions) =>
 				keys(action)[0] ?? (action === "confirm" && spaceChanges ? "Space" : "unbound");
-			const core = [`${label("confirm")} Change`, "Tab Sections", `${label("cancel")} Close`];
+			const core = [
+				`${label("confirm")} Change`,
+				"Tab Sections",
+				`${label("cancel")} ${cancelLabel}`,
+			];
 			const change = `${label("confirm")}${spaceChanges ? "/Space" : ""} Change`;
-			const full = `${label("up")}/${label("down")} Navigate · ${change} · Tab/Shift+Tab Sections · ${label("cancel")} Close`;
+			const full = `${label("up")}/${label("down")} Navigate · ${change} · Tab/Shift+Tab Sections · ${label("cancel")} ${cancelLabel}`;
 			if (visibleWidth(full) <= width) return [full];
 			const rows: string[] = [];
 			for (const hint of core) {

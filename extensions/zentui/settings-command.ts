@@ -169,13 +169,22 @@ const settingsSections = [
 	"thinkingSteps",
 	"workingLine",
 	"footer",
-	"segments",
-	"git",
-	"extensions",
 ] as const;
-
+const footerPages = ["segments", "git", "extensions"] as const;
+type FooterPage = (typeof footerPages)[number];
+type TopLevelSection = (typeof settingsSections)[number];
 type FeatureState = "enabled" | "disabled";
-type SettingsSection = (typeof settingsSections)[number];
+type SettingsSection = TopLevelSection | FooterPage;
+
+function isFooterPage(section: string): section is FooterPage {
+	return footerPages.some((page) => page === section);
+}
+function topLevelSection(section: SettingsSection): TopLevelSection {
+	return isFooterPage(section) ? "footer" : section;
+}
+function footerPageSettingId(page: FooterPage): string {
+	return `footerPage:${page}`;
+}
 type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type EditorPatch = Partial<
 	Pick<
@@ -293,7 +302,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
-	extensions: "Extensions",
+	extensions: "Extension statuses",
 };
 
 const footerSegmentSettingLabels: Record<FooterSegmentSettingId, string> = {
@@ -506,7 +515,10 @@ function directSection(args: string): SettingsSection | undefined {
 function argumentCompletions(prefix: string): AutocompleteItem[] | null {
 	const normalized = prefix.trimStart().toLowerCase();
 	const matches = directCommandSuggestions
-		.map((value) => ({ value, label: value }))
+		.map((value) => ({
+			value,
+			label: isFooterPage(value) ? `${value} — Footer > ${sectionLabels[value]}` : value,
+		}))
 		.filter((item) => item.value.startsWith(normalized));
 	return matches.length ? matches : null;
 }
@@ -1125,7 +1137,19 @@ function buildSectionItems(
 			return [
 				...buildFooterItems(config),
 				...(config.components.footer.style === "starship"
-					? buildStarshipFooterStyleItems(config)
+					? [
+							...buildStarshipFooterStyleItems(config),
+							...footerPages.map((page) => ({
+								id: footerPageSettingId(page),
+								label: sectionLabels[page],
+								description:
+									page === "extensions"
+										? "Place and color published keyed Footer statuses; not extension management or Working line integrations."
+										: `Configure Starship Footer ${sectionLabels[page]}; other components are unchanged.`,
+								currentValue: "->",
+								values: ["->"],
+							})),
+						]
 					: []),
 			];
 		case "segments":
@@ -1139,14 +1163,16 @@ function buildSectionItems(
 
 function nextSection(section: SettingsSection): SettingsSection {
 	return (
-		settingsSections[(settingsSections.indexOf(section) + 1) % settingsSections.length] ??
-		"appearance"
+		settingsSections[
+			(settingsSections.indexOf(topLevelSection(section)) + 1) % settingsSections.length
+		] ?? "appearance"
 	);
 }
 function previousSection(section: SettingsSection): SettingsSection {
 	return (
 		settingsSections[
-			(settingsSections.indexOf(section) - 1 + settingsSections.length) % settingsSections.length
+			(settingsSections.indexOf(topLevelSection(section)) - 1 + settingsSections.length) %
+				settingsSections.length
 		] ?? "appearance"
 	);
 }
@@ -1155,6 +1181,7 @@ function formatSectionTabs(
 	theme: ExtensionContext["ui"]["theme"],
 	width: number,
 ): string {
+	if (isFooterPage(active)) return `  ${theme.bold(`Footer > ${sectionLabels[active]}`)}`;
 	const rendered = settingsSections.map((section) =>
 		section === active
 			? theme.bold(sectionLabels[section])
@@ -1455,7 +1482,26 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							if (previewChanged) startPreview();
 							tui.requestRender();
 						};
+						const backOrClose = () => {
+							if (isFooterPage(activeSection) && deps.sessionLifecycle.isCurrent(generation)) {
+								const focusId = footerPageSettingId(activeSection);
+								activeSection = "footer";
+								settingsList = makeSettingsList(focusId);
+								tui.requestRender();
+							} else finishSettings("close");
+						};
 						const makeSettingsList = (focusId?: string): SettingsList => {
+							if (
+								isFooterPage(activeSection) &&
+								deps.getConfig().components.footer.style !== "starship"
+							) {
+								ctx.ui.notify(
+									`Footer > ${sectionLabels[activeSection]} requires Starship. Current Footer is ${footerStyleLabel(deps.getConfig().components.footer.style)}; saved settings are unchanged.`,
+									"info",
+								);
+								activeSection = "footer";
+								focusId = "footerStyle";
+							}
 							const items = buildSectionItems(
 								activeSection,
 								deps.getConfig(),
@@ -1499,6 +1545,21 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								change(id: string, newValue: string) {
 									try {
 										if (!deps.sessionLifecycle.isCurrent(generation)) return;
+										const footerPage = footerPages.find((page) => footerPageSettingId(page) === id);
+										if (footerPage) {
+											activeSection = footerPage;
+											settingsList = makeSettingsList();
+											tui.requestRender();
+											return;
+										}
+										if (
+											isFooterPage(activeSection) &&
+											deps.getConfig().components.footer.style !== "starship"
+										) {
+											settingsList = makeSettingsList();
+											tui.requestRender();
+											return;
+										}
 										if (id === "migrate" || id.startsWith("edit-colors:")) {
 											requestedSection = activeSection;
 											requestedFocusId = id;
@@ -1974,7 +2035,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								// Native hint text is not binding-aware. Own the hint surface via its supported theme callback.
 								{ ...listTheme, hint: () => "" },
 								actions.change,
-								() => finishSettings("close"),
+								backOrClose,
 							);
 							activateSelectedSetting = actions.activate;
 							if (focusId && !selectOwnedSetting(list, items, focusId)) selectedIndex = 0;
@@ -2016,7 +2077,9 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									"─".repeat(Math.max(0, width)),
 								);
 								const height = tui.terminal?.rows ?? 80;
-								const help = keys.help(width).map((line) => safeThemeFg(theme, "muted", line));
+								const help = keys
+									.help(width, isFooterPage(activeSection) ? "Back" : "Close")
+									.map((line) => safeThemeFg(theme, "muted", line));
 								const nextVisible = Math.max(1, Math.min(8, height - help.length - 8));
 								if (nextVisible !== listVisible) {
 									listVisible = nextVisible;
@@ -2055,7 +2118,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							handleInput(data: string) {
 								// Closing is safe even after shutdown: let Pi restore its saved editor draft.
 								if (keys.matches(data, "cancel")) {
-									finishSettings("close");
+									backOrClose();
 									return;
 								}
 								if (!deps.sessionLifecycle.isCurrent(generation)) return;

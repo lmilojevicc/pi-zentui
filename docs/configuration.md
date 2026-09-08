@@ -35,7 +35,7 @@ Native releases Zentui's ownership; Hidden deliberately installs a zero-row Foot
 
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into nine component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Close guidance:
+The interactive `/zentui` menu is split into six component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
 1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
@@ -43,15 +43,17 @@ The interactive `/zentui` menu is split into nine component-oriented sections. U
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
 6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
-7. **Segments** — visibility toggles for non-Git Starship segments.
-8. **Git** — Starship Git segment and probe controls.
-9. **Extensions** — Starship extension-status placement and color controls for active keys.
+   - **Segments →** — visibility toggles for non-Git Starship segments.
+   - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
+   - **Extension statuses →** — Starship placement and color controls for active published keyed Footer statuses; not extension management or Working line integrations.
 
-Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Starship-specific rows are shown only while Starship is selected. Footer Color overrides, Segments, Git, and Extensions remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
+The three Footer child entries appear only with Starship selected. Child headings show their scope (for example, **Footer > Git**). The configured cancel key returns to Footer focused on the originating child entry; at the top level it still closes settings. `Tab` / `Shift+Tab` remain available on child pages to move to the next / previous top-level section relative to Footer. Visiting or backing out of a page does not save settings or change component ownership.
+
+Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Starship-specific rows are shown only while Starship is selected. Footer Color overrides remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Native and Hidden hide the three child entries without changing their saved preferences. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
 
 Free-form values such as custom formats, Opencode metadata formats, and inactive extension keys remain JSON-only. Component raw colors are editable through each component’s **Color overrides** action, with explicit **Reset / inherit**. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
-Every section has a direct route and completion:
+Every section and Footer child page has a direct route and completion:
 
 ```text
 /zentui appearance
@@ -64,6 +66,8 @@ Every section has a direct route and completion:
 /zentui git
 /zentui extensions
 ```
+
+`/zentui segments`, `/zentui git`, and `/zentui extensions` open the corresponding **Footer > …** child page when Starship is active. Under Native or Hidden, they instead open Footer with a requires-Starship explanation; they do not show active child controls, enable Starship, or write configuration.
 
 `messages` and `thinking-steps` remain section aliases; Footer also accepts the aliases below. Useful slash-command shortcuts:
 
