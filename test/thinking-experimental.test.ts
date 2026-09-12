@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThinkingStepsComponentConfig } from "../extensions/zentui/config";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
+	hasThinkingExperimentalMarkdownIdentity,
 	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 	ThinkingExperimentalController,
 } from "../extensions/zentui/thinking-experimental";
@@ -215,6 +216,39 @@ function controller(
 }
 
 describe("Thinking (Experimental) private assistant decorator", () => {
+	it("matches Pi 0.85 MouseRegion-wrapped thinking Markdown", () => {
+		const thinking = "# Wrapped step";
+		const markdown = new Markdown(thinking, 1, 0, markdownTheme, {
+			color: identity,
+			italic: true,
+		});
+		const region = {
+			child: markdown,
+			onMouse: () => undefined,
+			render: (width: number) => markdown.render(width),
+		};
+		const contentContainer = { children: [new Spacer(1), region] };
+		expect(hasThinkingExperimentalMarkdownIdentity({ contentContainer }, message(thinking))).toBe(
+			true,
+		);
+	});
+
+	it("does not unwrap a nested child without onMouse", () => {
+		const thinking = "# Nested step";
+		const markdown = new Markdown(thinking, 1, 0, markdownTheme, {
+			color: identity,
+			italic: true,
+		});
+		const nested = {
+			child: markdown,
+			render: (width: number) => markdown.render(width),
+		};
+		const contentContainer = { children: [new Spacer(1), nested] };
+		expect(hasThinkingExperimentalMarkdownIdentity({ contentContainer }, message(thinking))).toBe(
+			false,
+		);
+	});
+
 	it.each(["rail", "tree"] as const)(
 		"installs %s only at enabled startup, preserves hidden native thinking, and owns no input",
 		(mode) => {
