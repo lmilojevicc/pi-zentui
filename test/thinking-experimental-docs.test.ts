@@ -9,7 +9,7 @@ describe("Thinking (Experimental) documentation", () => {
 		for (const path of ["README.md", "docs/configuration.md"]) {
 			const documentation = readFileSync(join(root, path), "utf8");
 			expect(documentation).toContain("Thinking (Experimental)");
-			expect(documentation).toMatch(/0\.80\.5.*0\.82\.1.*0\.83\.0.*0\.84\.0.*0\.84\.4/s);
+			expect(documentation).toMatch(/0\.80\.5.*0\.82\.1.*0\.83\.0.*0\.84\.0.*0\.84\.4.*0\.85\.1/s);
 			expect(documentation).toMatch(/switch.*live|live switching/i);
 			expect(documentation).toMatch(/restart/i);
 			expect(documentation).toMatch(/native.*Markdown|Pi `Markdown`/i);

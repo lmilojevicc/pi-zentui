@@ -23,6 +23,7 @@ const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? [
 	"0.83.0",
 	"0.84.0",
 	"0.84.4",
+	"0.85.1",
 ];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
@@ -237,6 +238,24 @@ import {
 import { Markdown, SettingsList, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { hasThinkingExperimentalMarkdownIdentity } from "./extensions/zentui/thinking-experimental.ts";
 
+function unwrapMouseRegion(component) {
+	const inner = component?.child;
+	if (
+		typeof component?.onMouse !== "function" ||
+		!inner ||
+		typeof inner !== "object" ||
+		typeof inner.render !== "function"
+	) {
+		return component;
+	}
+	return inner;
+}
+function thinkingMarkdownChild(children, snippet) {
+	return (children ?? [])
+		.map(unwrapMouseRegion)
+		.find((child) => typeof child?.text === "string" && child.text.includes(snippet));
+}
+
 const originalUpdate = AssistantMessageComponent.prototype.updateContent;
 const originalDescriptor = Object.getOwnPropertyDescriptor(AssistantMessageComponent.prototype, "updateContent");
 const forwarded = [];
@@ -421,8 +440,9 @@ export default function (pi) {
 					[],
 				);
 				Reflect.apply(originalUpdate, native, [structuralFixture, spec.active]);
-				const nativeMarkdown = (native.contentContainer?.children ?? []).find(
-					(child) => child instanceof Markdown && child.text.includes("PTY label 1"),
+				const nativeMarkdown = thinkingMarkdownChild(
+					native.contentContainer?.children,
+					"PTY label 1",
 				);
 				if (!nativeMarkdown) throw new Error("native structural Markdown shape missing");
 				const selected = mode === "rail" ? labels : labels.slice(-5);
@@ -511,7 +531,7 @@ export default function (pi) {
 		const nativeLive = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		Reflect.apply(originalUpdate, nativeLive, [liveFixture, true]);
 		const nativeChildren = nativeLive.contentContainer?.children ?? [];
-		const nativeMarkdown = nativeChildren.find((child) => child instanceof Markdown && child.text.includes("LIVE rendered row 1"));
+		const nativeMarkdown = thinkingMarkdownChild(nativeChildren, "LIVE rendered row 1");
 		const nativeRows = nativeMarkdown ? cleanRows(nativeMarkdown.render(40)) : [];
 		const nativeScreenRows = cleanRows(nativeLive.render(100));
 		const importedAssistantIdentity = nativeLive.constructor === AssistantMessageComponent;
@@ -529,10 +549,13 @@ export default function (pi) {
 			messageIdentity: call.message === liveFixture,
 		}));
 		const wrapperCalls = testedCalls.length;
-		const signature = (component) => (component.contentContainer?.children ?? []).map((child) => ({
-			constructor: child.constructor.name,
-			text: typeof child.text === "string" ? child.text : undefined,
-		}));
+		const signature = (component) => (component.contentContainer?.children ?? []).map((child) => {
+			const visible = unwrapMouseRegion(child);
+			return {
+				constructor: visible.constructor.name,
+				text: typeof visible.text === "string" ? visible.text : undefined,
+			};
+		});
 		const collision = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		collision.updateContent({
 			...fixture,

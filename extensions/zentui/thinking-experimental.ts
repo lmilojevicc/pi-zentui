@@ -522,6 +522,24 @@ function exactConstructor(component: Component, expected: { prototype: object })
 	return Object.getPrototypeOf(component) === expected.prototype;
 }
 
+/**
+ * Pi 0.85 wraps each thinking run in MouseRegion for click-to-toggle.
+ * Duck-type so we do not depend on MouseRegion being a public export.
+ */
+function unwrapMouseRegion(component: Component): Component {
+	const outer = component as unknown as { child?: unknown; onMouse?: unknown };
+	const inner = outer.child;
+	if (
+		typeof outer.onMouse !== "function" ||
+		!inner ||
+		typeof inner !== "object" ||
+		typeof (inner as Component).render !== "function"
+	) {
+		return component;
+	}
+	return inner as Component;
+}
+
 function matchNativeLayout(
 	children: Component[],
 	descriptors: NativeChildDescriptor[],
@@ -532,26 +550,31 @@ function matchNativeLayout(
 		const child = children[index];
 		const descriptor = descriptors[index];
 		if (!child || !descriptor) return undefined;
+		const visible = unwrapMouseRegion(child);
 		if (descriptor.kind === "spacer") {
-			if (!exactConstructor(child, Spacer) || (child as unknown as { lines?: unknown }).lines !== 1)
+			if (
+				!exactConstructor(visible, Spacer) ||
+				(visible as unknown as { lines?: unknown }).lines !== 1
+			) {
 				return undefined;
+			}
 			continue;
 		}
 		if (descriptor.kind === "text") {
-			if (!exactConstructor(child, Text)) return undefined;
-			const text = (child as unknown as { text?: unknown }).text;
+			if (!exactConstructor(visible, Text)) return undefined;
+			const text = (visible as unknown as { text?: unknown }).text;
 			if (typeof text !== "string") return undefined;
 			const marker = plainTextMarker(text);
 			if (!descriptor.markers.includes(marker)) return undefined;
 			continue;
 		}
-		if (!exactConstructor(child, Markdown)) return undefined;
-		const shape = markdownShape(child as Markdown);
+		if (!exactConstructor(visible, Markdown)) return undefined;
+		const shape = markdownShape(visible as Markdown);
 		if (!shape || shape.text !== descriptor.source) return undefined;
 		if (descriptor.thinkingRun !== undefined) {
 			thinking.push({
 				index,
-				markdown: child as Markdown,
+				markdown: visible as Markdown,
 				shape,
 				run: descriptor.thinkingRun,
 			});
