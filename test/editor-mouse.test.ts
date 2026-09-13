@@ -88,6 +88,55 @@ const nativeMouse =
 	"function";
 
 describe("editor mouse capability and delegation", () => {
+	it("keeps quota outside the Accent Rail prompt and translates completion rows past it", () => {
+		const cfg = config("accent-rail");
+		cfg.components.editor.codexQuota = true;
+		const handleMouse = vi.fn(() => ({ handled: true }));
+		let completing = true;
+		const base = {
+			autocompleteList: { render: () => ["  completion"] },
+			isShowingAutocomplete: () => completing,
+			render(width: number) {
+				return [
+					"─".repeat(width),
+					"draft",
+					"─".repeat(width),
+					...(completing ? this.autocompleteList.render() : []),
+				];
+			},
+			getText: () => "draft",
+			setText() {},
+			handleInput() {},
+			invalidate() {},
+			handleMouse,
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			uiTheme,
+			() => cfg,
+			() => ({ ...meta(), codexQuota: { fiveHour: 80, week: 60, stale: true } }),
+			() => "off",
+		);
+		const rows = editor.render(60);
+		expect(rows).toHaveLength(3);
+		const quota = cell(rows, "5h");
+		const completion = cell(rows, "completion");
+		expect(quota.y).toBe(1);
+		expect(completion.y).toBe(2);
+		mouse(editor, event(completion.x, completion.y, 60, rows.length));
+		expect(handleMouse).toHaveBeenLastCalledWith(
+			expect.objectContaining({ y: 3, width: 58, height: 4 }),
+		);
+		handleMouse.mockClear();
+		mouse(editor, event(quota.x, quota.y, 60, rows.length));
+		expect(handleMouse).not.toHaveBeenCalled();
+		expect(editor.getText()).toBe("draft");
+		completing = false;
+		// Two owned rows, not the special padded one-row rail geometry.
+		expect(editor.render(60)).toHaveLength(2);
+		cfg.components.editor.codexQuota = false;
+		expect(editor.render(60)).toHaveLength(3);
+	});
 	it("does not invent mouse support on a predecessor without it", () => {
 		const base = {
 			render: () => ["native"],

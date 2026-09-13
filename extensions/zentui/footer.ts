@@ -1,5 +1,8 @@
+import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
@@ -190,6 +193,7 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getLiveContext?: () => LiveContextOverride | undefined;
+		getCodexQuota?: () => CodexQuota | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
 	},
@@ -210,10 +214,13 @@ export function installFooter(
 				hooks.onDispose?.();
 			},
 			invalidate() {},
-			render(width: number): string[] {
+			render: function renderFooter(width: number, showQuota = true): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const footer = config.components.footer;
+				const quota =
+					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
+				const quotaLabel = renderCodexQuota(quota, theme, config, "footer");
 				const footerModelLabel = modelLabelFor(state, footer.modelLabel);
 				const wideFormatTokens = config.components.footer.styles.starship.format
 					? parseFooterFormat(config.components.footer.styles.starship.format)
@@ -450,6 +457,8 @@ export function installFooter(
 								componentColor(config, "footer", "time"),
 								formatTimeLabel(config.icons.time),
 							);
+						case "codex_quota":
+							return quotaLabel;
 						case "context":
 							return renderStyleForSource(theme, colorSource, contextColor, contextLabel);
 						case "tokens":
@@ -725,6 +734,7 @@ export function installFooter(
 					.join(" ");
 				const right = [
 					modelInfoSegment,
+					quotaLabel,
 					config.components.footer.styles.starship.segments.context ? builtInContextLabel : "",
 					config.components.footer.styles.starship.segments.tokens ? builtInTokenLabel : "",
 					config.components.footer.styles.starship.segments.cost ? builtInCostLabel : "",
@@ -776,11 +786,23 @@ export function installFooter(
 						separator,
 						innerWidth,
 					);
-				const frameRows = (rows: string[]) =>
-					rows.map((row) => {
+				const frameRows = (rows: string[], source = [contentLeft, contentMiddle, contentRight]) => {
+					const framedRows = rows.map((row) => {
 						const framed = width > 2 ? ` ${truncateFooterText(row, width - 2, "")} ` : row;
 						return truncateFooterText(framed, width, "");
 					});
+					if (quotaLabel) {
+						const text = codexQuotaText(quota);
+						const count = (lines: string[]) =>
+							lines.reduce(
+								(sum, line) => sum + stripVTControlCharacters(line).split(text).length - 1,
+								0,
+							);
+						// Recompose without quota if any occurrence was clipped, split, or omitted.
+						if (count(source) !== count(framedRows)) return renderFooter(width, false);
+					}
+					return framedRows;
+				};
 
 				if (!config.components.footer.styles.starship.responsive)
 					return frameRows([renderLegacyContent()]);
@@ -861,7 +883,10 @@ export function installFooter(
 						renderFormatTokens(chunk.tokens, renderCompactVariable),
 					);
 					const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
-					if (["cwd", "session_name", "git_branch"].some((name) => references.has(name))) {
+					if (
+						(!quotaLabel || !references.has("codex_quota")) &&
+						["cwd", "session_name", "git_branch"].some((name) => references.has(name))
+					) {
 						rendered = truncateFooterText(rendered, chunkBudget, "…");
 					}
 					if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
@@ -873,6 +898,7 @@ export function installFooter(
 						config.components.footer.styles.starship.compactMaxLines,
 						renderVariable("sep"),
 					),
+					compactChunks.map((chunk) => chunk.text),
 				);
 			},
 		};

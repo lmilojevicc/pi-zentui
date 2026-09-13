@@ -1,5 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { renderCodexQuota } from "./codex-quota-display";
 import {
 	applyOwnedSurfaceBackground,
 	fillTerminalLine,
@@ -23,6 +25,7 @@ export type AccentRailViewport = {
 };
 
 export type AccentRailEditorFrameOptions = {
+	codexQuota?: CodexQuota;
 	width: number;
 	editorLines: string[];
 	autocompleteLines?: string[];
@@ -55,6 +58,7 @@ function viewportLabel(
 
 /** Pure compact accent-rail composition shared by live rendering and settings previews. */
 export function renderAccentRailEditorFrame({
+	codexQuota,
 	width,
 	editorLines,
 	autocompleteLines = [],
@@ -80,7 +84,13 @@ export function renderAccentRailEditorFrame({
 	const below = config.components.editor.viewportIndicators
 		? viewportLabel("below", viewport.below)
 		: undefined;
-	const rows = [...(above ? [above] : []), ...editorLines, ...(below ? [below] : [])];
+	const quota = renderCodexQuota(codexQuota, uiTheme, config, "editor");
+	const rows = [
+		...(above ? [above] : []),
+		...editorLines,
+		...(below ? [below] : []),
+		...(quota && visibleWidth(quota) <= contentWidth ? [quota] : []),
+	];
 	const transparent = config.components.editor.styles["accent-rail"].transparent;
 	const surface = rows.map((line) => {
 		const railCell = transparent ? rail : applyOwnedSurfaceBackground(uiTheme, rail);

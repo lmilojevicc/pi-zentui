@@ -189,13 +189,21 @@ type FooterSegmentSettingId = keyof FooterSegmentsConfig;
 type EditorPatch = Partial<
 	Pick<
 		EditorComponentConfig,
-		"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+		| "enabled"
+		| "style"
+		| "colorSource"
+		| "borderColorMode"
+		| "modelLabel"
+		| "viewportIndicators"
+		| "codexQuota"
 	>
 >;
 type UserMessagesPatch = Partial<
 	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
 >;
-type FooterPatch = Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>;
+type FooterPatch = Partial<
+	Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
+>;
 type ApplyResult = { applied: boolean; reason?: string };
 type SettingsOutcome =
 	| "close"
@@ -569,6 +577,9 @@ function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
 	];
 }
 
+const codexQuotaDescription =
+	"Remaining ChatGPT account quota for active openai-codex. Authenticated background refresh roughly every minute while active. Custom templates require $codex_quota; the toggle always gates access.";
+
 function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 	const editor = config.components.editor;
 	return [
@@ -593,6 +604,13 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Use Pi theme colors or terminal palette styles.",
 			currentValue: editor.colorSource,
 			values: colorSourceValues,
+		},
+		{
+			id: "editorCodexQuota",
+			label: "Codex quota",
+			description: codexQuotaDescription,
+			currentValue: featureValue(editor.codexQuota),
+			values: featureStateValues,
 		},
 		{
 			id: "editorModelLabel",
@@ -890,6 +908,13 @@ function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 				description: "Use Pi theme colors or terminal palette styles.",
 				currentValue: footer.colorSource,
 				values: colorSourceValues,
+			},
+			{
+				id: "footerCodexQuota",
+				label: "Codex quota",
+				description: codexQuotaDescription,
+				currentValue: featureValue(footer.codexQuota),
+				values: featureStateValues,
 			},
 			{
 				id: "footerModelLabel",
@@ -1577,6 +1602,16 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											return;
 										}
 										const enabled = isFeatureState(newValue) ? newValue === "enabled" : undefined;
+										if (
+											(id === "editorCodexQuota" || id === "footerCodexQuota") &&
+											enabled !== undefined
+										) {
+											if (id === "editorCodexQuota") setEditor({ codexQuota: enabled }, ctx);
+											else setFooter({ codexQuota: enabled }, ctx);
+											settingsList.updateValue(id, newValue);
+											notifyChange("Codex quota", newValue);
+											return;
+										}
 										if (id === "editorEnabled" && enabled !== undefined) {
 											if (pendingPresetEditor) {
 												const result = deps.setEditorComponent({ enabled }, ctx, {

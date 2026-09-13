@@ -5863,7 +5863,7 @@ describe("Pi docs compliance", () => {
 						handleInput?: (data: string) => void;
 					};
 					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
-					for (let index = 0; index < 3; index += 1) component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
@@ -5935,7 +5935,7 @@ describe("Pi docs compliance", () => {
 						() => {},
 					) as { handleInput?: (data: string) => void };
 					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
-					for (let index = 0; index < 6; index += 1) component.handleInput?.("\x1b[B");
+					for (let index = 0; index < 7; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");

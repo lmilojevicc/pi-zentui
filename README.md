@@ -170,6 +170,8 @@ Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, fold
 
 Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. Pi 0.84.4 is covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not enable fullscreen automatically; select it from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 
+**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
+
 ## Requirements
 
 - [Pi](https://pi.dev) coding agent 0.80.5 or newer

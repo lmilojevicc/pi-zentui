@@ -353,6 +353,40 @@ describe("component-oriented /zentui settings", () => {
 		expect(tokenRows).toContain("reconciles.");
 	});
 
+	it("saves quota toggles independently, including dormant editor preferences", async () => {
+		const config = cloneConfig();
+		config.components.editor.enabled = false;
+		const harness = createHarness(config);
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Codex quota");
+		component.handleInput(" ");
+		expect(harness.calls.editor).toEqual([{ codexQuota: true }]);
+		expect(config.components.editor.enabled).toBe(false);
+		expect(config.components.footer.codexQuota).toBe(false);
+		for (let index = 0; index < 4; index++) component.handleInput("\t");
+		selectLabel(component, "Codex quota");
+		component.handleInput(" ");
+		expect(harness.calls.footer).toEqual([{ codexQuota: true }]);
+		expect(config.components.editor.codexQuota).toBe(true);
+	});
+
+	it("restores quota settings after a failed save", async () => {
+		const harness = createHarness(cloneConfig(), {
+			setEditorComponent() {
+				throw new Error("read-only quota");
+			},
+		});
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Codex quota");
+		component.handleInput(" ");
+		expect(row(component, "Codex quota")).toContain("disabled");
+		expect(harness.notifications).toContain("Could not update Zentui settings: read-only quota");
+	});
+
 	it("uses exact component-owned row sets and ordering", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
@@ -373,6 +407,7 @@ describe("component-oriented /zentui settings", () => {
 			"Editor",
 			"Editor style",
 			"Editor colors",
+			"Codex quota",
 			"Editor model label",
 			"Editor border color",
 			"Editor viewport indicators",
@@ -413,6 +448,7 @@ describe("component-oriented /zentui settings", () => {
 		expectFocusOrder(component, [
 			"Footer style",
 			"Footer colors",
+			"Codex quota",
 			"Footer model label",
 			"Responsive footer",
 			"Compact footer rows",
@@ -529,6 +565,7 @@ describe("component-oriented /zentui settings", () => {
 			"Editor",
 			"Editor style",
 			"Editor colors",
+			"Codex quota",
 			"Editor model label",
 			"Editor border color",
 			"Editor viewport indicators",

@@ -63,7 +63,7 @@ export type CompletionMenuStyle = "native" | "palette";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
 
 export const DEFAULT_COMPACT_FOOTER_FORMAT =
-	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens";
+	"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)";
 
 export type ContextThresholds = {
 	warning: number;
@@ -151,6 +151,7 @@ export type EditorStylesConfig = {
 };
 
 export type EditorComponentConfig = {
+	codexQuota: boolean;
 	colors?: ComponentColors<"editor">;
 	enabled: boolean;
 	style: EditorStyle;
@@ -208,6 +209,7 @@ export type StarshipFooterStyleConfig = {
 };
 
 export type FooterComponentConfig = {
+	codexQuota: boolean;
 	colors?: ComponentColors<"footer">;
 	style: FooterStyle;
 	colorSource: ColorSource;
@@ -311,7 +313,7 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
-export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)";
+export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)(  $codex_quota)";
 
 export type ZentuiConfig = {
 	projectRefreshIntervalMs: number;
@@ -405,6 +407,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"os",
 	"time",
 	"context",
+	"codex_quota",
 	"tokens",
 	"cache_read",
 	"cache_write",
@@ -495,6 +498,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 
 const defaultComponents: ComponentsConfig = {
 	editor: {
+		codexQuota: false,
 		enabled: true,
 		style: "opencode",
 		colorSource: "theme",
@@ -535,6 +539,7 @@ const defaultComponents: ComponentsConfig = {
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
+		codexQuota: false,
 		style: "starship",
 		colorSource: "theme",
 		modelLabel: "id",
@@ -1246,6 +1251,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 
 	return {
 		editor: {
+			codexQuota: parseBoolean(editor.codexQuota, false),
 			...(isRecord(editor.colors)
 				? { colors: normalizeComponentColors("editor", editor.colors) }
 				: {}),
@@ -1403,6 +1409,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 		},
 		footer: {
+			codexQuota: parseBoolean(footer.codexQuota, false),
 			...(isRecord(footer.colors)
 				? { colors: normalizeComponentColors("footer", footer.colors) }
 				: {}),
@@ -1696,10 +1703,17 @@ function applyEditorComponentPatch(
 	patch: Partial<
 		Pick<
 			EditorComponentConfig,
-			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+			| "enabled"
+			| "style"
+			| "colorSource"
+			| "borderColorMode"
+			| "modelLabel"
+			| "viewportIndicators"
+			| "codexQuota"
 		>
 	>,
 ): void {
+	if (patch.codexQuota !== undefined) component.codexQuota = patch.codexQuota;
 	if (patch.enabled !== undefined) component.enabled = patch.enabled;
 	if (patch.style !== undefined) component.style = patch.style;
 	if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
@@ -1714,7 +1728,13 @@ export function saveEditorComponentPatch(
 	patch: Partial<
 		Pick<
 			EditorComponentConfig,
-			"enabled" | "style" | "colorSource" | "borderColorMode" | "modelLabel" | "viewportIndicators"
+			| "enabled"
+			| "style"
+			| "colorSource"
+			| "borderColorMode"
+			| "modelLabel"
+			| "viewportIndicators"
+			| "codexQuota"
 		>
 	>,
 	path = configPath,
@@ -1892,13 +1912,16 @@ export function saveSelectorBordersComponentPatch(
 }
 
 export function saveFooterComponentPatch(
-	patch: Partial<Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel">>,
+	patch: Partial<
+		Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
+	>,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
 		["footer"],
 		(components) => {
 			const component = components.footer;
+			if (patch.codexQuota !== undefined) component.codexQuota = patch.codexQuota;
 			if (patch.style !== undefined) component.style = patch.style;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
 			if (patch.modelLabel !== undefined) component.modelLabel = patch.modelLabel;

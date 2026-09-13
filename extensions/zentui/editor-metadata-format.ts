@@ -1,4 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { CodexQuota } from "./codex-quota";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
@@ -6,6 +8,7 @@ import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel }
 import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 
 export type EditorMetadataValues = {
+	codexQuota?: CodexQuota;
 	model: string;
 	modelId: string;
 	modelName: string;
@@ -177,6 +180,10 @@ function renderVariable(
 	uiTheme: Theme,
 	config: ZentuiConfig,
 ): { plain: string; styled: string } {
+	if (name === "codex_quota") {
+		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
+		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };
+	}
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;
 	const raw =

@@ -47,6 +47,8 @@ const raw = (path: string) => JSON.parse(fs.readFileSync(path, "utf8"));
 afterEach(() => vi.clearAllMocks());
 
 const ownerSaves = [
+	["editor", (p: string) => saveEditorComponentPatch({ codexQuota: true }, p)],
+	["footer", (p: string) => saveFooterComponentPatch({ codexQuota: true }, p)],
 	["editor", (p: string) => saveEditorComponentPatch({ colorSource: "terminal" }, p)],
 	["editor", (p: string) => savePolishedEditorStylePatch({ completionMenu: "native" }, p)],
 	[
@@ -65,6 +67,35 @@ const ownerSaves = [
 ] as const;
 
 describe("owner-only component persistence", () => {
+	it("saves quota consent without enabling consumers or rewriting custom formats", () => {
+		const metadataFormat = "$model  $provider(  $thinking)";
+		const initial = {
+			components: {
+				editor: { enabled: false, styles: { opencode: { metadataFormat } } },
+				footer: {
+					style: "hidden",
+					styles: { starship: { format: "$cwd", compactFormat: "$tokens" } },
+				},
+			},
+		};
+		withFile(initial, (path) => {
+			const editor = saveEditorComponentPatch({ codexQuota: true }, path);
+			expect(editor.components.editor.enabled).toBe(false);
+			expect(editor.components.editor.styles.opencode.metadataFormat).toBe(metadataFormat);
+			expect(raw(path).components.footer).toEqual(initial.components.footer);
+			const footer = saveFooterComponentPatch({ codexQuota: true }, path);
+			expect(footer.components.footer.style).toBe("hidden");
+			expect(footer.components.footer.styles.starship).toMatchObject({
+				format: "$cwd",
+				compactFormat: "$tokens",
+			});
+			vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+				throw new Error("read-only");
+			});
+			expect(() => saveEditorComponentPatch({ codexQuota: false }, path)).toThrow("read-only");
+			expect(raw(path).components.editor.codexQuota).toBe(true);
+		});
+	});
 	it.each(ownerSaves)("snapshots only %s and preserves unrelated raw JSON", (owner, save) => {
 		const initial = {
 			unknown: { keep: true },

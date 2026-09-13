@@ -1,6 +1,8 @@
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { CodexQuota } from "./codex-quota";
+import { renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
@@ -38,6 +40,7 @@ const MINIMALIST_ADAPTIVE_TERMINAL_THINKING_FALLBACKS: Record<string, string> = 
 const MINIMALIST_BRANCH_FALLBACK = { theme: "bold syntaxKeyword", terminal: "bold blue" };
 
 export type MinimalistEditorMetadata = {
+	codexQuota?: CodexQuota;
 	cwd: string;
 	projectRoot?: string;
 	branch?: string;
@@ -274,6 +277,8 @@ function renderTopRight(
 		}
 		parts.push(context);
 	}
+	const quota = renderCodexQuota(metadata.codexQuota, uiTheme, config, "editor");
+	if (quota && visibleWidth(joinParts([...parts, quota])) <= availableWidth) parts.push(quota);
 	const joined = joinParts(parts);
 	return fit ? truncateToWidth(joined, availableWidth, "…") : joined;
 }

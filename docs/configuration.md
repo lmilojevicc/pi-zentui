@@ -38,11 +38,11 @@ Native releases Zentui's ownership; Hidden deliberately installs a zero-row Foot
 The interactive `/zentui` menu is split into six component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
 1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
-2. **Editor** — enablement, style, colors, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
+2. **Editor** — enablement, style, colors, Codex quota, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
-6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, model label, responsive layout, separator, context style, and path display.
+6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
    - **Extension statuses →** — Starship placement and color controls for active published keyed Footer statuses; not extension management or Working line integrations.
@@ -144,6 +144,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
   "components": {
     "editor": {
       "enabled": true,
+      "codexQuota": false,
       "style": "opencode",
       "colorSource": "theme",
       "borderColorMode": "static",
@@ -151,11 +152,11 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "viewportIndicators": true,
       "styles": {
         "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "accent-rail": {
@@ -237,13 +238,14 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     },
     "footer": {
       "style": "starship",
+      "codexQuota": false,
       "colorSource": "theme",
       "modelLabel": "id",
       "styles": {
         "starship": {
           "format": "",
           "responsive": true,
-          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
           "compactMaxLines": 2,
           "separator": "pipe",
           "contextStyle": "text",
@@ -359,7 +361,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 ## Core configuration
 
 - Style values accept Starship/terminal strings such as `bold purple`, `fg:202`, `#89b`, `#89b4fa`, and `bg:blue fg:bright-green`, or Pi theme tokens such as `accent`, `borderMuted`, and `thinkingHigh`. Short `#rgb` values expand to `#rrggbb`.
-- `projectRefreshIntervalMs` controls project-status polling. `0` disables polling. Values `1..4999` clamp to the five-second minimum; invalid or non-finite values use `30000`.
+- `projectRefreshIntervalMs` controls project-status polling, not opt-in quota refresh. `0` disables project polling. Values `1..4999` clamp to the five-second minimum; invalid or non-finite values use `30000`.
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
@@ -371,6 +373,35 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
 - Active third-party statuses from `ctx.ui.setStatus()` can be placed left, middle, or right, hidden per key, and assigned independent color modes.
 - The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
+
+### Codex account quota
+
+`components.editor.codexQuota` and `components.footer.codexQuota` are independent booleans, both `false` by default. Enable either from its **Codex quota** settings row, or merge these leaves into your existing file:
+
+```json
+{
+  "components": {
+    "editor": { "codexQuota": true },
+    "footer": { "codexQuota": false }
+  }
+}
+```
+
+This example enables only Editor quota, without changing any component's style or enablement. Minimalist with Hidden Footer is supported. Footer quota requires Starship. Neither toggle enables another surface or changes a color source, and presets preserve both choices.
+
+- Only the exact active provider `openai-codex` is eligible, not `openai`, proxies, or similarly named models. Use Pi's existing ChatGPT/Codex login; API billing balances are not supported.
+- Values are **remaining**, rounded percentages: `5h 80% | week 60%`. Only exact 18,000-second and 604,800-second windows are recognized, independently of response ordering. Other durations stay unknown rather than acquiring incorrect labels.
+- `--` means unavailable, including a missing window, unsupported auth API/account, or no successful request. `0%` means exhausted. A newer partial response replaces the previous snapshot completely.
+- Transient HTTP/network/schema failures and refresh deadlines (including slow authentication lookups) retain successful values with a textual `stale` warning. Values older than two minutes also become stale. Missing, failed, or rejected authentication clears the cache, as do account changes, provider changes, loss of all consumers, and teardown. Credentials and quota are never persisted by Zentui.
+- One shared poller refreshes roughly every minute, including idle time, only in a TUI session with an owned, enabled eligible consumer. Both toggles off means no quota auth lookup or request. Editor templates without `$codex_quota` do not create demand; Footer considers both wide and responsive compact paths. HTTP 429 can delay the next request via `Retry-After`. Each refresh has a ten-second deadline; late uncancelable auth results are ignored.
+- Opencode variants include quota conditionally in their shipped metadata defaults. Minimalist adds it beside context when space allows. Accent Rail adds one editor-owned row beneath input and viewport indicators, before autocomplete. At narrow widths quota is omitted as a unit rather than clipping away labels or `stale`. Input text and Working line are unaffected.
+- Quota reuses the selected component's `contextNormal`, `contextWarning`, and `contextError` color roles. Remaining quota at or below 50% uses warning, at or below 20% uses error; stale values use at least warning. Editor never borrows Footer overrides. Settings previews use synthetic values only.
+
+**Custom templates remain authoritative.** Saved nonempty formats, including copies of old defaults, are never rewritten or augmented outside the template. Add `(  $codex_quota)` to either Opencode variant's `metadataFormat`, `($sep$codex_quota)` to a Footer wide `format`, or `$wrap_sep($codex_quota)` to `compactFormat`. Tokens remain empty when the corresponding quota toggle is off or the provider is ineligible. Unlike ordinary Footer `segments` flags, quota consent cannot be bypassed by a template.
+
+**Compatibility and privacy:** Zentui uses only Pi's public `modelRegistry.getProviderAuth("openai-codex")`, available on tested Pi 0.84.0 and 0.85.1. Hosts without that capability show placeholders without falling back to private storage or older credential APIs; the overall Pi minimum is unchanged. Auth is sent only to `https://chatgpt.com/backend-api/wham/usage`, with redirects rejected. JWT decoding is limited to the account-routing claim and is not identity verification. An opaque credential change invalidates cached data conservatively.
+
+The endpoint is undocumented and may change or reject some plans. Its path and seconds-based window field are corroborated by [OpenAI's Codex client](https://github.com/openai/codex/blob/rust-v0.98.0/codex-rs/backend-client/src/client.rs); this is not a public API guarantee. Automated verification uses synthetic responses, not a live account. No reset times, countdowns, alerts, or quota history are provided.
 
 ### Footer layout authority
 
@@ -410,7 +441,7 @@ Empty strings and whitespace-only strings mean deliberately **unstyled**, not mi
 | Owner | Local keys | Historical shared fallback |
 | --- | --- | --- |
 | `footer` | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key |
-| `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; these are Minimalist metadata roles |
+| `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; used by Minimalist metadata and quota |
 | `editor` | `gitBranch` | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default |
 | `editor` | `accent`, `border`, `prompt`, `rail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
 | `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
@@ -431,7 +462,7 @@ Role-specific defaults and chains remain intact:
 
 ### Accent Rail
 
-Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. It intentionally has no prompt glyph, metadata, enclosing border, or blank chrome row. Viewport counts appear only while content is clipped.
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
@@ -499,12 +530,13 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$context` | compact current context usage and window, for example `26.8%/272k` |
 | `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
 | `$cache_hit` | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable |
+| `$codex_quota` | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` |
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
 
 Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
-Missing, non-string, or empty values use `$model  $provider(  $thinking)`. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
+Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $codex_quota)`, with identical spacing while quota is off. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
 
 ## User-message styles
 

@@ -688,7 +688,7 @@ describe("responsive footer dependency reconciliation", () => {
 				handleInput?: (data: string) => void;
 			};
 			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
-			for (let index = 0; index < 3; index++) component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();
@@ -783,7 +783,7 @@ describe("responsive footer dependency reconciliation", () => {
 				handleInput?: (data: string) => void;
 			};
 			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
-			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
+			for (let index = 0; index < 5; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
 		const { handlers, command } = loadExtension();

@@ -96,6 +96,7 @@ describe("canonical config resolution", () => {
 		const config = mergeConfig({});
 		expect(config.components).toEqual({
 			editor: {
+				codexQuota: false,
 				enabled: true,
 				style: "opencode",
 				colorSource: "theme",
@@ -152,6 +153,7 @@ describe("canonical config resolution", () => {
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
+				codexQuota: false,
 				style: "starship",
 				colorSource: "theme",
 				modelLabel: "id",
@@ -1558,7 +1560,7 @@ describe("mergeConfig", () => {
 
 	it("defaults and normalizes responsive footer settings", () => {
 		expect(DEFAULT_COMPACT_FOOTER_FORMAT).toBe(
-			"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+			"$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
 		);
 		expect(mergeConfig({})).toMatchObject({
 			responsiveFooter: true,

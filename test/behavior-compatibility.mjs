@@ -11,6 +11,11 @@ if (!npmCli) throw new Error("Run through npm run test:behavior-compatibility");
 const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.80.5", "0.84.0", "0.85.1"];
 const packages = ["pi-ai", "pi-coding-agent", "pi-tui"];
 const tests = [
+	"codex-quota.test.ts",
+	"codex-quota-rendering.test.ts",
+	"codex-quota-lifecycle.test.ts",
+	"accent-rail-editor.test.ts",
+	"accent-rail-layout-patch.test.ts",
 	"editor-mouse.test.ts",
 	"user-message-native.test.ts",
 	"user-message-native-reduced-capabilities.test.ts",
