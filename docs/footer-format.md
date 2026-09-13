@@ -9,7 +9,7 @@ Set `components.footer.styles.starship.format` for complete control over the Sta
 - conditional groups `( ... )` that disappear when every nested variable is empty
 - `$fill` layout boundaries
 
-A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template.
+A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template. `$codex_quota` is an exception to segment-toggle bypass: it always requires the independent Footer quota consent toggle and active `openai-codex` provider.
 
 ## Examples
 
@@ -78,6 +78,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$os` | | operating-system icon |
 | `$time` | | current time `HH:MM` |
 | `$context` | | context usage; finite percentages use one decimal |
+| `$codex_quota` | | remaining account quota, for example `5h 80% | week 60%`; gated by `components.footer.codexQuota` |
 | `$tokens` | | input/output totals and existing cache-hit percentage |
 | `$cache_read` | | cache-read total (`R1.2k`); empty at zero or when unavailable |
 | `$cache_write` | | cache-write total (`W300`); empty at zero or when unavailable |
@@ -88,6 +89,12 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$fill` | — | wide-format layout boundary |
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
+
+### `$codex_quota` consent and freshness
+
+Set `components.footer.codexQuota: true` and select Starship to opt in. The built-in wide layout and shipped compact default include quota conditionally. Saved custom formats are unchanged; add `($sep$codex_quota)` to `format` and `$wrap_sep($codex_quota)` to `compactFormat` where desired. Templates without the token never have quota appended outside them.
+
+The token is empty when consent is off or the active provider is not exactly `openai-codex`. With consent, missing values use `--`; exhausted quota uses `0%`; retained values after a transient failure carry `stale`. Quota is omitted as a unit if it cannot fit safely. Editor has its own independent consent toggle. See [quota configuration](./configuration.md#codex-account-quota) for background polling, public auth capability requirements, and private-endpoint limitations.
 
 ### `$cwd` path modes
 

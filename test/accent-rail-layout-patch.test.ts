@@ -10,6 +10,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Container, VStack } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -21,7 +22,9 @@ import {
 	retainAccentRailLayoutPatchInstallation,
 	ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR,
 } from "../extensions/zentui/accent-rail-layout-patch";
+import { mergeConfig } from "../extensions/zentui/config";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
+import { WrappedPolishedEditor } from "../extensions/zentui/ui";
 
 const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
 const localPiTuiEntry = createRequire(import.meta.url).resolve("@earendil-works/pi-tui");
@@ -91,6 +94,87 @@ function installFake(version = "0.84.0", method = LAYOUT_NODE) {
 }
 
 describe("Accent Rail fullscreen layout patch", () => {
+	it.skipIf(!localSupportsAccentRailPatch)(
+		"preserves quota-enabled editor geometry through the host fullscreen dock adapter",
+		() => {
+			const config = mergeConfig({
+				components: { editor: { style: "accent-rail", codexQuota: true } },
+			});
+			const theme = {
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+			} as Theme;
+			let completing = false;
+			const base = {
+				autocompleteList: { render: () => ["  completion"] },
+				isShowingAutocomplete: () => completing,
+				render(width: number) {
+					return [
+						"─".repeat(width),
+						"draft",
+						"─".repeat(width),
+						...(completing ? this.autocompleteList.render() : []),
+					];
+				},
+				getText: () => "draft",
+				setText() {},
+				handleInput() {},
+				invalidate() {},
+			};
+			const editor = new WrappedPolishedEditor(
+				base,
+				theme,
+				() => config,
+				() => ({
+					modelLabel: "model",
+					providerLabel: "OpenAI Codex",
+					codexQuota: { fiveHour: 80, week: 60, stale: true },
+				}),
+				() => "off",
+			);
+			const owner = Symbol("quota-dock");
+			markAccentRailLayoutEditor(editor, owner, () => true);
+			const container = new Container();
+			container.addChild(editor);
+			const footer = { render: () => ["independent footer"], invalidate() {} };
+			const stack = new VStack([
+				{ component: container, shrink: 1, minSize: 3 },
+				{ component: footer, minSize: 1 },
+			]);
+			const installation = installAccentRailLayoutPatchOnTarget(
+				{ prototype: VStack.prototype, version: localPiTuiVersion },
+				owner,
+			);
+			try {
+				expect(installation.diagnostic).toBe("installed");
+				const node = (stack as unknown as Record<symbol, () => { entries: Entry[] }>)[
+					LAYOUT_NODE
+				]();
+				expect(node.entries[0]?.minSize).toBe(3);
+				expect(node.entries[1]?.component).toBe(footer);
+				const dockEditor = node.entries[0]?.component as { render(width: number): string[] };
+				for (const width of [80, 20, 80]) {
+					const rows = dockEditor.render(width);
+					expect(rows).toEqual(editor.render(width));
+					if (width === 80) {
+						expect(rows).toHaveLength(2);
+						expect(rows[0]).toContain("draft");
+						expect(rows[1]).toContain("5h 80% | week 60% stale");
+					} else expect(rows.join("\n")).not.toContain("5h");
+				}
+				completing = true;
+				const completed = dockEditor.render(80);
+				expect(completed).toHaveLength(3);
+				expect(completed[1]).toContain("5h");
+				expect(completed[2]).toContain("completion");
+				config.components.editor.codexQuota = false;
+				expect(dockEditor.render(80)).toHaveLength(2);
+				expect(editor.getText()).toBe("draft");
+			} finally {
+				installation.cleanup();
+			}
+		},
+	);
 	it("clones one owned active entry with a stable forwarding component", () => {
 		const owner = Symbol("owner");
 		const { container, invalidate } = markedContainer(owner);

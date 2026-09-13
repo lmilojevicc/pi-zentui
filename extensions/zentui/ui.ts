@@ -9,6 +9,8 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
+import type { CodexQuota } from "./codex-quota";
+import { renderCodexQuota } from "./codex-quota-display";
 import { omitTrailingNativeCompletionCountRow, renderCompletionPalette } from "./completion-menu";
 import { componentColor } from "./component-colors";
 import type { EditorStyle, ZentuiConfig } from "./config";
@@ -89,6 +91,7 @@ type WrappedEditor = EditorComponent &
 	};
 
 export type EditorMeta = {
+	codexQuota?: CodexQuota;
 	modelLabel: string;
 	modelId?: string;
 	modelName?: string;
@@ -135,6 +138,7 @@ type PolishedFrameResult = {
 };
 
 type AccentRailFrameAdapterOptions = {
+	codexQuota?: CodexQuota;
 	width: number;
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
@@ -567,6 +571,7 @@ function readVimStatus(editor: WrappedEditor, uiTheme: Theme): string | undefine
 }
 
 function renderAccentRailFrameFromBase({
+	codexQuota,
 	width,
 	baseRendered,
 	autocompleteSource,
@@ -610,7 +615,10 @@ function renderAccentRailFrameFromBase({
 		above: parsedTop?.count,
 		below: parsedBottom?.count,
 	};
+	const quotaRow = renderCodexQuota(codexQuota, uiTheme, config, "editor");
+	const quotaVisible = quotaRow && visibleWidth(quotaRow) <= width - ACCENT_RAIL_CHROME_WIDTH;
 	const renderedLines = renderAccentRailEditorFrame({
+		codexQuota,
 		width,
 		editorLines,
 		autocompleteLines,
@@ -629,6 +637,7 @@ function renderAccentRailFrameFromBase({
 			0,
 			bodyStart +
 				editorLines.length +
+				(quotaVisible ? 1 : 0) +
 				(config.components.editor.viewportIndicators && viewport.below ? 1 : 0),
 		),
 	});
@@ -807,25 +816,38 @@ export function renderPolishedEditorFrame({
 	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
-	const metadataZones = renderEditorMetadataFormatSplit(
-		selectedPolishedConfig(config)?.metadataFormat ??
-			config.components.editor.styles.opencode.metadataFormat,
-		{
-			model: modelMeta.modelLabel,
-			modelId: modelMeta.modelId ?? "",
-			modelName: modelMeta.modelName ?? "",
-			provider: modelMeta.providerLabel,
-			thinking: thinkingLevel ?? "",
-			sessionName: modelMeta.sessionName ?? "",
-			contextPercent: modelMeta.contextPercent,
-			contextWindow: modelMeta.contextWindow,
-			inputTokens: modelMeta.inputTokens,
-			outputTokens: modelMeta.outputTokens,
-			cacheHitRate: modelMeta.cacheHitRate,
-		},
-		uiTheme,
-		config,
-	);
+	const renderMetadata = (codexQuota?: CodexQuota) =>
+		renderEditorMetadataFormatSplit(
+			selectedPolishedConfig(config)?.metadataFormat ??
+				config.components.editor.styles.opencode.metadataFormat,
+			{
+				codexQuota,
+				model: modelMeta.modelLabel,
+				modelId: modelMeta.modelId ?? "",
+				modelName: modelMeta.modelName ?? "",
+				provider: modelMeta.providerLabel,
+				thinking: thinkingLevel ?? "",
+				sessionName: modelMeta.sessionName ?? "",
+				contextPercent: modelMeta.contextPercent,
+				contextWindow: modelMeta.contextWindow,
+				inputTokens: modelMeta.inputTokens,
+				outputTokens: modelMeta.outputTokens,
+				cacheHitRate: modelMeta.cacheHitRate,
+			},
+			uiTheme,
+			config,
+		);
+	let metadataZones = renderMetadata(modelMeta.codexQuota);
+	// Quota is atomic: never clip away its labels or trailing stale warning.
+	const metadataBudget = isLowRailPolishedStyle(config.components.editor.style)
+		? width - 1
+		: innerWidth;
+	const naturalWidth =
+		Object.values(metadataZones).reduce((sum, zone) => sum + visibleWidth(zone), 0) +
+		Object.values(metadataZones).filter(Boolean).length -
+		1 +
+		(rightStatus ? visibleWidth(rightStatus) + 1 : 0);
+	if (modelMeta.codexQuota && naturalWidth > metadataBudget) metadataZones = renderMetadata();
 	const lowRailMeta = composeEditorMetadataLine(metadataZones, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeEditorMetadataLine(metadataZones, rightStatus, innerWidth);
 
@@ -975,6 +997,7 @@ export class PolishedEditor extends CustomEditor {
 			}
 			try {
 				const result = renderAccentRailFrameFromBase({
+					codexQuota: this.getModelMeta().codexQuota,
 					width,
 					baseRendered: captured.value,
 					autocompleteSource: this as unknown as AutocompleteEditorInternals,
@@ -1219,6 +1242,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 				);
 				if (provenance.safe) {
 					const result = renderAccentRailFrameFromBase({
+						codexQuota: this.getModelMeta().codexQuota,
 						width,
 						baseRendered: captured.value,
 						autocompleteSource: this.base,

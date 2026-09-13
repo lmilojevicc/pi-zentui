@@ -11,6 +11,7 @@ import {
 	markAccentRailLayoutEditor,
 	retainAccentRailLayoutPatchInstallation,
 } from "./accent-rail-layout-patch";
+import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota";
 import { componentColor } from "./component-colors";
 import {
 	type AccentRailEditorStyleConfig,
@@ -157,6 +158,7 @@ export function activeFooterReferences(config: ZentuiConfig): Set<string> {
 	const references = starship.format
 		? collectFooterFormatReferences(parseFooterFormat(starship.format), FOOTER_FORMAT_ALIASES)
 		: new Set<string>([
+				...(config.components.footer.codexQuota ? ["codex_quota"] : []),
 				...(starship.segments.sessionName ? ["session_name"] : []),
 				...(starship.segments.runtime ? ["runtime"] : []),
 				...(starship.segments.gitCommit ? ["git_commit"] : []),
@@ -285,6 +287,7 @@ export default function (pi: ExtensionAPI) {
 
 	const refresh = () => {
 		if (!sessionLifecycle.isCurrent()) return;
+		codexQuota.reconcile();
 		requestFooterRender?.();
 		requestEditorRender?.();
 	};
@@ -338,6 +341,7 @@ export default function (pi: ExtensionAPI) {
 	const getEditorMeta = (ctx: ExtensionContext) => {
 		const context = getContextSnapshot(ctx);
 		return {
+			codexQuota: getEditorQuota(),
 			modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 			modelId: state.modelId,
 			modelName: state.modelName,
@@ -365,6 +369,38 @@ export default function (pi: ExtensionAPI) {
 		installedFooterKind === "starship" && ownsInstalledFooter()
 			? activeFooterReferences(currentConfig)
 			: new Set<string>();
+
+	const codexQuota = new CodexQuotaCollector(
+		() => {
+			const ctx = activeTuiContext;
+			if (
+				!ctx ||
+				!sessionLifecycle.isCurrent() ||
+				!isTuiContext(ctx) ||
+				ctx.model?.provider !== "openai-codex"
+			)
+				return undefined;
+			const editorDemand =
+				effectiveEditorEnabled() &&
+				ownsInstalledEditorFactory() &&
+				editorWantsCodexQuota(currentConfig);
+			const footerDemand =
+				effectiveFooterStyle() === "starship" &&
+				currentConfig.components.footer.codexQuota &&
+				installedFooterReferences().has("codex_quota");
+			return editorDemand || footerDemand ? ctx : undefined;
+		},
+		() => {
+			if (!sessionLifecycle.isCurrent()) return;
+			requestFooterRender?.();
+			requestEditorRender?.();
+		},
+	);
+	const getEditorQuota = () =>
+		currentConfig.components.editor.codexQuota &&
+		activeTuiContext?.model?.provider === "openai-codex"
+			? codexQuota.get()
+			: undefined;
 
 	type ProjectRefreshTarget = {
 		repository: RepositoryRootRequest;
@@ -605,6 +641,7 @@ export default function (pi: ExtensionAPI) {
 		const nextConfig = save();
 		const after = activeFooterReferences(nextConfig);
 		currentConfig = nextConfig;
+		codexQuota.reconcile();
 		if (sameReferences(before, after)) return;
 		reconcileSessionTimer();
 		reconcileProjectRefresh(ctx, true);
@@ -687,6 +724,7 @@ export default function (pi: ExtensionAPI) {
 		installedEditorFactory = undefined;
 		editorInstallMode = "none";
 		editorInstalled = false;
+		codexQuota.reconcile();
 	};
 
 	const trackZentuiEditorFactory = (factory: EditorFactory): boolean => {
@@ -746,6 +784,7 @@ export default function (pi: ExtensionAPI) {
 					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
+						codexQuota: getEditorQuota(),
 						cwd: ctx.cwd,
 						projectRoot: minimalistProjectRoot,
 						branch: state.branch,
@@ -785,6 +824,7 @@ export default function (pi: ExtensionAPI) {
 					() => getEditorMeta(ctx),
 					getThinkingLevel,
 					() => ({
+						codexQuota: getEditorQuota(),
 						cwd: ctx.cwd,
 						projectRoot: minimalistProjectRoot,
 						branch: state.branch,
@@ -898,6 +938,7 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
 		stopSessionTimer();
+		codexQuota.reconcile();
 		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx, true);
 	};
 
@@ -951,6 +992,7 @@ export default function (pi: ExtensionAPI) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getLiveContext: () => liveContext.get(),
+				getCodexQuota: () => codexQuota.get(),
 				getRepositoryRoot: (cwd) => repositoryRoots.rootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
 			});
@@ -1126,6 +1168,7 @@ export default function (pi: ExtensionAPI) {
 	const cleanupUi = (ctx?: ExtensionContext) => {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
+		codexQuota.stop();
 		stopSessionTimer();
 		resetAgentTimer();
 		stopProjectRefresh();
@@ -1179,6 +1222,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		codexQuota.stop();
 		const lifecycleGeneration = sessionLifecycle.start();
 		// A new generation must not expose or route extension segments through the previous
 		// session while asynchronous TUI startup is still pending.
