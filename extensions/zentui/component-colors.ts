@@ -1,5 +1,9 @@
 import type { ColorSpec, PolishedTuiColors, ZentuiConfig } from "./config";
-import { isSupportedColorSpec } from "./style";
+import {
+	EDITOR_SHELL_RAIL_FALLBACK,
+	isSupportedColorSpec,
+	type SourceStyleFallback,
+} from "./style";
 
 export const componentColorKeys = {
 	footer: [
@@ -38,6 +42,7 @@ export const componentColorKeys = {
 		"border",
 		"prompt",
 		"rail",
+		"shellRail",
 		"model",
 		"provider",
 		"thinking",
@@ -76,6 +81,7 @@ const editorLegacyKeys = {
 	border: "editorBorder",
 	prompt: "editorPrompt",
 	rail: "editorRail",
+	shellRail: "editorShellRail",
 	gitBranch: "editorGitBranch",
 	model: "editorModel",
 	provider: "editorProvider",
@@ -137,4 +143,16 @@ export function workingLineColor(
 	return colors[
 		tier === "low" ? "workingLineLow" : tier === "mid" ? "workingLineMid" : "workingLineHigh"
 	];
+}
+
+/** Opencode chrome style (rail + model label) while the input is in shell-command mode. */
+export function editorShellColor(config: ZentuiConfig): {
+	color: ColorSpec | undefined;
+	fallback: SourceStyleFallback;
+} {
+	return {
+		color:
+			componentColor(config, "editor", "shellRail") ?? componentColor(config, "editor", "accent"),
+		fallback: EDITOR_SHELL_RAIL_FALLBACK,
+	};
 }

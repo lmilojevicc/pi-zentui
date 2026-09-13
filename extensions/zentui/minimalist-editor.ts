@@ -5,6 +5,7 @@ import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
+	bashModeLabel,
 	buildContextGauge,
 	contextColorTier,
 	formatCount,
@@ -150,8 +151,7 @@ function renderTopLeft(
 	includeSessionName = true,
 ): string {
 	const source = config.components.editor.colorSource;
-	const trimmed = inputText.trimStart();
-	const bashMode = trimmed.startsWith("!!") ? "no-context" : trimmed.startsWith("!") ? "shell" : "";
+	const bashMode = bashModeLabel(inputText);
 	const parts: string[] = [];
 	if (bashMode) {
 		parts.push(

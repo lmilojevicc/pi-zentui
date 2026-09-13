@@ -30,6 +30,12 @@ export const EDITOR_BORDER_FALLBACK: SourceStyleFallback = {
 	terminal: EDITOR_BORDER_STYLE,
 };
 
+export const EDITOR_SHELL_RAIL_STYLE = "bright-cyan";
+export const EDITOR_SHELL_RAIL_FALLBACK: SourceStyleFallback = {
+	theme: "bashMode",
+	terminal: EDITOR_SHELL_RAIL_STYLE,
+};
+
 function isHexColor(value: string): boolean {
 	return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
 }

@@ -412,7 +412,7 @@ Empty strings and whitespace-only strings mean deliberately **unstyled**, not mi
 | `footer` | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key |
 | `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; these are Minimalist metadata roles |
 | `editor` | `gitBranch` | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default |
-| `editor` | `accent`, `border`, `prompt`, `rail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
+| `editor` | `accent`, `border`, `prompt`, `rail`, `shellRail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorShellRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
 | `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
 | `selectorBorders` | `border` | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder` |
 | `workingLine` | `low`, `mid`, `high` | `workingLineLow`, `workingLineMid`, `workingLineHigh` |
@@ -422,6 +422,7 @@ Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer
 Role-specific defaults and chains remain intact:
 
 - Copy-friendly Opencode prompt uses explicit prompt → configured accent → the existing theme `accent` / terminal `blue` fallback. Model's constant fallback does **not** inherit a configured accent. Minimalist retains its distinct model/thinking defaults.
+- Opencode's left rail and model label use `accent` (or a configured `model`) normally; when the input begins with `!` (shell-command mode) both use the paired `shellRail` color, falling back to theme `bashMode` / terminal `bright-cyan` and then the configured `accent`.
 - Accent Rail uses only `rail` / `editorRail`, then warm theme `syntaxNumber` / terminal `215`; it does not inherit `accent`.
 - Minimalist branch defaults to theme `bold syntaxKeyword` / terminal `bold blue` when no local or explicit shared branch style exists.
 - Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.

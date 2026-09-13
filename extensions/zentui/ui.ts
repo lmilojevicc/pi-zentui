@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
 import { omitTrailingNativeCompletionCountRow, renderCompletionPalette } from "./completion-menu";
-import { componentColor } from "./component-colors";
+import { componentColor, editorShellColor } from "./component-colors";
 import type { EditorStyle, ZentuiConfig } from "./config";
 import {
 	type EditorMetadataZones,
@@ -22,6 +22,7 @@ import {
 	editorMouseCells,
 	rememberEditorMouseLayout,
 } from "./editor-mouse";
+import { bashModeLabel } from "./format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -111,6 +112,7 @@ export type PolishedEditorFrameOptions = {
 	modelMeta: EditorMeta;
 	thinkingLevel?: string;
 	rightStatus?: string;
+	shellMode?: boolean;
 	borderColor?: (text: string) => string;
 };
 
@@ -124,6 +126,7 @@ type PolishedFrameOptions = {
 	modelMeta: EditorMeta;
 	thinkingLevel: string | undefined;
 	rightStatus?: string;
+	shellMode?: boolean;
 	ownedFrame?: PolishedFrameSplit;
 	trustedBaseFrame?: boolean;
 	borderColor?: (text: string) => string;
@@ -327,6 +330,10 @@ function isLowRailPolishedStyle(style: EditorStyle): boolean {
 	return style === "opencode-copy-friendly";
 }
 
+function isShellModeInput(text: string): boolean {
+	return bashModeLabel(text) !== "";
+}
+
 function selectedPolishedConfig(config: ZentuiConfig) {
 	switch (config.components.editor.style) {
 		case "opencode":
@@ -352,16 +359,24 @@ function lowRailPrompt(config: ZentuiConfig, uiTheme: Theme, reset: string): str
 		: "";
 }
 
-function getEditorChromeWidths(config: ZentuiConfig, uiTheme: Theme, reset: string) {
+function getEditorChromeWidths(
+	config: ZentuiConfig,
+	uiTheme: Theme,
+	reset: string,
+	shellMode = false,
+) {
 	const lowRail = isLowRailPolishedStyle(config.components.editor.style);
 	const prompt = lowRailPrompt(config, uiTheme, reset);
+	const chromeColor = shellMode
+		? editorShellColor(config)
+		: { color: componentColor(config, "editor", "accent"), fallback: EDITOR_ACCENT_FALLBACK };
 	const rail = lowRail
 		? ""
 		: `${renderStyleForSourceOrFallback(
 				uiTheme,
 				config.components.editor.colorSource,
-				componentColor(config, "editor", "accent"),
-				EDITOR_ACCENT_FALLBACK,
+				chromeColor.color,
+				chromeColor.fallback,
 				config.icons.rail,
 			)}${reset} `;
 	return {
@@ -463,6 +478,7 @@ function unwrapPolishedFrameOnly(
 	lines: string[],
 	config: ZentuiConfig,
 	uiTheme: Theme,
+	shellMode = false,
 ): { editorLines: string[]; viewport: ViewportCounts } | undefined {
 	if (lines.length < 5) return undefined;
 	const top = parseEditorBorder(lines[0] ?? "", "above");
@@ -494,7 +510,7 @@ function unwrapPolishedFrameOnly(
 		return { editorLines: unwrapped, viewport };
 	}
 
-	const { rail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m");
+	const { rail } = getEditorChromeWidths(config, uiTheme, "\x1b[0m", shellMode);
 	if (!rail || interior.some((line) => !line.startsWith(rail))) return undefined;
 	const unrailed = interior.map((line) => line.slice(rail.length));
 	if (
@@ -509,12 +525,18 @@ function splitPolishedFrame(
 	lines: string[],
 	config: ZentuiConfig,
 	uiTheme: Theme,
+	shellMode = false,
 ): PolishedFrameSplit | undefined {
 	if (!parseEditorBorder(lines[0] ?? "", "above")) return undefined;
 
 	for (let bottomIndex = lines.length - 1; bottomIndex >= 4; bottomIndex--) {
 		if (!parseEditorBorder(lines[bottomIndex] ?? "", "below")) continue;
-		const frame = unwrapPolishedFrameOnly(lines.slice(0, bottomIndex + 1), config, uiTheme);
+		const frame = unwrapPolishedFrameOnly(
+			lines.slice(0, bottomIndex + 1),
+			config,
+			uiTheme,
+			shellMode,
+		);
 		if (frame) return { ...frame, trailingLines: lines.slice(bottomIndex + 1) };
 	}
 	return undefined;
@@ -525,6 +547,7 @@ function inspectPolishedFrameProvenance(
 	rendered: string[],
 	config: ZentuiConfig,
 	uiTheme: Theme,
+	shellMode = false,
 ): { safe: boolean; ownedFrame?: PolishedFrameSplit } {
 	const provenance = POLISHED_FRAME_SPLITS.get(rendered);
 	const provenanceMatches = Boolean(
@@ -536,7 +559,7 @@ function inspectPolishedFrameProvenance(
 	const unsafe =
 		Boolean(provenance && !provenanceMatches) ||
 		LEGACY_SPLIT_POLISHED_FRAME in base ||
-		(!ownedFrame && Boolean(splitPolishedFrame(rendered, config, uiTheme)));
+		(!ownedFrame && Boolean(splitPolishedFrame(rendered, config, uiTheme, shellMode)));
 	return { safe: !unsafe, ownedFrame };
 }
 
@@ -714,6 +737,7 @@ function renderPolishedFrame({
 	modelMeta,
 	thinkingLevel,
 	rightStatus,
+	shellMode = false,
 	ownedFrame,
 	trustedBaseFrame = false,
 	borderColor,
@@ -766,9 +790,10 @@ function renderPolishedFrame({
 		modelMeta,
 		thinkingLevel,
 		rightStatus,
+		shellMode,
 		borderColor,
 	});
-	const { railWidth } = getEditorChromeWidths(config, uiTheme, "\x1b[0m");
+	const { railWidth } = getEditorChromeWidths(config, uiTheme, "\x1b[0m", shellMode);
 	const completionCount =
 		selectedPolishedConfig(config)?.completionMenu === "palette"
 			? omitTrailingNativeCompletionCountRow(autocompleteLines).length
@@ -799,12 +824,18 @@ export function renderPolishedEditorFrame({
 	modelMeta,
 	thinkingLevel,
 	rightStatus,
+	shellMode = false,
 	borderColor,
 }: PolishedEditorFrameOptions): string[] {
 	if (width <= 2) return clampRenderedLines(editorLines, width);
 	const reset = "\x1b[0m";
 	const colorSource = config.components.editor.colorSource;
-	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(config, uiTheme, reset);
+	const { prompt, promptWidth, rail, railWidth } = getEditorChromeWidths(
+		config,
+		uiTheme,
+		reset,
+		shellMode,
+	);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
 	const metadataZones = renderEditorMetadataFormatSplit(
@@ -825,6 +856,7 @@ export function renderPolishedEditorFrame({
 		},
 		uiTheme,
 		config,
+		shellMode,
 	);
 	const lowRailMeta = composeEditorMetadataLine(metadataZones, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeEditorMetadataLine(metadataZones, rightStatus, innerWidth);
@@ -1029,7 +1061,8 @@ export class PolishedEditor extends CustomEditor {
 			return clampRenderedLines(this.renderBase(width), width);
 		}
 
-		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
+		const shellMode = isShellModeInput(this.getText());
+		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m", shellMode);
 		const innerWidth = Math.max(0, width - railWidth);
 		let captured: { value: string[]; capture?: AutocompleteCapture };
 		try {
@@ -1049,6 +1082,7 @@ export class PolishedEditor extends CustomEditor {
 				config,
 				modelMeta: this.getModelMeta(),
 				thinkingLevel: this.getThinkingLevel(),
+				shellMode,
 				trustedBaseFrame: true,
 				borderColor: this.borderColor,
 			});
@@ -1282,7 +1316,8 @@ export class WrappedPolishedEditor implements EditorComponent {
 		this.reportMinimalistDecoration(false);
 		if (width <= 2) return clampRenderedLines(this.renderBase(width), width);
 
-		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m");
+		const shellMode = isShellModeInput(this.base.getText());
+		const { railWidth } = getEditorChromeWidths(config, this.uiTheme, "\x1b[0m", shellMode);
 		const innerWidth = Math.max(0, width - railWidth);
 		let captured: { value: string[]; capture?: AutocompleteCapture };
 		try {
@@ -1297,6 +1332,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 				captured.value,
 				config,
 				this.uiTheme,
+				shellMode,
 			);
 			if (provenance.safe) {
 				result = renderPolishedFrame({
@@ -1309,6 +1345,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 					modelMeta: this.getModelMeta(),
 					thinkingLevel: this.getThinkingLevel(),
 					rightStatus: readVimStatus(this.base, this.uiTheme),
+					shellMode,
 					ownedFrame: provenance.ownedFrame,
 					borderColor: this.borderColor,
 				});

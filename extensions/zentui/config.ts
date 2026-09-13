@@ -342,6 +342,7 @@ export type PolishedTuiColors = {
 	time: ColorSpec;
 	os: ColorSpec;
 	editorAccent?: ColorSpec;
+	editorShellRail?: ColorSpec;
 	editorRail?: ColorSpec;
 	editorPrompt?: ColorSpec;
 	editorBorder?: ColorSpec;
@@ -768,6 +769,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		time: colorValue(record, "time"),
 		os: colorValue(record, "os"),
 		editorAccent: colorValue(record, "editorAccent"),
+		editorShellRail: colorValue(record, "editorShellRail"),
 		editorRail: colorValue(record, "editorRail"),
 		editorPrompt: colorValue(record, "editorPrompt"),
 		editorBorder: colorValue(record, "editorBorder"),

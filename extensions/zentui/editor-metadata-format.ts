@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { componentColor } from "./component-colors";
+import { componentColor, editorShellColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
@@ -176,6 +176,7 @@ function renderVariable(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): { plain: string; styled: string } {
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;
@@ -206,13 +207,19 @@ function renderVariable(
 	if (!plain) return { plain: "", styled: "" };
 
 	if (name === "model" || name === "model_id" || name === "model_name") {
+		const chrome = shellMode
+			? editorShellColor(config)
+			: {
+					color: componentColor(config, "editor", "model"),
+					fallback: EDITOR_ACCENT_FALLBACK,
+				};
 		return {
 			plain,
 			styled: renderStyleForSourceOrFallback(
 				uiTheme,
 				colorSource,
-				componentColor(config, "editor", "model"),
-				EDITOR_ACCENT_FALLBACK,
+				chrome.color,
+				chrome.fallback,
 				plain,
 			),
 		};
@@ -252,6 +259,7 @@ function renderTokens(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): RenderedTokens {
 	let styled = "";
 	let hasDynamic = false;
@@ -269,13 +277,13 @@ function renderTokens(
 		}
 		if (token.kind === "var") {
 			hasDynamic = true;
-			const rendered = renderVariable(token.name, values, uiTheme, config);
+			const rendered = renderVariable(token.name, values, uiTheme, config, shellMode);
 			styled += rendered.styled;
 			if (rendered.plain) hasNonEmptyDynamic = true;
 			continue;
 		}
 
-		const rendered = renderTokens(token.tokens, values, uiTheme, config);
+		const rendered = renderTokens(token.tokens, values, uiTheme, config, shellMode);
 		const visible = !rendered.hasDynamic || rendered.hasNonEmptyDynamic;
 		hasDynamic = true;
 		if (visible) {
@@ -292,6 +300,7 @@ export function renderEditorMetadataFormatSplit(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): EditorMetadataZones {
 	const tokens = parseFooterFormat(sanitizeEditorMetadataText(format));
 	const fillIndices: number[] = [];
@@ -303,22 +312,23 @@ export function renderEditorMetadataFormatSplit(
 	const second = fillIndices[1];
 	if (first === undefined) {
 		return {
-			left: renderTokens(tokens, values, uiTheme, config).styled,
+			left: renderTokens(tokens, values, uiTheme, config, shellMode).styled,
 			middle: "",
 			right: "",
 		};
 	}
 	if (second === undefined) {
 		return {
-			left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
+			left: renderTokens(tokens.slice(0, first), values, uiTheme, config, shellMode).styled,
 			middle: "",
-			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config).styled,
+			right: renderTokens(tokens.slice(first + 1), values, uiTheme, config, shellMode).styled,
 		};
 	}
 	return {
-		left: renderTokens(tokens.slice(0, first), values, uiTheme, config).styled,
-		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config).styled,
-		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config).styled,
+		left: renderTokens(tokens.slice(0, first), values, uiTheme, config, shellMode).styled,
+		middle: renderTokens(tokens.slice(first + 1, second), values, uiTheme, config, shellMode)
+			.styled,
+		right: renderTokens(tokens.slice(second + 1), values, uiTheme, config, shellMode).styled,
 	};
 }
 
@@ -327,11 +337,13 @@ export function renderEditorMetadataFormat(
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	shellMode = false,
 ): string {
 	return renderTokens(
 		parseFooterFormat(sanitizeEditorMetadataText(format)),
 		values,
 		uiTheme,
 		config,
+		shellMode,
 	).styled;
 }

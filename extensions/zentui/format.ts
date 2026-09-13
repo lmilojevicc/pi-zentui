@@ -17,6 +17,15 @@ import type { RuntimeInfo } from "./runtime";
 import { renderStyleForSource } from "./style";
 
 /**
+ * Classify a prompt input as normal (`""`), a `!`-prefixed shell command
+ * (`"shell"`), or the `!!` no-context variant. Mirrors Pi's `isBashMode` check.
+ */
+export function bashModeLabel(text: string): "" | "shell" | "no-context" {
+	const trimmed = text.trimStart();
+	return trimmed.startsWith("!!") ? "no-context" : trimmed.startsWith("!") ? "shell" : "";
+}
+
+/**
  * Starship `git_commit` style — render a short hash, optionally with an
  * exact-match tag. See https://starship.rs/config/#git-commit
  *
