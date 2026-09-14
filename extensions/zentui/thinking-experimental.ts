@@ -56,6 +56,7 @@ const MAX_TIMINGS = 256;
 type PatchableAssistant = {
 	contentContainer?: { children?: Component[] };
 	hideThinkingBlock?: boolean;
+	thinkingVisibilityOverrides?: Map<number, boolean>;
 	isStreaming?: boolean;
 };
 
@@ -522,36 +523,75 @@ function exactConstructor(component: Component, expected: { prototype: object })
 	return Object.getPrototypeOf(component) === expected.prototype;
 }
 
+/**
+ * Pi 0.85 wraps each thinking run in MouseRegion for click-to-toggle.
+ * Duck-type so we do not depend on MouseRegion being a public export.
+ */
+function unwrapMouseRegion(component: Component): Component {
+	const outer = component as unknown as { child?: unknown; onMouse?: unknown };
+	const inner = outer.child;
+	if (
+		typeof outer.onMouse !== "function" ||
+		!inner ||
+		typeof inner !== "object" ||
+		typeof (inner as Component).render !== "function"
+	) {
+		return component;
+	}
+	return inner as Component;
+}
+
 function matchNativeLayout(
 	children: Component[],
 	descriptors: NativeChildDescriptor[],
+	hiddenRuns?: Map<number, boolean>,
 ): ThinkingMarkdownLayout | undefined {
 	if (children.length !== descriptors.length) return undefined;
 	const thinking: ThinkingMarkdownMatch[] = [];
+	let nativeThinkingRun = -1;
+	let previousThinkingRun: number | undefined;
 	for (let index = 0; index < descriptors.length; index += 1) {
 		const child = children[index];
 		const descriptor = descriptors[index];
 		if (!child || !descriptor) return undefined;
+		const visible = unwrapMouseRegion(child);
 		if (descriptor.kind === "spacer") {
-			if (!exactConstructor(child, Spacer) || (child as unknown as { lines?: unknown }).lines !== 1)
+			if (
+				!exactConstructor(visible, Spacer) ||
+				(visible as unknown as { lines?: unknown }).lines !== 1
+			) {
 				return undefined;
+			}
 			continue;
 		}
 		if (descriptor.kind === "text") {
-			if (!exactConstructor(child, Text)) return undefined;
-			const text = (child as unknown as { text?: unknown }).text;
+			if (!exactConstructor(visible, Text)) return undefined;
+			const text = (visible as unknown as { text?: unknown }).text;
 			if (typeof text !== "string") return undefined;
 			const marker = plainTextMarker(text);
 			if (!descriptor.markers.includes(marker)) return undefined;
 			continue;
 		}
-		if (!exactConstructor(child, Markdown)) return undefined;
-		const shape = markdownShape(child as Markdown);
+		// Pi numbers only rendered runs; structural IDs also count empty runs.
+		if (descriptor.thinkingRun !== undefined && descriptor.thinkingRun !== previousThinkingRun) {
+			nativeThinkingRun += 1;
+			previousThinkingRun = descriptor.thinkingRun;
+		}
+		// A native per-run click can hide one section while others remain decorated.
+		if (
+			descriptor.thinkingRun !== undefined &&
+			hiddenRuns?.get(nativeThinkingRun) === true &&
+			visible !== child &&
+			exactConstructor(visible, Text)
+		)
+			continue;
+		if (!exactConstructor(visible, Markdown)) return undefined;
+		const shape = markdownShape(visible as Markdown);
 		if (!shape || shape.text !== descriptor.source) return undefined;
 		if (descriptor.thinkingRun !== undefined) {
 			thinking.push({
 				index,
-				markdown: child as Markdown,
+				markdown: visible as Markdown,
 				shape,
 				run: descriptor.thinkingRun,
 			});
@@ -563,10 +603,11 @@ function matchNativeLayout(
 function thinkingMarkdownLayout(
 	children: Component[],
 	message: AssistantMessage,
+	hiddenRuns?: Map<number, boolean>,
 ): ThinkingMarkdownLayout | undefined {
 	for (const descriptors of nativeChildLayouts(message)) {
-		const layout = matchNativeLayout(children, descriptors);
-		if (layout?.matches.length) return layout;
+		const layout = matchNativeLayout(children, descriptors, hiddenRuns);
+		if (layout) return layout;
 	}
 	return undefined;
 }
@@ -620,8 +661,9 @@ function replaceThinkingChildren(
 	const owned = writableOwnChildren(instance);
 	if (!owned) return false;
 	const { container, children } = owned;
-	const layout = thinkingMarkdownLayout(children, message);
+	const layout = thinkingMarkdownLayout(children, message, instance.thinkingVisibilityOverrides);
 	if (!layout) return false;
+	if (layout.matches.length === 0) return true;
 	const replacements = new Map<number, Component>();
 	const removals = new Set<number>();
 	if (mode === "streaming") {
@@ -669,7 +711,17 @@ function replaceThinkingChildren(
 	if (replacements.size === 0) return true;
 	const nextChildren = children.flatMap((child, index) => {
 		const replacement = replacements.get(index);
-		if (replacement) return [replacement];
+		if (replacement) {
+			// Keep the native callback and child-first mouse dispatch. The replacement
+			// retains the inner Markdown, not this wrapper, so no render cycle forms.
+			if (unwrapMouseRegion(child) !== child) {
+				const slot = Object.getOwnPropertyDescriptor(child, "child");
+				if (!slot || !("value" in slot) || !slot.writable) return [child];
+				(child as unknown as { child: Component }).child = replacement;
+				return [child];
+			}
+			return [replacement];
+		}
 		return removals.has(index) ? [] : [child];
 	});
 	container.children = nextChildren;
