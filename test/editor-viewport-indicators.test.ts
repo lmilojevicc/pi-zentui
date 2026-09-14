@@ -715,6 +715,42 @@ describe("editor viewport indicators", () => {
 		expect(lines.join("\n").match(/model/g)).toHaveLength(1);
 	});
 
+	it.each(
+		(["opencode", "minimalist", "accent-rail"] as const).flatMap((style) =>
+			[false, true].flatMap((sourceShell) =>
+				[false, true].map((currentShell) => ({ style, sourceShell, currentShell })),
+			),
+		),
+	)(
+		"rejects cloned $sourceShell-shell rows in $style with current shell state $currentShell",
+		({ style, sourceShell, currentShell }) => {
+			const sourceConfig = config();
+			sourceConfig.components.editor.colorSource = "terminal";
+			const source = new WrappedPolishedEditor(
+				{ ...baseEditor({}), getText: () => (sourceShell ? "!ls" : "typed text") } as never,
+				theme(),
+				() => sourceConfig,
+				() => ({ modelLabel: "model", providerLabel: "provider" }),
+				() => "off",
+			);
+			const staleClone = source.render(60).slice();
+			expect(staleClone.join("\n")).toContain(sourceShell ? "\x1b[96m" : "\x1b[34m");
+			const targetConfig = withEditorStyle(sourceConfig, style);
+			const target = new WrappedPolishedEditor(
+				{
+					...baseEditor({}),
+					render: () => staleClone,
+					getText: () => (currentShell ? "!ls" : "typed text"),
+				} as never,
+				theme(),
+				() => targetConfig,
+				() => ({ modelLabel: "model", providerLabel: "provider" }),
+				() => "off",
+			);
+			expect(target.render(80)).toEqual(staleClone);
+		},
+	);
+
 	it("rejects in-place mutation of an otherwise provenance-owned rendered array", () => {
 		const rendered = wrapped(baseEditor({ above: 2, below: 3 })).render(80);
 		rendered[1] = "changed-row";

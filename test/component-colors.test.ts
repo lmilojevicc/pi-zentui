@@ -462,3 +462,69 @@ describe("typed component color inheritance", () => {
 		}
 	});
 });
+
+describe("opencode shell-mode rail color", () => {
+	function railPrefix(config: ZentuiConfig, shellMode: boolean): string {
+		const lines = renderPolishedEditorFrame({
+			width: 100,
+			editorLines: ["draft"],
+			uiTheme: theme,
+			config,
+			modelMeta: { modelLabel: "Model", providerLabel: "Provider" },
+			thinkingLevel: "max",
+			shellMode,
+		});
+		// lines[2] is the first railed content row for the Opencode style.
+		const match = /^\x1b\[[0-9;]*m/.exec(lines[2] ?? "");
+		return match ? match[0] : "";
+	}
+
+	it.each(["terminal", "theme"] as const)(
+		"switches the Opencode rail to the shell default when entering %s-mode",
+		(source) => {
+			const config = base(source);
+			expect(railPrefix(config, false)).toBe(
+				source === "terminal" ? "\x1b[34m" : themePrefix("accent"),
+			);
+			expect(railPrefix(config, true)).toBe(
+				source === "terminal" ? "\x1b[96m" : themePrefix("bashMode"),
+			);
+		},
+	);
+	it("honors an explicit shellRail override and deliberate empty", () => {
+		const config = base("terminal");
+		config.components.editor.colors = { shellRail: "red" };
+		expect(railPrefix(config, true)).toBe("\x1b[31m");
+		config.components.editor.colors = { shellRail: "" };
+		expect(railPrefix(config, true)).toBe("");
+	});
+	it("does not change the normal rail when only shellRail is overridden", () => {
+		const config = base("terminal");
+		config.components.editor.colors = { shellRail: "red" };
+		expect(railPrefix(config, false)).toBe("\x1b[34m");
+	});
+	it("paints the model label with the shell color, paired with the rail", () => {
+		const config = base("terminal");
+		const values = {
+			model: "Model",
+			modelId: "x",
+			modelName: "X",
+			provider: "Provider",
+			thinking: "max",
+			sessionName: "Session",
+		};
+		expect(renderEditorMetadataFormat("$model", values, theme, config)).toBe(
+			"\x1b[34mModel\x1b[0m",
+		);
+		expect(renderEditorMetadataFormat("$model", values, theme, config, true)).toBe(
+			"\x1b[96mModel\x1b[0m",
+		);
+		config.components.editor.colors = { shellRail: "red" };
+		expect(renderEditorMetadataFormat("$model", values, theme, config, true)).toBe(
+			"\x1b[31mModel\x1b[0m",
+		);
+		expect(renderEditorMetadataFormat("$model", values, theme, config, false)).toBe(
+			"\x1b[34mModel\x1b[0m",
+		);
+	});
+});

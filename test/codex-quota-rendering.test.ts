@@ -224,6 +224,29 @@ describe.each(["theme", "terminal"] as const)("quota with %s colors", (colorSour
 	});
 });
 
+it.each(["opencode", "opencode-copy-friendly"] as const)(
+	"preserves shell model color while %s quota is included or omitted",
+	(style) => {
+		const config = mergeConfig({
+			components: { editor: { style, colorSource: "terminal", codexQuota: true } },
+		});
+		config.components.editor.styles[style].metadataFormat = "$model( $codex_quota)";
+		for (const width of [15, 100]) {
+			const rows = renderPolishedEditorFrame({
+				width,
+				editorLines: ["!ls"],
+				uiTheme: theme,
+				config,
+				modelMeta: { modelLabel: "Model", providerLabel: "", codexQuota: snapshots[1] },
+				shellMode: true,
+			});
+			expect(rows.join("\n")).toContain("\x1b[96mModel\x1b[0m");
+			expect(plain(rows.join("\n")).includes("5h 80% | week 60%")).toBe(width === 100);
+			assertAtomic(rows, width, snapshots[1]);
+		}
+	},
+);
+
 it("preserves default spacing and custom editor template authority when gated", () => {
 	const config = mergeConfig({});
 	const values = {

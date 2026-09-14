@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThinkingStepsComponentConfig } from "../extensions/zentui/config";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
+	hasThinkingExperimentalMarkdownIdentity,
 	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 	ThinkingExperimentalController,
 } from "../extensions/zentui/thinking-experimental";
@@ -215,6 +216,108 @@ function controller(
 }
 
 describe("Thinking (Experimental) private assistant decorator", () => {
+	it.each(
+		(["rail", "tree", "streaming"] as const).flatMap((mode) =>
+			[false, true].map((emptyRun) => ({ mode, emptyRun })),
+		),
+	)(
+		"preserves native clicks and restoration in $mode (empty run: $emptyRun)",
+		({ mode, emptyRun }) => {
+			const assistant = component();
+			const overrides = new Map<number, boolean>();
+			Object.assign(assistant, { thinkingVisibilityOverrides: overrides });
+			const fixture = emptyRun
+				? messageWithContent([
+						{ type: "thinking", thinking: " " },
+						{ type: "text", text: "separator" },
+						{ type: "thinking", thinking: "# Clickable step" },
+					])
+				: message("# Clickable step");
+			const childIndex = emptyRun ? 2 : 1;
+			let region: {
+				child: Component;
+				onMouse: () => { handled: boolean };
+				handleMouse: () => { handled: boolean };
+				render: (width: number) => string[];
+				invalidate: () => void;
+			};
+			installLegacyThinkingRenderer((_container, children) => {
+				const child = overrides.get(0) ? new Text("Thinking...", 1, 0) : children[childIndex];
+				region = {
+					child,
+					onMouse() {
+						overrides.set(0, !overrides.get(0));
+						assistant.updateContent(fixture, false);
+						return { handled: true };
+					},
+					handleMouse() {
+						return this.onMouse();
+					},
+					render(width) {
+						return this.child.render(width);
+					},
+					invalidate() {
+						this.child.invalidate();
+					},
+				};
+				children[childIndex] = region;
+			});
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			assistant.updateContent(fixture, false);
+			for (const width of [1, 80]) {
+				const children = (assistant as unknown as { contentContainer: { children: Component[] } })
+					.contentContainer.children;
+				expect(children[childIndex]).toBe(region!);
+				assistant.render(width);
+				expect(region!.handleMouse()).toEqual({ handled: true });
+				expect(overrides.get(0)).toBe(true);
+				expect(value.state.rendererAvailable).toBe(true);
+				expect(plain(assistant.render(80)).join("\n")).toContain("Thinking...");
+				expect(region!.handleMouse()).toEqual({ handled: true });
+				expect(overrides.get(0)).toBe(false);
+				expect(value.state.active).toBe(true);
+			}
+			value.shutdown();
+			expect(region!.child).toBeInstanceOf(Markdown);
+			expect(region!.handleMouse()).toEqual({ handled: true });
+			expect(overrides.get(0)).toBe(true);
+		},
+	);
+
+	it("matches Pi 0.85 MouseRegion-wrapped thinking Markdown", () => {
+		const thinking = "# Wrapped step";
+		const markdown = new Markdown(thinking, 1, 0, markdownTheme, {
+			color: identity,
+			italic: true,
+		});
+		const region = {
+			child: markdown,
+			onMouse: () => undefined,
+			render: (width: number) => markdown.render(width),
+		};
+		const contentContainer = { children: [new Spacer(1), region] };
+		expect(hasThinkingExperimentalMarkdownIdentity({ contentContainer }, message(thinking))).toBe(
+			true,
+		);
+	});
+
+	it("does not unwrap a nested child without onMouse", () => {
+		const thinking = "# Nested step";
+		const markdown = new Markdown(thinking, 1, 0, markdownTheme, {
+			color: identity,
+			italic: true,
+		});
+		const nested = {
+			child: markdown,
+			render: (width: number) => markdown.render(width),
+		};
+		const contentContainer = { children: [new Spacer(1), nested] };
+		expect(hasThinkingExperimentalMarkdownIdentity({ contentContainer }, message(thinking))).toBe(
+			false,
+		);
+	});
+
 	it.each(["rail", "tree"] as const)(
 		"installs %s only at enabled startup, preserves hidden native thinking, and owns no input",
 		(mode) => {
