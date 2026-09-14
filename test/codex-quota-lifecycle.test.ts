@@ -64,8 +64,17 @@ beforeEach(() => {
 		hasUI: true,
 		mode: "tui",
 		cwd: "/tmp",
-		model: { id: "gpt-codex", provider: "openai-codex", contextWindow: 200000 },
-		modelRegistry: { getProviderAuth: auth },
+		model: {
+			id: "gpt-codex",
+			provider: "openai-codex",
+			contextWindow: 200000,
+			api: "openai-codex-responses",
+			baseUrl: "https://chatgpt.com/backend-api",
+		},
+		modelRegistry: {
+			getProviderAuth: auth,
+			getProvider: () => ({ id: "openai-codex", baseUrl: "https://chatgpt.com/backend-api" }),
+		},
 		getContextUsage: () => undefined,
 		sessionManager: { getBranch: () => [], getSessionName: () => undefined },
 		ui: {
@@ -252,6 +261,21 @@ it.each(["editor", "footer"])("releases collection on loss of %s ownership", asy
 	expect(http).toHaveBeenCalledOnce();
 	if (consumer === "editor") editorFactory = undefined;
 	else footer?.dispose?.();
+	await vi.advanceTimersByTimeAsync(120_000);
+	expect(http).toHaveBeenCalledOnce();
+});
+
+it("releases quota promptly on a same-ID proxy model selection", async () => {
+	Object.assign((settings.config as PolishedTuiConfig).components.footer, {
+		style: "starship",
+		codexQuota: true,
+	});
+	await emit("session_start");
+	await flush();
+	expect(http).toHaveBeenCalledOnce();
+	Object.assign(ctx.model as object, { baseUrl: "https://proxy.example/v1" });
+	await emit("model_select");
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
 	await vi.advanceTimersByTimeAsync(120_000);
 	expect(http).toHaveBeenCalledOnce();
 });

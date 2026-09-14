@@ -93,11 +93,9 @@ export function renderEditorSettingsPreview(
 	const safeConfig = previewConfig(config);
 	const editor = safeConfig.components.editor;
 	const borderColor = adaptiveBorder(theme);
-	const modelLabel = editor.codexQuota
-		? "gpt-5.4"
-		: editor.modelLabel === "name"
-			? "Sonnet 4"
-			: "sonnet-4";
+	const modelId = editor.codexQuota ? "gpt-5.4" : "sonnet-4";
+	const modelName = editor.codexQuota ? "GPT-5.4" : "Sonnet 4";
+	const modelLabel = editor.modelLabel === "name" ? modelName : modelId;
 	const codexQuota = editor.codexQuota ? { fiveHour: 80, week: 60 } : undefined;
 	const editorLines = [EDITOR_PREVIEW_INPUT];
 	const autocompleteLines = [
@@ -155,8 +153,8 @@ export function renderEditorSettingsPreview(
 			modelMeta: {
 				codexQuota,
 				modelLabel,
-				modelId: editor.codexQuota ? "gpt-5.4" : "sonnet-4",
-				modelName: editor.codexQuota ? "GPT-5.4" : "Sonnet 4",
+				modelId,
+				modelName,
 				providerLabel: editor.codexQuota ? "OpenAI Codex" : "Anthropic",
 				sessionName: "Preview",
 			},

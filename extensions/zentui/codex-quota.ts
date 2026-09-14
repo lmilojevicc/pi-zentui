@@ -54,13 +54,52 @@ export function editorWantsCodexQuota(config: ZentuiConfig): boolean {
 	);
 }
 
+function isNativeCodexUrl(value: unknown): boolean {
+	if (typeof value !== "string") return false;
+	try {
+		const url = new URL(value);
+		return url.origin === "https://chatgpt.com" && !url.username && !url.password;
+	} catch {
+		return false;
+	}
+}
+
+/** Provider IDs survive models.json/extension proxy overrides; inspect public routing too. */
+function hasNativeCodexRoute(
+	registry: ExtensionContext["modelRegistry"],
+	model: ExtensionContext["model"],
+): boolean {
+	try {
+		if (
+			model?.provider !== "openai-codex" ||
+			model.api !== "openai-codex-responses" ||
+			!isNativeCodexUrl(model.baseUrl) ||
+			typeof registry.getProvider !== "function"
+		)
+			return false;
+		const provider = registry.getProvider("openai-codex");
+		return provider?.id === "openai-codex" && isNativeCodexUrl(provider.baseUrl);
+	} catch {
+		return false;
+	}
+}
+
 /** No fallback to private storage or older credential APIs. */
 export async function resolveCodexToken(
 	registry: ExtensionContext["modelRegistry"],
+	model?: ExtensionContext["model"],
 ): Promise<string | undefined> {
-	if (typeof registry.getProviderAuth !== "function") return undefined;
+	if (!hasNativeCodexRoute(registry, model) || typeof registry.getProviderAuth !== "function")
+		return undefined;
 	const result = await registry.getProviderAuth("openai-codex");
-	return typeof result?.auth.apiKey === "string" && result.auth.apiKey
+	// Auth can override both model and provider routing. Native OAuth omits this field.
+	if (
+		!hasNativeCodexRoute(registry, model) ||
+		!result?.auth ||
+		(result.auth.baseUrl !== undefined && !isNativeCodexUrl(result.auth.baseUrl))
+	)
+		return undefined;
+	return typeof result.auth.apiKey === "string" && result.auth.apiKey
 		? result.auth.apiKey
 		: undefined;
 }
@@ -101,7 +140,13 @@ export class CodexQuotaCollector {
 		private readonly fetchUsage: typeof fetch = fetch,
 	) {}
 
+	private context(): ExtensionContext | undefined {
+		const ctx = this.getContext();
+		return ctx && hasNativeCodexRoute(ctx.modelRegistry, ctx.model) ? ctx : undefined;
+	}
+
 	get(): CodexQuota | undefined {
+		if (!this.context()) this.stop();
 		if (!this.active) return undefined;
 		return {
 			...this.value,
@@ -113,7 +158,7 @@ export class CodexQuotaCollector {
 	}
 
 	reconcile(): void {
-		if (!this.getContext()) {
+		if (!this.context()) {
 			this.stop();
 			return;
 		}
@@ -135,7 +180,7 @@ export class CodexQuotaCollector {
 	}
 
 	private async refresh(): Promise<void> {
-		const ctx = this.getContext();
+		const ctx = this.context();
 		if (!this.active || !ctx) {
 			this.stop();
 			return;
@@ -148,7 +193,7 @@ export class CodexQuotaCollector {
 			this.active &&
 			generation === this.generation &&
 			!controller.signal.aborted &&
-			Boolean(this.getContext());
+			Boolean(this.context());
 		let delay = INTERVAL;
 		let authResolved = false;
 		// Pi's auth lookup cannot be canceled. Bound waiting and ignore its late result.
@@ -169,7 +214,7 @@ export class CodexQuotaCollector {
 			await Promise.race([
 				aborted,
 				(async () => {
-					const token = await resolveCodexToken(ctx.modelRegistry);
+					const token = await resolveCodexToken(ctx.modelRegistry, ctx.model);
 					if (!current()) return;
 					authResolved = true;
 					if (!token) {
@@ -222,7 +267,7 @@ export class CodexQuotaCollector {
 			clearTimeout(timeout);
 			if (generation === this.generation) {
 				this.request = undefined;
-				if (!this.getContext()) this.stop();
+				if (!this.context()) this.stop();
 				else {
 					this.changed();
 					this.nextRefresh = Date.now() + delay;
@@ -236,7 +281,7 @@ export class CodexQuotaCollector {
 		// Check ownership and age every minute even during a longer Retry-After.
 		this.timer = setTimeout(
 			() => {
-				if (!this.getContext()) {
+				if (!this.context()) {
 					this.stop();
 					return;
 				}

@@ -20,6 +20,12 @@ const payload = (
 const token = (account: string, rotation = 1) =>
 	`header.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: account }, rotation })).toString("base64url")}.signature`;
 const flush = () => vi.advanceTimersByTimeAsync(0);
+const nativeModel = () => ({
+	provider: "openai-codex",
+	api: "openai-codex-responses",
+	baseUrl: "https://chatgpt.com/backend-api",
+});
+const nativeProvider = () => ({ id: "openai-codex", baseUrl: "https://chatgpt.com/backend-api" });
 
 it("parses exact durations independently of order, percentages, and partial data", () => {
 	expect(parseCodexQuota(payload())).toEqual({ fiveHour: 80, week: 60 });
@@ -70,12 +76,14 @@ it("uses parsed template references and requires independent editor consent", ()
 
 it("uses the installed host's public auth capability with a synthetic runtime", async () => {
 	if (typeof ModelRegistry.prototype.getProviderAuth !== "function") {
-		expect(await resolveCodexToken(Object.create(ModelRegistry.prototype))).toBeUndefined();
+		expect(
+			await resolveCodexToken(Object.create(ModelRegistry.prototype), nativeModel() as never),
+		).toBeUndefined();
 		return;
 	}
 	const getAuth = vi.fn(async () => ({ auth: { apiKey: "synthetic-host-token" } }));
-	const registry = new ModelRegistry({ getAuth } as never);
-	expect(await resolveCodexToken(registry)).toBe("synthetic-host-token");
+	const registry = new ModelRegistry({ getAuth, getProvider: nativeProvider } as never);
+	expect(await resolveCodexToken(registry, nativeModel() as never)).toBe("synthetic-host-token");
 	expect(getAuth).toHaveBeenCalledWith("openai-codex");
 });
 
@@ -90,16 +98,23 @@ describe("session-scoped quota collection", () => {
 	let auth: ReturnType<typeof vi.fn>;
 	let http: ReturnType<typeof vi.fn<typeof fetch>>;
 	let collector: CodexQuotaCollector;
+	let model: ReturnType<typeof nativeModel>;
+	let provider: ReturnType<typeof nativeProvider>;
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000_000);
 		enabled = false;
+		model = nativeModel();
+		provider = nativeProvider();
 		auth = vi.fn(async () => ({ auth: { apiKey: token("account-a") } }));
 		http = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload()));
 		collector = new CodexQuotaCollector(
 			() =>
 				enabled
-					? ({ modelRegistry: { getProviderAuth: auth } } as unknown as ExtensionContext)
+					? ({
+							model,
+							modelRegistry: { getProviderAuth: auth, getProvider: () => provider },
+						} as unknown as ExtensionContext)
 					: undefined,
 			vi.fn(),
 			http,
@@ -115,6 +130,68 @@ describe("session-scoped quota collection", () => {
 		collector.reconcile();
 		await flush();
 	};
+
+	it.each(["model", "provider", "auth"])(
+		"rejects same-ID proxy %s routes before dispatch",
+		async (route) => {
+			if (route === "model") model.baseUrl = "https://proxy.example/v1";
+			if (route === "provider") provider.baseUrl = "https://proxy.example/v1";
+			if (route === "auth")
+				auth.mockResolvedValue({
+					auth: { apiKey: "synthetic-proxy-key", baseUrl: "https://proxy.example/v1" },
+				});
+			await start();
+			expect(http).not.toHaveBeenCalled();
+			if (route !== "auth") expect(auth).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["model", "provider"])(
+		"clears demand and cache promptly on same-ID %s proxy switch",
+		async (route) => {
+			await start();
+			(route === "model" ? model : provider).baseUrl = "https://proxy.example/v1";
+			collector.reconcile();
+			expect(collector.get()).toBeUndefined();
+			expect(vi.getTimerCount()).toBe(0);
+			(route === "model" ? model : provider).baseUrl = nativeModel().baseUrl;
+			http.mockRejectedValueOnce(new Error("offline"));
+			collector.reconcile();
+			await flush();
+			expect(codexQuotaText(collector.get())).toBe("5h -- | week --");
+		},
+	);
+
+	it.each(["auth", "http"])("ignores late %s after a same-ID proxy switch", async (phase) => {
+		let resolve!: (value: never) => void;
+		const pending = () =>
+			new Promise<never>((done) => {
+				resolve = done;
+			});
+		if (phase === "auth") auth.mockImplementationOnce(pending);
+		else http.mockImplementationOnce(pending);
+		await start();
+		model.baseUrl = "https://proxy.example/v1";
+		collector.reconcile();
+		resolve(
+			(phase === "auth"
+				? { auth: { apiKey: "late-synthetic-key" } }
+				: Response.json(payload())) as never,
+		);
+		await flush();
+		expect(http).toHaveBeenCalledTimes(phase === "auth" ? 0 : 1);
+		expect(collector.get()).toBeUndefined();
+	});
+
+	it("clears cached quota when resolved auth changes to a proxy", async () => {
+		await start();
+		auth.mockResolvedValue({
+			auth: { apiKey: "synthetic-proxy-key", baseUrl: "https://proxy.example/v1" },
+		});
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(http).toHaveBeenCalledOnce();
+		expect(codexQuotaText(collector.get())).toBe("5h -- | week --");
+	});
 
 	it("has no auth, requests or timers without demand; coalesces events and polls while idle", async () => {
 		collector.reconcile();
@@ -288,4 +365,76 @@ describe("session-scoped quota collection", () => {
 		await flush();
 		expect(collector.get()?.fiveHour).toBe(80);
 	});
+});
+
+it.each([
+	undefined,
+	"",
+	"http://chatgpt.com/backend-api",
+	"https://chatgpt.com.evil.example",
+	"https://chatgpt.com:444",
+	"https://user@chatgpt.com",
+	"https://api.openai.com/v1",
+])("fails closed on unsafe or unavailable route %s", async (baseUrl) => {
+	const auth = vi.fn(async () => ({ auth: { apiKey: "synthetic-key" } }));
+	const registry = { getProvider: nativeProvider, getProviderAuth: auth };
+	expect(
+		await resolveCodexToken(registry as never, { ...nativeModel(), baseUrl } as never),
+	).toBeUndefined();
+	expect(auth).not.toHaveBeenCalled();
+});
+it.each([
+	{},
+	{ getProviderAuth: vi.fn() },
+	{ getProvider: () => undefined, getProviderAuth: vi.fn() },
+])("fails closed without public provider metadata", async (registry) => {
+	expect(await resolveCodexToken(registry as never, nativeModel() as never)).toBeUndefined();
+});
+
+it.each([
+	undefined,
+	"https://chatgpt.com/backend-api/codex",
+	"https://CHATGPT.COM:443/backend-api",
+])("accepts native resolved-auth routing %s", async (baseUrl) => {
+	const auth = vi.fn(async () => ({ auth: { apiKey: "synthetic-native-key", baseUrl } }));
+	expect(
+		await resolveCodexToken(
+			{ getProvider: nativeProvider, getProviderAuth: auth } as never,
+			nativeModel() as never,
+		),
+	).toBe("synthetic-native-key");
+});
+it.each([null, "", "https://proxy.example/v1", "http://chatgpt.com"])(
+	"rejects unsafe resolved-auth metadata %s",
+	async (baseUrl) => {
+		const auth = vi.fn(async () => ({ auth: { apiKey: "synthetic-proxy-key", baseUrl } }));
+		expect(
+			await resolveCodexToken(
+				{ getProvider: nativeProvider, getProviderAuth: auth } as never,
+				nativeModel() as never,
+			),
+		).toBeUndefined();
+	},
+);
+it("requires the native API and fails closed when public metadata throws", async () => {
+	const auth = vi.fn();
+	const registry = { getProvider: nativeProvider, getProviderAuth: auth };
+	expect(
+		await resolveCodexToken(
+			registry as never,
+			{ ...nativeModel(), api: "openai-responses" } as never,
+		),
+	).toBeUndefined();
+	expect(
+		await resolveCodexToken(
+			{
+				...registry,
+				getProvider() {
+					throw new Error("unavailable");
+				},
+			} as never,
+			nativeModel() as never,
+		),
+	).toBeUndefined();
+	expect(auth).not.toHaveBeenCalled();
 });

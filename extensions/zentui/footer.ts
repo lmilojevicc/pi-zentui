@@ -220,7 +220,10 @@ export function installFooter(
 				const footer = config.components.footer;
 				const quota =
 					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
-				const quotaLabel = renderCodexQuota(quota, theme, config, "footer");
+				const styledQuota = renderCodexQuota(quota, theme, config, "footer");
+				// Include quota-enabled conditional groups when scanning non-quota text.
+				let quotaLabel = styledQuota;
+				let quotaProbe = "";
 				const footerModelLabel = modelLabelFor(state, footer.modelLabel);
 				const wideFormatTokens = config.components.footer.styles.starship.format
 					? parseFooterFormat(config.components.footer.styles.starship.format)
@@ -732,14 +735,56 @@ export function installFooter(
 				]
 					.filter(Boolean)
 					.join(" ");
-				const right = [
+				const extensionStatuses = collectExtensionStatusSegments(
+					footerData.getExtensionStatuses(),
+					config,
+				);
+				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
+					segment.colorMode === "original"
+						? segment.text
+						: renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "extensionStatus"),
+								segment.text,
+							);
+				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
+				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
+				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);
+				const rightParts = [
 					modelInfoSegment,
-					quotaLabel,
 					config.components.footer.styles.starship.segments.context ? builtInContextLabel : "",
 					config.components.footer.styles.starship.segments.tokens ? builtInTokenLabel : "",
 					config.components.footer.styles.starship.segments.cost ? builtInCostLabel : "",
 					timeSegment,
-				]
+				];
+				if (styledQuota) {
+					// Measure an internal, same-shape probe so unrelated status text cannot
+					// count as owned quota. Restore text only after the existing layout fits it.
+					const otherText = stripVTControlCharacters(
+						[
+							left,
+							separator,
+							...rightParts,
+							config.components.footer.styles.starship.format,
+							config.components.footer.styles.starship.compactFormat,
+							renderFormatTokens(wideFormatTokens, renderVariable),
+							renderFormatTokens(compactFormatTokens, renderVariable),
+							...extensionLeftSegments,
+							...extensionMiddleSegments,
+							...extensionRightSegments,
+						].join(""),
+					);
+					// An absent letter cannot be synthesized by joining or trimming other zones.
+					const letter = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"].find(
+						(value) => !otherText.includes(value),
+					);
+					// Bounded fail-open fallback if every candidate collides with non-quota text.
+					if (!letter) return renderFooter(width, false);
+					quotaProbe = codexQuotaText(quota).replace(/[a-z0-9]/gi, letter);
+					quotaLabel = styledQuota.replace(codexQuotaText(quota), quotaProbe);
+				}
+				const right = [rightParts[0], quotaLabel, ...rightParts.slice(1)]
 					.filter(Boolean)
 					.join(separator);
 
@@ -757,22 +802,6 @@ export function installFooter(
 					contentRight = stripOrphanSeparators(fmtRight);
 				}
 
-				const extensionStatuses = collectExtensionStatusSegments(
-					footerData.getExtensionStatuses(),
-					config,
-				);
-				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
-					segment.colorMode === "original"
-						? segment.text
-						: renderStyleForSource(
-								theme,
-								colorSource,
-								componentColor(config, "footer", "extensionStatus"),
-								segment.text,
-							);
-				const extensionLeftSegments = extensionStatuses.left.map(renderExtensionStatus);
-				const extensionMiddleSegments = extensionStatuses.middle.map(renderExtensionStatus);
-				const extensionRightSegments = extensionStatuses.right.map(renderExtensionStatus);
 				const middleSegments = contentMiddle
 					? [contentMiddle, ...extensionMiddleSegments]
 					: extensionMiddleSegments;
@@ -792,14 +821,14 @@ export function installFooter(
 						return truncateFooterText(framed, width, "");
 					});
 					if (quotaLabel) {
-						const text = codexQuotaText(quota);
 						const count = (lines: string[]) =>
 							lines.reduce(
-								(sum, line) => sum + stripVTControlCharacters(line).split(text).length - 1,
+								(sum, line) => sum + stripVTControlCharacters(line).split(quotaProbe).length - 1,
 								0,
 							);
 						// Recompose without quota if any occurrence was clipped, split, or omitted.
 						if (count(source) !== count(framedRows)) return renderFooter(width, false);
+						return framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
 					}
 					return framedRows;
 				};

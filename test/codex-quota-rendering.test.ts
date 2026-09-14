@@ -255,3 +255,110 @@ it("uses synthetic preview data and adds no rail quota row when off", () => {
 	expect(plain(after.join("\n"))).toContain("5h 80% | week 60%");
 	expect(after.length).toBe(before.length + 1);
 });
+
+it.each(["opencode", "opencode-copy-friendly", "minimalist"] as const)(
+	"preserves selected model label in synthetic %s quota previews",
+	(style) => {
+		const config = mergeConfig({ components: { editor: { style, codexQuota: true } } });
+		for (const modelLabel of ["id", "name"] as const) {
+			config.components.editor.modelLabel = modelLabel;
+			const output = plain(renderEditorSettingsPreview(config, theme, 72).join("\n"));
+			expect(output).toContain(modelLabel === "name" ? "GPT-5.4" : "gpt-5.4");
+		}
+	},
+);
+
+it.each([
+	{ responsive: true, masked: false },
+	{ responsive: false, masked: false },
+	{ responsive: true, masked: true },
+	{ responsive: false, masked: true },
+])(
+	"tracks owned footer quota independently of matching statuses ($responsive, masked=$masked)",
+	({ responsive, masked }) => {
+		const quota = { fiveHour: 80, week: 60 };
+		const text = codexQuotaText(quota);
+		let status = `\x1b]8;;https://example.com/quota\x07\x1b[35m${text}\x1b[39m\x1b]8;;\x07`;
+		const config = mergeConfig({ components: { footer: { codexQuota: true } } });
+		const starship = config.components.footer.styles.starship;
+		Object.assign(starship, {
+			responsive,
+			format: "Z:$codex_quota",
+			compactFormat: "$codex_quota$wrap$extensions",
+		});
+		starship.extensionStatuses.colorModes.other = "original";
+		let factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0];
+		installFooter(
+			{
+				cwd: "/repo",
+				model: { provider: "openai-codex" },
+				sessionManager: { getSessionName: () => "" },
+				getContextUsage: () => undefined,
+				ui: {
+					setFooter(value: typeof factory) {
+						factory = value;
+					},
+				},
+			} as unknown as ExtensionContext,
+			createInitialState(emptyGitStatus()),
+			() => config,
+			{ setRequestRender() {}, scheduleProjectRefresh() {}, getCodexQuota: () => quota },
+		);
+		const footer = factory?.({ requestRender() {} } as never, theme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map([["other", status]]),
+		} as never);
+		try {
+			if (!masked) {
+				const wide = footer?.render(100).join("\n") ?? "";
+				expect(plain(wide)).toContain(`Z:${text}`);
+				expect(wide).toContain(status);
+				status = "AA AA% | AAAA AA%";
+				const collision = footer?.render(100).join("\n") ?? "";
+				expect(plain(collision)).toContain(`Z:${text}`);
+				expect(collision).toContain(status);
+				status = "";
+				const conditional = "(AA AA% | AA${session_name}AA AA% $codex_quota)";
+				const expected = `AA AA% | AAAA AA% ${text}`;
+				starship.format = conditional;
+				expect(plain(footer?.render(100).join("\n") ?? "")).toContain(expected);
+				if (responsive) {
+					starship.format = "force compact ".repeat(20);
+					starship.compactFormat = conditional;
+					expect(plain(footer?.render(100).join("\n") ?? "")).toContain(expected);
+				}
+				starship.responsive = false;
+				starship.format = "AA AA% | AA $fill AA AA% $fill$codex_quota";
+				expect(plain(footer?.render(36).join("\n") ?? "")).toContain(`AA AA% | AAAA AA%${text}`);
+				starship.responsive = responsive;
+				starship.format = "Z:$codex_quota";
+				starship.compactFormat = "$codex_quota$wrap$extensions";
+				status = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"]
+					.map((letter) => letter.repeat(4))
+					.join(" ");
+				const exhausted = footer?.render(500).join("\n") ?? "";
+				expect(plain(exhausted)).not.toContain(`Z:${text}`);
+				expect(exhausted).toContain(status);
+				return;
+			}
+			// Legacy middle content is fitted after right statuses: the matching status must not
+			// stand in for a clipped owned occurrence. Responsive compact has the same collision.
+			starship.format = "$fill$codex_quota$fill";
+			starship.compactFormat = "$extensions$wrap$codex_quota";
+			starship.compactMaxLines = 1;
+			for (let width = 1; width <= 100; width++) {
+				const rows = footer?.render(width) ?? [];
+				// Remove only the original-colored third-party span before checking owned output.
+				const owned = rows.map((row) => row.replace(/\x1b\[35m[^\x1b]*/g, ""));
+				assertAtomic(owned, width, quota);
+				if (!plain(owned.join("\n")).includes(text)) {
+					config.components.footer.codexQuota = false;
+					expect(rows).toEqual(footer?.render(width));
+					config.components.footer.codexQuota = true;
+				}
+			}
+		} finally {
+			footer?.dispose?.();
+		}
+	},
+);
