@@ -547,7 +547,6 @@ function inspectPolishedFrameProvenance(
 	rendered: string[],
 	config: ZentuiConfig,
 	uiTheme: Theme,
-	shellMode = false,
 ): { safe: boolean; ownedFrame?: PolishedFrameSplit } {
 	const provenance = POLISHED_FRAME_SPLITS.get(rendered);
 	const provenanceMatches = Boolean(
@@ -559,7 +558,12 @@ function inspectPolishedFrameProvenance(
 	const unsafe =
 		Boolean(provenance && !provenanceMatches) ||
 		LEGACY_SPLIT_POLISHED_FRAME in base ||
-		(!ownedFrame && Boolean(splitPolishedFrame(rendered, config, uiTheme, shellMode)));
+		// A predecessor may return cached rows from either input mode.
+		(!ownedFrame &&
+			Boolean(
+				splitPolishedFrame(rendered, config, uiTheme) ||
+					splitPolishedFrame(rendered, config, uiTheme, true),
+			));
 	return { safe: !unsafe, ownedFrame };
 }
 
@@ -1332,7 +1336,6 @@ export class WrappedPolishedEditor implements EditorComponent {
 				captured.value,
 				config,
 				this.uiTheme,
-				shellMode,
 			);
 			if (provenance.safe) {
 				result = renderPolishedFrame({

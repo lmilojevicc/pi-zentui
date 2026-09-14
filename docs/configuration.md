@@ -422,7 +422,7 @@ Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer
 Role-specific defaults and chains remain intact:
 
 - Copy-friendly Opencode prompt uses explicit prompt → configured accent → the existing theme `accent` / terminal `blue` fallback. Model's constant fallback does **not** inherit a configured accent. Minimalist retains its distinct model/thinking defaults.
-- Opencode's left rail and model label use `accent` (or a configured `model`) normally; when the input begins with `!` (shell-command mode) both use the paired `shellRail` color, falling back to theme `bashMode` / terminal `bright-cyan` and then the configured `accent`.
+- In shell-command mode (`!` or `!!`), Opencode's left rail and model label share `shellRail` → configured `accent` → theme `bashMode` / terminal `bright-cyan`. Normal model coloring is unchanged.
 - Accent Rail uses only `rail` / `editorRail`, then warm theme `syntaxNumber` / terminal `215`; it does not inherit `accent`.
 - Minimalist branch defaults to theme `bold syntaxKeyword` / terminal `bold blue` when no local or explicit shared branch style exists.
 - Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.
