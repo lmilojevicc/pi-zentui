@@ -3,8 +3,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
-	defaultConfig,
 	type EditorStyle,
+	mergeConfig,
 	type PolishedTuiConfig,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
@@ -34,7 +34,7 @@ function theme(offset = 0): Theme {
 }
 
 function config(): PolishedTuiConfig {
-	return structuredClone(defaultConfig);
+	return mergeConfig({ icons: { mode: "nerd" } }, {});
 }
 
 function plain(lines: string[]): string {

@@ -94,7 +94,7 @@ function readRaw(path: string): Record<string, any> {
 
 describe("canonical config resolution", () => {
 	it("provides complete canonical defaults and the established palette defaults", () => {
-		const config = mergeConfig({});
+		const config = mergeConfig({}, {});
 		expect(config.components).toEqual({
 			editor: {
 				codexQuota: false,
@@ -183,7 +183,7 @@ describe("canonical config resolution", () => {
 			},
 		});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
-		expect(config.icons.cacheHit).toBe("󰆼");
+		expect(config.icons).toMatchObject({ mode: "auto", effectiveMode: "ascii", cacheHit: "c" });
 		expect(config.colors).toEqual(defaultConfig.colors);
 		expect(defaultConfig.components).toEqual(config.components);
 	});
@@ -1497,9 +1497,9 @@ describe("compatibility saver recipes", () => {
 
 describe("mergeConfig", () => {
 	it("defaults project refresh polling to 30 seconds and Starship styles", () => {
-		const config = mergeConfig({});
+		const config = mergeConfig({}, {});
 		expect(config.projectRefreshIntervalMs).toBe(30_000);
-		expect(config.icons.cacheHit).toBe("󰆼");
+		expect(config.icons).toMatchObject({ mode: "auto", effectiveMode: "ascii", cacheHit: "c" });
 		expect(config.icons.editorPrompt).toBe("");
 		expect(config.colors.gitBranch).toBe("bold purple");
 		expect(config.colors.packageVersion).toBe("208");

@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
-	defaultConfig,
+	mergeConfig,
 	type PolishedTuiConfig,
 	type UserMessageStyle,
 } from "../extensions/zentui/config";
@@ -19,7 +19,7 @@ import {
 const userMessageStyles = ["framed", "framed-copy-friendly", "compact", "labeled"] as const;
 
 function config(style: UserMessageStyle): PolishedTuiConfig {
-	const value = structuredClone(defaultConfig);
+	const value = mergeConfig({ icons: { mode: "nerd" } }, {});
 	value.components.userMessages.style = style;
 	return value;
 }

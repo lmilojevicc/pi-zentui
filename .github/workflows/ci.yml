@@ -27,8 +27,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify
-        run: npm run verify
+      - name: Verify static checks
+        run: npm run lint && npm run typecheck
+
+      - name: Test clean-terminal Auto fallback
+        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET -u ZENTUI_NERD_FONTS TERM=dumb CI=true npm test
+
+      - name: Test forced ASCII override
+        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET TERM=dumb CI=true ZENTUI_NERD_FONTS=0 npm test
+
+      - name: Test known Nerd terminal
+        run: env -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET -u ZENTUI_NERD_FONTS TERM=dumb CI=true TERM_PROGRAM=WezTerm npm test
+
+      - name: Test forced Nerd override
+        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET TERM=dumb CI=true ZENTUI_NERD_FONTS=1 npm test
 
       - name: Dry-run pack
         run: npm run pack:check

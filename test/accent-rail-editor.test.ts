@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { renderAccentRailEditorFrame } from "../extensions/zentui/accent-rail-editor";
-import { defaultConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
+import { mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 
 function theme(calls: Array<{ color: string; text: string }> = []): Theme {
 	return {
@@ -25,7 +25,7 @@ function theme(calls: Array<{ color: string; text: string }> = []): Theme {
 }
 
 function config(overrides: Partial<PolishedTuiConfig["colors"]> = {}): PolishedTuiConfig {
-	const current = structuredClone(defaultConfig);
+	const current = mergeConfig({ icons: { mode: "nerd" } }, {});
 	current.components.editor.style = "accent-rail";
 	current.colors = { ...current.colors, ...overrides };
 	return current;

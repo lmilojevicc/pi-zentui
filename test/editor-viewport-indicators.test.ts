@@ -1,11 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import {
-	defaultConfig,
-	type EditorStyle,
-	type PolishedTuiConfig,
-} from "../extensions/zentui/config";
+import { type EditorStyle, mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import {
 	PolishedEditor,
 	renderWithAutocompleteCapture,
@@ -34,31 +30,31 @@ function config(
 	options: EditorOptions = {},
 	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): PolishedTuiConfig {
+	const base = mergeConfig({ icons: { mode: "nerd" } }, {});
 	return {
-		...defaultConfig,
+		...base,
 		components: {
-			...defaultConfig.components,
+			...base.components,
 			editor: {
-				...defaultConfig.components.editor,
-				style: options.style ?? defaultConfig.components.editor.style,
+				...base.components.editor,
+				style: options.style ?? base.components.editor.style,
 				borderColorMode: editorBorderColorMode,
-				viewportIndicators:
-					options.viewportIndicators ?? defaultConfig.components.editor.viewportIndicators,
+				viewportIndicators: options.viewportIndicators ?? base.components.editor.viewportIndicators,
 				styles: {
-					...defaultConfig.components.editor.styles,
+					...base.components.editor.styles,
 					opencode: {
-						...defaultConfig.components.editor.styles.opencode,
+						...base.components.editor.styles.opencode,
 						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
 					},
 					"opencode-copy-friendly": {
-						...defaultConfig.components.editor.styles["opencode-copy-friendly"],
+						...base.components.editor.styles["opencode-copy-friendly"],
 						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),
 					},
 				},
 			},
 		},
 		features: {
-			...defaultConfig.features,
+			...base.features,
 			...(options.editor === undefined ? {} : { editor: options.editor }),
 			...(options.statusLine === undefined ? {} : { statusLine: options.statusLine }),
 			...(options.viewportIndicators === undefined

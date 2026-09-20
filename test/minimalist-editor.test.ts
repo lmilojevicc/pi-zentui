@@ -36,12 +36,13 @@ function recordingTheme(calls: Array<{ color: string; text: string }>): Theme {
 }
 
 function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
-	const editor = defaultConfig.components.editor;
+	const base = mergeConfig({ icons: { mode: "nerd" } }, {});
+	const editor = base.components.editor;
 	return {
-		...defaultConfig,
+		...base,
 		...overrides,
 		components: {
-			...defaultConfig.components,
+			...base.components,
 			editor: {
 				...editor,
 				style: "minimalist",

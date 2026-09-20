@@ -27,8 +27,8 @@ import {
 	ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR,
 } from "../extensions/zentui/accent-rail-layout-patch";
 import {
-	defaultConfig,
 	type ExtensionStatusPlacement,
+	mergeConfig,
 	type PolishedTuiConfig,
 	type SeparatorStyle,
 } from "../extensions/zentui/config";
@@ -49,6 +49,9 @@ import {
 } from "../extensions/zentui/ui";
 import { installUserMessageStyle as installUserMessageStyleProduction } from "../extensions/zentui/user-message";
 import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message-osc";
+
+// These integration fixtures assert the historical Nerd glyphs, independent of the host terminal.
+const defaultConfig = mergeConfig({ icons: { mode: "nerd" } }, {});
 
 const localPiTuiEntry = createRequire(import.meta.url).resolve("@earendil-works/pi-tui");
 const localPiTuiVersion = (
@@ -7270,6 +7273,7 @@ describe("component preset lifecycle", () => {
 				configPath,
 				JSON.stringify({
 					projectRefreshIntervalMs: 0,
+					icons: { mode: "nerd" },
 					components: { editor: { enabled: initial === "owned" } },
 				}),
 			);
