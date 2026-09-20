@@ -796,6 +796,7 @@ export default function (pi: ExtensionAPI) {
 						thinkingLevel: getThinkingLevel(),
 						contextPercent: getContextPercent(ctx),
 						contextWindow: getContextWindow(ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: ctx.sessionManager.getSessionName() ?? "",
 						agentDurationMs: getAgentDurationMs(),
 						agentActive: agentRunActive,
@@ -836,6 +837,7 @@ export default function (pi: ExtensionAPI) {
 						thinkingLevel: getThinkingLevel(),
 						contextPercent: getContextPercent(ctx),
 						contextWindow: getContextWindow(ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: ctx.sessionManager.getSessionName() ?? "",
 						agentDurationMs: getAgentDurationMs(),
 						agentActive: agentRunActive,
@@ -1500,7 +1502,7 @@ export default function (pi: ExtensionAPI) {
 		interactionMetrics.agentEnd();
 		pauseAgentRun();
 		workingLine.finishAgent(ctx);
-		workingLine.updateMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
+		workingLine.flushMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
 		// Reconcile once more after Pi has persisted the assistant message.
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
@@ -1525,7 +1527,7 @@ export default function (pi: ExtensionAPI) {
 		thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
-			workingLine.updateMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
+			workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
 		}
 		// Pi notifies extensions before persisting a successful message, so retain its live
 		// context until agent_end; accepted failed messages clear immediately instead of showing

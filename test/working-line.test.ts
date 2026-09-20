@@ -31,8 +31,10 @@ import {
 	remapWorkingLineTextTick,
 	selectWorkingLineMessage,
 	snapshotWorkingLineHighStyle,
+	WORKING_LINE_METRIC_UPDATE_INTERVAL_MS,
 	WORKING_LINE_SPINNERS,
 	WorkingLineController,
+	type WorkingLineMetricScheduler,
 	workingLineSpinnerWidth,
 } from "../extensions/zentui/working-line";
 import {
@@ -1065,6 +1067,7 @@ describe("working-line runtime ownership", () => {
 		random = () => 0.75,
 		now: () => number = Date.now,
 		getTheme: () => Theme = theme,
+		metricScheduler?: WorkingLineMetricScheduler,
 	) {
 		const current = config();
 		current.components.workingLine.enabled = enabled;
@@ -1088,7 +1091,16 @@ describe("working-line runtime ownership", () => {
 			clock,
 			calls,
 			ctx,
-			controller: new WorkingLineController(() => current, getTheme, clock, random, now),
+			controller: new WorkingLineController(
+				() => current,
+				getTheme,
+				clock,
+				random,
+				now,
+				undefined,
+				undefined,
+				metricScheduler,
+			),
 		};
 	}
 
@@ -1103,6 +1115,117 @@ describe("working-line runtime ownership", () => {
 		harness.clock.reset();
 		expect(harness.controller.isAvailable()).toBe(false);
 		expect(harness.calls).toEqual([]);
+	});
+
+	it("coalesces 200 streaming metric updates to one bounded trailing replacement", () => {
+		let now = 0;
+		let nextHandle = 0;
+		const scheduled = new Map<number, { due: number; callback: () => void }>();
+		const scheduler: WorkingLineMetricScheduler = {
+			setTimeout(callback, delayMs) {
+				const handle = ++nextHandle;
+				scheduled.set(handle, { due: now + delayMs, callback });
+				return handle;
+			},
+			clearTimeout(handle) {
+				scheduled.delete(handle as number);
+			},
+		};
+		const advanceTo = (target: number) => {
+			while (true) {
+				const next = [...scheduled.entries()].sort((left, right) => left[1].due - right[1].due)[0];
+				if (!next || next[1].due > target) break;
+				now = next[1].due;
+				scheduled.delete(next[0]);
+				next[1].callback();
+			}
+			now = target;
+		};
+		const harness = runtime(
+			true,
+			() => 0,
+			() => now,
+			theme,
+			scheduler,
+		);
+		harness.current.components.workingLine.segments.elapsed = false;
+		harness.controller.startSession(harness.ctx);
+		for (let output = 1; output <= 200; output += 1) {
+			harness.controller.updateMetrics({ input: 48_000, output }, undefined, harness.ctx);
+		}
+		expect(harness.calls.filter(([name]) => name === "indicator")).toHaveLength(2);
+		expect(scheduled.size).toBe(1);
+
+		advanceTo(WORKING_LINE_METRIC_UPDATE_INTERVAL_MS);
+		const indicators = harness.calls.filter(([name]) => name === "indicator");
+		expect(indicators).toHaveLength(3);
+		const finalIndicator = indicators.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(finalIndicator?.frames?.[0] ?? "")).toContain("↑48k ↓200");
+		expect(scheduled.size).toBe(0);
+	});
+
+	it("converges during sustained metrics, flushes lifecycle writes, and cancels stale work", () => {
+		let now = 0;
+		let callback: (() => void) | undefined;
+		let cleared = 0;
+		const scheduler: WorkingLineMetricScheduler = {
+			setTimeout(next) {
+				callback = next;
+				return 1;
+			},
+			clearTimeout() {
+				cleared += 1;
+				callback = undefined;
+			},
+		};
+		const harness = runtime(
+			true,
+			() => 0,
+			() => now,
+			theme,
+			scheduler,
+		);
+		harness.current.components.workingLine.spinner = "pulse";
+		harness.current.components.workingLine.spinnerIntervalMs = 30;
+		harness.current.components.workingLine.textAnimation = "disabled";
+		harness.current.components.workingLine.segments.elapsed = false;
+		harness.controller.startSession(harness.ctx);
+		const uninterrupted = harness.calls.at(-1)?.[1] as { frames: string[] };
+
+		now = 0;
+		harness.controller.updateMetrics({ input: 1, output: 1 }, undefined, harness.ctx);
+		now = 40;
+		harness.controller.updateMetrics({ input: 1, output: 40 }, undefined, harness.ctx);
+		expect(callback).toBeDefined();
+		now = 50;
+		const due = callback;
+		callback = undefined;
+		due?.();
+		const converged = harness.calls.at(-1)?.[1] as { frames: string[] };
+		expect(stripTerminalSequences(converged.frames[0] ?? "")).toContain("↑1 ↓40");
+		expect(phaseSignature(converged.frames[0] ?? "")[0]).toBe(
+			phaseSignature(uninterrupted.frames[1] ?? "")[0],
+		);
+
+		now = 60;
+		harness.controller.updateMetrics({ input: 2, output: 60 }, undefined, harness.ctx);
+		expect(callback).toBeDefined();
+		harness.controller.flushMetrics({ input: 2, output: 99 }, undefined, harness.ctx);
+		expect(callback).toBeUndefined();
+		expect(cleared).toBe(1);
+		const flushed = harness.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(flushed?.frames?.[0] ?? "")).toContain("↑2 ↓99");
+
+		now = 70;
+		harness.controller.updateMetrics({ input: 3, output: 70 }, undefined, harness.ctx);
+		const stale = callback as (() => void) | undefined;
+		harness.controller.dispose(harness.ctx);
+		now = 100;
+		stale?.();
+		expect(harness.calls.slice(-2)).toEqual([
+			["indicator", undefined],
+			["message", undefined],
+		]);
 	});
 
 	it("fails open when either public capability is missing", () => {
@@ -1905,7 +2028,11 @@ describe("working-line runtime ownership", () => {
 	it("transitions thought-only clock subscription strictly with active thought", () => {
 		vi.useFakeTimers();
 		try {
-			const harness = runtime(true);
+			const metricScheduler: WorkingLineMetricScheduler = {
+				setTimeout: () => 1,
+				clearTimeout() {},
+			};
+			const harness = runtime(true, () => 0.75, Date.now, theme, metricScheduler);
 			harness.current.components.workingLine.segments.elapsed = false;
 			harness.current.components.workingLine.segments.thought = true;
 			harness.controller.startSession(harness.ctx);

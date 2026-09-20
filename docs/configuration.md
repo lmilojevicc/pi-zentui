@@ -171,6 +171,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
           "showSessionName": true,
           "showTimer": true,
           "showCost": true,
+          "showCacheHit": false,
           "showGit": true,
           "contextThresholds": {
             "warning": 70,
@@ -475,9 +476,9 @@ Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without 
 
 ### Minimalist
 
-Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, and context at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
+Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, context, and optional latest-prompt cache hit rate at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
 
-Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable.
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 
@@ -637,9 +638,15 @@ Zentui accepts at most 16 unique keys, keys up to 64 code units, and values up t
 | `↓` | Behind |
 | `⇕` | Diverged |
 
+## Icon Auto detection
+
+`icons.mode: "auto"` preserves Auto in memory and on disk while deriving an effective mode for the current process. Exact `ZENTUI_NERD_FONTS=1` or `0` overrides Auto. Otherwise Auto selects Nerd glyphs when `TERM_PROGRAM` is `iTerm.app`, `WezTerm`, or `ghostty` (case-insensitive), or when `KITTY_WINDOW_ID` or `ALACRITTY_SOCKET` is nonempty. Unknown terminals, VS Code, and Windows Terminal default to ASCII-safe glyphs. Explicit `nerd` and `ascii` modes ignore the override and environment signals.
+
+This is conservative terminal-environment detection, not font probing: terminal identity cannot prove that a Nerd Font is installed or configured. Use explicit mode or `ZENTUI_NERD_FONTS` when Auto chooses incorrectly. Custom icon overrides still win over either effective mode.
+
 ## Runtime detection
 
-Runtime/language modules use Starship Nerd Font symbols and defaults such as `bold green` for Node.js. Theme mode maps those styles through Pi; Footer terminal mode uses the terminal colorscheme's ANSI colors.
+Runtime/language modules use Starship Nerd Font symbols and defaults such as `bold green` for Node.js. Theme mode maps those styles through Pi; Footer terminal mode uses the terminal colorscheme's ANSI colors. In Auto mode, runtime, OS, package, rail, and gauge symbols all use the same derived effective icon mode.
 
 | Runtime/language | Detection examples |
 | --- | --- |

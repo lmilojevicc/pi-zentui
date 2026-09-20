@@ -575,6 +575,7 @@ describe("component-oriented /zentui settings", () => {
 			"Session name",
 			"Timer",
 			"Cost",
+			"Cache hit rate",
 			"Git",
 
 			"Color overrides",
@@ -603,6 +604,7 @@ describe("component-oriented /zentui settings", () => {
 			["Session name", "disabled"],
 			["Timer", "disabled"],
 			["Cost", "disabled"],
+			["Cache hit rate", "enabled"],
 			["Git", "disabled"],
 		] as const) {
 			selectLabel(component, label);
@@ -617,6 +619,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showSessionName: false },
 			{ showTimer: false },
 			{ showCost: false },
+			{ showCacheHit: true },
 			{ showGit: false },
 		]);
 
@@ -2235,9 +2238,12 @@ describe("settings clarity and navigation", () => {
 		expect(h.calls.selectors).toEqual([]);
 		expect(h.component().render(160).join("\n")).toContain("Informational");
 		selectLabel(h.component(), "Icon mode");
-		const icons = h.component().render(160).join("\n");
-		expect(icons).toContain("Auto assumes a Nerd Font");
-		expect(icons).toContain("ASCII replaces icons only");
+		const icons = h.component().render(160).join("\n").replace(/\s+/g, " ");
+		expect(icons).toContain("TERM_PROGRAM=iTerm.app|WezTerm|ghostty");
+		expect(icons).toContain("nonempty KITTY_WINDOW_ID or ALACRITTY_SOCKET");
+		expect(icons).toContain("exact ZENTUI_NERD_FONTS=1|0");
+		expect(icons).toContain("otherwise ASCII");
+		expect(icons).toContain("cannot detect whether a Nerd Font is installed/configured");
 		await h.command().handler("editor", h.ctx);
 		selectLabel(h.component(), "Editor model label");
 		expect(h.component().render(160).join("\n")).toContain("Saved for other editor styles");

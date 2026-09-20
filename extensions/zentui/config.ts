@@ -24,9 +24,9 @@ import {
 } from "./component-colors";
 import {
 	ICON_GLYPH_KEYS,
+	type IconEnvironment,
 	type IconGlyphs,
 	type IconMode,
-	NERD_DEFAULT_ICONS,
 	normalizeIconMode,
 	type ResolvedIcons,
 	resolveConfiguredIcons,
@@ -139,6 +139,7 @@ export type MinimalistEditorStyleConfig = {
 	showSessionName: boolean;
 	showTimer: boolean;
 	showCost: boolean;
+	showCacheHit: boolean;
 	showGit: boolean;
 	contextThresholds: ContextThresholds;
 };
@@ -477,6 +478,7 @@ const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
 	showSessionName: true,
 	showTimer: true,
 	showCost: true,
+	showCacheHit: false,
 	showGit: true,
 	contextThresholds: { warning: 70, error: 90 },
 };
@@ -550,7 +552,7 @@ const defaultComponents: ComponentsConfig = {
 
 export const defaultConfig: PolishedTuiConfig = {
 	projectRefreshIntervalMs: DEFAULT_PROJECT_REFRESH_INTERVAL_MS,
-	icons: { mode: "auto", ...NERD_DEFAULT_ICONS },
+	icons: resolveConfiguredIcons("auto"),
 	colors: {
 		cwd: "bold cyan",
 		sessionName: "bold green",
@@ -1312,6 +1314,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					),
 					showTimer: parseBoolean(minimalist.showTimer, defaultMinimalistStyle.showTimer),
 					showCost: parseBoolean(minimalist.showCost, defaultMinimalistStyle.showCost),
+					showCacheHit: parseBoolean(minimalist.showCacheHit, defaultMinimalistStyle.showCacheHit),
 					showGit: parseBoolean(minimalist.showGit, defaultMinimalistStyle.showGit),
 					contextThresholds: minimalistThresholds,
 				},
@@ -1529,7 +1532,10 @@ export function hasUnsupportedComponentStyle(
 	return unsupportedComponentStyles.get(config)?.has(owner) ?? false;
 }
 
-export function mergeConfig(parsed: unknown): PolishedTuiConfig {
+export function mergeConfig(
+	parsed: unknown,
+	iconEnvironment: IconEnvironment = process.env,
+): PolishedTuiConfig {
 	const config = isRecord(parsed) ? parsed : {};
 	const iconsRecord = recordValue(config.icons);
 	const colorsRecord = recordValue(config.colors);
@@ -1539,6 +1545,7 @@ export function mergeConfig(parsed: unknown): PolishedTuiConfig {
 		icons: resolveConfiguredIcons(
 			normalizeIconMode(iconsRecord.mode),
 			normalizeIconOverrides(iconsRecord),
+			iconEnvironment,
 		),
 		colors: {
 			...defaultConfig.colors,
@@ -1806,6 +1813,7 @@ function applyMinimalistStylePatch(
 	if (patch.showSessionName !== undefined) style.showSessionName = patch.showSessionName;
 	if (patch.showTimer !== undefined) style.showTimer = patch.showTimer;
 	if (patch.showCost !== undefined) style.showCost = patch.showCost;
+	if (patch.showCacheHit !== undefined) style.showCacheHit = patch.showCacheHit;
 	if (patch.showGit !== undefined) style.showGit = patch.showGit;
 	if (patch.contextThresholds !== undefined) {
 		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };

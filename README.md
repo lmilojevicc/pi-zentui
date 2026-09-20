@@ -114,7 +114,7 @@ The displayed preset is derived from your current selections: individual changes
 
 ### Minimal overrides
 
-Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line and Thinking (Experimental) remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons assume a Nerd Font without detecting one; ASCII changes icons, not the entire UI.
+Installation enables Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer. Working line and Thinking (Experimental) remain disabled. Missing fields retain those defaults; there is no automatic migration. Auto icons use Nerd glyphs for iTerm2, WezTerm, Ghostty, Kitty, and Alacritty environment signals, and otherwise fall back to ASCII. Set `ZENTUI_NERD_FONTS=1` or `0` to override Auto. These environment heuristics cannot detect whether a Nerd Font is installed or configured; explicit `nerd` and `ascii` modes always win. ASCII changes icons, not the entire UI.
 
 Change only what you need. For example, this changes only the Editor's accent:
 
@@ -172,10 +172,12 @@ Pi 0.84 also provides a native fullscreen TUI with a sticky editor and Footer. P
 
 **Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
+Minimalist can also show the latest assistant prompt's cache hit rate in its top-right metadata. Enable **Editor → Minimalist → Cache hit rate** or set `components.editor.styles.minimalist.showCacheHit` to `true`; it is off by default and does not depend on Footer.
+
 ## Requirements
 
 - [Pi](https://pi.dev) coding agent 0.80.5 or newer
-- A [Nerd Font](https://www.nerdfonts.com/) for icons, or `icons.mode: "ascii"`
+- A [Nerd Font](https://www.nerdfonts.com/) for Nerd icons; Auto falls back to ASCII when no supported terminal signal is present
 
 ## Development
 

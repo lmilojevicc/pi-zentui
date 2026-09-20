@@ -45,6 +45,7 @@ describe.each(["theme", "terminal"] as const)("quota with %s colors", (colorSour
 			});
 			for (const iconMode of ["ascii", "nerd"] as const) {
 				config.icons.mode = iconMode;
+				config.icons.effectiveMode = iconMode;
 				for (const quota of snapshots) {
 					for (let width = 1; width <= 140; width++) {
 						const common = {

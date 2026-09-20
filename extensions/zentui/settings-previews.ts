@@ -134,6 +134,7 @@ export function renderEditorSettingsPreview(
 				thinkingLevel: "high",
 				contextPercent: 75,
 				contextWindow: 372_000,
+				cacheHitRate: 98.2,
 				sessionName: "Preview",
 				agentDurationMs: 12_000,
 				agentActive: true,

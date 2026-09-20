@@ -212,6 +212,7 @@ describe("settings previews", () => {
 			() => (minimalist.showSessionName = !minimalist.showSessionName),
 			() => (minimalist.showTimer = !minimalist.showTimer),
 			() => (minimalist.showCost = !minimalist.showCost),
+			() => (minimalist.showCacheHit = !minimalist.showCacheHit),
 			() => (minimalist.showGit = !minimalist.showGit),
 			() => (minimalist.contextThresholds = { warning: 80, error: 90 }),
 		];

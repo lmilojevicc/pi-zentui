@@ -7,6 +7,8 @@
  */
 
 export type IconMode = "auto" | "nerd" | "ascii";
+export type EffectiveIconMode = Exclude<IconMode, "auto">;
+export type IconEnvironment = Readonly<Record<string, string | undefined>>;
 
 export type IconGlyphs = {
 	cwd: string;
@@ -31,7 +33,14 @@ export type IconGlyphs = {
 	package: string;
 };
 
-export type ResolvedIcons = IconGlyphs & { mode: IconMode };
+export type ResolvedIcons = IconGlyphs & {
+	/** Canonical user choice; Auto is never replaced with an environment-specific value. */
+	mode: IconMode;
+	/** Runtime-only mode derived from the canonical choice and current environment. */
+	effectiveMode: EffectiveIconMode;
+	/** Runtime-only provenance needed when an override equals the active mode default. */
+	osOverridden: boolean;
+};
 
 export const ICON_GLYPH_KEYS = [
 	"cwd",
@@ -192,39 +201,65 @@ export function normalizeIconMode(value: unknown): IconMode {
 	return isIconMode(value) ? value : "auto";
 }
 
-export function modeDefaultIcons(mode: IconMode): IconGlyphs {
-	return mode === "ascii" ? { ...ASCII_DEFAULT_ICONS } : { ...NERD_DEFAULT_ICONS };
+export function detectAutoIconMode(env: IconEnvironment): EffectiveIconMode {
+	if (env.ZENTUI_NERD_FONTS === "1") return "nerd";
+	if (env.ZENTUI_NERD_FONTS === "0") return "ascii";
+
+	const termProgram = env.TERM_PROGRAM?.toLowerCase();
+	if (termProgram === "iterm.app" || termProgram === "wezterm" || termProgram === "ghostty") {
+		return "nerd";
+	}
+	if (env.KITTY_WINDOW_ID?.trim() || env.ALACRITTY_SOCKET?.trim()) return "nerd";
+	return "ascii";
+}
+
+export function resolveEffectiveIconMode(
+	mode: IconMode,
+	env: IconEnvironment = process.env,
+): EffectiveIconMode {
+	return mode === "auto" ? detectAutoIconMode(env) : mode;
+}
+
+export function modeDefaultIcons(mode: IconMode, env: IconEnvironment = process.env): IconGlyphs {
+	return resolveEffectiveIconMode(mode, env) === "ascii"
+		? { ...ASCII_DEFAULT_ICONS }
+		: { ...NERD_DEFAULT_ICONS };
 }
 
 export function resolveConfiguredIcons(
 	mode: IconMode,
 	overrides: Partial<IconGlyphs> = {},
+	env: IconEnvironment = process.env,
 ): ResolvedIcons {
-	const base = modeDefaultIcons(mode);
+	const effectiveMode = resolveEffectiveIconMode(mode, env);
+	const base = modeDefaultIcons(effectiveMode);
 	const rail =
 		typeof overrides.rail === "string" && overrides.rail.trim().length > 0
 			? overrides.rail
 			: base.rail;
 	return {
 		mode,
+		effectiveMode,
 		...base,
 		...overrides,
 		rail,
+		osOverridden: typeof overrides.os === "string",
 	};
 }
 
-/**
- * Honor a custom `icons.os` when it differs from the mode default.
- * Otherwise map by platform for the active mode.
- */
+/** Map the active mode default by platform while preserving explicit `icons.os` overrides. */
 export function resolveOsIcon(
 	configuredOsIcon: string,
 	mode: IconMode = "auto",
 	platform: string = process.platform,
+	env: IconEnvironment = process.env,
+	osOverridden = false,
 ): string {
-	const modeDefault = modeDefaultIcons(mode).os;
+	if (osOverridden) return configuredOsIcon;
+	const effectiveMode = resolveEffectiveIconMode(mode, env);
+	const modeDefault = modeDefaultIcons(effectiveMode).os;
 	if (configuredOsIcon !== modeDefault) return configuredOsIcon;
-	const platformMap = mode === "ascii" ? OS_PLATFORM_ICONS_ASCII : OS_PLATFORM_ICONS_NERD;
+	const platformMap = effectiveMode === "ascii" ? OS_PLATFORM_ICONS_ASCII : OS_PLATFORM_ICONS_NERD;
 	return platformMap[platform] ?? configuredOsIcon;
 }
 
@@ -232,8 +267,9 @@ export function resolveRuntimeSymbol(
 	name: string,
 	nerdSymbol: string,
 	mode: IconMode = "auto",
+	env: IconEnvironment = process.env,
 ): string {
-	if (mode !== "ascii") return nerdSymbol;
+	if (resolveEffectiveIconMode(mode, env) !== "ascii") return nerdSymbol;
 	return RUNTIME_ASCII_SYMBOLS[name] ?? (name.slice(0, 3) || "*");
 }
 
@@ -243,8 +279,12 @@ export function resolveRuntimeSymbol(
  * Honors a configured `icons.package` override; otherwise falls back to the
  * mode default (Nerd Font preset / ASCII label).
  */
-export function resolvePackageIcon(configuredPackageIcon: string, mode: IconMode = "auto"): string {
-	const modeDefault = modeDefaultIcons(mode).package;
+export function resolvePackageIcon(
+	configuredPackageIcon: string,
+	mode: IconMode = "auto",
+	env: IconEnvironment = process.env,
+): string {
+	const modeDefault = modeDefaultIcons(mode, env).package;
 	if (typeof configuredPackageIcon === "string" && configuredPackageIcon.length > 0) {
 		return configuredPackageIcon;
 	}

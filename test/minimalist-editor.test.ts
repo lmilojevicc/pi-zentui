@@ -99,6 +99,40 @@ describe("minimalist editor frame", () => {
 		expect(lines.at(-1)).toMatch(/^╰.*╯$/);
 	});
 
+	it("shows the latest-prompt cache hit rate only when enabled and space permits", () => {
+		const renderCache = (showCacheHit: boolean, cacheHitRate: number | undefined, width = 100) => {
+			const current = config();
+			current.components.editor.styles.minimalist.showCacheHit = showCacheHit;
+			current.components.footer.style = "native";
+			return (
+				renderMinimalistFrame({
+					width,
+					editorLines: ["draft"],
+					inputText: "draft",
+					metadata: {
+						cwd: "",
+						costLabel: "$4.12",
+						modelLabel: "GPT 6",
+						thinkingLevel: "high",
+						contextPercent: 75,
+						cacheHitRate,
+					},
+					uiTheme: theme(),
+					config: current,
+				})[0] ?? ""
+			);
+		};
+
+		expect(renderCache(true, 98.16)).toContain("$4.12 – GPT 6 – high – 75% – Cache 98.2%");
+		expect(renderCache(false, 98.16)).not.toContain("Cache");
+		expect(renderCache(true, undefined)).not.toContain("Cache");
+		expect(renderCache(true, Number.NaN)).not.toContain("Cache");
+		const narrow = renderCache(true, 98.16, 30);
+		expect(narrow).toContain("75%");
+		expect(narrow).not.toContain("Cache");
+		expect(visibleWidth(narrow)).toBeLessThanOrEqual(30);
+	});
+
 	it("uses distinct theme roles for default minimalist metadata", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const lines = renderMinimalistFrame({

@@ -572,6 +572,7 @@ export function formatOsLabel(
 	configuredIcon: string,
 	mode: IconMode = "auto",
 	platform: string = process.platform,
+	osOverridden = false,
 ): string {
-	return resolveOsIcon(configuredIcon, mode, platform);
+	return resolveOsIcon(configuredIcon, mode, platform, process.env, osOverridden);
 }

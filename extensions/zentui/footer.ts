@@ -240,7 +240,7 @@ export function installFooter(
 					FOOTER_FORMAT_ALIASES,
 				);
 				const colorSource = config.components.footer.colorSource;
-				const iconMode = config.icons.mode;
+				const iconMode = config.icons.effectiveMode;
 				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
 				const formattedCwd = sanitizeEditorMetadataText(
 					formatCwdLabel(ctx.cwd, config.icons.cwd, {
@@ -451,7 +451,12 @@ export function installFooter(
 								theme,
 								colorSource,
 								componentColor(config, "footer", "os"),
-								formatOsLabel(config.icons.os, iconMode),
+								formatOsLabel(
+									config.icons.os,
+									iconMode,
+									process.platform,
+									config.icons.osOverridden,
+								),
 							);
 						case "time":
 							return renderStyleForSource(
@@ -672,7 +677,7 @@ export function installFooter(
 							theme,
 							colorSource,
 							componentColor(config, "footer", "os"),
-							formatOsLabel(config.icons.os, iconMode),
+							formatOsLabel(config.icons.os, iconMode, process.platform, config.icons.osOverridden),
 						)
 					: "";
 				const left = [

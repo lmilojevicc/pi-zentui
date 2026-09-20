@@ -58,6 +58,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 });
 
 import zentui from "../extensions/zentui/index";
+import { WORKING_LINE_METRIC_UPDATE_INTERVAL_MS } from "../extensions/zentui/working-line";
 import {
 	ZENTUI_WORKING_LINE_SEGMENT_CAPABILITY_EVENT,
 	ZENTUI_WORKING_LINE_SEGMENT_EVENT,
@@ -233,7 +234,8 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "message_update", current.ctx, { message: partialAssistant });
 		expect(current.calls).toHaveLength(beforeDuplicate);
 		await emit(handlers, "message_update", current.ctx, { message: laterPartialAssistant });
-		expect(row()).toMatch(/Stable · \d+s · ↑120 ↓7/);
+		// Rapid streaming metrics converge on the bounded cadence instead of resetting Pi's Loader.
+		expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
 		await emit(handlers, "message_end", current.ctx, { message: finalAssistant });
 		expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
 		await emit(handlers, "tool_execution_start", current.ctx, {
@@ -485,7 +487,7 @@ describe("working-line extension lifecycle integration", () => {
 		expect(row()).toContain("↑27k ↓1.4k");
 	});
 
-	it("visibly reconciles an estimated 1.0k output to exact 999", async () => {
+	it("coalesces an estimated boundary change and flushes exact final usage", async () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
@@ -513,7 +515,7 @@ describe("working-line extension lifecycle integration", () => {
 				partial: { content: [{ type: "text", text: "abcdefgh" }] },
 			},
 		});
-		expect(row()).toContain("↑0 ↓1.0k");
+		expect(row()).toContain("↑0 ↓998");
 		await emit(handlers, "message_end", current.ctx, { message: message(999) });
 		expect(row()).toContain("↑0 ↓999");
 	});
@@ -761,9 +763,8 @@ describe("working-line extension lifecycle integration", () => {
 				partial,
 			},
 		});
-		expect(current.calls).toHaveLength(beforeDeltas + 2);
-		expect(rows().some((row) => row.includes("↑10 ↓5"))).toBe(true);
-		expect(rows().at(-1)).toContain("↑10 ↓8");
+		expect(current.calls).toHaveLength(beforeDeltas);
+		expect(rows().at(-1)).toContain("↑10 ↓2");
 		expect(rows().at(-1)).not.toMatch(/thinking|thought for/);
 		const beforeEnd = current.calls.length;
 		await emit(handlers, "message_update", current.ctx, {
@@ -906,30 +907,39 @@ describe("working-line extension lifecycle integration", () => {
 		},
 	);
 
-	it("regenerates repeated meaningful streaming rows within the worst bounded scheduler budget", async () => {
-		runtime.message = "m".repeat(43);
-		runtime.spinnerIntervalMs = 997;
-		runtime.textIntervalMs = 900;
-		const handlers = loadExtension();
-		const current = harness();
-		await emit(handlers, "session_start", current.ctx);
-		await emit(handlers, "agent_start", current.ctx);
-		await emit(handlers, "turn_start", current.ctx);
-		const callsBeforeStreaming = current.calls.length;
-		const started = performance.now();
-		for (let output = 1; output <= 20; output++) {
-			await emit(handlers, "message_update", current.ctx, {
-				message: {
-					role: "assistant",
-					usage: { input: 999_999_999, output },
-					responseId: "performance-stream",
-				},
-			});
+	it("bounds repeated meaningful streaming rows and converges on schedule", async () => {
+		vi.useFakeTimers();
+		try {
+			runtime.message = "m".repeat(43);
+			runtime.spinnerIntervalMs = 997;
+			runtime.textIntervalMs = 900;
+			const handlers = loadExtension();
+			const current = harness();
+			const row = () => {
+				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+			};
+			await emit(handlers, "session_start", current.ctx);
+			await emit(handlers, "agent_start", current.ctx);
+			await emit(handlers, "turn_start", current.ctx);
+			const callsBeforeStreaming = current.calls.length;
+			for (let output = 1; output <= 20; output++) {
+				await emit(handlers, "message_update", current.ctx, {
+					message: {
+						role: "assistant",
+						usage: { input: 999_999_999, output },
+						responseId: "performance-stream",
+					},
+				});
+			}
+			expect(current.calls).toHaveLength(callsBeforeStreaming + 1);
+			vi.advanceTimersByTime(WORKING_LINE_METRIC_UPDATE_INTERVAL_MS);
+			expect(current.calls).toHaveLength(callsBeforeStreaming + 2);
+			expect(row()).toContain("↑1000M ↓20");
+			await emit(handlers, "session_shutdown", current.ctx);
+		} finally {
+			vi.useRealTimers();
 		}
-		const elapsedMs = performance.now() - started;
-		expect(current.calls).toHaveLength(callsBeforeStreaming + 20);
-		expect(elapsedMs).toBeLessThan(10_000);
-		await emit(handlers, "session_shutdown", current.ctx);
 	});
 
 	it("owns the full fallback row while custom messages are off and releases both APIs", async () => {

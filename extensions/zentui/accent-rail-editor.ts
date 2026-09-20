@@ -41,8 +41,8 @@ function clampLines(lines: string[], width: number): string[] {
 
 function selectedRail(config: ZentuiConfig): string {
 	const style = config.components.editor.styles["accent-rail"];
-	const fallback = config.icons.mode === "ascii" ? "|" : "▎";
-	const configured = config.icons.mode === "ascii" ? style.asciiRail : style.rail;
+	const fallback = config.icons.effectiveMode === "ascii" ? "|" : "▎";
+	const configured = config.icons.effectiveMode === "ascii" ? style.asciiRail : style.rail;
 	const sanitized = sanitizeEditorMetadataText(configured);
 	const glyph = truncateToWidth(sanitized, 1, "");
 	return visibleWidth(glyph) === 1 ? glyph : fallback;

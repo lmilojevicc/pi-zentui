@@ -150,6 +150,7 @@ describe("accent rail editor frame", () => {
 	it("uses the style-owned ASCII rail", () => {
 		const current = config();
 		current.icons.mode = "ascii";
+		current.icons.effectiveMode = "ascii";
 		current.components.editor.styles["accent-rail"].asciiRail = "!";
 		const rows = renderAccentRailEditorFrame({
 			width: 10,

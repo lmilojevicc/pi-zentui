@@ -570,7 +570,7 @@ function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "iconMode",
 			label: "Icon mode",
 			description:
-				"Auto assumes a Nerd Font (no font detection), as does Nerd. ASCII replaces icons only, not every UI border or glyph.",
+				"Auto uses conservative signals: TERM_PROGRAM=iTerm.app|WezTerm|ghostty (case-insensitive), nonempty KITTY_WINDOW_ID or ALACRITTY_SOCKET, and exact ZENTUI_NERD_FONTS=1|0; otherwise ASCII. Environment heuristics cannot detect whether a Nerd Font is installed/configured.",
 			currentValue: config.icons.mode,
 			values: iconModeValues,
 		},
@@ -709,6 +709,13 @@ function buildMinimalistEditorStyleItems(config: PolishedTuiConfig): SettingItem
 			label: "Cost",
 			description: "Show session cost in the top border.",
 			currentValue: featureValue(minimalist.showCost),
+			values: featureStateValues,
+		},
+		{
+			id: "minimalistShowCacheHit",
+			label: "Cache hit rate",
+			description: "Show the latest prompt cache hit rate.",
+			currentValue: featureValue(minimalist.showCacheHit),
 			values: featureStateValues,
 		},
 		{
@@ -1723,9 +1730,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 																? "showTimer"
 																: id === "minimalistShowCost"
 																	? "showCost"
-																	: id === "minimalistShowGit"
-																		? "showGit"
-																		: undefined;
+																	: id === "minimalistShowCacheHit"
+																		? "showCacheHit"
+																		: id === "minimalistShowGit"
+																			? "showGit"
+																			: undefined;
 												if (!key) return;
 												deps.setMinimalist({ [key]: enabled }, ctx);
 											} else return;

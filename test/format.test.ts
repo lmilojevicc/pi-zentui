@@ -355,10 +355,14 @@ describe("formatOsLabel", () => {
 	it("honors a custom icons.os over platform defaults", () => {
 		expect(formatOsLabel("X", "auto", "darwin")).toBe("X");
 		expect(formatOsLabel("X", "ascii", "linux")).toBe("X");
+		expect(formatOsLabel(ASCII_DEFAULT_ICONS.os, "ascii", "linux", true)).toBe(
+			ASCII_DEFAULT_ICONS.os,
+		);
+		expect(formatOsLabel(NERD_DEFAULT_ICONS.os, "nerd", "linux", true)).toBe(NERD_DEFAULT_ICONS.os);
 	});
 
 	it("maps platform icons when using the mode default os glyph", () => {
-		expect(formatOsLabel(NERD_DEFAULT_ICONS.os, "auto", "linux")).toBe(
+		expect(formatOsLabel(NERD_DEFAULT_ICONS.os, "nerd", "linux")).toBe(
 			OS_PLATFORM_ICONS_NERD.linux,
 		);
 		expect(formatOsLabel(ASCII_DEFAULT_ICONS.os, "ascii", "darwin")).toBe(

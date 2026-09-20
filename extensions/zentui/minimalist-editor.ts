@@ -10,6 +10,7 @@ import {
 	bashModeLabel,
 	buildContextGauge,
 	contextColorTier,
+	formatCacheHitRate,
 	formatCount,
 	formatCwdLabel,
 	formatElapsedDuration,
@@ -53,6 +54,7 @@ export type MinimalistEditorMetadata = {
 	thinkingLevel?: string;
 	contextPercent?: number;
 	contextWindow?: number;
+	cacheHitRate?: number;
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
@@ -256,7 +258,11 @@ function renderTopRight(
 		let context = renderStyleForSource(uiTheme, source, style, text);
 		if (config.components.editor.styles.minimalist.contextGauge) {
 			for (const gaugeWidth of [5, 3]) {
-				const gauge = `[${buildContextGauge(percent, gaugeWidth, config.icons.mode === "ascii")}] ${text}`;
+				const gauge = `[${buildContextGauge(
+					percent,
+					gaugeWidth,
+					config.icons.effectiveMode === "ascii",
+				)}] ${text}`;
 				const styledGauge = renderStyleForSource(uiTheme, source, style, gauge);
 				const candidate = joinParts([...parts, styledGauge]);
 				if (visibleWidth(candidate) <= availableWidth) {
@@ -276,6 +282,15 @@ function renderTopRight(
 			return joinParts([...(prefix ? [prefix] : []), context]);
 		}
 		parts.push(context);
+	}
+	const cacheHit =
+		config.components.editor.styles.minimalist.showCacheHit &&
+		metadata.cacheHitRate !== undefined &&
+		Number.isFinite(metadata.cacheHitRate)
+			? safeThemeFg(uiTheme, "muted", `Cache ${formatCacheHitRate(metadata.cacheHitRate)}`)
+			: "";
+	if (cacheHit && (!fit || visibleWidth(joinParts([...parts, cacheHit])) <= availableWidth)) {
+		parts.push(cacheHit);
 	}
 	const quota = renderCodexQuota(metadata.codexQuota, uiTheme, config, "editor");
 	if (quota && visibleWidth(joinParts([...parts, quota])) <= availableWidth) parts.push(quota);
