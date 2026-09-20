@@ -203,77 +203,89 @@ beforeEach(() => {
 
 describe("working-line extension lifecycle integration", () => {
 	it("wires full-row rebuilds, authoritative usage, parallel tools, and isolated cleanup", async () => {
-		const handlers = loadExtension();
-		const current = harness();
-		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
-			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
-		};
-		await emit(handlers, "session_start", current.ctx);
-		expect(current.calls.slice(0, 2).map(([name, value]) => [name, value])).toEqual([
-			["message", ""],
-			["indicator", expect.any(Object)],
-		]);
-		await emit(handlers, "agent_start", current.ctx);
-		await emit(handlers, "turn_start", current.ctx, { turnIndex: 0, timestamp: Date.now() });
-		const partialAssistant = {
-			role: "assistant",
-			usage: { input: 100, output: 4 },
-			content: [],
-			api: "google-generative-ai",
-			provider: "google",
-			model: "test",
-			stopReason: "toolUse",
-			timestamp: Date.now(),
-		};
-		const laterPartialAssistant = { ...partialAssistant, usage: { input: 120, output: 7 } };
-		const finalAssistant = { ...partialAssistant, usage: { input: 150, output: 9 } };
-		await emit(handlers, "message_update", current.ctx, { message: partialAssistant });
-		expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
-		const beforeDuplicate = current.calls.length;
-		await emit(handlers, "message_update", current.ctx, { message: partialAssistant });
-		expect(current.calls).toHaveLength(beforeDuplicate);
-		await emit(handlers, "message_update", current.ctx, { message: laterPartialAssistant });
-		// Rapid streaming metrics converge on the bounded cadence instead of resetting Pi's Loader.
-		expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
-		await emit(handlers, "message_end", current.ctx, { message: finalAssistant });
-		expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
-		await emit(handlers, "tool_execution_start", current.ctx, {
-			toolCallId: "one",
-			toolName: "read",
-		});
-		expect(row()).toMatch(/Stable · read · \d+s · ↑150 ↓9/);
-		await emit(handlers, "tool_execution_start", current.ctx, {
-			toolCallId: "two",
-			toolName: "bash",
-		});
-		expect(row()).toMatch(/Stable · bash · \d+s · ↑150 ↓9/);
-		await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "two" });
-		expect(row()).toMatch(/Stable · read · \d+s · ↑150 ↓9/);
-		await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "one" });
-		expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
-		await emit(handlers, "turn_start", current.ctx, {
-			turnIndex: 1,
-			timestamp: Date.now(),
-		});
-		expect(row()).toContain("↑150 ↓9");
-		await emit(handlers, "agent_end", current.ctx);
-		expect(current.calls.filter(([name]) => name === "message")).toEqual([["message", ""]]);
-		expect(current.forbidden).not.toHaveBeenCalled();
-		const beforeLateEnds = current.calls.length;
-		await emit(handlers, "message_end", current.ctx, {
-			message: { role: "user", usage: { input: 99, output: 99 } },
-		});
-		await emit(handlers, "message_end", current.ctx, {
-			message: { ...finalAssistant, responseId: "late-after-agent" },
-		});
-		expect(current.calls).toHaveLength(beforeLateEnds);
-		await emit(handlers, "session_shutdown", current.ctx);
-		expect(current.calls.slice(-2).map(([name, value]) => [name, value])).toEqual([
-			["indicator", undefined],
-			["message", undefined],
-		]);
-		expect(current.forbidden).not.toHaveBeenCalled();
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		try {
+			const handlers = loadExtension();
+			const current = harness();
+			const row = () => {
+				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+			};
+			await emit(handlers, "session_start", current.ctx);
+			expect(current.calls.slice(0, 2).map(([name, value]) => [name, value])).toEqual([
+				["message", ""],
+				["indicator", expect.any(Object)],
+			]);
+			await emit(handlers, "agent_start", current.ctx);
+			await emit(handlers, "turn_start", current.ctx, { turnIndex: 0, timestamp: Date.now() });
+			const partialAssistant = {
+				role: "assistant",
+				usage: { input: 100, output: 4 },
+				content: [],
+				api: "google-generative-ai",
+				provider: "google",
+				model: "test",
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			};
+			const laterPartialAssistant = { ...partialAssistant, usage: { input: 120, output: 7 } };
+			const finalAssistant = { ...partialAssistant, usage: { input: 150, output: 9 } };
+			await emit(handlers, "message_update", current.ctx, { message: partialAssistant });
+			expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
+			const beforeDuplicate = current.calls.length;
+			await emit(handlers, "message_update", current.ctx, { message: partialAssistant });
+			expect(current.calls).toHaveLength(beforeDuplicate);
+			await emit(handlers, "message_update", current.ctx, { message: laterPartialAssistant });
+			// Streaming metrics stay coalesced before the deadline, then publish the latest snapshot.
+			const writesBeforeDeadline = current.calls.length;
+			vi.advanceTimersByTime(WORKING_LINE_METRIC_UPDATE_INTERVAL_MS - 1);
+			expect(current.calls).toHaveLength(writesBeforeDeadline);
+			expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
+			vi.advanceTimersByTime(1);
+			expect(current.calls).toHaveLength(writesBeforeDeadline + 1);
+			expect(row()).toMatch(/Stable · \d+s · ↑120 ↓7/);
+			await emit(handlers, "message_end", current.ctx, { message: finalAssistant });
+			expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
+			await emit(handlers, "tool_execution_start", current.ctx, {
+				toolCallId: "one",
+				toolName: "read",
+			});
+			expect(row()).toMatch(/Stable · read · \d+s · ↑150 ↓9/);
+			await emit(handlers, "tool_execution_start", current.ctx, {
+				toolCallId: "two",
+				toolName: "bash",
+			});
+			expect(row()).toMatch(/Stable · bash · \d+s · ↑150 ↓9/);
+			await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "two" });
+			expect(row()).toMatch(/Stable · read · \d+s · ↑150 ↓9/);
+			await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "one" });
+			expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
+			await emit(handlers, "turn_start", current.ctx, {
+				turnIndex: 1,
+				timestamp: Date.now(),
+			});
+			expect(row()).toContain("↑150 ↓9");
+			await emit(handlers, "agent_end", current.ctx);
+			expect(current.calls.filter(([name]) => name === "message")).toEqual([["message", ""]]);
+			expect(current.forbidden).not.toHaveBeenCalled();
+			const beforeLateEnds = current.calls.length;
+			await emit(handlers, "message_end", current.ctx, {
+				message: { role: "user", usage: { input: 99, output: 99 } },
+			});
+			await emit(handlers, "message_end", current.ctx, {
+				message: { ...finalAssistant, responseId: "late-after-agent" },
+			});
+			expect(current.calls).toHaveLength(beforeLateEnds);
+			await emit(handlers, "session_shutdown", current.ctx);
+			expect(current.calls.slice(-2).map(([name, value]) => [name, value])).toEqual([
+				["indicator", undefined],
+				["message", undefined],
+			]);
+			expect(current.forbidden).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("composes keyed extension segments into the owned animated row", async () => {
@@ -488,36 +500,42 @@ describe("working-line extension lifecycle integration", () => {
 	});
 
 	it("coalesces an estimated boundary change and flushes exact final usage", async () => {
-		const handlers = loadExtension();
-		const current = harness();
-		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
-			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
-		};
-		const message = (output: number) => ({
-			role: "assistant",
-			usage: { input: 0, output },
-			content: [],
-			responseId: "estimated-boundary",
-		});
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		try {
+			const handlers = loadExtension();
+			const current = harness();
+			const row = () => {
+				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
+			};
+			const message = (output: number) => ({
+				role: "assistant",
+				usage: { input: 0, output },
+				content: [],
+				responseId: "estimated-boundary",
+			});
 
-		await emit(handlers, "session_start", current.ctx);
-		await emit(handlers, "agent_start", current.ctx);
-		await emit(handlers, "turn_start", current.ctx);
-		const partial = message(998);
-		await emit(handlers, "message_update", current.ctx, { message: partial });
-		await emit(handlers, "message_update", current.ctx, {
-			message: partial,
-			assistantMessageEvent: {
-				type: "text_delta",
-				contentIndex: 0,
-				delta: "abcdefgh",
-				partial: { content: [{ type: "text", text: "abcdefgh" }] },
-			},
-		});
-		expect(row()).toContain("↑0 ↓998");
-		await emit(handlers, "message_end", current.ctx, { message: message(999) });
-		expect(row()).toContain("↑0 ↓999");
+			await emit(handlers, "session_start", current.ctx);
+			await emit(handlers, "agent_start", current.ctx);
+			await emit(handlers, "turn_start", current.ctx);
+			const partial = message(998);
+			await emit(handlers, "message_update", current.ctx, { message: partial });
+			await emit(handlers, "message_update", current.ctx, {
+				message: partial,
+				assistantMessageEvent: {
+					type: "text_delta",
+					contentIndex: 0,
+					delta: "abcdefgh",
+					partial: { content: [{ type: "text", text: "abcdefgh" }] },
+				},
+			});
+			expect(row()).toContain("↑0 ↓998");
+			await emit(handlers, "message_end", current.ctx, { message: message(999) });
+			expect(row()).toContain("↑0 ↓999");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("keeps cumulative billion-scale totals compact across continuations", async () => {
