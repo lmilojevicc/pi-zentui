@@ -27,6 +27,21 @@ describe("parseFooterFormat", () => {
 		]);
 	});
 
+	it("parses bare and braced thinking levels in conditional groups", () => {
+		for (const variable of ["$thinkingLevel", "$" + "{thinkingLevel}"]) {
+			expect(parseFooterFormat(variable)).toEqual([{ kind: "var", name: "thinkingLevel" }]);
+			expect(parseFooterFormat(`( ${variable})`)).toEqual([
+				{
+					kind: "group",
+					tokens: [
+						{ kind: "text", value: " " },
+						{ kind: "var", name: "thinkingLevel" },
+					],
+				},
+			]);
+		}
+	});
+
 	it("parses $package and $package_version as package-version vars", () => {
 		expect(parseFooterFormat("$package")).toEqual([{ kind: "var", name: "package" }]);
 		expect(parseFooterFormat("$package_version")).toEqual([
@@ -350,11 +365,14 @@ describe("compact footer format", () => {
 		expect(
 			collectFooterFormatReferences(
 				parseFooterFormat(
-					"$directory $branch $model $provider $wrap $wrap_sep $extensions $fill $duration",
+					"$directory $branch $model $provider( $thinkingLevel)( $" +
+						"{thinkingLevel}) $wrap $wrap_sep $extensions $fill $duration",
 				),
 				FOOTER_FORMAT_ALIASES,
 			),
-		).toEqual(new Set(["cwd", "git_branch", "model", "provider", "session_duration"]));
+		).toEqual(
+			new Set(["cwd", "git_branch", "model", "provider", "thinkingLevel", "session_duration"]),
+		);
 	});
 });
 

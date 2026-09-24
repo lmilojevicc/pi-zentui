@@ -45,6 +45,16 @@ Center the branch between directory and cost:
 }
 ```
 
+Show model, provider, and active thinking level in the Footer:
+
+```text
+/zentui format "$model $provider( $thinkingLevel)"
+```
+
+Add `$model $provider( $thinkingLevel)` to `components.footer.styles.starship.compactFormat` separately to keep these details in compact layouts. Defaults and the built-in Model info segment are unchanged.
+
+Footer configuration never changes the Editor. To hide those details there, independently customize `components.editor.styles.opencode.metadataFormat` or `components.editor.styles.opencode-copy-friendly.metadataFormat`, omitting `$model`, `$provider`, and `$thinking`. Use `" "` for no metadata; `""` restores the default. See [Editor metadata format](./configuration.md#editor-metadata-format).
+
 Set or clear the template at runtime:
 
 ```text
@@ -71,6 +81,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$runtime` | | runtime icon and version |
 | `$model` | | selected Footer model label |
 | `$provider` | | formatted provider label |
+| `$thinkingLevel` | | current thinking level; empty when unavailable or `off` |
 | `$package` | | project package version as `is <glyph> <version>` |
 | `$package_version` | | raw project package version |
 | `$session_duration` | `$duration` | session running time |
@@ -163,7 +174,7 @@ If every variable inside a group is empty, the group and its literal text are dr
 - `$session_name` is independent of `components.footer.styles.starship.segments.sessionName` in custom formats.
 - Built-in wide layout appends cache totals to Tokens, `(sub)` to Cost, and `(auto)` to Context when available.
 - Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible. Add `$cache_read`, `$cache_write`, `$subscription`, and `$auto_compaction` explicitly for atomic telemetry.
-- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add variables to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key remains migration-only input.
+- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider, thinking level, and atomic telemetry. Add variables to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key remains migration-only input.
 - Auto-compaction settings refresh at the next normal Footer synchronization. Unsupported Pi capabilities or read errors omit optional markers.
 - Unknown variables render empty.
 - `$fill`, `$wrap`, and `$wrap_sep` are structural and never render visible text.

@@ -1550,6 +1550,10 @@ describe("mergeConfig", () => {
 		});
 	});
 
+	it("registers the canonical thinking level variable", () => {
+		expect(FOOTER_FORMAT_VARIABLES).toContain("thinkingLevel");
+	});
+
 	it("registers the canonical telemetry variables without aliases", () => {
 		expect(FOOTER_FORMAT_VARIABLES).toEqual(
 			expect.arrayContaining(["cache_read", "cache_write", "subscription", "auto_compaction"]),

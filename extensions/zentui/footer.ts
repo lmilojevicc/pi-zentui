@@ -192,6 +192,7 @@ export function installFooter(
 		setRequestRender: (fn: (() => void) | undefined) => void;
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
+		getThinkingLevel?: () => string | undefined;
 		getLiveContext?: () => LiveContextOverride | undefined;
 		getCodexQuota?: () => CodexQuota | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
@@ -430,6 +431,10 @@ export function installFooter(
 							return sanitizeExtensionStatusText(footerModelLabel);
 						case "provider":
 							return sanitizeExtensionStatusText(state.providerLabel);
+						case "thinkingLevel": {
+							const level = sanitizeExtensionStatusText(hooks.getThinkingLevel?.() ?? "");
+							return level.toLowerCase() === "off" ? "" : level;
+						}
 						case "session_duration":
 							return state.sessionStartEpoch
 								? renderStyleForSource(
