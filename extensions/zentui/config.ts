@@ -404,6 +404,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"runtime",
 	"model",
 	"provider",
+	"thinkingLevel",
 	"session_duration",
 	"username",
 	"os",

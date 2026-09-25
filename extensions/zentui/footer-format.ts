@@ -157,6 +157,22 @@ export function renderFormatSplit(
 	};
 }
 
+/** Compact uses only the first top-level fill; later fills remain nonstructural. */
+export function compileCompactFormatSplit(tokens: FormatToken[]): {
+	left: CompactFormatChunk[];
+	right: CompactFormatChunk[];
+	alignRight: boolean;
+} {
+	const first = tokens.findIndex((token) => token.kind === "fill");
+	return first < 0
+		? { left: compileCompactFormat(tokens), right: [], alignRight: false }
+		: {
+				left: compileCompactFormat(tokens.slice(0, first)),
+				right: compileCompactFormat(tokens.slice(first + 1)),
+				alignRight: true,
+			};
+}
+
 export function compileCompactFormat(tokens: FormatToken[]): CompactFormatChunk[] {
 	const chunks: CompactFormatChunk[] = [];
 	let current: FormatToken[] = [];

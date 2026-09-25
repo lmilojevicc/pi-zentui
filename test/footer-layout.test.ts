@@ -5,6 +5,7 @@ import {
 	compactChunkBudget,
 	fullFooterFitsAligned,
 	packCompactChunks,
+	packCompactZones,
 	reflowFullFooter,
 } from "../extensions/zentui/footer-layout";
 
@@ -110,4 +111,83 @@ describe("responsive footer layout", () => {
 			packCompactChunks([chunk("abcdefgh")], 5, 1, " | ").every((row) => visibleWidth(row) <= 5),
 		).toBe(true);
 	});
+});
+
+describe("right-aligned footer zones", () => {
+	it("pads only the right-bearing row in both full reflow arrangements", () => {
+		expect(reflowFullFooter({ left: "LLLL", middle: "M", right: "R" }, 5, true)).toEqual([
+			"LLLL",
+			"  M R",
+		]);
+		expect(reflowFullFooter({ left: "L", middle: "MMMM", right: "RRRR" }, 6, true)).toEqual([
+			"L MMMM",
+			"  RRRR",
+		]);
+		expect(reflowFullFooter({ left: "L", middle: "M", right: "" }, 5, true)).toEqual(["L", "M"]);
+		expect(reflowFullFooter({ left: "", middle: "", right: "R" }, 5, true)).toEqual(["    R"]);
+	});
+	it("reserves separate metadata chunks before variable left budgets", () => {
+		const rows = packCompactZones(
+			[chunk("directory"), chunk("branch")],
+			[
+				chunk("gpt-6-astra"),
+				chunk("OpenAI", "separator"),
+				chunk("high", "separator"),
+				chunk("telemetry", "separator"),
+			],
+			18,
+			2,
+			" | ",
+		);
+		expect(rows.map(stripVTControlCharacters)).toEqual([
+			"direc… gpt-6-astra",
+			"br… OpenAI | high…",
+		]);
+		expect(rows.map(visibleWidth)).toEqual([18, 18]);
+	});
+	it("follows right template order rather than content names", () => {
+		const rows = packCompactZones(
+			[chunk("left")],
+			[chunk("usage"), chunk("model"), chunk("thinking")],
+			6,
+			1,
+			" | ",
+		);
+		expect(rows).toEqual(["usage…"]);
+	});
+	it("preserves empty-right behavior and avoids dangling boundary separators", () => {
+		const left = [chunk("one"), chunk("two", "separator")];
+		expect(packCompactZones(left, [], 7, 2, " | ")).toEqual(packCompactChunks(left, 7, 2, " | "));
+		expect(
+			packCompactZones(
+				[],
+				[chunk("one", "separator"), chunk(""), chunk("two", "separator")],
+				5,
+				2,
+				" | ",
+			),
+		).toEqual(["  one", "  two"]);
+	});
+	it.each([1, 2, 3, "unlimited"] as const)(
+		"respects %s rows and cell bounds with ANSI, links and wide glyphs",
+		(limit) => {
+			const link = "\u001b]8;;https://example.test\u0007界界\u001b]8;;\u0007";
+			for (let width = 0; width < 32; width++) {
+				const rows = packCompactZones(
+					[chunk("left…"), chunk(link), chunk("last")],
+					[
+						chunk("\u001b[31m model\u001b[0m"),
+						chunk("provider", "separator"),
+						chunk("high", "separator"),
+					],
+					width,
+					limit,
+					" | ",
+				);
+				if (limit !== "unlimited") expect(rows.length).toBeLessThanOrEqual(limit);
+				expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+				expect(rows.map(stripVTControlCharacters).join("\n")).not.toContain("……");
+			}
+		},
+	);
 });

@@ -7,6 +7,7 @@ const capabilities = vi.hoisted(() => ({
 	throwSubscription: false,
 	throwAutoCompaction: false,
 	settingsCreate: vi.fn(),
+	footerFormat: "",
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
@@ -31,7 +32,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	return {
 		...actual,
 		ensureConfigExists: () => {},
-		loadConfig: () => {
+		loadConfig: vi.fn(() => {
 			const footer = actual.defaultConfig.components.footer;
 			return {
 				...actual.defaultConfig,
@@ -45,13 +46,14 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 						styles: {
 							starship: {
 								...footer.styles.starship,
+								format: capabilities.footerFormat,
 								segments: { ...footer.styles.starship.segments, modelInfo: true },
 							},
 						},
 					},
 				},
 			};
-		},
+		}),
 	};
 });
 
@@ -69,6 +71,7 @@ vi.mock("../extensions/zentui/package-version", () => ({
 	readPackageVersionResult: async () => ({ kind: "ok" as const, result: null }),
 }));
 
+import { loadConfig } from "../extensions/zentui/config";
 import zentui from "../extensions/zentui/index";
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
@@ -111,6 +114,7 @@ function createHarness(name: string) {
 	const entries = [usageEntry(`${name}-initial`, { input: 10, output: 2 })];
 	const state = { model: { id: `${name}-model`, provider: "test", contextWindow: 10_000 } };
 	const theme = makeTheme();
+	const requestRender = vi.fn();
 	const ctx = {
 		hasUI: true,
 		mode: "tui",
@@ -136,7 +140,7 @@ function createHarness(name: string) {
 			setFooter(factory: FooterFactory | undefined) {
 				footerFactory = factory;
 			},
-			setEditorComponent() {},
+			setEditorComponent: vi.fn(),
 			getEditorComponent: () => undefined,
 		},
 	};
@@ -144,9 +148,10 @@ function createHarness(name: string) {
 		ctx,
 		entries,
 		state,
+		requestRender,
 		createFooter() {
 			if (!footerFactory) throw new Error("footer was not installed");
-			return footerFactory({ requestRender() {} }, theme, {
+			return footerFactory({ requestRender }, theme, {
 				onBranchChange: () => () => {},
 				getExtensionStatuses: () => new Map<string, string>(),
 			});
@@ -154,14 +159,14 @@ function createHarness(name: string) {
 	};
 }
 
-function loadExtension() {
+function loadExtension(getThinkingLevel: () => string = () => "off") {
 	const handlers = new Map<string, Handler[]>();
 	zentui({
 		on(name: string, handler: Handler) {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
 		registerCommand() {},
-		getThinkingLevel: () => "off",
+		getThinkingLevel,
 	} as never);
 	return handlers;
 }
@@ -180,11 +185,46 @@ beforeEach(() => {
 	capabilities.throwSubscription = false;
 	capabilities.throwAutoCompaction = false;
 	capabilities.settingsCreate.mockClear();
+	capabilities.footerFormat = "";
+	vi.mocked(loadConfig).mockClear();
 });
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("telemetry lifecycle integration", () => {
+	it("refreshes footer thinking levels with the editor disabled without changing its settings", async () => {
+		capabilities.footerFormat = "$model $provider( $thinkingLevel)";
+		let level = "high";
+		const handlers = loadExtension(() => level);
+		const harness = createHarness("thinking-events");
+		await emit(handlers, "session_start", harness.ctx);
+		const config = vi.mocked(loadConfig).mock.results.at(-1)?.value;
+		const editorConfig = structuredClone(config.components.editor);
+		const footer = harness.createFooter();
+		try {
+			expect(rendered(footer)).toContain("thinking-events-model Test high");
+			harness.requestRender.mockClear();
+			level = "medium";
+			await emit(handlers, "thinking_level_select", harness.ctx, { thinkingLevel: level });
+			expect(harness.requestRender).toHaveBeenCalled();
+			expect(rendered(footer)).toContain("thinking-events-model Test medium");
+			expect(rendered(footer)).not.toContain("high");
+
+			harness.requestRender.mockClear();
+			harness.state.model = { ...harness.state.model, id: "unsupported-model" };
+			level = "off";
+			await emit(handlers, "model_select", harness.ctx);
+			expect(harness.requestRender).toHaveBeenCalled();
+			expect(rendered(footer).trim()).toBe("unsupported-model Test");
+			expect(config.components.editor).toEqual(editorConfig);
+			expect(config.components.editor.enabled).toBe(false);
+			expect(harness.ctx.ui.setEditorComponent).not.toHaveBeenCalled();
+		} finally {
+			footer.dispose?.();
+			await emit(handlers, "session_shutdown", harness.ctx);
+		}
+	});
+
 	it("initializes, refreshes, clears unsupported values, and reconciles at agent_end", async () => {
 		const handlers = loadExtension();
 		const harness = createHarness("telemetry-events");

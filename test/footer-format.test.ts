@@ -3,6 +3,7 @@ import { FOOTER_FORMAT_ALIASES } from "../extensions/zentui/config";
 import {
 	collectFooterFormatReferences,
 	compileCompactFormat,
+	compileCompactFormatSplit,
 	joinNonEmpty,
 	parseFooterFormat,
 	renderFormatSplit,
@@ -25,6 +26,21 @@ describe("parseFooterFormat", () => {
 			{ kind: "text", value: " " },
 			{ kind: "var", name: "provider" },
 		]);
+	});
+
+	it("parses bare and braced thinking levels in conditional groups", () => {
+		for (const variable of ["$thinkingLevel", "$" + "{thinkingLevel}"]) {
+			expect(parseFooterFormat(variable)).toEqual([{ kind: "var", name: "thinkingLevel" }]);
+			expect(parseFooterFormat(`( ${variable})`)).toEqual([
+				{
+					kind: "group",
+					tokens: [
+						{ kind: "text", value: " " },
+						{ kind: "var", name: "thinkingLevel" },
+					],
+				},
+			]);
+		}
 	});
 
 	it("parses $package and $package_version as package-version vars", () => {
@@ -309,9 +325,9 @@ describe("compact footer format", () => {
 		).toBe("DIRCTXTOK");
 	});
 
-	it("ignores fill and recognizes only a standalone extensions chunk", () => {
+	it("recognizes only a standalone extensions chunk", () => {
 		const chunks = compileCompactFormat(
-			parseFooterFormat("$cwd$fill$wrap $extensions $wrap prefix $extensions$wrap($extensions)"),
+			parseFooterFormat("$cwd$wrap $extensions $wrap prefix $extensions$wrap($extensions)"),
 		);
 		expect(chunks.map((chunk) => chunk.kind)).toEqual(["tokens", "extensions", "tokens", "tokens"]);
 	});
@@ -350,11 +366,14 @@ describe("compact footer format", () => {
 		expect(
 			collectFooterFormatReferences(
 				parseFooterFormat(
-					"$directory $branch $model $provider $wrap $wrap_sep $extensions $fill $duration",
+					"$directory $branch $model $provider( $thinkingLevel)( $" +
+						"{thinkingLevel}) $wrap $wrap_sep $extensions $fill $duration",
 				),
 				FOOTER_FORMAT_ALIASES,
 			),
-		).toEqual(new Set(["cwd", "git_branch", "model", "provider", "session_duration"]));
+		).toEqual(
+			new Set(["cwd", "git_branch", "model", "provider", "thinkingLevel", "session_duration"]),
+		);
 	});
 });
 
@@ -427,5 +446,40 @@ describe("stripOrphanSeparators", () => {
 		const tokens = parseFooterFormat("($context)($sep$tokens)($sep$cost)");
 		const raw = renderFormatSplit(tokens, renderVar).left;
 		expect(stripOrphanSeparators(raw)).toBe(`72%${sep}↑1${sep}$0`);
+	});
+});
+
+describe("compact fill zones", () => {
+	it.each(["$fill", "$" + "{fill}"])("flushes chunks and resets boundaries at %s", (fill) => {
+		const split = compileCompactFormatSplit(parseFooterFormat(`$cwd$wrap_sep${fill}$model`));
+		expect(split.alignRight).toBe(true);
+		expect(split.left).toEqual(compileCompactFormat(parseFooterFormat("$cwd")));
+		expect(split.right).toEqual(compileCompactFormat(parseFooterFormat("$model")));
+	});
+	it("preserves no-fill compilation and ignores nested and additional fills", () => {
+		const tokens = parseFooterFormat("$cwd($fill$model)$wrap$extensions");
+		expect(compileCompactFormatSplit(tokens)).toEqual({
+			left: compileCompactFormat(tokens),
+			right: [],
+			alignRight: false,
+		});
+		const split = compileCompactFormatSplit(
+			parseFooterFormat("$cwd$fill$model$fill$provider$wrap_sep$extensions"),
+		);
+		expect(split.right).toEqual(
+			compileCompactFormat(parseFooterFormat("$model$provider$wrap_sep$extensions")),
+		);
+		expect(split.right.at(-1)).toEqual({ kind: "extensions", boundary: "separator" });
+	});
+	it("supports empty zones and boundaries immediately after fill", () => {
+		expect(compileCompactFormatSplit(parseFooterFormat("$fill"))).toEqual({
+			left: [],
+			right: [],
+			alignRight: true,
+		});
+		expect(compileCompactFormatSplit(parseFooterFormat("$cwd$fill")).right).toEqual([]);
+		const split = compileCompactFormatSplit(parseFooterFormat("$fill$wrap_sep$extensions"));
+		expect(split.left).toEqual([]);
+		expect(split.right).toEqual([{ kind: "extensions", boundary: "separator" }]);
 	});
 });

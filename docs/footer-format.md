@@ -45,6 +45,27 @@ Center the branch between directory and cost:
 }
 ```
 
+Show model, provider, and active thinking level in the Footer:
+
+```text
+/zentui format "$model $provider( $thinkingLevel)"
+```
+
+Add `$model $provider( $thinkingLevel)` to `components.footer.styles.starship.compactFormat` separately to keep these details in compact layouts. Defaults and the built-in Model info segment are unchanged.
+
+To keep metadata on the right, set both templates independently:
+
+```json
+{
+  "format": "$cwd( in $session_name)( on $git_branch)( $git_status)( $git_state)( via $runtime)$fill$model($sep$provider)($sep$thinkingLevel)($sep$context)( $auto_compaction)($sep$tokens)( $cache_read)( $cache_write)($sep$cost)( $subscription)",
+  "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$fill$model$wrap_sep($provider)$wrap_sep($thinkingLevel)$wrap_sep$context$wrap_sep$tokens"
+}
+```
+
+These keys belong under `components.footer.styles.starship`. Separate metadata chunks can wrap at narrow widths; a single combined chunk may truncate thinking. Earlier right-hand chunks take priority; project details and later telemetry may be truncated or omitted.
+
+Footer configuration never changes the Editor. To hide those details there, independently customize `components.editor.styles.opencode.metadataFormat` or `components.editor.styles.opencode-copy-friendly.metadataFormat`, omitting `$model`, `$provider`, and `$thinking`. Use `" "` for no metadata; `""` restores the default. See [Editor metadata format](./configuration.md#editor-metadata-format).
+
 Set or clear the template at runtime:
 
 ```text
@@ -71,6 +92,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$runtime` | | runtime icon and version |
 | `$model` | | selected Footer model label |
 | `$provider` | | formatted provider label |
+| `$thinkingLevel` | | current thinking level; empty when unavailable or `off` |
 | `$package` | | project package version as `is <glyph> <version>` |
 | `$package_version` | | raw project package version |
 | `$session_duration` | `$duration` | session running time |
@@ -86,7 +108,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$subscription` | | `(sub)` in subscription mode; otherwise empty |
 | `$auto_compaction` | | `(auto)` when automatic compaction is enabled |
 | `$sep` | `$separator` | themed `|` using `colors.separator` |
-| `$fill` | — | wide-format layout boundary |
+| `$fill` | — | wide or compact layout boundary |
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
 
@@ -138,6 +160,8 @@ These tokens are structural in compact mode: `$wrap` and `$wrap_sep` render no t
 
 ## `$fill` behavior
 
+In the wide template:
+
 | Count | Layout |
 | ---: | --- |
 | 0 | everything left-aligned |
@@ -145,7 +169,11 @@ These tokens are structural in compact mode: `$wrap` and `$wrap_sep` render no t
 | 2 | before first is left, between is truly centered, after second is right |
 | 3+ | first two count; extras are ignored |
 
-The centered middle zone uses `floor((gap - middle) / 2)`, matching third-party statuses placed in the middle.
+The centered middle zone uses `floor((gap - middle) / 2)`, matching third-party statuses placed in the middle. During responsive two-row reflow, custom templates with a top-level `$fill` keep the right-bearing row right-aligned; a middle zone sharing that row retains its order, not centering.
+
+In `compactFormat`, the first top-level `$fill` splits left/right zones and flushes the current chunk. Additional fills are ignored (no compact center zone). Nested fills are nonstructural in both templates. Compact fills were previously ignored; existing templates containing them now opt into alignment. Templates without fill and shipped defaults are unchanged.
+
+Compact packing reserves right-hand chunks first, in template order, within `compactMaxLines`, then fits left-hand chunks into the remaining row budgets. Nonempty zones have at least one space between them. `$wrap_sep` separators appear only between chunks on the same row. Right content ends at the inner right edge (one cell inside the terminal margin); an empty right zone retains ordinary left packing. Long chunks truncate and capped omissions use `…`; arbitrarily narrow layouts cannot retain every value.
 
 ## Conditional groups
 
@@ -163,7 +191,7 @@ If every variable inside a group is empty, the group and its literal text are dr
 - `$session_name` is independent of `components.footer.styles.starship.segments.sessionName` in custom formats.
 - Built-in wide layout appends cache totals to Tokens, `(sub)` to Cost, and `(auto)` to Context when available.
 - Custom formats keep `$tokens`, `$cost`, and `$context` backward-compatible. Add `$cache_read`, `$cache_write`, `$subscription`, and `$auto_compaction` explicitly for atomic telemetry.
-- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider and atomic telemetry. Add variables to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key remains migration-only input.
+- `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider, thinking level, and atomic telemetry. Add variables to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key remains migration-only input.
 - Auto-compaction settings refresh at the next normal Footer synchronization. Unsupported Pi capabilities or read errors omit optional markers.
 - Unknown variables render empty.
 - `$fill`, `$wrap`, and `$wrap_sep` are structural and never render visible text.

@@ -993,6 +993,7 @@ export default function (pi: ExtensionAPI) {
 				setExtensionStatusesGetter(fn) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
+				getThinkingLevel,
 				getLiveContext: () => liveContext.get(),
 				getCodexQuota: () => codexQuota.get(),
 				getRepositoryRoot: (cwd) => repositoryRoots.rootForCwd(cwd),

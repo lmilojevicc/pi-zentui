@@ -192,6 +192,9 @@ describe.each(["theme", "terminal"] as const)("quota with %s colors", (colorSour
 							"$codex_quota",
 							"$cwd $codex_quota$wrap$tokens",
 							"$cwd$wrap_sep($codex_quota)$wrap$tokens",
+							"$cwd$fill$model$wrap_sep($codex_quota)$wrap_sep$tokens",
+							"$cwd( $codex_quota)$fill$model$wrap_sep$tokens",
+							"$fill$codex_quota$wrap_sep$codex_quota$wrap$tokens",
 						]) {
 							starship.compactFormat = compact;
 							for (let width = 1; width <= 100; width++)
