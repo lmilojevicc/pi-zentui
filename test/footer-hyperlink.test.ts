@@ -169,6 +169,28 @@ for (const host of ["installed", "legacy"] as const) {
 			},
 		);
 
+		it.each(["$extensions$fill RIGHT", "LEFT$fill$extensions$wrap_sep SUFFIX"])(
+			"closes compact zone links before padding and neighboring text: %s",
+			(compactFormat) => {
+				const config = structuredClone(defaultConfig);
+				const style = config.components.footer.styles.starship;
+				style.format = "force compact ".repeat(30);
+				style.responsive = true;
+				style.compactFormat = compactFormat;
+				style.extensionStatuses.colorModes.pr = "original";
+				for (const width of [5, 20, 40, 80]) {
+					const lines = renderFooter(config, new Map([["pr", link(longLabel)]]), width);
+					for (const line of lines) {
+						expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+						const state = linkState(`${line}NEIGHBOR`);
+						expect(state.active).toBe(false);
+						expect(state.linked).toMatch(/^[a-z…]*$/);
+						expect(state.plain).toContain("NEIGHBOR");
+					}
+				}
+			},
+		);
+
 		it("closes links when compact omission truncates a previously joined row", () => {
 			const rows = packCompactChunks(
 				[

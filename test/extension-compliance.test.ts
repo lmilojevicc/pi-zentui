@@ -4175,8 +4175,8 @@ describe("Pi docs compliance", () => {
 		const at122 = footer?.render(122) ?? [];
 		const at47 = footer?.render(47) ?? [];
 		expect(at145).toEqual([` ${left}  ${middle}   ${right} `]);
-		expect(at139).toEqual([` ${left} `, ` ${middle} ${right} `]);
-		expect(at122).toEqual([` ${left} `, ` ${middle} ${right} `]);
+		expect(at139).toEqual([` ${left} `, ` ${" ".repeat(68)}${middle} ${right} `]);
+		expect(at122).toEqual([` ${left} `, ` ${" ".repeat(51)}${middle} ${right} `]);
 		expect(at47.length).toBeLessThanOrEqual(2);
 		expect(at47.join("\n")).toContain("project");
 		expect(at47.join("\n")).toContain("responsive");

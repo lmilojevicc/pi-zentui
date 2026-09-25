@@ -13,17 +13,20 @@ import {
 	sanitizeExtensionStatusText,
 } from "./extension-status";
 import {
+	type CompactFormatChunk,
 	collectFooterFormatReferences,
-	compileCompactFormat,
+	compileCompactFormatSplit,
 	parseFooterFormat,
 	renderFormatSplit,
 	renderFormatTokens,
 	stripOrphanSeparators,
 } from "./footer-format";
 import {
+	type CompactLayoutChunk,
 	compactChunkBudget,
 	fullFooterFitsAligned,
 	packCompactChunks,
+	packCompactZones,
 	reflowFullFooter,
 } from "./footer-layout";
 import { truncateFooterText } from "./footer-text";
@@ -867,7 +870,11 @@ export function installFooter(
 					return frameRows([renderLegacyContent()]);
 				}
 
-				const reflowed = reflowFullFooter(fullZones, innerWidth);
+				const reflowed = reflowFullFooter(
+					fullZones,
+					innerWidth,
+					wideFormatTokens.some((token) => token.kind === "fill"),
+				);
 				if (reflowed) return frameRows(reflowed);
 
 				const chunkBudget = compactChunkBudget(innerWidth);
@@ -899,45 +906,56 @@ export function installFooter(
 							return renderVariable(name);
 					}
 				};
-				const compactChunks: Array<{
-					text: string;
-					boundary: "space" | "separator";
-				}> = [];
-				for (const chunk of compileCompactFormat(compactFormatTokens)) {
-					if (chunk.kind === "extensions") {
-						const statuses = [
-							...extensionLeftSegments,
-							...extensionMiddleSegments,
-							...extensionRightSegments,
-						];
-						for (const [index, text] of statuses.entries()) {
-							compactChunks.push({
-								text,
-								boundary: index === 0 ? chunk.boundary : "space",
-							});
+				const renderCompactChunks = (chunks: CompactFormatChunk[]): CompactLayoutChunk[] => {
+					const compactChunks: CompactLayoutChunk[] = [];
+					for (const chunk of chunks) {
+						if (chunk.kind === "extensions") {
+							const statuses = [
+								...extensionLeftSegments,
+								...extensionMiddleSegments,
+								...extensionRightSegments,
+							];
+							for (const [index, text] of statuses.entries()) {
+								compactChunks.push({
+									text,
+									boundary: index === 0 ? chunk.boundary : "space",
+								});
+							}
+							continue;
 						}
-						continue;
+						let rendered = stripOrphanSeparators(
+							renderFormatTokens(chunk.tokens, renderCompactVariable),
+						);
+						const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
+						if (
+							(!quotaLabel || !references.has("codex_quota")) &&
+							["cwd", "session_name", "git_branch"].some((name) => references.has(name))
+						) {
+							rendered = truncateFooterText(rendered, chunkBudget, "…");
+						}
+						if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
 					}
-					let rendered = stripOrphanSeparators(
-						renderFormatTokens(chunk.tokens, renderCompactVariable),
-					);
-					const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
-					if (
-						(!quotaLabel || !references.has("codex_quota")) &&
-						["cwd", "session_name", "git_branch"].some((name) => references.has(name))
-					) {
-						rendered = truncateFooterText(rendered, chunkBudget, "…");
-					}
-					if (rendered) compactChunks.push({ text: rendered, boundary: chunk.boundary });
-				}
+					return compactChunks;
+				};
+				const compact = compileCompactFormatSplit(compactFormatTokens);
+				const compactLeft = renderCompactChunks(compact.left);
+				const compactRight = renderCompactChunks(compact.right);
 				return frameRows(
-					packCompactChunks(
-						compactChunks,
-						innerWidth,
-						config.components.footer.styles.starship.compactMaxLines,
-						renderVariable("sep"),
-					),
-					compactChunks.map((chunk) => chunk.text),
+					compact.alignRight
+						? packCompactZones(
+								compactLeft,
+								compactRight,
+								innerWidth,
+								config.components.footer.styles.starship.compactMaxLines,
+								renderVariable("sep"),
+							)
+						: packCompactChunks(
+								compactLeft,
+								innerWidth,
+								config.components.footer.styles.starship.compactMaxLines,
+								renderVariable("sep"),
+							),
+					[...compactLeft, ...compactRight].map((chunk) => chunk.text),
 				);
 			},
 		};
