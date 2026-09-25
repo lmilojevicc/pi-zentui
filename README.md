@@ -1,6 +1,6 @@
 <h1 align="center">Zentui</h1>
 
-<p align="center">A Starship-inspired statusline and Opencode-style TUI for <a href="https://pi.dev">Pi</a>.</p>
+<p align="center">A modular terminal UI for <a href="https://pi.dev">Pi</a>.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pi-zentui"><img alt="npm version" src="https://shieldcn.dev/npm/pi-zentui.svg?variant=outline" /></a>
@@ -14,7 +14,7 @@
 
 ## What is this?
 
-Zentui gives Pi surfaces independently selectable treatments:
+Zentui lets you shape Pi’s interface one component at a time. Customize your editor, messages, progress display, and footer independently—use the pieces you want and leave the rest native.
 
 - **Editor** — Opencode, Opencode copy-friendly, Accent Rail, and Minimalist input treatments
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages

@@ -1,6 +1,6 @@
 ## What this app is
 
-Zentui is a Pi extension package that gives Pi a Starship-inspired footer and an Opencode-style input UI.
+Zentui is a Pi extension package with independently configurable terminal UI components.
 
 It shows useful session/project state at a glance:
 
