@@ -17,6 +17,15 @@ vi.mock("../extensions/zentui/config", async (original) => {
 			actual.saveExtensionStatusDefaultVisibility(value, disk.path),
 		saveExtensionStatusVisibility: (key: string, value: "show" | "hide" | undefined) =>
 			actual.saveExtensionStatusVisibility(key, value, disk.path),
+		saveHiddenExtensionStatusDefaultPlacement: (value: "left" | "middle" | "right") =>
+			actual.saveHiddenExtensionStatusDefaultPlacement(value, disk.path),
+		saveHiddenExtensionStatusPlacement: (
+			key: string,
+			value: "left" | "middle" | "right" | undefined,
+		) => actual.saveHiddenExtensionStatusPlacement(key, value, disk.path),
+		saveExtensionStatusDefaultPlacement: (
+			value: Parameters<typeof actual.saveExtensionStatusDefaultPlacement>[0],
+		) => actual.saveExtensionStatusDefaultPlacement(value, disk.path),
 		saveFooterComponentPatch: (patch: Parameters<typeof actual.saveFooterComponentPatch>[0]) =>
 			actual.saveFooterComponentPatch(patch, disk.path),
 	};
@@ -269,6 +278,59 @@ describe("independent extension status lifecycle", () => {
 			expect(h.setter).not.toHaveBeenCalled();
 		},
 	);
+
+	it("places Hidden statuses through settings, preserving visibility/latest/delete and per-mode preferences", async () => {
+		const h = setup("hidden");
+		await h.emit("session_start");
+		try {
+			for (const key of ["l", "m", "r"]) h.ctx.ui.setStatus(key, key.toUpperCase());
+			await h.open("extensions");
+			expect(h.rows()).toContain("Hidden default placement");
+			expect(h.rows()).not.toContain("Starship placement");
+			expect(h.rows()).not.toContain("Starship color");
+			h.change("Hidden default placement"); // Left -> Middle
+			h.change("l Hidden placement"); // Default -> Left
+			for (let i = 0; i < 3; i++) h.change("r Hidden placement"); // Default -> Right
+			expect(h.footer()?.render(21)).toEqual(["L         M         R"]);
+			expect(raw().components.footer).toEqual(h.config.components.footer);
+			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
+			h.change("Default visibility");
+			expect(h.footer()?.render(21)).toEqual([]);
+			h.ctx.ui.setStatus("r", "RR");
+			h.change("r visibility"); // Default -> Show
+			expect(h.footer()?.render(21)).toEqual(["                   RR"]);
+			h.ctx.ui.setStatus("r", undefined);
+			expect(h.footer()?.render(21)).toEqual([]);
+			h.change("Default visibility");
+			expect(h.footer()?.render(21)).toEqual(["L         M"]);
+			h.ctx.ui.setStatus("r", "R");
+			h.change("r Hidden placement"); // Right -> Default
+			expect(raw().components.extensionStatuses.hidden.placements).toEqual({ l: "left" });
+			expect(h.footer()?.render(21)).toEqual(["L        M R"]);
+			const hidden = raw().components.extensionStatuses.hidden;
+			await h.open("footer");
+			h.change("Footer style"); // Hidden -> Native
+			await h.open("extensions");
+			expect(h.rows()).toContain("Starship default placement");
+			expect(h.rows()).not.toContain("Hidden default placement");
+			await h.open("footer");
+			h.change("Footer style"); // Native -> Starship
+			await h.open("extensions");
+			h.change("Starship default placement"); // Right -> Off, never global Hide
+			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
+			expect(h.provider.get("r")).toBe("R");
+			await h.open("footer");
+			h.change("Footer style"); // Starship -> Hidden
+			expect(h.footer()?.render(21)).toEqual(["L        M R"]);
+			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(4);
+			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
+			expect(raw().components.footer.styles.starship.extensionStatuses.colorModes).toEqual(
+				h.config.components.footer.styles.starship.extensionStatuses.colorModes,
+			);
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
 
 	it("does not let a stale settings panel change the replacement session", async () => {
 		const h = setup("native");

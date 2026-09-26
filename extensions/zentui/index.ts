@@ -48,6 +48,8 @@ import {
 	saveExtensionStatusPlacement,
 	saveExtensionStatusVisibility,
 	saveFooterComponentPatch,
+	saveHiddenExtensionStatusDefaultPlacement,
+	saveHiddenExtensionStatusPlacement,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
 	savePolishedCopyFriendlyEditorStylePatch,
@@ -1476,6 +1478,12 @@ export default function (pi: ExtensionAPI) {
 		setExtensionStatusVisibility(key, visibility) {
 			currentConfig = saveExtensionStatusVisibility(key, visibility);
 			extensionStatuses.reconcile();
+		},
+		setHiddenExtensionStatusDefaultPlacement(placement) {
+			currentConfig = saveHiddenExtensionStatusDefaultPlacement(placement);
+		},
+		setHiddenExtensionStatusPlacement(key, placement) {
+			currentConfig = saveHiddenExtensionStatusPlacement(key, placement);
 		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			currentConfig = saveExtensionStatusDefaultPlacement(placement);

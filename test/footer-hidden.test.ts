@@ -86,7 +86,10 @@ describe("Hidden footer status-only presentation", () => {
 			.trim();
 		for (const width of [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 18, 80]) {
 			const rows = h.component.render(width);
-			expect(rows).toEqual([truncateToWidth(nativeText, width, h.theme.fg("dim", "..."))]);
+			expect(rows).toHaveLength(1);
+			expect(rows[0].replace(/\x1b\[0m$/, "")).toBe(
+				truncateToWidth(nativeText, width, h.theme.fg("dim", "...")).replace(/\x1b\[0m$/, ""),
+			);
 			expect(visibleWidth(rows[0])).toBeLessThanOrEqual(width);
 			expect(rows[0]).not.toMatch(/[\r\n\t]/);
 		}
@@ -133,5 +136,134 @@ describe("Hidden footer status-only presentation", () => {
 		expect(h.hooks.setExtensionStatusesGetter).toHaveBeenLastCalledWith(undefined);
 		expect(h.hooks.onDispose).toHaveBeenCalledTimes(1);
 		expect(h.setFooter).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("Hidden extension status placement", () => {
+	it.each([
+		["left"],
+		["middle"],
+		["right"],
+		["left", "middle"],
+		["left", "right"],
+		["middle", "right"],
+		["left", "middle", "right"],
+	])("anchors short content for zones %j", (...active) => {
+		const h = setup({
+			components: {
+				extensionStatuses: {
+					hidden: {
+						placements: { left: "left", middle: "middle", right: "right" },
+					},
+				},
+			},
+		});
+		const labels = { left: "L", middle: "M", right: "R" };
+		const positions = { left: 0, middle: 10, right: 20 };
+		for (const key of active as (keyof typeof labels)[]) h.statuses.set(key, labels[key]);
+		const row = h.component.render(21)[0];
+		const expected = Array.from({ length: 21 }, () => " ");
+		for (const key of active as (keyof typeof labels)[]) expected[positions[key]] = labels[key];
+		expect(row).toBe(expected.join("").trimEnd());
+		h.component.dispose?.();
+	});
+
+	it("centers then clamps middle beside long edge content and fairly caps collisions", () => {
+		const h = setup({
+			components: {
+				extensionStatuses: {
+					hidden: {
+						placements: { l: "left", m: "middle", r: "right" },
+					},
+				},
+			},
+		});
+		h.statuses.set("l", "LONGLEFT");
+		h.statuses.set("m", "MID");
+		h.statuses.set("r", "R");
+		expect(h.component.render(15)).toEqual(["LONGLEFT MID  R"]);
+		h.statuses.set("l", "L");
+		h.statuses.set("r", "LONGRIGHT");
+		expect(h.component.render(15)).toEqual(["L MID LONGRIGHT"]);
+		h.statuses.set("l", "LONGLEFT");
+		h.statuses.set("r", "RIGHT");
+		expect(stripVTControlCharacters(h.component.render(11)[0])).toBe("... MID ...");
+		h.statuses.delete("m");
+		h.statuses.set("r", "R");
+		expect(h.component.render(12)).toEqual(["LONGLEFT   R"]);
+		h.component.dispose?.();
+	});
+
+	it("uses deterministic L/M/R fallback only when cells and gaps cannot fit", () => {
+		const h = setup({
+			components: {
+				extensionStatuses: {
+					hidden: {
+						placements: { l: "left", m: "middle", r: "right" },
+					},
+				},
+			},
+		});
+		for (const key of ["l", "m", "r"]) h.statuses.set(key, key.toUpperCase());
+		for (const [width, expected] of [
+			[1, "L"],
+			[2, "L"],
+			[3, "L M"],
+			[4, "L M"],
+			[5, "L M R"],
+		] as const) {
+			expect(h.component.render(width)).toEqual([expected]);
+		}
+		for (const width of [0, -1]) expect(h.component.render(width)).toEqual([]);
+		h.component.dispose?.();
+	});
+
+	it("preserves supplied colors and resets backgrounds/links before every padding and status boundary", () => {
+		const h = setup({
+			components: {
+				extensionStatuses: {
+					hidden: {
+						placements: { l: "left", m: "middle", r: "right" },
+					},
+				},
+			},
+		});
+		h.statuses.set("l", "\x1b[42mL");
+		h.statuses.set("m", "\x1b[36mM");
+		h.statuses.set("r", "\x1b[33m\x1b]8;;https://example.com\x07R");
+		expect(h.component.render(9)).toEqual([
+			"\x1b[42mL\x1b[0m   \x1b[36mM\x1b[0m   \x1b[33m\x1b]8;;https://example.com/\x07R\x1b]8;;\x07\x1b[0m",
+		]);
+		h.statuses.set("l2", "PLAIN");
+		expect(h.component.render(30)[0]).toContain("\x1b[42mL\x1b[0m PLAIN");
+		h.component.dispose?.();
+	});
+
+	it("bounds ANSI/Unicode zones at every width and retains key order within each zone", () => {
+		const h = setup({
+			components: {
+				extensionStatuses: {
+					hidden: {
+						defaultPlacement: "middle",
+						placements: { l: "left", r: "right" },
+					},
+				},
+			},
+		});
+		h.statuses.set("z", "LAST");
+		h.statuses.set("a", "FIRST");
+		expect(h.component.render(20)).toEqual(["     FIRST LAST"]);
+		h.statuses.set("l", "\x1b[41m界界界");
+		h.statuses.set("r", "\x1b[33m👩‍💻 e\u0301 󰀵");
+		for (let width = 1; width <= 60; width++) {
+			const rows = h.component.render(width);
+			expect(rows).toHaveLength(1);
+			expect(visibleWidth(rows[0])).toBeLessThanOrEqual(width);
+			expect(rows[0]).not.toMatch(/[\r\n\t]/);
+			expect(rows[0]).not.toContain("�");
+		}
+		h.config.components.extensionStatuses.defaultVisibility = "hide";
+		expect(h.component.render(30)).toEqual([]);
+		h.component.dispose?.();
 	});
 });

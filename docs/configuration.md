@@ -45,11 +45,11 @@ The interactive `/zentui` menu is split into seven component-oriented sections. 
 6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
-7. **Extension statuses** — independent Show/Hide controls for observed and saved keyed statuses; Starship placement and color preferences remain scoped to Starship.
+7. **Extension statuses** — independent Show/Hide controls for observed and saved keyed statuses, with separate Hidden or Starship placement preferences.
 
 The two Footer child entries appear only with Starship selected. Child headings show their scope (for example, **Footer > Git**). The configured cancel key returns to Footer focused on the originating child entry; at the top level it still closes settings. `Tab` / `Shift+Tab` remain available on child pages to move to the next / previous top-level section relative to Footer. Visiting or backing out of a page does not save settings or change component ownership.
 
-Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer’s Starship-specific rows are shown only while Starship is selected; Extension statuses retains labeled Starship preferences for preconfiguration. Footer Color overrides remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Native and Hidden hide the two child entries without changing their saved preferences. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
+Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer’s Starship-specific rows are shown only while Starship is selected; Extension statuses shows placement for the current Footer style; Native retains labeled dormant Starship preferences for preconfiguration. Footer Color overrides remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Native and Hidden hide the two child entries without changing their saved preferences. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
 
 Free-form values such as custom formats, Opencode metadata formats, and previously unseen, unsaved extension keys remain JSON-only. Component raw colors are editable through each component’s **Color overrides** action, with explicit **Reset / inherit**. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
@@ -134,9 +134,26 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 }
 ```
 
-Hide suppresses observed publications through Pi's public `setStatus` method. Show passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors and Pi's key ordering, with safe single-line text and width truncation. Default/per-key Hide removes them; no remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. **Starship default placement**, **Starship placement**, and **Starship color** preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Historical Starship `off` settings never become global Hide.
+Hide suppresses observed publications through Pi's public `setStatus` method. Show passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors and Pi's key ordering within each placement, with safe single-line text and width truncation. Default/per-key Hide removes them; no remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. **Starship default placement**, **Starship placement**, and **Starship color** preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Historical Starship `off` settings never become global Hide.
 
-Discovery is best-effort and session-scoped: observed raw keys and saved visibility/Starship keys remain editable, with already-owned Starship or Hidden Footer data supplementing discovery only, never suppression/replay provenance. Hidden also applies visibility to those provider statuses when rendering; it does not republish them. Zentui never installs a Footer just to discover statuses. **No observed statuses** does not mean no extensions are running. Publications before observation, cached setters, separate UI contexts, and nondelegating successor extensions may bypass these controls. Unsupported/frozen setter shapes fail open. Cleanup restores only safely owned suppression and does not overwrite a successor setter or replay uncertain stale values. This controls keyed status visibility, not extension enablement or Working-line integrations.
+With Hidden selected, **Hidden default placement** defaults to Left. Each **Hidden placement** offers Default, Left, Middle, or Right; Default deletes only that key's override. These sparse preferences live in `components.extensionStatuses.hidden`, independently of Starship and visibility:
+
+```json
+{
+  "components": {
+    "extensionStatuses": {
+      "hidden": {
+        "defaultPlacement": "left",
+        "placements": { "github-pr": "right", "sync": "middle" }
+      }
+    }
+  }
+}
+```
+
+Left and Right anchor to the edges; Middle is terminal-centered, then clamped between them. Crowded zones share space fairly and truncate safely with at least one separating cell. At widths too narrow for all zones, Left, Middle, then Right take priority. Incoming styles and safe links are preserved; resets prevent colors/backgrounds/links from leaking into padding or another status. No placement changes visibility or Footer style. Hidden never inherits Starship's `off`, placement, or colors. Switching Footer style retains both sets of preferences; Native keeps native positioning.
+
+Discovery is best-effort and session-scoped: observed raw keys and saved visibility/Hidden/Starship keys remain editable, with already-owned Starship or Hidden Footer data supplementing discovery only, never suppression/replay provenance. Hidden also applies visibility to those provider statuses when rendering; it does not republish them. Zentui never installs a Footer just to discover statuses. **No observed statuses** does not mean no extensions are running. Publications before observation, cached setters, separate UI contexts, and nondelegating successor extensions may bypass these controls. Unsupported/frozen setter shapes fail open. Cleanup restores only safely owned suppression and does not overwrite a successor setter or replay uncertain stale values. This controls keyed status visibility, not extension enablement or Working-line integrations.
 
 ### Extension-status hyperlinks
 
@@ -395,7 +412,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
-- `components.extensionStatuses` independently controls Show/Hide for observed `ctx.ui.setStatus()` publications. Starship alone owns their placement and color modes.
+- `components.extensionStatuses` independently controls Show/Hide for observed `ctx.ui.setStatus()` publications. It also owns Hidden-only placement under `hidden`; Starship retains its own placement and color modes.
 - The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
 
 ### Codex account quota

@@ -4,7 +4,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
-import type { ExtensionStatusVisibilityConfig, SeparatorStyle, ZentuiConfig } from "./config";
+import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
@@ -965,7 +965,7 @@ export function installFooter(
 
 export function installHiddenFooter(
 	ctx: ExtensionContext,
-	getPolicy: () => ExtensionStatusVisibilityConfig,
+	getPolicy: () => ExtensionStatusComponentConfig,
 	hooks: {
 		setRequestRender: (fn: (() => void) | undefined) => void;
 		setExtensionStatusesGetter: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;

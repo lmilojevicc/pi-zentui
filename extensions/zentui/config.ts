@@ -278,8 +278,16 @@ export type ExtensionStatusVisibilityConfig = {
 	visibility: Record<string, ExtensionStatusVisibility>;
 };
 
+export type HiddenExtensionStatusPlacement = "left" | "middle" | "right";
+export type ExtensionStatusComponentConfig = ExtensionStatusVisibilityConfig & {
+	hidden?: {
+		defaultPlacement?: HiddenExtensionStatusPlacement;
+		placements?: Record<string, HiddenExtensionStatusPlacement>;
+	};
+};
+
 export type ComponentsConfig = {
-	extensionStatuses: ExtensionStatusVisibilityConfig;
+	extensionStatuses: ExtensionStatusComponentConfig;
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
 	thinkingSteps: ThinkingStepsComponentConfig;
@@ -1217,9 +1225,47 @@ function resolveWorkingLineMessages(messages: ConfigRecord): WorkingLineMessages
 	return { custom, values: hasOwn(messages, "values") ? legacyValues : preset() };
 }
 
-function resolveExtensionStatusVisibility(raw: unknown): ExtensionStatusVisibilityConfig {
+export function isHiddenExtensionStatusPlacement(
+	value: unknown,
+): value is HiddenExtensionStatusPlacement {
+	return value === "left" || value === "middle" || value === "right";
+}
+
+export function getHiddenExtensionStatusPlacement(
+	config: ExtensionStatusComponentConfig,
+	key: string,
+): HiddenExtensionStatusPlacement {
+	const placements = config.hidden?.placements;
+	return (
+		(placements && Object.hasOwn(placements, key) ? placements[key] : undefined) ??
+		config.hidden?.defaultPlacement ??
+		"left"
+	);
+}
+
+function resolveExtensionStatusComponent(raw: unknown): ExtensionStatusComponentConfig {
 	const owner = recordValue(raw);
+	const hidden = recordValue(owner.hidden);
 	return {
+		...(isRecord(owner.hidden)
+			? {
+					hidden: {
+						...(isHiddenExtensionStatusPlacement(hidden.defaultPlacement)
+							? { defaultPlacement: hidden.defaultPlacement }
+							: {}),
+						...(isRecord(hidden.placements)
+							? {
+									placements: Object.fromEntries(
+										Object.entries(hidden.placements).filter(
+											(entry): entry is [string, HiddenExtensionStatusPlacement] =>
+												isHiddenExtensionStatusPlacement(entry[1]),
+										),
+									),
+								}
+							: {}),
+					},
+				}
+			: {}),
 		defaultVisibility: owner.defaultVisibility === "hide" ? "hide" : "show",
 		visibility: Object.fromEntries(
 			Object.entries(recordValue(owner.visibility)).filter(
@@ -1276,7 +1322,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
-		extensionStatuses: resolveExtensionStatusVisibility(components.extensionStatuses),
+		extensionStatuses: resolveExtensionStatusComponent(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
 			...(isRecord(editor.colors)
@@ -2297,6 +2343,35 @@ export function saveExtensionStatusColorMode(
 		},
 		path,
 	);
+}
+
+/** Hidden placement edits remain sparse and never snapshot another owner's preferences. */
+export function saveHiddenExtensionStatusDefaultPlacement(
+	placement: HiddenExtensionStatusPlacement,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { hidden: { defaultPlacement: placement } },
+		});
+	});
+}
+
+export function saveHiddenExtensionStatusPlacement(
+	key: string,
+	placement: HiddenExtensionStatusPlacement | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		if (placement === undefined) {
+			const owner = recordValue(recordValue(record.components).extensionStatuses);
+			delete recordValue(recordValue(owner.hidden).placements)[key];
+		} else {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { placements: { [key]: placement } } },
+			});
+		}
+	});
 }
 
 export function saveExtensionStatusDefaultVisibility(

@@ -37,9 +37,11 @@ import {
 	type GitMetricsConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	type HiddenExtensionStatusPlacement,
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
+	isHiddenExtensionStatusPlacement,
 	isSeparatorStyle,
 	isValidWorkingLineIntervalMs,
 	MAX_WORKING_LINE_INTERVAL_MS,
@@ -94,6 +96,11 @@ const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
 	"middle",
 	"right",
 ];
+const hiddenExtensionStatusPlacementLabels: Record<HiddenExtensionStatusPlacement, string> = {
+	left: "Left",
+	middle: "Middle",
+	right: "Right",
+};
 const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
@@ -301,6 +308,11 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 		key: string,
 		visibility: ExtensionStatusVisibility | undefined,
 	) => void;
+	setHiddenExtensionStatusDefaultPlacement: (placement: HiddenExtensionStatusPlacement) => void;
+	setHiddenExtensionStatusPlacement: (
+		key: string,
+		placement: HiddenExtensionStatusPlacement | undefined,
+	) => void;
 	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -405,7 +417,7 @@ const directCommandSuggestions = [
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
 const footerSegmentSettingPrefix = "footerSegment:";
-type ThirdPartyStatusSettingKind = "placement" | "colorMode" | "visibility";
+type ThirdPartyStatusSettingKind = "placement" | "hiddenPlacement" | "colorMode" | "visibility";
 
 function featureValue(enabled: boolean): FeatureState {
 	return enabled ? "enabled" : "disabled";
@@ -1094,7 +1106,10 @@ function thirdPartyStatusSettingFromId(
 ): { kind: ThirdPartyStatusSettingKind; key: string } | undefined {
 	if (!id.startsWith(thirdPartyStatusSettingPrefix)) return undefined;
 	const [kind, ...key] = id.slice(thirdPartyStatusSettingPrefix.length).split(":");
-	return kind === "placement" || kind === "colorMode" || kind === "visibility"
+	return kind === "placement" ||
+		kind === "hiddenPlacement" ||
+		kind === "colorMode" ||
+		kind === "visibility"
 		? { kind, key: key.join(":") }
 		: undefined;
 }
@@ -1104,10 +1119,13 @@ function buildExtensionsItems(
 ): SettingItem[] {
 	const local = config.components.footer.styles.starship.extensionStatuses;
 	const visibility = config.components.extensionStatuses;
+	const hidden = config.components.footer.style === "hidden";
+	const hiddenPlacement = visibility.hidden;
 	const keys = [
 		...new Set([
 			...active.keys(),
 			...Object.keys(visibility.visibility),
+			...Object.keys(hiddenPlacement?.placements ?? {}),
 			...Object.keys(local.placements),
 			...Object.keys(local.colorModes),
 		]),
@@ -1120,13 +1138,21 @@ function buildExtensionsItems(
 			currentValue: visibility.defaultVisibility === "hide" ? "Hide" : "Show",
 			values: ["Show", "Hide"],
 		},
-		{
-			id: "extensionStatusDefaultPlacement",
-			label: "Starship default placement",
-			description: "Placement/color apply to Starship.",
-			currentValue: local.defaultPlacement,
-			values: extensionStatusPlacementValues,
-		},
+		hidden
+			? {
+					id: "hiddenExtensionStatusDefaultPlacement",
+					label: "Hidden default placement",
+					currentValue:
+						hiddenExtensionStatusPlacementLabels[hiddenPlacement?.defaultPlacement ?? "left"],
+					values: ["Left", "Middle", "Right"],
+				}
+			: {
+					id: "extensionStatusDefaultPlacement",
+					label: "Starship default placement",
+					description: "Placement/color apply to Starship.",
+					currentValue: local.defaultPlacement,
+					values: extensionStatusPlacementValues,
+				},
 		...(!keys.length
 			? [
 					{
@@ -1150,20 +1176,37 @@ function buildExtensionsItems(
 					currentValue: override === "show" ? "Show" : override === "hide" ? "Hide" : "Default",
 					values: ["Default", "Show", "Hide"],
 				},
-				{
-					id: thirdPartyStatusSettingId(key, "placement"),
-					label: `${key} Starship placement`,
-					description,
-					currentValue: getExtensionStatusPlacement(config, key),
-					values: extensionStatusPlacementValues,
-				},
-				{
-					id: thirdPartyStatusSettingId(key, "colorMode"),
-					label: `${key} Starship color`,
-					description,
-					currentValue: getExtensionStatusColorMode(config, key),
-					values: extensionStatusColorModeValues,
-				},
+				...(hidden
+					? [
+							{
+								id: thirdPartyStatusSettingId(key, "hiddenPlacement"),
+								label: `${key} Hidden placement`,
+								description,
+								currentValue:
+									hiddenPlacement?.placements && Object.hasOwn(hiddenPlacement.placements, key)
+										? hiddenExtensionStatusPlacementLabels[
+												hiddenPlacement.placements[key] ?? "left"
+											]
+										: "Default",
+								values: ["Default", "Left", "Middle", "Right"],
+							},
+						]
+					: [
+							{
+								id: thirdPartyStatusSettingId(key, "placement"),
+								label: `${key} Starship placement`,
+								description,
+								currentValue: getExtensionStatusPlacement(config, key),
+								values: extensionStatusPlacementValues,
+							},
+							{
+								id: thirdPartyStatusSettingId(key, "colorMode"),
+								label: `${key} Starship color`,
+								description,
+								currentValue: getExtensionStatusColorMode(config, key),
+								values: extensionStatusColorModeValues,
+							},
+						]),
 			];
 		}),
 	];
@@ -2067,6 +2110,16 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											return;
 										}
 
+										const hiddenPlacementValue = newValue.toLowerCase();
+										if (
+											id === "hiddenExtensionStatusDefaultPlacement" &&
+											isHiddenExtensionStatusPlacement(hiddenPlacementValue)
+										) {
+											deps.setHiddenExtensionStatusDefaultPlacement(hiddenPlacementValue);
+											settingsList = makeSettingsList(id);
+											notifyChange("Hidden default placement", newValue);
+											return;
+										}
 										if (
 											id === "extensionStatusDefaultPlacement" &&
 											isExtensionStatusPlacement(newValue)
@@ -2088,6 +2141,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											return;
 										}
 										const thirdParty = thirdPartyStatusSettingFromId(id);
+										if (
+											thirdParty?.kind === "hiddenPlacement" &&
+											(hiddenPlacementValue === "default" ||
+												isHiddenExtensionStatusPlacement(hiddenPlacementValue))
+										) {
+											deps.setHiddenExtensionStatusPlacement(
+												thirdParty.key,
+												hiddenPlacementValue === "default" ? undefined : hiddenPlacementValue,
+											);
+											settingsList = makeSettingsList(id);
+											notifyChange(`${thirdParty.key} Hidden placement`, newValue);
+											return;
+										}
 										if (
 											thirdParty?.kind === "visibility" &&
 											["Default", "Show", "Hide"].includes(newValue)

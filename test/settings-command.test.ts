@@ -249,6 +249,22 @@ function createHarness(
 					writable: true,
 				});
 		},
+		setHiddenExtensionStatusDefaultPlacement(placement: "left" | "middle" | "right") {
+			config.components.extensionStatuses.hidden ??= {};
+			const hidden = config.components.extensionStatuses.hidden;
+			hidden.defaultPlacement = placement;
+		},
+		setHiddenExtensionStatusPlacement(
+			key: string,
+			placement: "left" | "middle" | "right" | undefined,
+		) {
+			config.components.extensionStatuses.hidden ??= {};
+			const hidden = config.components.extensionStatuses.hidden;
+			hidden.placements ??= {};
+			const placements = hidden.placements;
+			if (placement === undefined) delete placements[key];
+			else placements[key] = placement;
+		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			calls.extensionDefaultPlacement.push(placement);
 			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
@@ -2707,19 +2723,33 @@ describe("independent Extension statuses settings", () => {
 			await h.command().handler("extensions", h.ctx);
 			const panel = h.component();
 			expect(panel.render(40)[1]).toContain("Extension statuses");
-			expectFocusOrder(panel, [
-				"Default visibility",
-				"Starship default placement",
-				"legacy visibility",
-				"legacy Starship placement",
-				"legacy Starship color",
-				"saved visibility",
-				"saved Starship placement",
-				"saved Starship color",
-				"z:third-party visibility",
-				"z:third-party Starship placement",
-				"z:third-party Starship color",
-			]);
+			expectFocusOrder(
+				panel,
+				style === "hidden"
+					? [
+							"Default visibility",
+							"Hidden default placement",
+							"legacy visibility",
+							"legacy Hidden placement",
+							"saved visibility",
+							"saved Hidden placement",
+							"z:third-party visibility",
+							"z:third-party Hidden placement",
+						]
+					: [
+							"Default visibility",
+							"Starship default placement",
+							"legacy visibility",
+							"legacy Starship placement",
+							"legacy Starship color",
+							"saved visibility",
+							"saved Starship placement",
+							"saved Starship color",
+							"z:third-party visibility",
+							"z:third-party Starship placement",
+							"z:third-party Starship color",
+						],
+			);
 			expect(panel.render(100).join("\n")).toContain(
 				"Show passes through; Footer controls rendering.",
 			);
@@ -2789,5 +2819,37 @@ describe("independent Extension statuses settings", () => {
 		expect(panel.render(40)[1]).toContain("Extension statuses");
 		panel.handleInput("q");
 		expect(closed).toBe(true);
+	});
+});
+
+describe("Hidden extension placement settings", () => {
+	it("shows only active Hidden placement controls and resets a saved unobserved key", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "hidden";
+		config.components.extensionStatuses.hidden = {
+			defaultPlacement: "right",
+			placements: { saved: "right" },
+		};
+		const beforeFooter = structuredClone(config.components.footer);
+		const h = createHarness(config);
+		await h.command().handler("extensions", h.ctx);
+		const panel = h.component();
+		expectFocusOrder(panel, [
+			"Default visibility",
+			"Hidden default placement",
+			"saved visibility",
+			"saved Hidden placement",
+		]);
+		selectLabel(panel, "saved Hidden placement");
+		expect(panel.render(160).join("\n")).not.toContain("Starship");
+		expect(row(panel, "saved Hidden placement")).toContain("Right");
+		panel.handleInput("\r");
+		expect(panel.render(160).join("\n")).not.toContain("saved Hidden placement");
+		expect(config.components.extensionStatuses.hidden.placements).toEqual({});
+		selectLabel(panel, "Hidden default placement");
+		panel.handleInput("\r");
+		expect(config.components.extensionStatuses.hidden.defaultPlacement).toBe("left");
+		expect(config.components.footer).toEqual(beforeFooter);
+		expect(config.components.extensionStatuses.visibility).toEqual({});
 	});
 });

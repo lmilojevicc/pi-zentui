@@ -142,6 +142,8 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	getActiveExtensionStatuses: () => new Map<string, string>(),
 	setExtensionStatusDefaultVisibility() {},
 	setExtensionStatusVisibility() {},
+	setHiddenExtensionStatusDefaultPlacement() {},
+	setHiddenExtensionStatusPlacement() {},
 	setExtensionStatusDefaultPlacement() {},
 	setExtensionStatusPlacement() {},
 	setExtensionStatusColorMode() {},
