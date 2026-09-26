@@ -93,8 +93,7 @@ import {
 } from "./working-line";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
-const extensionStatusPlacementValues = ["Off", "Left", "Middle", "Right"];
-const extensionStatusChoiceValues = ["Default", ...extensionStatusPlacementValues];
+const extensionStatusPlacementValues = ["Left", "Middle", "Right", "Off"];
 const extensionStatusColorModeValues = ["Original", "Zentui"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
@@ -1114,10 +1113,10 @@ function buildExtensionsItems(
 	const nativeNote =
 		"Native uses Pi's layout; positioning and color are saved for Starship, not applied to Native.";
 	const placementNote = hidden
-		? "Off hides statuses. Hidden places visible statuses; Default clears this key's override."
+		? "Off hides statuses. Hidden places visible statuses."
 		: config.components.footer.style === "native"
-			? `Off hides statuses. ${nativeNote} Default clears this key's override.`
-			: "Off hides statuses. Starship positions visible statuses; Default clears this key's override.";
+			? `Off hides statuses. ${nativeNote}`
+			: "Off hides statuses. Starship positions visible statuses.";
 	return [
 		{
 			id: "extensionStatusDefaultPlacement",
@@ -1141,7 +1140,7 @@ function buildExtensionsItems(
 					label: `${key} placement`,
 					description: `${placementNote}${sanitized ? ` Current status: ${sanitized}` : ""}`,
 					currentValue: extensionStatusChoiceLabels[extensionStatusChoice(config, key)],
-					values: extensionStatusChoiceValues,
+					values: extensionStatusPlacementValues,
 				},
 				{
 					id: thirdPartyStatusSettingId(key, "colorMode"),

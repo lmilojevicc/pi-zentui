@@ -1,7 +1,6 @@
-import type { ExtensionStatusChoice, ExtensionStatusPlacement, ZentuiConfig } from "./config";
+import type { ExtensionStatusPlacement, ZentuiConfig } from "./config";
 
-export const extensionStatusChoiceLabels: Record<ExtensionStatusChoice, string> = {
-	default: "Default",
+export const extensionStatusChoiceLabels: Record<ExtensionStatusPlacement, string> = {
 	off: "Off",
 	left: "Left",
 	middle: "Middle",
@@ -22,7 +21,7 @@ export function extensionStatusDefaultChoice(config: ZentuiConfig): ExtensionSta
 		: defaultPosition(config);
 }
 
-export function extensionStatusChoice(config: ZentuiConfig, key: string): ExtensionStatusChoice {
+export function extensionStatusChoice(config: ZentuiConfig, key: string): ExtensionStatusPlacement {
 	const policy = config.components.extensionStatuses;
 	const visibility = Object.hasOwn(policy.visibility, key) ? policy.visibility[key] : undefined;
 	if (visibility === "hide") return "off";
@@ -36,6 +35,6 @@ export function extensionStatusChoice(config: ZentuiConfig, key: string): Extens
 	if (mode === "starship" && position === "off") return "off";
 	if (visibility === "show") return position ?? defaultPosition(config);
 	// Legacy positions without a Show override still inherit a global Hide.
-	if (policy.defaultVisibility === "hide") return "default";
-	return position ?? "default";
+	if (policy.defaultVisibility === "hide") return "off";
+	return position ?? defaultPosition(config);
 }

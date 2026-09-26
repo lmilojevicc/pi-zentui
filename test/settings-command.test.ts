@@ -2673,14 +2673,15 @@ describe("nested Starship Footer settings navigation", () => {
 		panel.handleInput("\r");
 		selectLabel(panel, "zeta color");
 		panel.handleInput("\r");
-		expect(placement).toHaveBeenCalledExactlyOnceWith("alpha", "off");
+		expect(placement).toHaveBeenCalledExactlyOnceWith("alpha", "left");
 		expect(color).toHaveBeenCalledExactlyOnceWith("zeta", "original");
 		const expected = structuredClone(before);
 		expected.components.footer.styles.starship.segments.cwd = false;
 		expected.components.footer.styles.starship.segments.gitBranch = false;
 		expected.components.footer.styles.starship.extensionStatuses.defaultPlacement = "right";
 		expected.components.extensionStatuses.defaultVisibility = "hide";
-		expected.components.extensionStatuses.visibility.alpha = "hide";
+		expected.components.extensionStatuses.visibility.alpha = "show";
+		expected.components.footer.styles.starship.extensionStatuses.placements.alpha = "left";
 		expected.components.footer.styles.starship.extensionStatuses.colorModes.zeta = "original";
 		expect(h.config).toEqual(expected);
 		statuses.delete("alpha");
@@ -2714,6 +2715,79 @@ describe("nested Starship Footer settings navigation", () => {
 
 describe("independent Extension statuses settings", () => {
 	it.each(["native", "hidden", "starship"] as const)(
+		"displays inherited positions and Off without saving across %s mode boundaries",
+		async (style) => {
+			for (const defaultVisibility of ["show", "hide"] as const) {
+				const config = cloneConfig();
+				config.components.footer.style = style;
+				config.components.footer.styles.starship.extensionStatuses.defaultPlacement = "off";
+				config.components.footer.styles.starship.extensionStatuses.placements.legacy = "off";
+				config.components.extensionStatuses.defaultVisibility = defaultVisibility;
+				config.components.extensionStatuses.hidden = { defaultPlacement: "middle" };
+				const h = createHarness(config, {
+					getActiveExtensionStatuses: () => new Map([["key", "RAW"]]),
+				});
+				const before = structuredClone(config);
+				const placement = vi.spyOn(h.deps, "setExtensionStatusChoice");
+				const migrate = vi.spyOn(h.deps, "migrateSelections");
+				await h.command().handler("extensions", h.ctx);
+				const panel = h.component();
+				const effective =
+					defaultVisibility === "hide" || style === "starship"
+						? "Off"
+						: style === "hidden"
+							? "Middle"
+							: "Right";
+				for (const label of ["Default placement", "key placement", "legacy placement"])
+					expect(row(panel, label).trim().split(/\s+/).at(-1)).toBe(effective);
+				panel.handleInput("\x1b");
+				expect(config).toEqual(before);
+				expect(h.calls.extensionDefaultPlacement).toEqual([]);
+				expect(placement).not.toHaveBeenCalled();
+				expect(migrate).not.toHaveBeenCalled();
+			}
+		},
+	);
+
+	it.each(["native", "hidden", "starship"] as const)(
+		"offers exactly Left / Middle / Right / Off on both %s placement controls",
+		async (style) => {
+			const config = cloneConfig();
+			config.components.footer.style = style;
+			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = "left";
+			const h = createHarness(config, {
+				getActiveExtensionStatuses: () => new Map([["key", "RAW"]]),
+			});
+			const before = structuredClone(config);
+			const placement = vi.spyOn(h.deps, "setExtensionStatusChoice");
+			await h.command().handler("extensions", h.ctx);
+			const panel = h.component();
+			expectFocusOrder(panel, ["Default placement", "key placement", "key color"]);
+			expect(row(panel, "Default placement")).toMatch(/\sLeft$/);
+			expect(row(panel, "key placement")).toMatch(/\sLeft$/);
+			expect(config).toEqual(before);
+			expect(h.calls.extensionDefaultPlacement).toEqual([]);
+			expect(placement).not.toHaveBeenCalled();
+			for (const label of ["Default placement", "key placement"]) {
+				const choices: string[] = [];
+				for (let i = 0; i < 4; i++) {
+					choices.push(row(panel, label).trim().split(/\s+/).at(-1) ?? "");
+					panel.handleInput("\r");
+				}
+				expect(choices).toEqual(["Left", "Middle", "Right", "Off"]);
+				expect(row(panel, label)).toMatch(/\sLeft$/);
+			}
+			expect(h.calls.extensionDefaultPlacement).toEqual(["middle", "right", "off", "left"]);
+			expect(placement.mock.calls.map(([, choice]) => choice)).toEqual([
+				"middle",
+				"right",
+				"off",
+				"left",
+			]);
+		},
+	);
+
+	it.each(["native", "hidden", "starship"] as const)(
 		"exposes visibility and saved/observed keys under %s without changing other owners",
 		async (style) => {
 			const config = cloneConfig();
@@ -2740,7 +2814,10 @@ describe("independent Extension statuses settings", () => {
 			expect(panel.render(160).join("\n")).not.toMatch(
 				/Hidden placement|Starship placement|visibility/,
 			);
-			expect(row(panel, "legacy placement")).toContain(style === "starship" ? "Off" : "Default");
+			expect(row(panel, "legacy placement")).toContain(
+				style === "starship" ? "Off" : style === "hidden" ? "Left" : "Right",
+			);
+			expect(config).toEqual(before);
 			selectLabel(panel, "Default placement");
 			for (let i = 0; i < (style === "hidden" ? 3 : 1); i++) panel.handleInput("\r");
 			expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
@@ -2749,7 +2826,7 @@ describe("independent Extension statuses settings", () => {
 			expect(config.components.extensionStatuses.visibility.saved).toBe("show");
 			selectLabel(panel, "z:third-party placement");
 			panel.handleInput("\r");
-			expect(config.components.extensionStatuses.visibility["z:third-party"]).toBe("hide");
+			expect(config.components.extensionStatuses.visibility["z:third-party"]).toBe("show");
 			for (const owner of [
 				"editor",
 				"userMessages",
@@ -2856,7 +2933,7 @@ describe("Hidden extension color settings", () => {
 });
 
 describe("Hidden extension placement settings", () => {
-	it("shows only active Hidden placement controls and resets a saved unobserved key", async () => {
+	it("shows only active Hidden placement controls and turns off a saved unobserved key", async () => {
 		const config = cloneConfig();
 		config.components.footer.style = "hidden";
 		config.components.extensionStatuses.hidden = {
@@ -2872,8 +2949,8 @@ describe("Hidden extension placement settings", () => {
 		expect(panel.render(160).join("\n")).not.toContain("Starship placement");
 		expect(row(panel, "saved placement")).toContain("Right");
 		panel.handleInput("\r");
-		expect(panel.render(160).join("\n")).not.toContain("saved placement");
-		expect(config.components.extensionStatuses.hidden.placements).toEqual({});
+		expect(row(panel, "saved placement")).toContain("Off");
+		expect(config.components.extensionStatuses.hidden.placements).toEqual({ saved: "right" });
 		selectLabel(panel, "Default placement");
 		panel.handleInput("\r"); // Right -> Off; previous Hidden position remains saved
 		expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
@@ -2881,6 +2958,6 @@ describe("Hidden extension placement settings", () => {
 		panel.handleInput("\r"); // Off -> Left
 		expect(config.components.extensionStatuses.hidden.defaultPlacement).toBe("left");
 		expect(config.components.footer).toEqual(beforeFooter);
-		expect(config.components.extensionStatuses.visibility).toEqual({});
+		expect(config.components.extensionStatuses.visibility).toEqual({ saved: "hide" });
 	});
 });

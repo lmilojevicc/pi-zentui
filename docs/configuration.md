@@ -121,7 +121,7 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 
 ### Extension-status visibility
 
-`/zentui extensions` is available with Native, Hidden, or Starship Footer. It shows **Default placement** (Off, Left, Middle, Right), then each observed or saved extension's **placement** (Default, Off, Left, Middle, Right) and **color** (Original, Zentui). No separate visibility rows or mode prefixes are shown. Off hides statuses via `components.extensionStatuses`; a positive per-extension placement explicitly shows that key even when the default is Off. Default clears the key's visibility and current-mode placement overrides, returning to the global default. Choices save atomically; merely opening the panel does not rewrite config:
+`/zentui extensions` is available with Native, Hidden, or Starship Footer. It shows **Default placement**, then each observed or saved extension's **placement** and **color** (Original, Zentui). Both placement controls offer only Left, Middle, Right, Off, in that order. No separate visibility rows or mode prefixes are shown. Unset or inherited placements display their effective position or Off, not a selectable Default value. Off hides statuses via `components.extensionStatuses`; a positive per-extension placement explicitly shows that key even when the default is Off. Choices save atomically; merely opening the panel does not rewrite config:
 
 ```json
 {
@@ -134,9 +134,9 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 }
 ```
 
-Off suppresses observed publications through Pi's public `setStatus` method. A visible choice passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors by default and Pi's key ordering within each placement, with safe single-line text and width truncation. Default Off hides inherited keys; per-key Off hides that key. No remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. Starship placement/color preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Native positive placements save dormant Starship preferences and Show visibility but never move Pi's native statuses. Native Default clears only the key's Starship placement and visibility override; its colors and Hidden placement remain saved. Historical Starship `off` settings never become global Off in Native or Hidden.
+Off suppresses observed publications through Pi's public `setStatus` method. A visible choice passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors by default and Pi's key ordering within each placement, with safe single-line text and width truncation. Default Off hides inherited keys; per-key Off hides that key. No remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. Starship placement/color preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Native positive placements save dormant Starship preferences and Show visibility but never move Pi's native statuses. Historical Starship `off` settings never become global Off in Native or Hidden.
 
-With Hidden selected, default placement starts at Left. Each placement offers Default, Off, Left, Middle, or Right; Default deletes the key's visibility and Hidden placement overrides without touching its color. These sparse preferences live in `components.extensionStatuses.hidden`, independently of Starship and visibility:
+With Hidden selected, default placement starts at Left. To restore inheritance in config, remove the key's visibility and Hidden placement overrides; its color can remain saved. These sparse preferences live in `components.extensionStatuses.hidden`, independently of Starship and visibility:
 
 ```json
 {
