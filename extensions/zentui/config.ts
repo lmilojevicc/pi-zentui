@@ -272,7 +272,23 @@ export type ThinkingStepsComponentConfig = {
 	mode: ThinkingStepsMode;
 };
 
+export type ExtensionStatusVisibility = "show" | "hide";
+export type ExtensionStatusVisibilityConfig = {
+	defaultVisibility: ExtensionStatusVisibility;
+	visibility: Record<string, ExtensionStatusVisibility>;
+};
+
+export type HiddenExtensionStatusPlacement = "left" | "middle" | "right";
+export type ExtensionStatusComponentConfig = ExtensionStatusVisibilityConfig & {
+	hidden?: {
+		defaultPlacement?: HiddenExtensionStatusPlacement;
+		placements?: Record<string, HiddenExtensionStatusPlacement>;
+		colorModes?: Record<string, ExtensionStatusColorMode>;
+	};
+};
+
 export type ComponentsConfig = {
+	extensionStatuses: ExtensionStatusComponentConfig;
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
 	thinkingSteps: ThinkingStepsComponentConfig;
@@ -501,6 +517,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 };
 
 const defaultComponents: ComponentsConfig = {
+	extensionStatuses: { defaultVisibility: "show", visibility: {} },
 	editor: {
 		codexQuota: false,
 		enabled: true,
@@ -1209,6 +1226,75 @@ function resolveWorkingLineMessages(messages: ConfigRecord): WorkingLineMessages
 	return { custom, values: hasOwn(messages, "values") ? legacyValues : preset() };
 }
 
+export function isHiddenExtensionStatusPlacement(
+	value: unknown,
+): value is HiddenExtensionStatusPlacement {
+	return value === "left" || value === "middle" || value === "right";
+}
+
+export function getHiddenExtensionStatusPlacement(
+	config: ExtensionStatusComponentConfig,
+	key: string,
+): HiddenExtensionStatusPlacement {
+	const placements = config.hidden?.placements;
+	return (
+		(placements && Object.hasOwn(placements, key) ? placements[key] : undefined) ??
+		config.hidden?.defaultPlacement ??
+		"left"
+	);
+}
+
+export function getHiddenExtensionStatusColorMode(
+	config: ExtensionStatusComponentConfig,
+	key: string,
+): ExtensionStatusColorMode {
+	const modes = config.hidden?.colorModes;
+	return modes && Object.hasOwn(modes, key) && modes[key] === "zentui" ? "zentui" : "original";
+}
+
+function resolveExtensionStatusComponent(raw: unknown): ExtensionStatusComponentConfig {
+	const owner = recordValue(raw);
+	const hidden = recordValue(owner.hidden);
+	return {
+		...(isRecord(owner.hidden)
+			? {
+					hidden: {
+						...(isHiddenExtensionStatusPlacement(hidden.defaultPlacement)
+							? { defaultPlacement: hidden.defaultPlacement }
+							: {}),
+						...(isRecord(hidden.colorModes)
+							? {
+									colorModes: Object.fromEntries(
+										Object.entries(hidden.colorModes).filter(
+											(entry): entry is [string, ExtensionStatusColorMode] =>
+												isExtensionStatusColorMode(entry[1]),
+										),
+									),
+								}
+							: {}),
+						...(isRecord(hidden.placements)
+							? {
+									placements: Object.fromEntries(
+										Object.entries(hidden.placements).filter(
+											(entry): entry is [string, HiddenExtensionStatusPlacement] =>
+												isHiddenExtensionStatusPlacement(entry[1]),
+										),
+									),
+								}
+							: {}),
+					},
+				}
+			: {}),
+		defaultVisibility: owner.defaultVisibility === "hide" ? "hide" : "show",
+		visibility: Object.fromEntries(
+			Object.entries(recordValue(owner.visibility)).filter(
+				(entry): entry is [string, ExtensionStatusVisibility] =>
+					entry[1] === "show" || entry[1] === "hide",
+			),
+		),
+	};
+}
+
 function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
@@ -1255,6 +1341,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
+		extensionStatuses: resolveExtensionStatusComponent(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
 			...(isRecord(editor.colors)
@@ -2263,24 +2350,209 @@ export function saveExtensionStatusColorMode(
 	colorMode: ExtensionStatusColorMode,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation(
-		["footer"],
-		(components) => {
-			Object.defineProperty(components.footer.styles.starship.extensionStatuses.colorModes, key, {
-				value: colorMode,
-				enumerable: true,
-				configurable: true,
-				writable: true,
+	return mutateConfig(path, (record) => {
+		const footer = recordValue(recordValue(record.components).footer);
+		const starship = recordValue(recordValue(footer.styles).starship);
+		const statuses = recordValue(starship.extensionStatuses);
+		const colorModes = Object.hasOwn(statuses, "colorModes")
+			? recordValue(statuses.colorModes)
+			: recordValue(recordValue(record.extensionStatuses).colorModes);
+		record.components = overlayKnown(record.components, {
+			footer: {
+				styles: {
+					starship: { extensionStatuses: { colorModes: { ...colorModes, [key]: colorMode } } },
+				},
+			},
+		});
+	});
+}
+
+/** Hidden placement edits remain sparse and never snapshot another owner's preferences. */
+export function saveHiddenExtensionStatusDefaultPlacement(
+	placement: HiddenExtensionStatusPlacement,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { hidden: { defaultPlacement: placement } },
+		});
+	});
+}
+
+export function saveHiddenExtensionStatusPlacement(
+	key: string,
+	placement: HiddenExtensionStatusPlacement | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		if (placement === undefined) {
+			const owner = recordValue(recordValue(record.components).extensionStatuses);
+			delete recordValue(recordValue(owner.hidden).placements)[key];
+		} else {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { placements: { [key]: placement } } },
 			});
+		}
+	});
+}
+
+/** Original is Hidden's default; choosing it removes only this color override. */
+export function saveHiddenExtensionStatusColorMode(
+	key: string,
+	colorMode: ExtensionStatusColorMode,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		if (colorMode === "original") {
+			const owner = recordValue(recordValue(record.components).extensionStatuses);
+			delete recordValue(recordValue(owner.hidden).colorModes)[key];
+		} else {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { colorModes: { [key]: colorMode } } },
+			});
+		}
+	});
+}
+
+export function saveExtensionStatusDefaultVisibility(
+	visibility: ExtensionStatusVisibility,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["extensionStatuses"],
+		(components) => {
+			components.extensionStatuses.defaultVisibility = visibility;
 		},
 		path,
 	);
 }
 
+/** Undefined resumes the independent default, without changing Starship presentation. */
+export function saveExtensionStatusVisibility(
+	key: string,
+	visibility: ExtensionStatusVisibility | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["extensionStatuses"],
+		(components) => {
+			if (visibility === undefined) delete components.extensionStatuses.visibility[key];
+			else
+				Object.defineProperty(components.extensionStatuses.visibility, key, {
+					value: visibility,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+		},
+		path,
+		(record) => {
+			// overlayKnown preserves unknown leaves; explicitly remove a reset override.
+			if (visibility === undefined) {
+				const owner = recordValue(recordValue(record.components).extensionStatuses);
+				delete recordValue(owner.visibility)[key];
+			}
+		},
+	);
+}
+
+export type ExtensionStatusChoice = "default" | ExtensionStatusPlacement;
+
+/** Save one menu choice in a single atomic write, without snapshotting other components. */
+export function saveExtensionStatusDefaultChoice(
+	placement: ExtensionStatusPlacement,
+	style: FooterStyle,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { defaultVisibility: placement === "off" ? "hide" : "show" },
+		});
+		if (placement === "off") return;
+		if (style === "hidden") {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { defaultPlacement: placement } },
+			});
+		} else {
+			// Native retains Starship positioning as a dormant preference; Pi owns its layout.
+			record.components = overlayKnown(record.components, {
+				footer: { styles: { starship: { extensionStatuses: { defaultPlacement: placement } } } },
+			});
+		}
+	});
+}
+
+/** Default removes both visibility and current-mode placement, shadowing legacy Starship maps. */
+export function saveExtensionStatusChoice(
+	key: string,
+	choice: ExtensionStatusChoice,
+	style: FooterStyle,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const components = recordValue(record.components);
+		const owner = recordValue(components.extensionStatuses);
+		const hidden = recordValue(owner.hidden);
+		const starship = recordValue(recordValue(recordValue(components.footer).styles).starship);
+		const canonicalStatuses = recordValue(starship.extensionStatuses);
+		if (choice === "default") {
+			delete recordValue(owner.visibility)[key];
+			if (style === "hidden") {
+				delete recordValue(hidden.placements)[key];
+			} else {
+				// An empty canonical map must remain to prevent top-level legacy fallback.
+				const placements = {
+					...recordValue(
+						Object.hasOwn(canonicalStatuses, "placements")
+							? canonicalStatuses.placements
+							: recordValue(record.extensionStatuses).placements,
+					),
+				};
+				delete placements[key];
+				record.components = overlayKnown(record.components, {
+					footer: { styles: { starship: { extensionStatuses: { placements: {} } } } },
+				});
+				const footer = recordValue(recordValue(record.components).footer);
+				const savedStarship = recordValue(recordValue(footer.styles).starship);
+				recordValue(savedStarship.extensionStatuses).placements = placements;
+			}
+			return;
+		}
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { visibility: { [key]: choice === "off" ? "hide" : "show" } },
+		});
+		if (choice === "off") return;
+		if (style === "hidden") {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { placements: { [key]: choice } } },
+			});
+		} else {
+			const placements = Object.hasOwn(canonicalStatuses, "placements")
+				? recordValue(canonicalStatuses.placements)
+				: recordValue(recordValue(record.extensionStatuses).placements);
+			record.components = overlayKnown(record.components, {
+				footer: {
+					styles: {
+						starship: { extensionStatuses: { placements: { ...placements, [key]: choice } } },
+					},
+				},
+			});
+		}
+	});
+}
+
 /** Explicit all-owner migration; callers must obtain confirmation before invoking. */
 export function migrateComponentSelections(path = configPath): PolishedTuiConfig {
 	return saveComponentsMutation(
-		["editor", "userMessages", "thinkingSteps", "workingLine", "selectorBorders", "footer"],
+		[
+			"editor",
+			"userMessages",
+			"thinkingSteps",
+			"workingLine",
+			"selectorBorders",
+			"footer",
+			"extensionStatuses",
+		],
 		() => {},
 		path,
 	);

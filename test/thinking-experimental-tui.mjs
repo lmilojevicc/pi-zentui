@@ -1063,8 +1063,8 @@ try:
     structural_snapshots = []
 
     def settings_section_ready(label, index, selected_label):
-        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer"
-        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/6)"
+        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer / Extension statuses"
+        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/7)"
         lines = screen.text().split("\n")
         return header in lines and any(row.startswith("→ " + selected_label + " ") for row in lines)
 

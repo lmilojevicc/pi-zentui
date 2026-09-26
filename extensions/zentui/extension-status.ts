@@ -1,11 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { stripVTControlCharacters } from "node:util";
-import type { ExtensionStatusColorMode, ExtensionStatusPlacement, ZentuiConfig } from "./config";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import type {
+	ExtensionStatusColorMode,
+	ExtensionStatusComponentConfig,
+	ExtensionStatusPlacement,
+	HiddenExtensionStatusPlacement,
+	ZentuiConfig,
+} from "./config";
 import {
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	getHiddenExtensionStatusColorMode,
+	getHiddenExtensionStatusPlacement,
 	isExtensionStatusPlacement,
 } from "./config";
+import { truncateFooterText } from "./footer-text";
+import { safeThemeFg } from "./style";
 
 export type ExtensionStatusSegment = {
 	key: string;
@@ -71,6 +83,102 @@ export function sanitizeExtensionStatusOriginalText(value: string): string {
 	});
 	const result = restored + (activeLink ? "\x1b]8;;\x07" : "");
 	return hasVisibleStatusText(result) ? result : "";
+}
+
+function closeExtensionStatusStyle(text: string): string {
+	let lastSgr: string | undefined;
+	for (const match of text.matchAll(/\x1b\[[0-9;:]*m/g)) lastSgr = match[0];
+	return lastSgr && lastSgr !== "\x1b[0m" && lastSgr !== "\x1b[m" ? `${text}\x1b[0m` : text;
+}
+
+/** Hidden's single row: bounded fair budgets, anchored edges, centered/clamped middle. */
+function layoutExtensionStatusLine(
+	zones: Record<HiddenExtensionStatusPlacement, string>,
+	width: number,
+	ellipsis: string,
+): string[] {
+	const order: HiddenExtensionStatusPlacement[] = ["left", "middle", "right"];
+	// At least one visible cell per zone and one blank between zones; prefer L/M/R if impossible.
+	const entries = order
+		.map((placement) => ({
+			placement,
+			text: zones[placement],
+			width: visibleWidth(zones[placement]),
+		}))
+		.filter((entry) => entry.width > 0)
+		.slice(0, Math.ceil(width / 2));
+	if (!entries.length) return [];
+	let remaining = width - (entries.length - 1);
+	const byWidth = [...entries].sort((a, b) => a.width - b.width);
+	// At most three allocations; short zones return unused budget to longer ones.
+	for (const [index, entry] of byWidth.entries()) {
+		const budget = Math.min(entry.width, Math.floor(remaining / (byWidth.length - index)));
+		remaining -= budget;
+		entry.text = closeExtensionStatusStyle(truncateFooterText(entry.text, budget, ellipsis));
+		entry.width = visibleWidth(entry.text);
+	}
+	const leftWidth = entries.find((entry) => entry.placement === "left")?.width ?? 0;
+	const rightWidth = entries.find((entry) => entry.placement === "right")?.width ?? 0;
+	let row = "";
+	let column = 0;
+	for (const entry of entries) {
+		const start =
+			entry.placement === "left"
+				? 0
+				: entry.placement === "right"
+					? width - entry.width
+					: Math.max(
+							leftWidth ? leftWidth + 1 : 0,
+							Math.min(
+								Math.floor((width - entry.width) / 2),
+								width - entry.width - (rightWidth ? rightWidth + 1 : 0),
+							),
+						);
+		row += " ".repeat(Math.max(0, start - column)) + entry.text;
+		column = start + entry.width;
+	}
+	return [row];
+}
+
+/** Status-only presentation for Hidden: independent colors/placement, native key ordering. */
+export function renderExtensionStatusLine(
+	statuses: ReadonlyMap<string, string>,
+	policy: ExtensionStatusComponentConfig,
+	theme: Theme,
+	width: number,
+): string[] {
+	if (width <= 0) return [];
+	const zones: Record<HiddenExtensionStatusPlacement, string[]> = {
+		left: [],
+		middle: [],
+		right: [],
+	};
+	for (const [key, value] of [...statuses].sort(([a], [b]) => a.localeCompare(b))) {
+		if (
+			(Object.hasOwn(policy.visibility, key)
+				? policy.visibility[key]
+				: policy.defaultVisibility) === "hide"
+		)
+			continue;
+		const original = getHiddenExtensionStatusColorMode(policy, key) === "original";
+		const text = original
+			? sanitizeExtensionStatusOriginalText(value)
+			: sanitizeExtensionStatusText(value);
+		if (text) {
+			// Hidden has its own neutral theme styling; never borrow Starship's palette.
+			const styled = original ? text : safeThemeFg(theme, "muted", text);
+			zones[getHiddenExtensionStatusPlacement(policy, key)].push(closeExtensionStatusStyle(styled));
+		}
+	}
+	return layoutExtensionStatusLine(
+		{
+			left: zones.left.join(" "),
+			middle: zones.middle.join(" "),
+			right: zones.right.join(" "),
+		},
+		width,
+		theme.fg("dim", "..."),
+	);
 }
 
 export function collectExtensionStatusSegments(

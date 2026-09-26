@@ -18,6 +18,7 @@ import {
 	type ContextStyle,
 	defaultConfig,
 	type EditorComponentConfig,
+	type ExtensionStatusChoice,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
@@ -42,10 +43,11 @@ import {
 	saveComponentColor,
 	saveComponentPreset,
 	saveEditorComponentPatch,
+	saveExtensionStatusChoice,
 	saveExtensionStatusColorMode,
-	saveExtensionStatusDefaultPlacement,
-	saveExtensionStatusPlacement,
+	saveExtensionStatusDefaultChoice,
 	saveFooterComponentPatch,
+	saveHiddenExtensionStatusColorMode,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
 	savePolishedCopyFriendlyEditorStylePatch,
@@ -64,6 +66,7 @@ import {
 	type EditorTransferFailureReason,
 	replaceEditorComponentWithExpandedText,
 } from "./editor-transfer";
+import { createExtensionStatusController } from "./extension-status-controller";
 import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import {
@@ -210,6 +213,9 @@ export default function (pi: ExtensionAPI) {
 	let activeTheme: Theme | undefined;
 	let requestFooterRender: (() => void) | undefined;
 	let requestEditorRender: (() => void) | undefined;
+	const extensionStatuses = createExtensionStatusController(
+		() => currentConfig.components.extensionStatuses,
+	);
 	let getActiveExtensionStatuses: () => ReadonlyMap<string, string> = () => new Map();
 	let stopRefreshInterval: StopProjectRefreshInterval = () => {};
 	let cleanupUserMessageStyle: () => void = () => {};
@@ -1014,12 +1020,18 @@ export default function (pi: ExtensionAPI) {
 		const token = Symbol("zentui-hidden-footer");
 		const previous = snapshotFooterBookkeeping(ctx);
 		try {
-			installHiddenFooter(ctx, () => clearFooterOwnership(ctx, token));
+			installHiddenFooter(ctx, () => currentConfig.components.extensionStatuses, {
+				setRequestRender: (fn) => {
+					requestFooterRender = fn;
+				},
+				setExtensionStatusesGetter: (fn) => {
+					getActiveExtensionStatuses = fn ?? (() => new Map());
+				},
+				onDispose: () => clearFooterOwnership(ctx, token),
+			});
 			installedFooterKind = "hidden";
 			installedFooterToken = token;
 			setStatusLineOwnership(ctx, token);
-			requestFooterRender = undefined;
-			getActiveExtensionStatuses = () => new Map();
 			stopSessionTimer();
 		} catch {
 			resetFailedFooterInstallation(ctx, token, previous);
@@ -1171,6 +1183,7 @@ export default function (pi: ExtensionAPI) {
 	const cleanupUi = (ctx?: ExtensionContext) => {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
+		extensionStatuses.dispose();
 		codexQuota.stop();
 		stopSessionTimer();
 		resetAgentTimer();
@@ -1236,6 +1249,8 @@ export default function (pi: ExtensionAPI) {
 		// Reload synchronously so private ownership uses this session's disk snapshot before
 		// any await or transcript restoration.
 		currentConfig = loadConfig();
+		extensionStatuses.dispose();
+		if (isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
 		thinkingExperimental.startSession(ctx);
 		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
 		cleanupAccentRailLayoutPatch();
@@ -1452,13 +1467,21 @@ export default function (pi: ExtensionAPI) {
 			if (patch.ignoreSubmodules !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		getActiveExtensionStatuses() {
-			return getActiveExtensionStatuses();
+			return new Map([...getActiveExtensionStatuses(), ...extensionStatuses.snapshot()]);
 		},
-		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
-			currentConfig = saveExtensionStatusDefaultPlacement(placement);
+		setExtensionStatusDefaultChoice(placement: ExtensionStatusPlacement) {
+			currentConfig = saveExtensionStatusDefaultChoice(
+				placement,
+				currentConfig.components.footer.style,
+			);
+			extensionStatuses.reconcile();
 		},
-		setExtensionStatusPlacement(key: string, placement: ExtensionStatusPlacement) {
-			currentConfig = saveExtensionStatusPlacement(key, placement);
+		setExtensionStatusChoice(key: string, choice: ExtensionStatusChoice) {
+			currentConfig = saveExtensionStatusChoice(key, choice, currentConfig.components.footer.style);
+			extensionStatuses.reconcile();
+		},
+		setHiddenExtensionStatusColorMode(key, colorMode) {
+			currentConfig = saveHiddenExtensionStatusColorMode(key, colorMode);
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			currentConfig = saveExtensionStatusColorMode(key, colorMode);

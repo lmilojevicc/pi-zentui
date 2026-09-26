@@ -25,6 +25,7 @@ import {
 	type EditorBorderColorMode,
 	type EditorComponentConfig,
 	type EditorStyle,
+	type ExtensionStatusChoice,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	type FooterComponentConfig,
@@ -35,7 +36,7 @@ import {
 	type GitCommitConfig,
 	type GitMetricsConfig,
 	getExtensionStatusColorMode,
-	getExtensionStatusPlacement,
+	getHiddenExtensionStatusColorMode,
 	type IconMode,
 	isExtensionStatusColorMode,
 	isExtensionStatusPlacement,
@@ -61,6 +62,11 @@ import {
 } from "./config";
 import { prepareEditorTextForCustomUi } from "./editor-transfer";
 import { sanitizeExtensionStatusText } from "./extension-status";
+import {
+	extensionStatusChoice,
+	extensionStatusChoiceLabels,
+	extensionStatusDefaultChoice,
+} from "./extension-status-settings";
 import { isIconMode } from "./icons";
 import {
 	componentPresets,
@@ -87,13 +93,8 @@ import {
 } from "./working-line";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
-const extensionStatusPlacementValues: ExtensionStatusPlacement[] = [
-	"off",
-	"left",
-	"middle",
-	"right",
-];
-const extensionStatusColorModeValues: ExtensionStatusColorMode[] = ["zentui", "original"];
+const extensionStatusPlacementValues = ["Left", "Middle", "Right", "Off"];
+const extensionStatusColorModeValues = ["Original", "Zentui"];
 const contextStyleValues: ContextStyle[] = ["text", "gauge", "text+gauge"];
 const separatorStyleValues: SeparatorStyle[] = ["pipe", "dot", "chevron", "none"];
 const pathDisplayModeValues: PathDisplayConfig["mode"][] = ["basename", "repository", "full"];
@@ -169,8 +170,9 @@ const settingsSections = [
 	"thinkingSteps",
 	"workingLine",
 	"footer",
+	"extensions",
 ] as const;
-const footerPages = ["segments", "git", "extensions"] as const;
+const footerPages = ["segments", "git"] as const;
 type FooterPage = (typeof footerPages)[number];
 type TopLevelSection = (typeof settingsSections)[number];
 type FeatureState = "enabled" | "disabled";
@@ -294,8 +296,9 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 	) => void;
 	setGitMetrics: (patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
-	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
-	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
+	setExtensionStatusDefaultChoice: (placement: ExtensionStatusPlacement) => void;
+	setExtensionStatusChoice: (key: string, choice: ExtensionStatusChoice) => void;
+	setHiddenExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	requestRender: () => void;
 	settingsListTheme?: SettingsListTheme;
@@ -902,7 +905,7 @@ function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "footerStyle",
 			label: "Footer style",
 			description:
-				"Native leaves Pi or a predecessor unowned; Starship installs Zentui; Hidden intentionally owns zero rows.",
+				"Native leaves Pi or a predecessor unowned; Starship installs Zentui; Hidden keeps only allowed extension statuses.",
 			currentValue: footerStyleLabel(footer.style),
 			values: footerStyleValues,
 		},
@@ -1093,42 +1096,67 @@ function buildExtensionsItems(
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
 ): SettingItem[] {
-	const defaultItem: SettingItem = {
-		id: "extensionStatusDefaultPlacement",
-		label: "Default placement",
-		description: "Placement for active statuses without an override.",
-		currentValue: config.components.footer.styles.starship.extensionStatuses.defaultPlacement,
-		values: extensionStatusPlacementValues,
-	};
-	const statuses = [...active.entries()].sort(([a], [b]) => a.localeCompare(b));
-	if (!statuses.length)
-		return [
-			defaultItem,
-			{
-				id: "noThirdPartyStatuses",
-				label: "No active statuses",
-				description: "Only statuses currently published through ctx.ui.setStatus().",
-				currentValue: "—",
-			},
-		];
+	const local = config.components.footer.styles.starship.extensionStatuses;
+	const visibility = config.components.extensionStatuses;
+	const hidden = config.components.footer.style === "hidden";
+	const hiddenPlacement = visibility.hidden;
+	const keys = [
+		...new Set([
+			...active.keys(),
+			...Object.keys(visibility.visibility),
+			...Object.keys(hiddenPlacement?.placements ?? {}),
+			...Object.keys(hiddenPlacement?.colorModes ?? {}),
+			...Object.keys(local.placements),
+			...Object.keys(local.colorModes),
+		]),
+	].sort((a, b) => a.localeCompare(b));
+	const nativeNote =
+		"Native uses Pi's layout; positioning and color are saved for Starship, not applied to Native.";
+	const placementNote = hidden
+		? "Off hides statuses. Hidden places visible statuses."
+		: config.components.footer.style === "native"
+			? `Off hides statuses. ${nativeNote}`
+			: "Off hides statuses. Starship positions visible statuses.";
 	return [
-		defaultItem,
-		...statuses.flatMap(([key, value]) => {
-			const sanitized = sanitizeExtensionStatusText(value);
-			const description = sanitized ? `Current status: ${sanitized}` : undefined;
+		{
+			id: "extensionStatusDefaultPlacement",
+			label: "Default placement",
+			description: hidden
+				? "Off hides statuses by default; Hidden places visible statuses."
+				: config.components.footer.style === "native"
+					? `Off hides statuses by default. ${nativeNote}`
+					: "Off hides statuses by default; Starship places visible statuses.",
+			currentValue: extensionStatusChoiceLabels[extensionStatusDefaultChoice(config)],
+			values: extensionStatusPlacementValues,
+		},
+		...(!keys.length
+			? [{ id: "noThirdPartyStatuses", label: "No observed statuses", currentValue: "—" }]
+			: []),
+		...keys.flatMap((key) => {
+			const sanitized = sanitizeExtensionStatusText(active.get(key) ?? "");
 			return [
 				{
 					id: thirdPartyStatusSettingId(key, "placement"),
 					label: `${key} placement`,
-					description,
-					currentValue: getExtensionStatusPlacement(config, key),
+					description: `${placementNote}${sanitized ? ` Current status: ${sanitized}` : ""}`,
+					currentValue: extensionStatusChoiceLabels[extensionStatusChoice(config, key)],
 					values: extensionStatusPlacementValues,
 				},
 				{
 					id: thirdPartyStatusSettingId(key, "colorMode"),
 					label: `${key} color`,
-					description,
-					currentValue: getExtensionStatusColorMode(config, key),
+					description: hidden
+						? "Original keeps extension styling; Zentui uses the theme's muted color."
+						: config.components.footer.style === "native"
+							? `Original keeps extension styling in Starship; Zentui uses its palette. ${nativeNote}`
+							: "Original keeps extension styling; Zentui uses Starship's palette.",
+					currentValue: hidden
+						? getHiddenExtensionStatusColorMode(visibility, key) === "zentui"
+							? "Zentui"
+							: "Original"
+						: getExtensionStatusColorMode(config, key) === "zentui"
+							? "Zentui"
+							: "Original",
 					values: extensionStatusColorModeValues,
 				},
 			];
@@ -1174,10 +1202,7 @@ function buildSectionItems(
 							...footerPages.map((page) => ({
 								id: footerPageSettingId(page),
 								label: sectionLabels[page],
-								description:
-									page === "extensions"
-										? "Place and color published keyed Footer statuses; not extension management or Working line integrations."
-										: `Configure Starship Footer ${sectionLabels[page]}; other components are unchanged.`,
+								description: `Configure Starship Footer ${sectionLabels[page]}; other components are unchanged.`,
 								currentValue: "->",
 								values: ["->"],
 							})),
@@ -1259,7 +1284,7 @@ function markDormantItems(
 		)
 			reason = "animated modes; Static ignores color motion";
 		else if (
-			["footer", "segments", "git", "extensions"].includes(section) &&
+			["footer", "segments", "git"].includes(section) &&
 			item.id !== "footerStyle" &&
 			footer.style !== "starship"
 		)
@@ -2032,26 +2057,32 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											return;
 										}
 
+										const choice = newValue.toLowerCase();
 										if (
 											id === "extensionStatusDefaultPlacement" &&
-											isExtensionStatusPlacement(newValue)
+											isExtensionStatusPlacement(choice)
 										) {
-											deps.setExtensionStatusDefaultPlacement(newValue);
-											settingsList = makeSettingsList("extensionStatusDefaultPlacement");
-											notifyChange("Default extension status placement", newValue);
+											deps.setExtensionStatusDefaultChoice(choice);
+											settingsList = makeSettingsList(id);
+											notifyChange("Default placement", newValue);
 											return;
 										}
 										const thirdParty = thirdPartyStatusSettingFromId(id);
-										if (thirdParty?.kind === "placement" && isExtensionStatusPlacement(newValue)) {
-											deps.setExtensionStatusPlacement(thirdParty.key, newValue);
-											settingsList.updateValue(id, newValue);
-											notifyChange(`Third-party status ${thirdParty.key} placement`, newValue);
+										if (
+											thirdParty?.kind === "placement" &&
+											(choice === "default" || isExtensionStatusPlacement(choice))
+										) {
+											deps.setExtensionStatusChoice(thirdParty.key, choice);
+											settingsList = makeSettingsList(id);
+											notifyChange(`${thirdParty.key} placement`, newValue);
 											return;
 										}
-										if (thirdParty?.kind === "colorMode" && isExtensionStatusColorMode(newValue)) {
-											deps.setExtensionStatusColorMode(thirdParty.key, newValue);
-											settingsList.updateValue(id, newValue);
-											notifyChange(`Third-party status ${thirdParty.key} color`, newValue);
+										if (thirdParty?.kind === "colorMode" && isExtensionStatusColorMode(choice)) {
+											if (deps.getConfig().components.footer.style === "hidden")
+												deps.setHiddenExtensionStatusColorMode(thirdParty.key, choice);
+											else deps.setExtensionStatusColorMode(thirdParty.key, choice);
+											settingsList = makeSettingsList(id);
+											notifyChange(`${thirdParty.key} color`, newValue);
 										}
 									} catch (error) {
 										stopPreview();

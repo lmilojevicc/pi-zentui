@@ -4,12 +4,13 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
-import type { SeparatorStyle, ZentuiConfig } from "./config";
+import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	collectExtensionStatusSegments,
 	type ExtensionStatusSegment,
+	renderExtensionStatusLine,
 	sanitizeExtensionStatusText,
 } from "./extension-status";
 import {
@@ -962,12 +963,34 @@ export function installFooter(
 	});
 }
 
-export function installHiddenFooter(ctx: ExtensionContext, onDispose?: () => void): void {
-	ctx.ui.setFooter(() => ({
-		dispose: onDispose,
-		invalidate() {},
-		render(): string[] {
-			return [];
-		},
-	}));
+export function installHiddenFooter(
+	ctx: ExtensionContext,
+	getPolicy: () => ExtensionStatusComponentConfig,
+	hooks: {
+		setRequestRender: (fn: (() => void) | undefined) => void;
+		setExtensionStatusesGetter: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
+		onDispose: () => void;
+	},
+): void {
+	ctx.ui.setFooter((tui, theme, footerData) => {
+		hooks.setRequestRender(() => tui.requestRender());
+		// Discovery only: provider snapshots never become controller replay provenance.
+		hooks.setExtensionStatusesGetter(() => footerData.getExtensionStatuses());
+		return {
+			dispose() {
+				hooks.setRequestRender(undefined);
+				hooks.setExtensionStatusesGetter(undefined);
+				hooks.onDispose();
+			},
+			invalidate() {},
+			render(width: number): string[] {
+				return renderExtensionStatusLine(
+					footerData.getExtensionStatuses(),
+					getPolicy(),
+					theme,
+					width,
+				);
+			},
+		};
+	});
 }
