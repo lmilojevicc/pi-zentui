@@ -96,6 +96,7 @@ describe("canonical config resolution", () => {
 	it("provides complete canonical defaults and the established palette defaults", () => {
 		const config = mergeConfig({}, {});
 		expect(config.components).toEqual({
+			extensionStatuses: { defaultVisibility: "show", visibility: {} },
 			editor: {
 				codexQuota: false,
 				enabled: true,
@@ -1481,6 +1482,7 @@ describe("compatibility saver recipes", () => {
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(Object.keys(raw.components).sort()).toEqual([
 				"editor",
+				"extensionStatuses",
 				"footer",
 				"selectorBorders",
 				"thinkingSteps",

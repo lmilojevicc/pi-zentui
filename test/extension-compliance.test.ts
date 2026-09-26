@@ -140,6 +140,8 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setGitCommit() {},
 	setGitMetrics() {},
 	getActiveExtensionStatuses: () => new Map<string, string>(),
+	setExtensionStatusDefaultVisibility() {},
+	setExtensionStatusVisibility() {},
 	setExtensionStatusDefaultPlacement() {},
 	setExtensionStatusPlacement() {},
 	setExtensionStatusColorMode() {},
@@ -157,6 +159,7 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 	return {
 		...config,
 		components: {
+			extensionStatuses: { ...config.components.extensionStatuses },
 			editor: {
 				...editor,
 				enabled: flatChanged("features") ? config.features.editor : editor.enabled,
@@ -5747,7 +5750,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/6)");
+		expect(themeLines.join("\n")).toContain("(1/7)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab Sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -6162,18 +6165,10 @@ describe("Pi docs compliance", () => {
 		render?: (width: number) => string[];
 		handleInput?: (data: string) => void;
 	}) {
-		for (let index = 0; index < 5; index++) component.handleInput?.("\t");
-		for (let index = 0; index < 20; index++) {
-			if (component.render?.(120).some((line) => line.startsWith("> Extension statuses"))) {
-				component.handleInput?.("\r");
-				return;
-			}
-			component.handleInput?.("\x1b[B");
-		}
-		throw new Error("Could not open Footer > Extension statuses");
+		for (let index = 0; index < 6; index++) component.handleInput?.("\t");
 	}
 
-	it("leaves Footer > Extension statuses for the previous top-level section with shift+tab", async () => {
+	it("leaves Extension statuses for the previous top-level section with shift+tab", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6226,12 +6221,12 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(rendered).toContain("Working line");
-		expect(rendered).toContain("Spinner speed");
-		expect(rendered).not.toContain("No active statuses");
+		expect(rendered).toContain("Footer");
+		expect(rendered).toContain("Footer style");
+		expect(rendered).not.toContain("No observed statuses");
 	});
 
-	it("renders active third-party statuses in the Footer > Extension statuses page", async () => {
+	it("renders active third-party statuses in the Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6292,7 +6287,7 @@ describe("Pi docs compliance", () => {
 		expect(rendered).toContain("right");
 	});
 
-	it("shows a read-only empty Footer > Extension statuses page", async () => {
+	it("shows an empty Extension statuses page with independent defaults", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
@@ -6349,12 +6344,12 @@ describe("Pi docs compliance", () => {
 			},
 		});
 
-		expect(rendered).toContain("No active statuses");
-		expect(rendered).toContain("ctx.ui.setStatus()");
+		expect(rendered).toContain("No observed statuses");
+		expect(rendered).toContain("Default visibility");
 		expect(placements).toEqual([]);
 	});
 
-	it("cycles active third-party status placement from the Footer > Extension statuses page", async () => {
+	it("cycles active third-party status placement from the Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
 		let dependencyRenderRequests = 0;
@@ -6413,7 +6408,7 @@ describe("Pi docs compliance", () => {
 						() => {},
 					) as { render?: (width: number) => string[]; handleInput?: (data: string) => void };
 					openExtensionStatusesSettings(component);
-					component.handleInput?.("\x1b[B");
+					for (let i = 0; i < 3; i++) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
@@ -6424,7 +6419,7 @@ describe("Pi docs compliance", () => {
 		expect(tuiRenderRequests).toBeGreaterThanOrEqual(9);
 	});
 
-	it("does not show inactive saved placements in the Footer > Extension statuses page", async () => {
+	it("shows inactive saved placements in the Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
 
@@ -6481,7 +6476,7 @@ describe("Pi docs compliance", () => {
 
 		expect(rendered).toContain("active");
 		expect(rendered).toContain("middle");
-		expect(rendered).not.toContain("inactive");
+		expect(rendered).toContain("inactive");
 	});
 	it("sanitizes project-derived metadata in built-in, custom, and compact Footer routes", () => {
 		const hostile = "safe\x1b]52;c;PAYLOAD\x07tail";

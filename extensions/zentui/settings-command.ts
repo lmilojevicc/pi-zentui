@@ -27,6 +27,7 @@ import {
 	type EditorStyle,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
+	type ExtensionStatusVisibility,
 	type FooterComponentConfig,
 	type FooterSegmentsConfig,
 	type FooterStyle,
@@ -169,8 +170,9 @@ const settingsSections = [
 	"thinkingSteps",
 	"workingLine",
 	"footer",
+	"extensions",
 ] as const;
-const footerPages = ["segments", "git", "extensions"] as const;
+const footerPages = ["segments", "git"] as const;
 type FooterPage = (typeof footerPages)[number];
 type TopLevelSection = (typeof settingsSections)[number];
 type FeatureState = "enabled" | "disabled";
@@ -294,6 +296,11 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 	) => void;
 	setGitMetrics: (patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) => void;
 	getActiveExtensionStatuses: () => ReadonlyMap<string, string>;
+	setExtensionStatusDefaultVisibility: (visibility: ExtensionStatusVisibility) => void;
+	setExtensionStatusVisibility: (
+		key: string,
+		visibility: ExtensionStatusVisibility | undefined,
+	) => void;
 	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -398,7 +405,7 @@ const directCommandSuggestions = [
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
 const footerSegmentSettingPrefix = "footerSegment:";
-type ThirdPartyStatusSettingKind = "placement" | "colorMode";
+type ThirdPartyStatusSettingKind = "placement" | "colorMode" | "visibility";
 
 function featureValue(enabled: boolean): FeatureState {
 	return enabled ? "enabled" : "disabled";
@@ -1087,46 +1094,72 @@ function thirdPartyStatusSettingFromId(
 ): { kind: ThirdPartyStatusSettingKind; key: string } | undefined {
 	if (!id.startsWith(thirdPartyStatusSettingPrefix)) return undefined;
 	const [kind, ...key] = id.slice(thirdPartyStatusSettingPrefix.length).split(":");
-	return kind === "placement" || kind === "colorMode" ? { kind, key: key.join(":") } : undefined;
+	return kind === "placement" || kind === "colorMode" || kind === "visibility"
+		? { kind, key: key.join(":") }
+		: undefined;
 }
 function buildExtensionsItems(
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
 ): SettingItem[] {
-	const defaultItem: SettingItem = {
-		id: "extensionStatusDefaultPlacement",
-		label: "Default placement",
-		description: "Placement for active statuses without an override.",
-		currentValue: config.components.footer.styles.starship.extensionStatuses.defaultPlacement,
-		values: extensionStatusPlacementValues,
-	};
-	const statuses = [...active.entries()].sort(([a], [b]) => a.localeCompare(b));
-	if (!statuses.length)
-		return [
-			defaultItem,
-			{
-				id: "noThirdPartyStatuses",
-				label: "No active statuses",
-				description: "Only statuses currently published through ctx.ui.setStatus().",
-				currentValue: "—",
-			},
-		];
+	const local = config.components.footer.styles.starship.extensionStatuses;
+	const visibility = config.components.extensionStatuses;
+	const keys = [
+		...new Set([
+			...active.keys(),
+			...Object.keys(visibility.visibility),
+			...Object.keys(local.placements),
+			...Object.keys(local.colorModes),
+		]),
+	].sort((a, b) => a.localeCompare(b));
 	return [
-		defaultItem,
-		...statuses.flatMap(([key, value]) => {
-			const sanitized = sanitizeExtensionStatusText(value);
+		{
+			id: "extensionStatusDefaultVisibility",
+			label: "Default visibility",
+			description: "Show passes through; Footer controls rendering.",
+			currentValue: visibility.defaultVisibility === "hide" ? "Hide" : "Show",
+			values: ["Show", "Hide"],
+		},
+		{
+			id: "extensionStatusDefaultPlacement",
+			label: "Starship default placement",
+			description: "Placement/color apply to Starship.",
+			currentValue: local.defaultPlacement,
+			values: extensionStatusPlacementValues,
+		},
+		...(!keys.length
+			? [
+					{
+						id: "noThirdPartyStatuses",
+						label: "No observed statuses",
+						currentValue: "—",
+					},
+				]
+			: []),
+		...keys.flatMap((key) => {
+			const sanitized = sanitizeExtensionStatusText(active.get(key) ?? "");
 			const description = sanitized ? `Current status: ${sanitized}` : undefined;
+			const override = Object.hasOwn(visibility.visibility, key)
+				? visibility.visibility[key]
+				: undefined;
 			return [
 				{
+					id: thirdPartyStatusSettingId(key, "visibility"),
+					label: `${key} visibility`,
+					description,
+					currentValue: override === "show" ? "Show" : override === "hide" ? "Hide" : "Default",
+					values: ["Default", "Show", "Hide"],
+				},
+				{
 					id: thirdPartyStatusSettingId(key, "placement"),
-					label: `${key} placement`,
+					label: `${key} Starship placement`,
 					description,
 					currentValue: getExtensionStatusPlacement(config, key),
 					values: extensionStatusPlacementValues,
 				},
 				{
 					id: thirdPartyStatusSettingId(key, "colorMode"),
-					label: `${key} color`,
+					label: `${key} Starship color`,
 					description,
 					currentValue: getExtensionStatusColorMode(config, key),
 					values: extensionStatusColorModeValues,
@@ -1174,10 +1207,7 @@ function buildSectionItems(
 							...footerPages.map((page) => ({
 								id: footerPageSettingId(page),
 								label: sectionLabels[page],
-								description:
-									page === "extensions"
-										? "Place and color published keyed Footer statuses; not extension management or Working line integrations."
-										: `Configure Starship Footer ${sectionLabels[page]}; other components are unchanged.`,
+								description: `Configure Starship Footer ${sectionLabels[page]}; other components are unchanged.`,
 								currentValue: "->",
 								values: ["->"],
 							})),
@@ -1259,7 +1289,12 @@ function markDormantItems(
 		)
 			reason = "animated modes; Static ignores color motion";
 		else if (
-			["footer", "segments", "git", "extensions"].includes(section) &&
+			(["footer", "segments", "git"].includes(section) ||
+				(section === "extensions" &&
+					(item.id === "extensionStatusDefaultPlacement" ||
+						["placement", "colorMode"].includes(
+							thirdPartyStatusSettingFromId(item.id)?.kind ?? "",
+						)))) &&
 			item.id !== "footerStyle" &&
 			footer.style !== "starship"
 		)
@@ -2041,7 +2076,30 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											notifyChange("Default extension status placement", newValue);
 											return;
 										}
+										if (
+											id === "extensionStatusDefaultVisibility" &&
+											["Show", "Hide"].includes(newValue)
+										) {
+											deps.setExtensionStatusDefaultVisibility(
+												newValue === "Hide" ? "hide" : "show",
+											);
+											settingsList = makeSettingsList(id);
+											notifyChange("Default visibility", newValue);
+											return;
+										}
 										const thirdParty = thirdPartyStatusSettingFromId(id);
+										if (
+											thirdParty?.kind === "visibility" &&
+											["Default", "Show", "Hide"].includes(newValue)
+										) {
+											deps.setExtensionStatusVisibility(
+												thirdParty.key,
+												newValue === "Default" ? undefined : newValue === "Hide" ? "hide" : "show",
+											);
+											settingsList = makeSettingsList(id);
+											notifyChange(`${thirdParty.key} visibility`, newValue);
+											return;
+										}
 										if (thirdParty?.kind === "placement" && isExtensionStatusPlacement(newValue)) {
 											deps.setExtensionStatusPlacement(thirdParty.key, newValue);
 											settingsList.updateValue(id, newValue);

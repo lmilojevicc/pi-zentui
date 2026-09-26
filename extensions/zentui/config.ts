@@ -272,7 +272,14 @@ export type ThinkingStepsComponentConfig = {
 	mode: ThinkingStepsMode;
 };
 
+export type ExtensionStatusVisibility = "show" | "hide";
+export type ExtensionStatusVisibilityConfig = {
+	defaultVisibility: ExtensionStatusVisibility;
+	visibility: Record<string, ExtensionStatusVisibility>;
+};
+
 export type ComponentsConfig = {
+	extensionStatuses: ExtensionStatusVisibilityConfig;
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
 	thinkingSteps: ThinkingStepsComponentConfig;
@@ -501,6 +508,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 };
 
 const defaultComponents: ComponentsConfig = {
+	extensionStatuses: { defaultVisibility: "show", visibility: {} },
 	editor: {
 		codexQuota: false,
 		enabled: true,
@@ -1209,6 +1217,19 @@ function resolveWorkingLineMessages(messages: ConfigRecord): WorkingLineMessages
 	return { custom, values: hasOwn(messages, "values") ? legacyValues : preset() };
 }
 
+function resolveExtensionStatusVisibility(raw: unknown): ExtensionStatusVisibilityConfig {
+	const owner = recordValue(raw);
+	return {
+		defaultVisibility: owner.defaultVisibility === "hide" ? "hide" : "show",
+		visibility: Object.fromEntries(
+			Object.entries(recordValue(owner.visibility)).filter(
+				(entry): entry is [string, ExtensionStatusVisibility] =>
+					entry[1] === "show" || entry[1] === "hide",
+			),
+		),
+	};
+}
+
 function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
@@ -1255,6 +1276,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
+		extensionStatuses: resolveExtensionStatusVisibility(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
 			...(isRecord(editor.colors)
@@ -2277,10 +2299,60 @@ export function saveExtensionStatusColorMode(
 	);
 }
 
+export function saveExtensionStatusDefaultVisibility(
+	visibility: ExtensionStatusVisibility,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["extensionStatuses"],
+		(components) => {
+			components.extensionStatuses.defaultVisibility = visibility;
+		},
+		path,
+	);
+}
+
+/** Undefined resumes the independent default, without changing Starship presentation. */
+export function saveExtensionStatusVisibility(
+	key: string,
+	visibility: ExtensionStatusVisibility | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["extensionStatuses"],
+		(components) => {
+			if (visibility === undefined) delete components.extensionStatuses.visibility[key];
+			else
+				Object.defineProperty(components.extensionStatuses.visibility, key, {
+					value: visibility,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+		},
+		path,
+		(record) => {
+			// overlayKnown preserves unknown leaves; explicitly remove a reset override.
+			if (visibility === undefined) {
+				const owner = recordValue(recordValue(record.components).extensionStatuses);
+				delete recordValue(owner.visibility)[key];
+			}
+		},
+	);
+}
+
 /** Explicit all-owner migration; callers must obtain confirmation before invoking. */
 export function migrateComponentSelections(path = configPath): PolishedTuiConfig {
 	return saveComponentsMutation(
-		["editor", "userMessages", "thinkingSteps", "workingLine", "selectorBorders", "footer"],
+		[
+			"editor",
+			"userMessages",
+			"thinkingSteps",
+			"workingLine",
+			"selectorBorders",
+			"footer",
+			"extensionStatuses",
+		],
 		() => {},
 		path,
 	);

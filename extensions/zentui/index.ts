@@ -44,7 +44,9 @@ import {
 	saveEditorComponentPatch,
 	saveExtensionStatusColorMode,
 	saveExtensionStatusDefaultPlacement,
+	saveExtensionStatusDefaultVisibility,
 	saveExtensionStatusPlacement,
+	saveExtensionStatusVisibility,
 	saveFooterComponentPatch,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
@@ -64,6 +66,7 @@ import {
 	type EditorTransferFailureReason,
 	replaceEditorComponentWithExpandedText,
 } from "./editor-transfer";
+import { createExtensionStatusController } from "./extension-status-controller";
 import { installFooter, installHiddenFooter } from "./footer";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import {
@@ -210,6 +213,9 @@ export default function (pi: ExtensionAPI) {
 	let activeTheme: Theme | undefined;
 	let requestFooterRender: (() => void) | undefined;
 	let requestEditorRender: (() => void) | undefined;
+	const extensionStatuses = createExtensionStatusController(
+		() => currentConfig.components.extensionStatuses,
+	);
 	let getActiveExtensionStatuses: () => ReadonlyMap<string, string> = () => new Map();
 	let stopRefreshInterval: StopProjectRefreshInterval = () => {};
 	let cleanupUserMessageStyle: () => void = () => {};
@@ -1171,6 +1177,7 @@ export default function (pi: ExtensionAPI) {
 	const cleanupUi = (ctx?: ExtensionContext) => {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
+		extensionStatuses.dispose();
 		codexQuota.stop();
 		stopSessionTimer();
 		resetAgentTimer();
@@ -1236,6 +1243,8 @@ export default function (pi: ExtensionAPI) {
 		// Reload synchronously so private ownership uses this session's disk snapshot before
 		// any await or transcript restoration.
 		currentConfig = loadConfig();
+		extensionStatuses.dispose();
+		if (isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
 		thinkingExperimental.startSession(ctx);
 		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
 		cleanupAccentRailLayoutPatch();
@@ -1452,7 +1461,15 @@ export default function (pi: ExtensionAPI) {
 			if (patch.ignoreSubmodules !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		getActiveExtensionStatuses() {
-			return getActiveExtensionStatuses();
+			return new Map([...getActiveExtensionStatuses(), ...extensionStatuses.snapshot()]);
+		},
+		setExtensionStatusDefaultVisibility(visibility) {
+			currentConfig = saveExtensionStatusDefaultVisibility(visibility);
+			extensionStatuses.reconcile();
+		},
+		setExtensionStatusVisibility(key, visibility) {
+			currentConfig = saveExtensionStatusVisibility(key, visibility);
+			extensionStatuses.reconcile();
 		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			currentConfig = saveExtensionStatusDefaultPlacement(placement);

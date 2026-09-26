@@ -12,6 +12,7 @@ import {
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
+	type ExtensionStatusVisibility,
 	type FooterComponentConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
@@ -36,8 +37,9 @@ const sectionNames = [
 	"Thinking",
 	"Working line",
 	"Footer",
+	"Extension statuses",
 ] as const;
-const footerPageNames = ["Segments", "Git", "Extension statuses"] as const;
+const footerPageNames = ["Segments", "Git"] as const;
 type SectionName = (typeof sectionNames)[number] | (typeof footerPageNames)[number];
 
 function theme(): Theme {
@@ -234,6 +236,19 @@ function createHarness(
 			Object.assign(config.components.footer.styles.starship.gitMetrics, patch);
 		},
 		getActiveExtensionStatuses: () => new Map(),
+		setExtensionStatusDefaultVisibility(value: ExtensionStatusVisibility) {
+			config.components.extensionStatuses.defaultVisibility = value;
+		},
+		setExtensionStatusVisibility(key: string, value: ExtensionStatusVisibility | undefined) {
+			if (value === undefined) delete config.components.extensionStatuses.visibility[key];
+			else
+				Object.defineProperty(config.components.extensionStatuses.visibility, key, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			calls.extensionDefaultPlacement.push(placement);
 			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
@@ -319,7 +334,7 @@ afterEach(() => {
 });
 
 describe("component-oriented /zentui settings", () => {
-	it("uses the exact six-section order in wide and narrow navigation", async () => {
+	it("uses the exact seven-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -334,7 +349,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/6)`);
+			expect(lines[1]).toContain(`(${index + 1}/7)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -458,7 +473,6 @@ describe("component-oriented /zentui settings", () => {
 			"Path depth",
 			"Segments",
 			"Git",
-			"Extension statuses",
 			"Color overrides",
 		]);
 		openFooterPage(component, "Segments");
@@ -491,8 +505,12 @@ describe("component-oriented /zentui settings", () => {
 			"Ignore submodules",
 		]);
 		component.handleInput("\x1b");
-		openFooterPage(component, "Extension statuses");
-		expectFocusOrder(component, ["Default placement", "No active statuses"]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
+			"Default visibility",
+			"Starship default placement",
+			"No observed statuses",
+		]);
 	});
 
 	it.each(["native", "hidden"] as const)(
@@ -510,7 +528,7 @@ describe("component-oriented /zentui settings", () => {
 			for (const page of footerPageNames)
 				expect(component.render(200).join("\n")).not.toContain(page);
 			component.handleInput("\t");
-			expect(component.render(40)[1]).toContain("Appearance");
+			expect(component.render(40)[1]).toContain("Extension statuses");
 			expect(config).toEqual(before);
 		},
 	);
@@ -640,10 +658,10 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.calls.gitMetrics).toEqual([{ onlyNonzero: false }, { ignoreSubmodules: true }]);
 
 		component.handleInput("\x1b");
-		openFooterPage(component, "Extension statuses");
-		selectLabel(component, "Default placement");
+		component.handleInput("\t");
+		selectLabel(component, "Starship default placement");
 		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Default placement");
+		expect(focusedRow(component)).toContain("> Starship default placement");
 		expect(focusedRow(component)).toContain("off");
 		expect(harness.calls.extensionDefaultPlacement).toEqual(["off"]);
 		expect(config.components.footer.styles.starship.extensionStatuses.defaultPlacement).toBe("off");
@@ -2436,7 +2454,6 @@ describe("nested Starship Footer settings navigation", () => {
 	const pages = [
 		["segments", "Segments", "Current directory"],
 		["git", "Git", "Git branch"],
-		["extensions", "Extension statuses", "Default placement"],
 	] as const;
 
 	it.each(pages)(
@@ -2476,7 +2493,7 @@ describe("nested Starship Footer settings navigation", () => {
 			expect(h.doneCalls()).toBe(0);
 			panel.handleInput("\r");
 			panel.handleInput("\t");
-			expect(panel.render(40)[1]).toContain("Appearance");
+			expect(panel.render(40)[1]).toContain("Extension statuses");
 			panel.handleInput("\x1b[Z");
 			expect(panel.render(40)[1]).toContain("Footer");
 			panel.handleInput("\x1b");
@@ -2509,7 +2526,7 @@ describe("nested Starship Footer settings navigation", () => {
 			for (const [route, label, firstRow] of pages) {
 				await h.command().handler(route, h.ctx);
 				const panel = h.component();
-				expect(panel.render(40)[1]).toContain("[Footer] (6/6)");
+				expect(panel.render(40)[1]).toContain("[Footer] (6/7)");
 				expectFocusOrder(panel, ["Footer style", "Color overrides"]);
 				expect(panel.render(200).join("\n")).not.toContain(firstRow);
 				expect(h.notifications.at(-1)).toBe(
@@ -2587,7 +2604,7 @@ describe("nested Starship Footer settings navigation", () => {
 				}
 				panel.handleInput("x");
 				panel.handleInput("\t");
-				expect(panel.render(40)[1]).toContain("Appearance");
+				expect(panel.render(40)[1]).toContain("Extension statuses");
 				panel.handleInput("q");
 				expect(closed).toBe(1);
 				expect(h.config).toEqual(before);
@@ -2614,18 +2631,22 @@ describe("nested Starship Footer settings navigation", () => {
 		openFooterPage(panel, "Git");
 		panel.handleInput("\r");
 		panel.handleInput("\x1b");
-		openFooterPage(panel, "Extension statuses");
+		panel.handleInput("\t");
 		expectFocusOrder(panel, [
-			"Default placement",
-			"alpha placement",
-			"alpha color",
-			"zeta placement",
-			"zeta color",
+			"Default visibility",
+			"Starship default placement",
+			"alpha visibility",
+			"alpha Starship placement",
+			"alpha Starship color",
+			"zeta visibility",
+			"zeta Starship placement",
+			"zeta Starship color",
 		]);
+		selectLabel(panel, "Starship default placement");
 		panel.handleInput("\r");
-		selectLabel(panel, "alpha placement");
+		selectLabel(panel, "alpha Starship placement");
 		panel.handleInput("\r");
-		selectLabel(panel, "zeta color");
+		selectLabel(panel, "zeta Starship color");
 		panel.handleInput("\r");
 		expect(placement).toHaveBeenCalledExactlyOnceWith("alpha", "left");
 		expect(color).toHaveBeenCalledExactlyOnceWith("zeta", "original");
@@ -2638,16 +2659,22 @@ describe("nested Starship Footer settings navigation", () => {
 		expect(h.config).toEqual(expected);
 		statuses.delete("alpha");
 		statuses.set("beta", "B");
-		panel.handleInput("\x1b");
-		openFooterPage(panel, "Extension statuses");
+		panel.handleInput("\x1b[Z");
+		panel.handleInput("\t");
 		expectFocusOrder(panel, [
-			"Default placement",
-			"beta placement",
-			"beta color",
-			"zeta placement",
-			"zeta color",
+			"Default visibility",
+			"Starship default placement",
+			"alpha visibility",
+			"alpha Starship placement",
+			"alpha Starship color",
+			"beta visibility",
+			"beta Starship placement",
+			"beta Starship color",
+			"zeta visibility",
+			"zeta Starship placement",
+			"zeta Starship color",
 		]);
-		expect(row(panel, "zeta color")).toContain("original");
+		expect(row(panel, "zeta Starship color")).toContain("original");
 	});
 
 	it("closes a stale child without navigating, saving or reinstalling", async () => {
@@ -2660,5 +2687,105 @@ describe("nested Starship Footer settings navigation", () => {
 		expect(h.doneCalls()).toBe(1);
 		expect(h.config).toEqual(before);
 		expect(h.calls.renders.shared).toBe(0);
+	});
+});
+
+describe("independent Extension statuses settings", () => {
+	it.each(["native", "hidden", "starship"] as const)(
+		"exposes visibility and saved/observed keys under %s without changing other owners",
+		async (style) => {
+			const config = cloneConfig();
+			config.components.footer.style = style;
+			config.components.extensionStatuses.visibility = { saved: "hide" };
+			config.components.footer.styles.starship.extensionStatuses.placements.legacy = "off";
+			const h = createHarness(config, {
+				getActiveExtensionStatuses: () => new Map([["z:third-party", "RAW"]]),
+			});
+			const before = structuredClone(config);
+			await h.command().handler("extensions", h.ctx);
+			const panel = h.component();
+			expect(panel.render(40)[1]).toContain("Extension statuses");
+			expectFocusOrder(panel, [
+				"Default visibility",
+				"Starship default placement",
+				"legacy visibility",
+				"legacy Starship placement",
+				"legacy Starship color",
+				"saved visibility",
+				"saved Starship placement",
+				"saved Starship color",
+				"z:third-party visibility",
+				"z:third-party Starship placement",
+				"z:third-party Starship color",
+			]);
+			expect(panel.render(100).join("\n")).toContain(
+				"Show passes through; Footer controls rendering.",
+			);
+			expect(panel.render(100).join("\n")).not.toContain("Inactive now");
+			panel.handleInput("\r");
+			expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
+			selectLabel(panel, "saved visibility");
+			panel.handleInput("\r");
+			expect(Object.hasOwn(config.components.extensionStatuses.visibility, "saved")).toBe(false);
+			selectLabel(panel, "z:third-party visibility");
+			panel.handleInput("\r");
+			expect(config.components.extensionStatuses.visibility["z:third-party"]).toBe("show");
+			for (const owner of [
+				"editor",
+				"footer",
+				"userMessages",
+				"workingLine",
+				"selectorBorders",
+				"thinkingSteps",
+			] as const)
+				expect(config.components[owner]).toEqual(before.components[owner]);
+			expect(h.calls.footer).toEqual([]);
+			panel.handleInput("\x1b");
+			expect(h.doneCalls()).toBe(1);
+			expect(h.command().getArgumentCompletions("extensions")).toContainEqual({
+				value: "extensions",
+				label: "extensions",
+			});
+		},
+	);
+	it("supports remapped Change/Close and narrow top-level navigation", async () => {
+		let panel: Component | undefined;
+		let closed = false;
+		const h = createHarness(
+			cloneConfig(),
+			{},
+			{
+				custom: async (factory: (...args: unknown[]) => Component) => {
+					panel = factory(
+						{ terminal: { rows: 8 }, requestRender() {} },
+						theme(),
+						{
+							getKeys: (id: string) =>
+								({
+									"tui.select.confirm": ["x"],
+									"tui.select.cancel": ["q"],
+									"tui.select.down": ["j"],
+									"tui.select.up": ["k"],
+								})[id],
+						},
+						() => {
+							closed = true;
+						},
+					);
+				},
+			},
+		);
+		await h.command().handler("extensions", h.ctx);
+		if (!panel) throw new Error("No panel");
+		expect(panel.render(40).length).toBeLessThanOrEqual(8);
+		expect(panel.render(40).every((line) => visibleWidth(line) <= 40)).toBe(true);
+		panel.handleInput("x");
+		expect(h.config.components.extensionStatuses.defaultVisibility).toBe("hide");
+		panel.handleInput("\x1b[Z");
+		expect(panel.render(40)[1]).toContain("Footer");
+		panel.handleInput("\t");
+		expect(panel.render(40)[1]).toContain("Extension statuses");
+		panel.handleInput("q");
+		expect(closed).toBe(true);
 	});
 });

@@ -20,7 +20,9 @@ import {
 	saveAccentRailEditorStylePatch,
 	saveComponentColor,
 	saveEditorComponentPatch,
+	saveExtensionStatusDefaultVisibility,
 	saveExtensionStatusPlacement,
+	saveExtensionStatusVisibility,
 	saveFooterComponentPatch,
 	saveMinimalistEditorStylePatch,
 	savePolishedCopyFriendlyEditorStylePatch,
@@ -47,6 +49,8 @@ const raw = (path: string) => JSON.parse(fs.readFileSync(path, "utf8"));
 afterEach(() => vi.clearAllMocks());
 
 const ownerSaves = [
+	["extensionStatuses", (p: string) => saveExtensionStatusVisibility("future", "hide", p)],
+	["extensionStatuses", (p: string) => saveExtensionStatusDefaultVisibility("hide", p)],
 	["editor", (p: string) => saveEditorComponentPatch({ codexQuota: true }, p)],
 	["footer", (p: string) => saveFooterComponentPatch({ codexQuota: true }, p)],
 	["editor", (p: string) => saveEditorComponentPatch({ colorSource: "terminal" }, p)],
@@ -109,6 +113,7 @@ describe("owner-only component persistence", () => {
 					"footer",
 					"workingLine",
 					"thinkingSteps",
+					"extensionStatuses",
 					"future",
 				].map((key) => [
 					key,
@@ -298,4 +303,78 @@ describe("explicit component selection migration", () => {
 			expect(fs.statSync(path).mode & 0o777).toBe(0o600);
 			expect(fs.readdirSync(dir).sort()).toEqual(["link.json", "zentui.json"]);
 		}));
+});
+
+describe("independent status visibility persistence", () => {
+	it.each(["native", "hidden", "starship"])(
+		"preserves %s and other owners, including local off, across save/reset",
+		(style) => {
+			const initial = {
+				extensionStatuses: { defaultPlacement: "off", placements: { legacy: "off" } },
+				components: {
+					footer: {
+						style,
+						styles: {
+							starship: {
+								extensionStatuses: {
+									placements: { saved: "off" },
+									colorModes: { saved: "original" },
+								},
+							},
+						},
+					},
+					editor: { enabled: false },
+					future: { enabled: "future" },
+					extensionStatuses: { future: 17, visibility: { invalid: "future" } },
+				},
+			};
+			withFile(initial, (path) => {
+				expect(mergeConfig(initial).components.extensionStatuses).toEqual({
+					defaultVisibility: "show",
+					visibility: {},
+				});
+				saveExtensionStatusDefaultVisibility("hide", path);
+				for (const key of ["saved", "__proto__", "a:b"]) {
+					expect(
+						saveExtensionStatusVisibility(key, "show", path).components.extensionStatuses
+							.visibility[key],
+					).toBe("show");
+					const reset = saveExtensionStatusVisibility(key, undefined, path);
+					expect(Object.hasOwn(reset.components.extensionStatuses.visibility, key)).toBe(false);
+					expect(Object.hasOwn(raw(path).components.extensionStatuses.visibility, key)).toBe(false);
+				}
+				const saved = raw(path);
+				expect(saved.extensionStatuses).toEqual(initial.extensionStatuses);
+				for (const owner of ["footer", "editor", "future"] as const)
+					expect(saved.components[owner]).toEqual(initial.components[owner]);
+				expect(saved.components.extensionStatuses).toEqual({
+					defaultVisibility: "hide",
+					visibility: { invalid: "future" },
+					future: 17,
+				});
+				const before = saved.components.extensionStatuses;
+				saveFooterComponentPatch({ style: "native" }, path);
+				expect(raw(path).components.extensionStatuses).toEqual(before);
+			});
+		},
+	);
+	it.each([undefined, null, false, [], { defaultVisibility: "invalid", visibility: { a: true } }])(
+		"normalizes malformed owner %j to neutral",
+		(owner) => {
+			expect(
+				mergeConfig({ components: { extensionStatuses: owner } }).components.extensionStatuses,
+			).toEqual({ defaultVisibility: "show", visibility: {} });
+		},
+	);
+	it("never derives visibility from legacy footer disable or placement", () => {
+		const config = mergeConfig({
+			features: { statusLine: false },
+			extensionStatuses: { defaultPlacement: "off" },
+		});
+		expect(config.components.footer.style).toBe("native");
+		expect(config.components.extensionStatuses).toEqual({
+			defaultVisibility: "show",
+			visibility: {},
+		});
+	});
 });
