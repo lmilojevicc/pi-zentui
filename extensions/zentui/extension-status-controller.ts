@@ -75,7 +75,7 @@ export function createExtensionStatusController(getPolicy: () => ExtensionStatus
 					// A failed publication (including deletion) must never resurrect an older value.
 					successful.delete(key);
 					suppressed.delete(key);
-					const suppress = !releasing && text !== undefined && hidden(key);
+					const suppress = this === ui && !releasing && text !== undefined && hidden(key);
 					const forwarded = [...args];
 					if (suppress) forwarded[1] = undefined;
 					const token = Symbol();

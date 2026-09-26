@@ -201,6 +201,69 @@ describe("independent extension status controller", () => {
 		h.controller.dispose();
 	});
 
+	describe.each([
+		{ name: "detached", receiver: undefined },
+		{ name: "foreign", receiver: {} },
+	])("unsupported $name receiver under Off", ({ receiver }) => {
+		it.each([
+			{ older: false, release: "show" },
+			{ older: false, release: "dispose" },
+			{ older: true, release: "show" },
+			{ older: true, release: "dispose" },
+		])("passes through unchanged (older=$older, release=$release)", ({ older, release }) => {
+			const h = harness("hide");
+			if (older) h.ui.setStatus("x", "stale");
+			const args = ["x", "\x1b[31mRAW\x1b[0m", "extra"];
+			expect(Reflect.apply(h.ui.setStatus, receiver, args)).toBe("result");
+			expect(h.original).toHaveBeenLastCalledWith(...args);
+			expect(h.original.mock.contexts.at(-1)).toBe(receiver);
+			expect(h.provider.get("x")).toBe(args[1]);
+			expect(h.controller.snapshot().get("x")).toBe(args[1]);
+			h.controller.reconcile();
+			if (release === "show") {
+				h.policy.defaultVisibility = "show";
+				h.controller.reconcile();
+				h.policy.defaultVisibility = "hide";
+				h.controller.reconcile();
+			}
+			h.controller.dispose();
+			expect(h.provider.get("x")).toBe(args[1]);
+			expect(h.original).toHaveBeenCalledTimes(older ? 2 : 1);
+			expect(h.ui.setStatus).toBe(h.original);
+		});
+
+		it("passes deletion through without replaying an older owned suppression", () => {
+			const h = harness("hide");
+			h.ui.setStatus("x", "stale");
+			expect(Reflect.apply(h.ui.setStatus, receiver, ["x", undefined])).toBe("result");
+			expect(h.original).toHaveBeenLastCalledWith("x", undefined);
+			expect(h.original.mock.contexts.at(-1)).toBe(receiver);
+			expect(h.controller.snapshot().has("x")).toBe(false);
+			h.policy.defaultVisibility = "show";
+			h.controller.reconcile();
+			h.controller.dispose();
+			expect(h.provider.has("x")).toBe(false);
+			expect(h.original).toHaveBeenCalledTimes(2);
+		});
+
+		it.each([undefined, "failed update"])("preserves errors without stale replay: %s", (value) => {
+			const h = harness("hide");
+			h.ui.setStatus("x", "stale");
+			const error = new Error("unsupported receiver failure");
+			h.original.mockImplementationOnce(() => {
+				throw error;
+			});
+			expect(() => Reflect.apply(h.ui.setStatus, receiver, ["x", value])).toThrow(error);
+			expect(h.original).toHaveBeenLastCalledWith("x", value);
+			expect(h.original.mock.contexts.at(-1)).toBe(receiver);
+			h.policy.defaultVisibility = "show";
+			h.controller.reconcile();
+			h.controller.dispose();
+			expect(h.provider.has("x")).toBe(false);
+			expect(h.original).toHaveBeenCalledTimes(2);
+		});
+	});
+
 	it("does not replay an older outer call over a reentrant publication", () => {
 		const h = harness("hide");
 		h.original.mockImplementationOnce(() => {
