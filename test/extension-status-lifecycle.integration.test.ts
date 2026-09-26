@@ -13,21 +13,19 @@ vi.mock("../extensions/zentui/config", async (original) => {
 		...actual,
 		ensureConfigExists() {},
 		loadConfig: () => actual.mergeConfig(JSON.parse(readFileSync(disk.path, "utf8"))),
-		saveExtensionStatusDefaultVisibility: (value: "show" | "hide") =>
-			actual.saveExtensionStatusDefaultVisibility(value, disk.path),
-		saveExtensionStatusVisibility: (key: string, value: "show" | "hide" | undefined) =>
-			actual.saveExtensionStatusVisibility(key, value, disk.path),
-		saveHiddenExtensionStatusDefaultPlacement: (value: "left" | "middle" | "right") =>
-			actual.saveHiddenExtensionStatusDefaultPlacement(value, disk.path),
-		saveHiddenExtensionStatusPlacement: (
+		saveExtensionStatusDefaultChoice: (
+			value: Parameters<typeof actual.saveExtensionStatusDefaultChoice>[0],
+			style: Parameters<typeof actual.saveExtensionStatusDefaultChoice>[1],
+		) => actual.saveExtensionStatusDefaultChoice(value, style, disk.path),
+		saveExtensionStatusChoice: (
 			key: string,
-			value: "left" | "middle" | "right" | undefined,
-		) => actual.saveHiddenExtensionStatusPlacement(key, value, disk.path),
+			value: Parameters<typeof actual.saveExtensionStatusChoice>[1],
+			style: Parameters<typeof actual.saveExtensionStatusChoice>[2],
+		) => actual.saveExtensionStatusChoice(key, value, style, disk.path),
+		saveExtensionStatusColorMode: (key: string, value: "zentui" | "original") =>
+			actual.saveExtensionStatusColorMode(key, value, disk.path),
 		saveHiddenExtensionStatusColorMode: (key: string, value: "zentui" | "original") =>
 			actual.saveHiddenExtensionStatusColorMode(key, value, disk.path),
-		saveExtensionStatusDefaultPlacement: (
-			value: Parameters<typeof actual.saveExtensionStatusDefaultPlacement>[0],
-		) => actual.saveExtensionStatusDefaultPlacement(value, disk.path),
 		saveFooterComponentPatch: (patch: Parameters<typeof actual.saveFooterComponentPatch>[0]) =>
 			actual.saveFooterComponentPatch(patch, disk.path),
 	};
@@ -182,24 +180,27 @@ describe("independent extension status lifecycle", () => {
 				h.ctx.ui.setStatus("third-party", "RAW_STATUS");
 				h.ctx.ui.setStatus("off", "LOCAL_OFF");
 				if (style === "hidden") expect(h.footer()?.render(160)).toEqual(["LOCAL_OFF RAW_STATUS"]);
+				const beforeOpen = readFileSync(disk.path, "utf8");
 				await h.open("extensions");
-				expect(h.rows()).toContain("third-party visibility");
-				expect(h.rows()).toContain("Default visibility");
-				h.change("Default visibility");
+				expect(readFileSync(disk.path, "utf8")).toBe(beforeOpen);
+				expect(h.rows()).toContain("third-party placement");
+				expect(h.rows()).toContain("Default placement");
+				for (let i = 0; i < (style === "hidden" ? 3 : 1); i++) h.change("Default placement");
 				expect(h.provider.size).toBe(0);
 				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
 				expect(raw().components.extensionStatuses.defaultVisibility).toBe("hide");
 				expect(raw().components.footer).toEqual(h.config.components.footer);
 				h.ctx.ui.setStatus("third-party", "LATEST_STATUS");
-				h.change("third-party visibility"); // Default -> Show
+				h.change("third-party placement"); // Default -> Off
+				h.change("third-party placement"); // Off -> Left (explicit Show)
 				expect(h.provider.get("third-party")).toBe("LATEST_STATUS");
 				if (style === "hidden") expect(h.footer()?.render(160)).toEqual(["LATEST_STATUS"]);
-				h.change("third-party visibility"); // Show -> Hide
+				for (let i = 0; i < 4; i++) h.change("third-party placement"); // Left -> Default -> Off
 				expect(h.provider.has("third-party")).toBe(false);
 				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
-				h.change("third-party visibility"); // Hide -> Default
+				for (let i = 0; i < 4; i++) h.change("third-party placement"); // Off -> Default
 				expect(raw().components.extensionStatuses.visibility).toEqual({});
-				h.change("Default visibility");
+				h.change("Default placement");
 				expect(h.provider.get("third-party")).toBe("LATEST_STATUS");
 				expect(h.provider.get("off")).toBe("LOCAL_OFF");
 				if (style === "hidden")
@@ -208,10 +209,10 @@ describe("independent extension status lifecycle", () => {
 					expect(h.footer()?.render(200).join("\n")).toContain("LATEST_STATUS");
 					expect(h.footer()?.render(200).join("\n")).not.toContain("LOCAL_OFF");
 				}
-				h.change("Default visibility");
+				h.change("Default placement");
 				h.ctx.ui.setStatus("third-party", undefined);
 				h.ctx.ui.setStatus("off", undefined);
-				h.change("Default visibility");
+				for (let i = 0; i < 3; i++) h.change("Default placement");
 				expect(h.provider.size).toBe(0);
 				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
 				expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(footerCalls);
@@ -226,13 +227,79 @@ describe("independent extension status lifecycle", () => {
 		},
 	);
 
+	it("keeps Native layout untouched while saving dormant Starship choices and applying Off", async () => {
+		const h = setup("native");
+		const saved = raw();
+		saved.components.footer.enabled = false;
+		saved.components.footer.styles.starship.extensionStatuses.defaultPlacement = "off";
+		const hidden = { placements: { off: "middle" }, colorModes: { off: "zentui" } };
+		saved.components.extensionStatuses = { visibility: { off: "show" }, hidden };
+		writeFileSync(disk.path, JSON.stringify(saved));
+		await h.emit("session_start");
+		try {
+			h.ctx.ui.setStatus("off", "RAW");
+			const beforeOpen = readFileSync(disk.path, "utf8");
+			await h.open("extensions");
+			expect(readFileSync(disk.path, "utf8")).toBe(beforeOpen);
+			const rows = stripVTControlCharacters(h.rows());
+			expect(rows).toMatch(/Default placement\s+Right/);
+			expect(rows).toMatch(/off placement\s+Right/);
+			expect(rows).toContain("Native uses Pi's layout");
+			h.change("off placement"); // Right -> Default, ignoring dormant Starship Off
+			expect(raw().components.extensionStatuses.visibility).toEqual({});
+			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({});
+			expect(h.provider.get("off")).toBe("RAW");
+			h.change("Default placement"); // Right -> Off
+			expect(h.provider.has("off")).toBe(false);
+			h.change("off placement"); // Default -> Off
+			h.change("off placement"); // Off -> Left explicitly shows even with default Off
+			expect(h.provider.get("off")).toBe("RAW");
+			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({
+				off: "left",
+			});
+			h.change("off color"); // Original -> Zentui (Starship only)
+			expect(h.provider.get("off")).toBe("RAW");
+			expect(raw().components.footer.styles.starship.extensionStatuses.colorModes).toEqual({
+				off: "zentui",
+			});
+			for (let i = 0; i < 3; i++) h.change("off placement"); // Left -> Default
+			expect(h.provider.has("off")).toBe(false);
+			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
+			expect(raw().components.footer).toMatchObject({ style: "native", enabled: false });
+			expect(h.ctx.ui.setFooter).not.toHaveBeenCalled();
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
+	it("keeps active visibility and placement unchanged after a settings save fails", async () => {
+		const h = setup("hidden");
+		await h.emit("session_start");
+		try {
+			h.ctx.ui.setStatus("key", "RAW");
+			await h.open("extensions");
+			writeFileSync(disk.path, "{broken");
+			h.change("key placement"); // Default -> Off fails before applying live state
+			expect(readFileSync(disk.path, "utf8")).toBe("{broken");
+			expect(h.provider.get("key")).toBe("RAW");
+			expect(h.footer()?.render(80)).toEqual(["RAW"]);
+			expect(stripVTControlCharacters(h.rows())).toMatch(/key placement\s+Default/);
+			expect(h.ctx.ui.notify).toHaveBeenCalledWith(
+				expect.stringContaining("corrupt or unreadable"),
+				"error",
+			);
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
 	it("keeps visibility across Footer transitions and reload, releasing only current-session suppression", async () => {
 		const h = setup("native");
 		await h.emit("session_start");
 		try {
 			h.ctx.ui.setStatus("third-party", "LATEST");
 			await h.open("extensions");
-			h.change("Default visibility");
+			h.change("Default placement");
 			const wrapper = h.ctx.ui.setStatus;
 			for (const style of ["starship", "hidden", "native"]) {
 				await h.open("footer");
@@ -248,7 +315,7 @@ describe("independent extension status lifecycle", () => {
 			h.ctx.ui.setStatus("third-party", "NEXT_SESSION");
 			expect(h.provider.size).toBe(0);
 			await h.open("extensions");
-			expect(h.rows()).toContain("third-party visibility");
+			expect(h.rows()).toContain("third-party placement");
 		} finally {
 			await h.emit("session_shutdown");
 		}
@@ -263,13 +330,14 @@ describe("independent extension status lifecycle", () => {
 			await h.emit("session_start");
 			try {
 				await h.open("extensions");
-				expect(h.rows()).toContain("before-observation visibility");
-				h.change("Default visibility");
+				expect(h.rows()).toContain("before-observation placement");
+				for (let i = 0; i < (style === "hidden" ? 3 : 1); i++) h.change("Default placement");
 				expect(h.setter).not.toHaveBeenCalled();
 				expect(h.provider.get("before-observation")).toBe("PREEXISTING");
 				if (style === "hidden") {
 					expect(h.footer()?.render(160)).toEqual([]);
-					h.change("before-observation visibility"); // Default -> Show, presentation only
+					h.change("before-observation placement"); // Default -> Off
+					h.change("before-observation placement"); // Off -> Left, presentation only
 					expect(h.footer()?.render(160)).toEqual(["PREEXISTING"]);
 					expect(h.setter).not.toHaveBeenCalled();
 				}
@@ -287,43 +355,46 @@ describe("independent extension status lifecycle", () => {
 		try {
 			for (const key of ["l", "m", "r"]) h.ctx.ui.setStatus(key, key.toUpperCase());
 			await h.open("extensions");
-			expect(h.rows()).toContain("Hidden default placement");
+			expect(h.rows()).toContain("Default placement");
 			expect(h.rows()).not.toContain("Starship placement");
 			expect(h.rows()).not.toContain("Starship color");
-			h.change("Hidden default placement"); // Left -> Middle
-			h.change("l Hidden placement"); // Default -> Left
-			for (let i = 0; i < 3; i++) h.change("r Hidden placement"); // Default -> Right
+			h.change("Default placement"); // Left -> Middle
+			for (let i = 0; i < 2; i++) h.change("l placement"); // Default -> Left
+			for (let i = 0; i < 4; i++) h.change("r placement"); // Default -> Right
 			expect(h.footer()?.render(21)).toEqual(["L         M         R"]);
 			expect(raw().components.footer).toEqual(h.config.components.footer);
 			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
-			h.change("Default visibility");
-			expect(h.footer()?.render(21)).toEqual([]);
+			for (let i = 0; i < 2; i++) h.change("Default placement"); // Middle -> Off
+			// Explicit positive choices stay visible when the default is Off.
+			expect(h.footer()?.render(21)).toEqual(["L                   R"]);
 			h.ctx.ui.setStatus("r", "RR");
-			h.change("r visibility"); // Default -> Show
-			expect(h.footer()?.render(21)).toEqual(["                   RR"]);
+			h.change("r placement"); // Right -> Default
+			h.change("r placement"); // Default -> Off
+			h.change("r placement"); // Off -> Left
+			expect(h.footer()?.render(21)).toEqual(["L RR"]);
 			h.ctx.ui.setStatus("r", undefined);
-			expect(h.footer()?.render(21)).toEqual([]);
-			h.change("Default visibility");
-			expect(h.footer()?.render(21)).toEqual(["L         M"]);
+			expect(h.footer()?.render(21)).toEqual(["L"]);
+			h.change("Default placement"); // Off -> Left
+			expect(h.footer()?.render(21)).toEqual(["L M"]);
 			h.ctx.ui.setStatus("r", "R");
-			h.change("r Hidden placement"); // Right -> Default
+			for (let i = 0; i < 3; i++) h.change("r placement"); // Left -> Default
 			expect(raw().components.extensionStatuses.hidden.placements).toEqual({ l: "left" });
-			expect(h.footer()?.render(21)).toEqual(["L        M R"]);
+			expect(h.footer()?.render(21)).toEqual(["L M R"]);
 			const hidden = raw().components.extensionStatuses.hidden;
 			await h.open("footer");
 			h.change("Footer style"); // Hidden -> Native
 			await h.open("extensions");
-			expect(h.rows()).toContain("Starship default placement");
-			expect(h.rows()).not.toContain("Hidden default placement");
+			expect(h.rows()).toContain("Default placement");
+			expect(h.rows()).not.toContain("Hidden placement");
 			await h.open("footer");
 			h.change("Footer style"); // Native -> Starship
 			await h.open("extensions");
-			h.change("Starship default placement"); // Right -> Off, never global Hide
+			h.change("Default placement"); // Right -> Off
 			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
-			expect(h.provider.get("r")).toBe("R");
+			expect(h.provider.has("r")).toBe(false);
 			await h.open("footer");
 			h.change("Footer style"); // Starship -> Hidden
-			expect(h.footer()?.render(21)).toEqual(["L        M R"]);
+			expect(h.footer()?.render(21)).toEqual(["L"]);
 			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(4);
 			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
 			expect(raw().components.footer.styles.starship.extensionStatuses.colorModes).toEqual(
@@ -342,9 +413,9 @@ describe("independent extension status lifecycle", () => {
 			const original = "\x1b[32mBUILD\x1b[0m";
 			h.ctx.ui.setStatus("demo:build", original);
 			await h.open("extensions");
-			expect(h.rows()).toContain("demo:build Hidden color");
+			expect(h.rows()).toContain("demo:build color");
 			expect(h.footer()?.render(80)).toEqual([original]);
-			h.change("demo:build Hidden color"); // Original -> Zentui
+			h.change("demo:build color"); // Original -> Zentui
 			expect(h.footer()?.render(80)).toEqual(["\x1b[90mBUILD\x1b[0m"]);
 			expect(raw().components.extensionStatuses.hidden.colorModes).toEqual({
 				"demo:build": "zentui",
@@ -354,11 +425,12 @@ describe("independent extension status lifecycle", () => {
 			expect(raw().components.extensionStatuses).not.toHaveProperty("defaultVisibility");
 			h.ctx.ui.setStatus("demo:build", "\x1b[33mLATEST\x1b[0m");
 			expect(h.footer()?.render(80)).toEqual(["\x1b[90mLATEST\x1b[0m"]);
-			h.change("Default visibility");
+			for (let i = 0; i < 3; i++) h.change("Default placement"); // Left -> Off
 			expect(h.footer()?.render(80)).toEqual([]);
-			h.change("demo:build visibility");
+			h.change("demo:build placement"); // Default -> Off
+			h.change("demo:build placement"); // Off -> Left
 			expect(h.footer()?.render(80)).toEqual(["\x1b[90mLATEST\x1b[0m"]);
-			h.change("demo:build Hidden color"); // Zentui -> Original
+			h.change("demo:build color"); // Zentui -> Original
 			expect(h.footer()?.render(80)).toEqual(["\x1b[33mLATEST\x1b[0m"]);
 			expect(raw().components.extensionStatuses.hidden.colorModes).toEqual({});
 			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
@@ -374,7 +446,7 @@ describe("independent extension status lifecycle", () => {
 		await h.open("extensions");
 		await h.emit("session_start");
 		try {
-			h.change("Default visibility");
+			h.change("Default placement");
 			expect(raw().components).not.toHaveProperty("extensionStatuses");
 			h.ctx.ui.setStatus("new-session", "shown");
 			expect(h.provider.get("new-session")).toBe("shown");

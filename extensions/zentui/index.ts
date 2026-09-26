@@ -18,6 +18,7 @@ import {
 	type ContextStyle,
 	defaultConfig,
 	type EditorComponentConfig,
+	type ExtensionStatusChoice,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
 	ensureConfigExists,
@@ -42,15 +43,11 @@ import {
 	saveComponentColor,
 	saveComponentPreset,
 	saveEditorComponentPatch,
+	saveExtensionStatusChoice,
 	saveExtensionStatusColorMode,
-	saveExtensionStatusDefaultPlacement,
-	saveExtensionStatusDefaultVisibility,
-	saveExtensionStatusPlacement,
-	saveExtensionStatusVisibility,
+	saveExtensionStatusDefaultChoice,
 	saveFooterComponentPatch,
 	saveHiddenExtensionStatusColorMode,
-	saveHiddenExtensionStatusDefaultPlacement,
-	saveHiddenExtensionStatusPlacement,
 	saveIconsModePatch,
 	saveMinimalistEditorStylePatch,
 	savePolishedCopyFriendlyEditorStylePatch,
@@ -1472,28 +1469,19 @@ export default function (pi: ExtensionAPI) {
 		getActiveExtensionStatuses() {
 			return new Map([...getActiveExtensionStatuses(), ...extensionStatuses.snapshot()]);
 		},
-		setExtensionStatusDefaultVisibility(visibility) {
-			currentConfig = saveExtensionStatusDefaultVisibility(visibility);
+		setExtensionStatusDefaultChoice(placement: ExtensionStatusPlacement) {
+			currentConfig = saveExtensionStatusDefaultChoice(
+				placement,
+				currentConfig.components.footer.style,
+			);
 			extensionStatuses.reconcile();
 		},
-		setExtensionStatusVisibility(key, visibility) {
-			currentConfig = saveExtensionStatusVisibility(key, visibility);
+		setExtensionStatusChoice(key: string, choice: ExtensionStatusChoice) {
+			currentConfig = saveExtensionStatusChoice(key, choice, currentConfig.components.footer.style);
 			extensionStatuses.reconcile();
-		},
-		setHiddenExtensionStatusDefaultPlacement(placement) {
-			currentConfig = saveHiddenExtensionStatusDefaultPlacement(placement);
-		},
-		setHiddenExtensionStatusPlacement(key, placement) {
-			currentConfig = saveHiddenExtensionStatusPlacement(key, placement);
 		},
 		setHiddenExtensionStatusColorMode(key, colorMode) {
 			currentConfig = saveHiddenExtensionStatusColorMode(key, colorMode);
-		},
-		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
-			currentConfig = saveExtensionStatusDefaultPlacement(placement);
-		},
-		setExtensionStatusPlacement(key: string, placement: ExtensionStatusPlacement) {
-			currentConfig = saveExtensionStatusPlacement(key, placement);
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			currentConfig = saveExtensionStatusColorMode(key, colorMode);

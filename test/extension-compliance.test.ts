@@ -140,13 +140,9 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setGitCommit() {},
 	setGitMetrics() {},
 	getActiveExtensionStatuses: () => new Map<string, string>(),
-	setExtensionStatusDefaultVisibility() {},
-	setExtensionStatusVisibility() {},
-	setHiddenExtensionStatusDefaultPlacement() {},
-	setHiddenExtensionStatusPlacement() {},
 	setHiddenExtensionStatusColorMode() {},
-	setExtensionStatusDefaultPlacement() {},
-	setExtensionStatusPlacement() {},
+	setExtensionStatusDefaultChoice() {},
+	setExtensionStatusChoice() {},
 	setExtensionStatusColorMode() {},
 	requestRender() {},
 };
@@ -5196,7 +5192,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5240,7 +5236,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5288,7 +5284,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {
 					renderRequests += 1;
@@ -5335,7 +5331,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5368,7 +5364,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5415,7 +5411,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5463,7 +5459,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 			},
@@ -5518,7 +5514,7 @@ describe("Pi docs compliance", () => {
 					setGitBranch() {},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
-					setExtensionStatusPlacement() {},
+					setExtensionStatusChoice() {},
 					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
@@ -5584,7 +5580,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -5654,7 +5650,7 @@ describe("Pi docs compliance", () => {
 					setGitBranch() {},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
-					setExtensionStatusPlacement() {},
+					setExtensionStatusChoice() {},
 					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
@@ -5719,7 +5715,7 @@ describe("Pi docs compliance", () => {
 					setGitBranch() {},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
-					setExtensionStatusPlacement() {},
+					setExtensionStatusChoice() {},
 					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
@@ -5792,7 +5788,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -5849,7 +5845,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -5909,7 +5905,7 @@ describe("Pi docs compliance", () => {
 					changes.push(separator);
 				},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
@@ -5990,7 +5986,7 @@ describe("Pi docs compliance", () => {
 					},
 					setSeparator() {},
 					getActiveExtensionStatuses: () => new Map<string, string>(),
-					setExtensionStatusPlacement() {},
+					setExtensionStatusChoice() {},
 					setExtensionStatusColorMode() {},
 					requestRender() {},
 					settingsListTheme: {
@@ -6052,7 +6048,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {
 					dependencyRenderRequests += 1;
@@ -6126,7 +6122,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -6193,7 +6189,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -6255,7 +6251,7 @@ describe("Pi docs compliance", () => {
 						["alpha", "A"],
 						["beta", "B"],
 					]),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -6287,13 +6283,13 @@ describe("Pi docs compliance", () => {
 
 		expect(rendered).toContain("alpha");
 		expect(rendered).toContain("beta");
-		expect(rendered).toContain("right");
+		expect(rendered).toContain("Right");
 	});
 
 	it("shows an empty Extension statuses page with independent defaults", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 		let rendered = "";
-		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
+		const placements: Array<{ key: string; placement: "default" | ExtensionStatusPlacement }> = [];
 
 		registerZentuiSettingsCommand(
 			{
@@ -6313,7 +6309,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>(),
-				setExtensionStatusPlacement(key, placement) {
+				setExtensionStatusChoice(key, placement) {
 					placements.push({ key, placement });
 				},
 				setExtensionStatusColorMode() {},
@@ -6348,13 +6344,13 @@ describe("Pi docs compliance", () => {
 		});
 
 		expect(rendered).toContain("No observed statuses");
-		expect(rendered).toContain("Default visibility");
+		expect(rendered).toContain("Default placement");
 		expect(placements).toEqual([]);
 	});
 
 	it("cycles active third-party status placement from the Extension statuses page", async () => {
 		let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-		const placements: Array<{ key: string; placement: ExtensionStatusPlacement }> = [];
+		const placements: Array<{ key: string; placement: "default" | ExtensionStatusPlacement }> = [];
 		let dependencyRenderRequests = 0;
 		let tuiRenderRequests = 0;
 
@@ -6376,7 +6372,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["alpha", "ok"]]),
-				setExtensionStatusPlacement(key, placement) {
+				setExtensionStatusChoice(key, placement) {
 					placements.push({ key, placement });
 				},
 				setExtensionStatusColorMode() {},
@@ -6411,7 +6407,7 @@ describe("Pi docs compliance", () => {
 						() => {},
 					) as { render?: (width: number) => string[]; handleInput?: (data: string) => void };
 					openExtensionStatusesSettings(component);
-					for (let i = 0; i < 3; i++) component.handleInput?.("\x1b[B");
+					component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 				},
 			},
@@ -6447,7 +6443,7 @@ describe("Pi docs compliance", () => {
 				setGitBranch() {},
 				setSeparator() {},
 				getActiveExtensionStatuses: () => new Map<string, string>([["active", "ok"]]),
-				setExtensionStatusPlacement() {},
+				setExtensionStatusChoice() {},
 				setExtensionStatusColorMode() {},
 				requestRender() {},
 				settingsListTheme: {
@@ -6478,7 +6474,7 @@ describe("Pi docs compliance", () => {
 		});
 
 		expect(rendered).toContain("active");
-		expect(rendered).toContain("middle");
+		expect(rendered).toContain("Middle");
 		expect(rendered).toContain("inactive");
 	});
 	it("sanitizes project-derived metadata in built-in, custom, and compact Footer routes", () => {

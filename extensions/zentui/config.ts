@@ -2350,18 +2350,21 @@ export function saveExtensionStatusColorMode(
 	colorMode: ExtensionStatusColorMode,
 	path = configPath,
 ): PolishedTuiConfig {
-	return saveComponentsMutation(
-		["footer"],
-		(components) => {
-			Object.defineProperty(components.footer.styles.starship.extensionStatuses.colorModes, key, {
-				value: colorMode,
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			});
-		},
-		path,
-	);
+	return mutateConfig(path, (record) => {
+		const footer = recordValue(recordValue(record.components).footer);
+		const starship = recordValue(recordValue(footer.styles).starship);
+		const statuses = recordValue(starship.extensionStatuses);
+		const colorModes = Object.hasOwn(statuses, "colorModes")
+			? recordValue(statuses.colorModes)
+			: recordValue(recordValue(record.extensionStatuses).colorModes);
+		record.components = overlayKnown(record.components, {
+			footer: {
+				styles: {
+					starship: { extensionStatuses: { colorModes: { ...colorModes, [key]: colorMode } } },
+				},
+			},
+		});
+	});
 }
 
 /** Hidden placement edits remain sparse and never snapshot another owner's preferences. */
@@ -2451,6 +2454,91 @@ export function saveExtensionStatusVisibility(
 			}
 		},
 	);
+}
+
+export type ExtensionStatusChoice = "default" | ExtensionStatusPlacement;
+
+/** Save one menu choice in a single atomic write, without snapshotting other components. */
+export function saveExtensionStatusDefaultChoice(
+	placement: ExtensionStatusPlacement,
+	style: FooterStyle,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { defaultVisibility: placement === "off" ? "hide" : "show" },
+		});
+		if (placement === "off") return;
+		if (style === "hidden") {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { defaultPlacement: placement } },
+			});
+		} else {
+			// Native retains Starship positioning as a dormant preference; Pi owns its layout.
+			record.components = overlayKnown(record.components, {
+				footer: { styles: { starship: { extensionStatuses: { defaultPlacement: placement } } } },
+			});
+		}
+	});
+}
+
+/** Default removes both visibility and current-mode placement, shadowing legacy Starship maps. */
+export function saveExtensionStatusChoice(
+	key: string,
+	choice: ExtensionStatusChoice,
+	style: FooterStyle,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const components = recordValue(record.components);
+		const owner = recordValue(components.extensionStatuses);
+		const hidden = recordValue(owner.hidden);
+		const starship = recordValue(recordValue(recordValue(components.footer).styles).starship);
+		const canonicalStatuses = recordValue(starship.extensionStatuses);
+		if (choice === "default") {
+			delete recordValue(owner.visibility)[key];
+			if (style === "hidden") {
+				delete recordValue(hidden.placements)[key];
+			} else {
+				// An empty canonical map must remain to prevent top-level legacy fallback.
+				const placements = {
+					...recordValue(
+						Object.hasOwn(canonicalStatuses, "placements")
+							? canonicalStatuses.placements
+							: recordValue(record.extensionStatuses).placements,
+					),
+				};
+				delete placements[key];
+				record.components = overlayKnown(record.components, {
+					footer: { styles: { starship: { extensionStatuses: { placements: {} } } } },
+				});
+				const footer = recordValue(recordValue(record.components).footer);
+				const savedStarship = recordValue(recordValue(footer.styles).starship);
+				recordValue(savedStarship.extensionStatuses).placements = placements;
+			}
+			return;
+		}
+		record.components = overlayKnown(record.components, {
+			extensionStatuses: { visibility: { [key]: choice === "off" ? "hide" : "show" } },
+		});
+		if (choice === "off") return;
+		if (style === "hidden") {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { placements: { [key]: choice } } },
+			});
+		} else {
+			const placements = Object.hasOwn(canonicalStatuses, "placements")
+				? recordValue(canonicalStatuses.placements)
+				: recordValue(recordValue(record.extensionStatuses).placements);
+			record.components = overlayKnown(record.components, {
+				footer: {
+					styles: {
+						starship: { extensionStatuses: { placements: { ...placements, [key]: choice } } },
+					},
+				},
+			});
+		}
+	});
 }
 
 /** Explicit all-owner migration; callers must obtain confirmation before invoking. */

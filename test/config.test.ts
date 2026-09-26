@@ -2684,6 +2684,7 @@ describe("mergeConfig", () => {
 			expect(raw.components.footer.styles.starship.extensionStatuses.colorModes).toEqual({
 				alpha: "zentui",
 				beta: "original",
+				invalid: "muted",
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

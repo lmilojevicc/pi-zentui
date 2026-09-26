@@ -12,7 +12,6 @@ import {
 	type EditorComponentConfig,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
-	type ExtensionStatusVisibility,
 	type FooterComponentConfig,
 	type PolishedTuiConfig,
 	type SelectorBordersComponentConfig,
@@ -236,34 +235,43 @@ function createHarness(
 			Object.assign(config.components.footer.styles.starship.gitMetrics, patch);
 		},
 		getActiveExtensionStatuses: () => new Map(),
-		setExtensionStatusDefaultVisibility(value: ExtensionStatusVisibility) {
-			config.components.extensionStatuses.defaultVisibility = value;
+		setExtensionStatusDefaultChoice(placement: ExtensionStatusPlacement) {
+			calls.extensionDefaultPlacement.push(placement);
+			config.components.extensionStatuses.defaultVisibility = placement === "off" ? "hide" : "show";
+			if (placement !== "off") {
+				if (config.components.footer.style === "hidden") {
+					config.components.extensionStatuses.hidden ??= {};
+					config.components.extensionStatuses.hidden.defaultPlacement = placement;
+				} else
+					config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
+			}
 		},
-		setExtensionStatusVisibility(key: string, value: ExtensionStatusVisibility | undefined) {
-			if (value === undefined) delete config.components.extensionStatuses.visibility[key];
-			else
-				Object.defineProperty(config.components.extensionStatuses.visibility, key, {
-					value,
+		setExtensionStatusChoice(key: string, choice: "default" | ExtensionStatusPlacement) {
+			const owner = config.components.extensionStatuses;
+			let placements = config.components.footer.styles.starship.extensionStatuses.placements;
+			if (config.components.footer.style === "hidden") {
+				owner.hidden ??= {};
+				owner.hidden.placements ??= {};
+				placements = owner.hidden.placements;
+			}
+			if (choice === "default") {
+				delete owner.visibility[key];
+				delete placements[key];
+			} else {
+				Object.defineProperty(owner.visibility, key, {
+					value: choice === "off" ? "hide" : "show",
 					enumerable: true,
 					configurable: true,
 					writable: true,
 				});
-		},
-		setHiddenExtensionStatusDefaultPlacement(placement: "left" | "middle" | "right") {
-			config.components.extensionStatuses.hidden ??= {};
-			const hidden = config.components.extensionStatuses.hidden;
-			hidden.defaultPlacement = placement;
-		},
-		setHiddenExtensionStatusPlacement(
-			key: string,
-			placement: "left" | "middle" | "right" | undefined,
-		) {
-			config.components.extensionStatuses.hidden ??= {};
-			const hidden = config.components.extensionStatuses.hidden;
-			hidden.placements ??= {};
-			const placements = hidden.placements;
-			if (placement === undefined) delete placements[key];
-			else placements[key] = placement;
+				if (choice !== "off")
+					Object.defineProperty(placements, key, {
+						value: choice,
+						enumerable: true,
+						configurable: true,
+						writable: true,
+					});
+			}
 		},
 		setHiddenExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			config.components.extensionStatuses.hidden ??= {};
@@ -277,13 +285,6 @@ function createHarness(
 					configurable: true,
 					writable: true,
 				});
-		},
-		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
-			calls.extensionDefaultPlacement.push(placement);
-			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
-		},
-		setExtensionStatusPlacement(key: string, placement: ExtensionStatusPlacement) {
-			config.components.footer.styles.starship.extensionStatuses.placements[key] = placement;
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
 			config.components.footer.styles.starship.extensionStatuses.colorModes[key] = colorMode;
@@ -535,11 +536,7 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		component.handleInput("\x1b");
 		component.handleInput("\t");
-		expectFocusOrder(component, [
-			"Default visibility",
-			"Starship default placement",
-			"No observed statuses",
-		]);
+		expectFocusOrder(component, ["Default placement", "No observed statuses"]);
 	});
 
 	it.each(["native", "hidden"] as const)(
@@ -688,12 +685,12 @@ describe("component-oriented /zentui settings", () => {
 
 		component.handleInput("\x1b");
 		component.handleInput("\t");
-		selectLabel(component, "Starship default placement");
+		selectLabel(component, "Default placement");
 		component.handleInput(" ");
-		expect(focusedRow(component)).toContain("> Starship default placement");
-		expect(focusedRow(component)).toContain("off");
+		expect(focusedRow(component)).toContain("> Default placement");
+		expect(focusedRow(component)).toContain("Off");
 		expect(harness.calls.extensionDefaultPlacement).toEqual(["off"]);
-		expect(config.components.footer.styles.starship.extensionStatuses.defaultPlacement).toBe("off");
+		expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
 	});
 
 	it("restores editor-style focus by ID after dynamic rebuild", async () => {
@@ -2653,7 +2650,7 @@ describe("nested Starship Footer settings navigation", () => {
 		]);
 		const h = createHarness(cloneConfig(), { getActiveExtensionStatuses: () => statuses });
 		const before = structuredClone(h.config);
-		const placement = vi.spyOn(h.deps, "setExtensionStatusPlacement");
+		const placement = vi.spyOn(h.deps, "setExtensionStatusChoice");
 		const color = vi.spyOn(h.deps, "setExtensionStatusColorMode");
 		await h.command().handler("segments", h.ctx);
 		const panel = h.component();
@@ -2664,28 +2661,26 @@ describe("nested Starship Footer settings navigation", () => {
 		panel.handleInput("\x1b");
 		panel.handleInput("\t");
 		expectFocusOrder(panel, [
-			"Default visibility",
-			"Starship default placement",
-			"alpha visibility",
-			"alpha Starship placement",
-			"alpha Starship color",
-			"zeta visibility",
-			"zeta Starship placement",
-			"zeta Starship color",
+			"Default placement",
+			"alpha placement",
+			"alpha color",
+			"zeta placement",
+			"zeta color",
 		]);
-		selectLabel(panel, "Starship default placement");
+		selectLabel(panel, "Default placement");
 		panel.handleInput("\r");
-		selectLabel(panel, "alpha Starship placement");
+		selectLabel(panel, "alpha placement");
 		panel.handleInput("\r");
-		selectLabel(panel, "zeta Starship color");
+		selectLabel(panel, "zeta color");
 		panel.handleInput("\r");
-		expect(placement).toHaveBeenCalledExactlyOnceWith("alpha", "left");
+		expect(placement).toHaveBeenCalledExactlyOnceWith("alpha", "off");
 		expect(color).toHaveBeenCalledExactlyOnceWith("zeta", "original");
 		const expected = structuredClone(before);
 		expected.components.footer.styles.starship.segments.cwd = false;
 		expected.components.footer.styles.starship.segments.gitBranch = false;
-		expected.components.footer.styles.starship.extensionStatuses.defaultPlacement = "off";
-		expected.components.footer.styles.starship.extensionStatuses.placements.alpha = "left";
+		expected.components.footer.styles.starship.extensionStatuses.defaultPlacement = "right";
+		expected.components.extensionStatuses.defaultVisibility = "hide";
+		expected.components.extensionStatuses.visibility.alpha = "hide";
 		expected.components.footer.styles.starship.extensionStatuses.colorModes.zeta = "original";
 		expect(h.config).toEqual(expected);
 		statuses.delete("alpha");
@@ -2693,19 +2688,15 @@ describe("nested Starship Footer settings navigation", () => {
 		panel.handleInput("\x1b[Z");
 		panel.handleInput("\t");
 		expectFocusOrder(panel, [
-			"Default visibility",
-			"Starship default placement",
-			"alpha visibility",
-			"alpha Starship placement",
-			"alpha Starship color",
-			"beta visibility",
-			"beta Starship placement",
-			"beta Starship color",
-			"zeta visibility",
-			"zeta Starship placement",
-			"zeta Starship color",
+			"Default placement",
+			"alpha placement",
+			"alpha color",
+			"beta placement",
+			"beta color",
+			"zeta placement",
+			"zeta color",
 		]);
-		expect(row(panel, "zeta Starship color")).toContain("original");
+		expect(row(panel, "zeta color")).toContain("Original");
 	});
 
 	it("closes a stale child without navigating, saving or reinstalling", async () => {
@@ -2736,51 +2727,31 @@ describe("independent Extension statuses settings", () => {
 			await h.command().handler("extensions", h.ctx);
 			const panel = h.component();
 			expect(panel.render(40)[1]).toContain("Extension statuses");
-			expectFocusOrder(
-				panel,
-				style === "hidden"
-					? [
-							"Default visibility",
-							"Hidden default placement",
-							"legacy visibility",
-							"legacy Hidden placement",
-							"legacy Hidden color",
-							"saved visibility",
-							"saved Hidden placement",
-							"saved Hidden color",
-							"z:third-party visibility",
-							"z:third-party Hidden placement",
-							"z:third-party Hidden color",
-						]
-					: [
-							"Default visibility",
-							"Starship default placement",
-							"legacy visibility",
-							"legacy Starship placement",
-							"legacy Starship color",
-							"saved visibility",
-							"saved Starship placement",
-							"saved Starship color",
-							"z:third-party visibility",
-							"z:third-party Starship placement",
-							"z:third-party Starship color",
-						],
-			);
-			expect(panel.render(100).join("\n")).toContain(
-				"Show passes through; Footer controls rendering.",
-			);
+			expectFocusOrder(panel, [
+				"Default placement",
+				"legacy placement",
+				"legacy color",
+				"saved placement",
+				"saved color",
+				"z:third-party placement",
+				"z:third-party color",
+			]);
 			expect(panel.render(100).join("\n")).not.toContain("Inactive now");
-			panel.handleInput("\r");
+			expect(panel.render(160).join("\n")).not.toMatch(
+				/Hidden placement|Starship placement|visibility/,
+			);
+			expect(row(panel, "legacy placement")).toContain(style === "starship" ? "Off" : "Default");
+			selectLabel(panel, "Default placement");
+			for (let i = 0; i < (style === "hidden" ? 3 : 1); i++) panel.handleInput("\r");
 			expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
-			selectLabel(panel, "saved visibility");
+			selectLabel(panel, "saved placement");
 			panel.handleInput("\r");
-			expect(Object.hasOwn(config.components.extensionStatuses.visibility, "saved")).toBe(false);
-			selectLabel(panel, "z:third-party visibility");
+			expect(config.components.extensionStatuses.visibility.saved).toBe("show");
+			selectLabel(panel, "z:third-party placement");
 			panel.handleInput("\r");
-			expect(config.components.extensionStatuses.visibility["z:third-party"]).toBe("show");
+			expect(config.components.extensionStatuses.visibility["z:third-party"]).toBe("hide");
 			for (const owner of [
 				"editor",
-				"footer",
 				"userMessages",
 				"workingLine",
 				"selectorBorders",
@@ -2850,16 +2821,16 @@ describe("Hidden extension color settings", () => {
 		});
 		await h.command().handler("extensions", h.ctx);
 		const panel = h.component();
-		selectLabel(panel, "demo:build Hidden color");
-		expect(row(panel, "demo:build Hidden color")).toContain("Original");
+		selectLabel(panel, "demo:build color");
+		expect(row(panel, "demo:build color")).toContain("Original");
 		expect(panel.render(160).join("\n")).not.toContain("Inactive now");
 		panel.handleInput("\r");
-		expect(row(panel, "demo:build Hidden color")).toContain("Zentui");
+		expect(row(panel, "demo:build color")).toContain("Zentui");
 		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({
 			"demo:build": "zentui",
 		});
 		panel.handleInput("\r");
-		expect(row(panel, "demo:build Hidden color")).toContain("Original");
+		expect(row(panel, "demo:build color")).toContain("Original");
 		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({});
 		expect(config.components.extensionStatuses.hidden.placements).toEqual({
 			"demo:build": "right",
@@ -2875,11 +2846,11 @@ describe("Hidden extension color settings", () => {
 		const h = createHarness(config);
 		await h.command().handler("extensions", h.ctx);
 		const panel = h.component();
-		selectLabel(panel, "saved Hidden color");
-		expect(row(panel, "saved Hidden color")).toContain("Zentui");
+		selectLabel(panel, "saved color");
+		expect(row(panel, "saved color")).toContain("Zentui");
 		panel.handleInput("\r");
 		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({});
-		expect(panel.render(160).join("\n")).not.toContain("saved Hidden color");
+		expect(panel.render(160).join("\n")).not.toContain("saved color");
 		expect(panel.render(160).join("\n")).toContain("No observed statuses");
 	});
 });
@@ -2896,21 +2867,18 @@ describe("Hidden extension placement settings", () => {
 		const h = createHarness(config);
 		await h.command().handler("extensions", h.ctx);
 		const panel = h.component();
-		expectFocusOrder(panel, [
-			"Default visibility",
-			"Hidden default placement",
-			"saved visibility",
-			"saved Hidden placement",
-			"saved Hidden color",
-		]);
-		selectLabel(panel, "saved Hidden placement");
-		expect(panel.render(160).join("\n")).not.toContain("Starship");
-		expect(row(panel, "saved Hidden placement")).toContain("Right");
+		expectFocusOrder(panel, ["Default placement", "saved placement", "saved color"]);
+		selectLabel(panel, "saved placement");
+		expect(panel.render(160).join("\n")).not.toContain("Starship placement");
+		expect(row(panel, "saved placement")).toContain("Right");
 		panel.handleInput("\r");
-		expect(panel.render(160).join("\n")).not.toContain("saved Hidden placement");
+		expect(panel.render(160).join("\n")).not.toContain("saved placement");
 		expect(config.components.extensionStatuses.hidden.placements).toEqual({});
-		selectLabel(panel, "Hidden default placement");
-		panel.handleInput("\r");
+		selectLabel(panel, "Default placement");
+		panel.handleInput("\r"); // Right -> Off; previous Hidden position remains saved
+		expect(config.components.extensionStatuses.defaultVisibility).toBe("hide");
+		expect(config.components.extensionStatuses.hidden.defaultPlacement).toBe("right");
+		panel.handleInput("\r"); // Off -> Left
 		expect(config.components.extensionStatuses.hidden.defaultPlacement).toBe("left");
 		expect(config.components.footer).toEqual(beforeFooter);
 		expect(config.components.extensionStatuses.visibility).toEqual({});
