@@ -269,6 +269,27 @@ describe("adaptive editor border colors", () => {
 });
 
 describe("editor viewport indicators", () => {
+	it.each(["opencode", "opencode-copy-friendly", "minimalist"] as const)(
+		"preserves centered native scroll counts when wrapping %s",
+		(style) => {
+			const base = baseEditor({});
+			base.render = (width) => {
+				const border = (arrow: string, count: number) => {
+					const label = ` ${arrow} ${count} more `;
+					const left = Math.floor((width - label.length) / 2);
+					return `\x1b[90m${"─".repeat(left)}${label}${"─".repeat(width - left - label.length)}\x1b[0m`;
+				};
+				return [border("↑", 7), "typed text", border("↓", 11)];
+			};
+			const lines = wrapped(base, { style }).render(80);
+			expect(lines[0]).toContain("↑ 7 more");
+			expect(lines.at(-1)).toContain("↓ 11 more");
+			if (style === "minimalist") expect(lines[0]).toMatch(/^╭.*╮$/);
+			else expect(lines.some((line) => line.includes("model"))).toBe(true);
+			expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+		},
+	);
+
 	it.each([
 		[7, undefined, "↑ 7 more", undefined],
 		[undefined, 11, undefined, "↓ 11 more"],
@@ -578,6 +599,11 @@ describe("editor viewport indicators", () => {
 		"── ↑ 7 more ─────────",
 		"─── ↓ 7 more ─────────",
 		"─── ↑ 07 more ─────────",
+		"──────── ↑ 0 more ─────────",
+		"──────── ↑ 07 more ─────────",
+		"──────── ↓ 7 more ─────────",
+		"──────── ↑ 7 more ───────── suffix",
+		"──────── ↑ 7 more",
 		"prefix ─── ↑ 7 more ─────────",
 		"[muted]─── ↑ 7 more ─────────[/muted]",
 	])("fails open for an unknown top border form: %s", (malformedTop) => {

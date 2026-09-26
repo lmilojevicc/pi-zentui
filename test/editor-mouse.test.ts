@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import { CustomEditor, type Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { type EditorComponent, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type EditorStyle } from "../extensions/zentui/config";
 import type { EditorMouseEvent, EditorMouseHandler } from "../extensions/zentui/editor-mouse";
@@ -37,20 +37,27 @@ function config(style: EditorStyle) {
 function mouse(editor: object, event: EditorMouseEvent) {
 	return (editor as { handleMouse?: EditorMouseHandler }).handleMouse?.(event);
 }
-function event(x: number, y: number, width: number, height: number, type = "click") {
-	return {
+function event(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+	type: EditorMouseEvent["type"] = "click",
+): EditorMouseEvent {
+	const input = {
 		x,
 		y,
 		width,
 		height,
 		type,
-		button: "left",
+		button: "left" as const,
 		screenX: 20 + x,
 		screenY: 30 + y,
 		shift: false,
 		alt: false,
 		ctrl: false,
 	};
+	return input;
 }
 function cell(rows: string[], text: string) {
 	const plain = rows.map(stripVTControlCharacters);
@@ -88,6 +95,19 @@ const nativeMouse =
 	"function";
 
 describe("editor mouse capability and delegation", () => {
+	it("accepts an EditorComponent predecessor without narrowing its mouse contract", () => {
+		const base: EditorComponent = native();
+		const editor = new WrappedPolishedEditor(
+			base,
+			uiTheme,
+			() => config("opencode"),
+			meta,
+			() => "off",
+		);
+		expect(typeof editor.handleMouse === "function").toBe(nativeMouse);
+		editor.setText("draft");
+		expect(base.getText()).toBe("draft");
+	});
 	it("keeps quota outside the Accent Rail prompt and translates completion rows past it", () => {
 		const cfg = config("accent-rail");
 		cfg.components.editor.codexQuota = true;
@@ -158,19 +178,23 @@ describe("editor mouse capability and delegation", () => {
 				"function",
 		).toBe(nativeMouse);
 	});
-	it.each(styles)(
-		"delegates %s body coordinates, receiver, original bounds, absolute cells and capture results",
-		(style) => {
+	it.each(styles.flatMap((style) => [false, true].map((centered) => ({ style, centered }))))(
+		"delegates $style body coordinates, receiver, bounds, absolute cells and capture (centered: $centered)",
+		({ style, centered }) => {
 			const calls: EditorMouseEvent[] = [];
 			const result = { handled: true, capture: true, focus: true, render: false };
 			const base = {
 				focused: false,
-				render: (width: number) => [
-					`─── ↑ 20 more ${"─".repeat(Math.max(0, width - 14))}`,
-					"abcdef",
-					"ghijkl",
-					"─".repeat(width),
-				],
+				render(width: number) {
+					const label = " ↑ 20 more ";
+					const left = centered ? Math.floor((width - label.length) / 2) : 3;
+					return [
+						`${"─".repeat(left)}${label}${"─".repeat(Math.max(0, width - left - label.length))}`,
+						"abcdef",
+						"ghijkl",
+						"─".repeat(width),
+					];
+				},
 				invalidate() {},
 				handleInput() {},
 				getText: () => "abcdef\nghijkl",
@@ -215,6 +239,51 @@ describe("editor mouse capability and delegation", () => {
 			expect(calls.at(-1)).toEqual(direct);
 		},
 	);
+	it.each(styles)("keeps narrow centered native borders, input and mouse intact in %s", (style) => {
+		let text = "draft";
+		const handleMouse = vi.fn((_event: EditorMouseEvent) => ({ handled: true }));
+		const base = {
+			render(width: number) {
+				const label = " ↑ 2 more ";
+				const left = Math.floor((width - label.length) / 2);
+				return [
+					`${"─".repeat(left)}${label}${"─".repeat(width - left - label.length)}`,
+					text,
+					"─".repeat(width),
+				];
+			},
+			getText: () => text,
+			setText(value: string) {
+				text = value;
+			},
+			handleInput(value: string) {
+				text += value;
+			},
+			invalidate() {},
+			handleMouse,
+		};
+		const editor = new WrappedPolishedEditor(
+			base,
+			uiTheme,
+			() => config(style),
+			meta,
+			() => "off",
+		);
+		const chrome = style === "minimalist" ? 4 : style === "opencode-copy-friendly" ? 0 : 2;
+		for (const nativeWidth of [12, 14]) {
+			const width = nativeWidth + chrome;
+			expect(editor.render(width)).toEqual(base.render(nativeWidth));
+			editor.handleInput("!");
+			expect(editor.getText()).toBe(text);
+			expect(text).toContain("draft!");
+			const rows = editor.render(width);
+			expect(rows).toEqual(base.render(nativeWidth));
+			const input = event(2, 1, width, rows.length);
+			expect(mouse(editor, input)).toEqual({ handled: true });
+			expect(handleMouse).toHaveBeenLastCalledWith({ ...input, width: nativeWidth });
+		}
+	});
+
 	it("delegates fail-open output at the completed base render dimensions and narrow renders", () => {
 		const handleMouse = vi.fn((_event: EditorMouseEvent) => ({ handled: true }));
 		const base = {
@@ -309,7 +378,7 @@ describe.skipIf(!nativeMouse)("actual native mouse-capable editor", () => {
 						focus: true,
 					});
 					expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
-					for (const type of ["press", "drag", "release"])
+					for (const type of ["press", "drag", "release"] as const)
 						expect(mouse(editor, event(x, y, width, rows.length, type))).toBeUndefined();
 				}
 			},

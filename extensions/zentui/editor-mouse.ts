@@ -1,11 +1,17 @@
-// Structural subset keeps mouse support optional on Pi versions before 0.85.
-export type EditorMouseEvent = {
+import type { EditorComponent } from "@earendil-works/pi-tui";
+
+type LegacyEditorMouseEvent = {
 	type: string;
 	x: number;
 	y: number;
 	width: number;
 	height: number;
 };
+// Use the installed Pi event contract without requiring mouse exports on pre-0.85 Pi.
+type MouseEventFor<T> = T extends { handleMouse?: (event: infer Event) => unknown }
+	? Event
+	: LegacyEditorMouseEvent;
+export type EditorMouseEvent = MouseEventFor<EditorComponent>;
 export type EditorMouseResult = {
 	handled?: boolean;
 	capture?: boolean;
