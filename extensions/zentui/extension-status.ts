@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { stripVTControlCharacters } from "node:util";
-import type { ExtensionStatusColorMode, ExtensionStatusPlacement, ZentuiConfig } from "./config";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionStatusColorMode,
+	ExtensionStatusPlacement,
+	ExtensionStatusVisibilityConfig,
+	ZentuiConfig,
+} from "./config";
 import {
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
 	isExtensionStatusPlacement,
 } from "./config";
+import { truncateFooterText } from "./footer-text";
 
 export type ExtensionStatusSegment = {
 	key: string;
@@ -71,6 +78,28 @@ export function sanitizeExtensionStatusOriginalText(value: string): string {
 	});
 	const result = restored + (activeLink ? "\x1b]8;;\x07" : "");
 	return hasVisibleStatusText(result) ? result : "";
+}
+
+/** Status-only presentation for Hidden: native ordering/colors, never Starship preferences. */
+export function renderExtensionStatusLine(
+	statuses: ReadonlyMap<string, string>,
+	policy: ExtensionStatusVisibilityConfig,
+	theme: Theme,
+	width: number,
+): string[] {
+	if (width <= 0) return [];
+	const text = [...statuses]
+		.filter(
+			([key]) =>
+				(Object.hasOwn(policy.visibility, key)
+					? policy.visibility[key]
+					: policy.defaultVisibility) !== "hide",
+		)
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([, value]) => sanitizeExtensionStatusOriginalText(value))
+		.filter(Boolean)
+		.join(" ");
+	return text ? [truncateFooterText(text, width, theme.fg("dim", "..."))] : [];
 }
 
 export function collectExtensionStatusSegments(

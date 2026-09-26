@@ -170,28 +170,39 @@ describe("independent extension status lifecycle", () => {
 				const wrapper = h.ctx.ui.setStatus;
 				h.ctx.ui.setStatus("third-party", "RAW_STATUS");
 				h.ctx.ui.setStatus("off", "LOCAL_OFF");
+				if (style === "hidden") expect(h.footer()?.render(160)).toEqual(["LOCAL_OFF RAW_STATUS"]);
 				await h.open("extensions");
 				expect(h.rows()).toContain("third-party visibility");
 				expect(h.rows()).toContain("Default visibility");
 				h.change("Default visibility");
 				expect(h.provider.size).toBe(0);
+				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
 				expect(raw().components.extensionStatuses.defaultVisibility).toBe("hide");
 				expect(raw().components.footer).toEqual(h.config.components.footer);
 				h.ctx.ui.setStatus("third-party", "LATEST_STATUS");
 				h.change("third-party visibility"); // Default -> Show
 				expect(h.provider.get("third-party")).toBe("LATEST_STATUS");
+				if (style === "hidden") expect(h.footer()?.render(160)).toEqual(["LATEST_STATUS"]);
 				h.change("third-party visibility"); // Show -> Hide
 				expect(h.provider.has("third-party")).toBe(false);
+				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
 				h.change("third-party visibility"); // Hide -> Default
 				expect(raw().components.extensionStatuses.visibility).toEqual({});
 				h.change("Default visibility");
 				expect(h.provider.get("third-party")).toBe("LATEST_STATUS");
 				expect(h.provider.get("off")).toBe("LOCAL_OFF");
-				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
+				if (style === "hidden")
+					expect(h.footer()?.render(160)).toEqual(["LOCAL_OFF LATEST_STATUS"]);
 				if (style === "starship") {
 					expect(h.footer()?.render(200).join("\n")).toContain("LATEST_STATUS");
 					expect(h.footer()?.render(200).join("\n")).not.toContain("LOCAL_OFF");
 				}
+				h.change("Default visibility");
+				h.ctx.ui.setStatus("third-party", undefined);
+				h.ctx.ui.setStatus("off", undefined);
+				h.change("Default visibility");
+				expect(h.provider.size).toBe(0);
+				if (style === "hidden") expect(h.footer()?.render(160)).toEqual([]);
 				expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(footerCalls);
 				expect(h.ctx.ui.setStatus).toBe(wrapper);
 				expect(h.ctx.ui.setEditorComponent).not.toHaveBeenCalled();
@@ -233,22 +244,31 @@ describe("independent extension status lifecycle", () => {
 		expect(h.provider.get("third-party")).toBe("NEXT_SESSION");
 	});
 
-	it("uses already-owned Starship getter data only for discovery, never suppression provenance", async () => {
-		const h = setup("starship");
-		h.provider.set("before-observation", "PREEXISTING");
-		await h.emit("session_start");
-		try {
-			await h.open("extensions");
-			expect(h.rows()).toContain("before-observation visibility");
-			h.change("Default visibility");
+	it.each(["starship", "hidden"] as const)(
+		"uses already-owned %s getter data only for discovery, never suppression provenance",
+		async (style) => {
+			const h = setup(style);
+			h.provider.set("before-observation", "PREEXISTING");
+			await h.emit("session_start");
+			try {
+				await h.open("extensions");
+				expect(h.rows()).toContain("before-observation visibility");
+				h.change("Default visibility");
+				expect(h.setter).not.toHaveBeenCalled();
+				expect(h.provider.get("before-observation")).toBe("PREEXISTING");
+				if (style === "hidden") {
+					expect(h.footer()?.render(160)).toEqual([]);
+					h.change("before-observation visibility"); // Default -> Show, presentation only
+					expect(h.footer()?.render(160)).toEqual(["PREEXISTING"]);
+					expect(h.setter).not.toHaveBeenCalled();
+				}
+				expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
+			} finally {
+				await h.emit("session_shutdown");
+			}
 			expect(h.setter).not.toHaveBeenCalled();
-			expect(h.provider.get("before-observation")).toBe("PREEXISTING");
-			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
-		} finally {
-			await h.emit("session_shutdown");
-		}
-		expect(h.setter).not.toHaveBeenCalled();
-	});
+		},
+	);
 
 	it("does not let a stale settings panel change the replacement session", async () => {
 		const h = setup("native");

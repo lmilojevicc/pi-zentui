@@ -1020,12 +1020,18 @@ export default function (pi: ExtensionAPI) {
 		const token = Symbol("zentui-hidden-footer");
 		const previous = snapshotFooterBookkeeping(ctx);
 		try {
-			installHiddenFooter(ctx, () => clearFooterOwnership(ctx, token));
+			installHiddenFooter(ctx, () => currentConfig.components.extensionStatuses, {
+				setRequestRender: (fn) => {
+					requestFooterRender = fn;
+				},
+				setExtensionStatusesGetter: (fn) => {
+					getActiveExtensionStatuses = fn ?? (() => new Map());
+				},
+				onDispose: () => clearFooterOwnership(ctx, token),
+			});
 			installedFooterKind = "hidden";
 			installedFooterToken = token;
 			setStatusLineOwnership(ctx, token);
-			requestFooterRender = undefined;
-			getActiveExtensionStatuses = () => new Map();
 			stopSessionTimer();
 		} catch {
 			resetFailedFooterInstallation(ctx, token, previous);

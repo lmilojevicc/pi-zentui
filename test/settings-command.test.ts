@@ -2271,7 +2271,9 @@ describe("settings clarity and navigation", () => {
 			"Footer > Git requires Starship. Current Footer is Hidden; saved settings are unchanged.",
 		);
 		await h.command().handler("footer", h.ctx);
-		expect(h.component().render(160).join("\n")).toContain("intentionally owns zero");
+		expect(h.component().render(160).join("\n")).toContain(
+			"Hidden keeps only allowed extension statuses",
+		);
 		config.components.footer.style = "native";
 		await h.command().handler("footer", h.ctx);
 		expect(h.component().render(160).join("\n")).toContain("predecessor");

@@ -6802,7 +6802,7 @@ describe("three-state Footer lifecycle", () => {
 		};
 	}
 
-	it("installs Hidden as an owned zero-row component without Starship timers or subscriptions", async () => {
+	it("installs Hidden with no rows when statuses are empty, without Starship timers or subscriptions", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({ projectRefreshIntervalMs: 0, components: { footer: { style: "hidden" } } }),

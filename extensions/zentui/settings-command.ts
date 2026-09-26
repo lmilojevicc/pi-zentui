@@ -909,7 +909,7 @@ function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "footerStyle",
 			label: "Footer style",
 			description:
-				"Native leaves Pi or a predecessor unowned; Starship installs Zentui; Hidden intentionally owns zero rows.",
+				"Native leaves Pi or a predecessor unowned; Starship installs Zentui; Hidden keeps only allowed extension statuses.",
 			currentValue: footerStyleLabel(footer.style),
 			values: footerStyleValues,
 		},
