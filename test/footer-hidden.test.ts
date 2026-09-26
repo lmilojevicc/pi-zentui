@@ -120,6 +120,49 @@ describe("Hidden footer status-only presentation", () => {
 		h.component.dispose?.();
 	});
 
+	it("applies Hidden Zentui color without changing source data, Original neighbors or placement", () => {
+		const h = setup({
+			colors: { extensionStatus: "yellow" },
+			components: {
+				extensionStatuses: {
+					hidden: { placements: { b: "right" }, colorModes: { a: "zentui" } },
+				},
+				footer: { colors: { extensionStatus: "red" }, colorSource: "terminal" },
+			},
+		});
+		const fg = vi.spyOn(h.theme, "fg");
+		const supplied = "\x1b[1;31;44m\x1b]8;;https://example.com\x07BUILD\x1b]8;;\x07\x1b[0m";
+		h.statuses.set("a", supplied);
+		h.statuses.set("b", "\x1b[36mTEST\x1b[0m");
+		expect(h.component.render(12)).toEqual(["\x1b[90mBUILD\x1b[39m\x1b[0m   \x1b[36mTEST\x1b[0m"]);
+		expect(fg).toHaveBeenCalledWith("muted", "BUILD");
+		expect(h.statuses.get("a")).toBe(supplied);
+		h.component.dispose?.();
+	});
+
+	it("keeps recolored Unicode statuses within bounds and resolves the current theme on each render", () => {
+		const h = setup({
+			components: { extensionStatuses: { hidden: { colorModes: { x: "zentui" } } } },
+		});
+		h.statuses.set("x", "\x1b[32m界 e\u0301 👩‍💻\x1b[0m ready");
+		for (let width = 1; width <= 30; width++) {
+			const row = h.component.render(width)[0];
+			expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+			expect(row).not.toContain("\x1b[32m");
+			expect(row).not.toContain("�");
+		}
+		h.theme.fg = (color, text) => (color === "muted" ? `\x1b[95m${text}\x1b[39m` : text);
+		expect(h.component.render(80)[0]).toContain("\x1b[95m");
+		h.theme.fg = (color, text) => {
+			if (color === "muted") throw new Error("unsupported theme role");
+			return text;
+		};
+		expect(h.component.render(80)).toEqual(["界 e\u0301 👩‍💻 ready"]);
+		h.statuses.set("x", "\x1b[32m\x1b[0m");
+		expect(h.component.render(80)).toEqual([]);
+		h.component.dispose?.();
+	});
+
 	it("uses only the authorized factory, exposes live discovery/render callbacks and releases them", () => {
 		const h = setup();
 		expect(h.setFooter).toHaveBeenCalledTimes(1);

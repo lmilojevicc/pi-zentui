@@ -23,6 +23,8 @@ vi.mock("../extensions/zentui/config", async (original) => {
 			key: string,
 			value: "left" | "middle" | "right" | undefined,
 		) => actual.saveHiddenExtensionStatusPlacement(key, value, disk.path),
+		saveHiddenExtensionStatusColorMode: (key: string, value: "zentui" | "original") =>
+			actual.saveHiddenExtensionStatusColorMode(key, value, disk.path),
 		saveExtensionStatusDefaultPlacement: (
 			value: Parameters<typeof actual.saveExtensionStatusDefaultPlacement>[0],
 		) => actual.saveExtensionStatusDefaultPlacement(value, disk.path),
@@ -327,6 +329,40 @@ describe("independent extension status lifecycle", () => {
 			expect(raw().components.footer.styles.starship.extensionStatuses.colorModes).toEqual(
 				h.config.components.footer.styles.starship.extensionStatuses.colorModes,
 			);
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
+	it("applies Hidden color choices immediately without changing publications, visibility or Starship preferences", async () => {
+		const h = setup("hidden");
+		h.ctx.ui.theme.fg = (color, text) => (color === "muted" ? `\x1b[90m${text}\x1b[0m` : text);
+		await h.emit("session_start");
+		try {
+			const original = "\x1b[32mBUILD\x1b[0m";
+			h.ctx.ui.setStatus("demo:build", original);
+			await h.open("extensions");
+			expect(h.rows()).toContain("demo:build Hidden color");
+			expect(h.footer()?.render(80)).toEqual([original]);
+			h.change("demo:build Hidden color"); // Original -> Zentui
+			expect(h.footer()?.render(80)).toEqual(["\x1b[90mBUILD\x1b[0m"]);
+			expect(raw().components.extensionStatuses.hidden.colorModes).toEqual({
+				"demo:build": "zentui",
+			});
+			expect(h.provider.get("demo:build")).toBe(original);
+			expect(raw().components.footer).toEqual(h.config.components.footer);
+			expect(raw().components.extensionStatuses).not.toHaveProperty("defaultVisibility");
+			h.ctx.ui.setStatus("demo:build", "\x1b[33mLATEST\x1b[0m");
+			expect(h.footer()?.render(80)).toEqual(["\x1b[90mLATEST\x1b[0m"]);
+			h.change("Default visibility");
+			expect(h.footer()?.render(80)).toEqual([]);
+			h.change("demo:build visibility");
+			expect(h.footer()?.render(80)).toEqual(["\x1b[90mLATEST\x1b[0m"]);
+			h.change("demo:build Hidden color"); // Zentui -> Original
+			expect(h.footer()?.render(80)).toEqual(["\x1b[33mLATEST\x1b[0m"]);
+			expect(raw().components.extensionStatuses.hidden.colorModes).toEqual({});
+			expect(h.ctx.ui.setFooter).toHaveBeenCalledTimes(1);
+			expect(raw().components.footer).toEqual(h.config.components.footer);
 		} finally {
 			await h.emit("session_shutdown");
 		}

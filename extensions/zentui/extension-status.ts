@@ -12,10 +12,12 @@ import type {
 import {
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	getHiddenExtensionStatusColorMode,
 	getHiddenExtensionStatusPlacement,
 	isExtensionStatusPlacement,
 } from "./config";
 import { truncateFooterText } from "./footer-text";
+import { safeThemeFg } from "./style";
 
 export type ExtensionStatusSegment = {
 	key: string;
@@ -138,7 +140,7 @@ function layoutExtensionStatusLine(
 	return [row];
 }
 
-/** Status-only presentation for Hidden: native ordering/colors, never Starship preferences. */
+/** Status-only presentation for Hidden: independent colors/placement, native key ordering. */
 export function renderExtensionStatusLine(
 	statuses: ReadonlyMap<string, string>,
 	policy: ExtensionStatusComponentConfig,
@@ -158,9 +160,15 @@ export function renderExtensionStatusLine(
 				: policy.defaultVisibility) === "hide"
 		)
 			continue;
-		const text = sanitizeExtensionStatusOriginalText(value);
-		if (text)
-			zones[getHiddenExtensionStatusPlacement(policy, key)].push(closeExtensionStatusStyle(text));
+		const original = getHiddenExtensionStatusColorMode(policy, key) === "original";
+		const text = original
+			? sanitizeExtensionStatusOriginalText(value)
+			: sanitizeExtensionStatusText(value);
+		if (text) {
+			// Hidden has its own neutral theme styling; never borrow Starship's palette.
+			const styled = original ? text : safeThemeFg(theme, "muted", text);
+			zones[getHiddenExtensionStatusPlacement(policy, key)].push(closeExtensionStatusStyle(styled));
+		}
 	}
 	return layoutExtensionStatusLine(
 		{

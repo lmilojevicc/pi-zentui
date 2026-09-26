@@ -134,7 +134,7 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 }
 ```
 
-Hide suppresses observed publications through Pi's public `setStatus` method. Show passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors and Pi's key ordering within each placement, with safe single-line text and width truncation. Default/per-key Hide removes them; no remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. **Starship default placement**, **Starship placement**, and **Starship color** preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Historical Starship `off` settings never become global Hide.
+Hide suppresses observed publications through Pi's public `setStatus` method. Show passes the original text through; the current Footer still controls rendering. Hidden renders nonempty allowed statuses on one minimal line below the editor, preserving incoming colors by default and Pi's key ordering within each placement, with safe single-line text and width truncation. Default/per-key Hide removes them; no remaining statuses means no blank row. Starship's local `off` placement still omits a shown status only in Starship, never in Hidden. **Starship default placement**, **Starship placement**, and **Starship color** preserve their existing Footer-owned preferences; they do not route or recolor Hidden or native/third-party footers. Historical Starship `off` settings never become global Hide.
 
 With Hidden selected, **Hidden default placement** defaults to Left. Each **Hidden placement** offers Default, Left, Middle, or Right; Default deletes only that key's override. These sparse preferences live in `components.extensionStatuses.hidden`, independently of Starship and visibility:
 
@@ -144,14 +144,17 @@ With Hidden selected, **Hidden default placement** defaults to Left. Each **Hidd
     "extensionStatuses": {
       "hidden": {
         "defaultPlacement": "left",
-        "placements": { "github-pr": "right", "sync": "middle" }
+        "placements": { "github-pr": "right", "sync": "middle" },
+        "colorModes": { "github-pr": "zentui" }
       }
     }
   }
 }
 ```
 
-Left and Right anchor to the edges; Middle is terminal-centered, then clamped between them. Crowded zones share space fairly and truncate safely with at least one separating cell. At widths too narrow for all zones, Left, Middle, then Right take priority. Incoming styles and safe links are preserved; resets prevent colors/backgrounds/links from leaking into padding or another status. No placement changes visibility or Footer style. Hidden never inherits Starship's `off`, placement, or colors. Switching Footer style retains both sets of preferences; Native keeps native positioning.
+Each **Hidden color** offers Original (the default) or Zentui. Original keeps the extension's supplied styling and safe links. Zentui shows plain text in the active Pi theme's `muted` color, independently of Starship's palette and color-source settings. Choices are saved in `components.extensionStatuses.hidden.colorModes`; selecting Original removes only that key's override. Color changes do not alter visibility or placement.
+
+Left and Right anchor to the edges; Middle is terminal-centered, then clamped between them. Crowded zones share space fairly and truncate safely with at least one separating cell. At widths too narrow for all zones, Left, Middle, then Right take priority. Original mode preserves incoming styles and safe links; resets prevent colors/backgrounds/links from leaking into padding or another status. No placement changes visibility or Footer style. Hidden never inherits Starship's `off`, placement, or colors. Switching Footer style retains both sets of preferences; Native keeps native positioning.
 
 Discovery is best-effort and session-scoped: observed raw keys and saved visibility/Hidden/Starship keys remain editable, with already-owned Starship or Hidden Footer data supplementing discovery only, never suppression/replay provenance. Hidden also applies visibility to those provider statuses when rendering; it does not republish them. Zentui never installs a Footer just to discover statuses. **No observed statuses** does not mean no extensions are running. Publications before observation, cached setters, separate UI contexts, and nondelegating successor extensions may bypass these controls. Unsupported/frozen setter shapes fail open. Cleanup restores only safely owned suppression and does not overwrite a successor setter or replay uncertain stale values. This controls keyed status visibility, not extension enablement or Working-line integrations.
 
@@ -160,7 +163,7 @@ Discovery is best-effort and session-scoped: observed raw keys and saved visibil
 An extension's **Original** color mode preserves SGR styling and HTTP/HTTPS
 OSC 8 hyperlinks supplied by that extension. For example, set
 `components.footer.styles.starship.extensionStatuses.colorModes.github-pr` to
-`"original"` to retain a PR link from a GitHub status extension. Open it with
+`"original"` to retain a PR link from a GitHub status extension. Hidden's color choice is separate, under `components.extensionStatuses.hidden.colorModes`, and defaults to Original. Open it with
 your terminal's link-opening gesture. Other URL schemes and unrelated terminal
 controls (including clipboard, title, and cursor commands) are removed.
 

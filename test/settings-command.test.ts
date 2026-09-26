@@ -265,6 +265,19 @@ function createHarness(
 			if (placement === undefined) delete placements[key];
 			else placements[key] = placement;
 		},
+		setHiddenExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
+			config.components.extensionStatuses.hidden ??= {};
+			const hidden = config.components.extensionStatuses.hidden;
+			hidden.colorModes ??= {};
+			if (colorMode === "original") delete hidden.colorModes[key];
+			else
+				Object.defineProperty(hidden.colorModes, key, {
+					value: colorMode,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			calls.extensionDefaultPlacement.push(placement);
 			config.components.footer.styles.starship.extensionStatuses.defaultPlacement = placement;
@@ -2731,10 +2744,13 @@ describe("independent Extension statuses settings", () => {
 							"Hidden default placement",
 							"legacy visibility",
 							"legacy Hidden placement",
+							"legacy Hidden color",
 							"saved visibility",
 							"saved Hidden placement",
+							"saved Hidden color",
 							"z:third-party visibility",
 							"z:third-party Hidden placement",
+							"z:third-party Hidden color",
 						]
 					: [
 							"Default visibility",
@@ -2822,6 +2838,52 @@ describe("independent Extension statuses settings", () => {
 	});
 });
 
+describe("Hidden extension color settings", () => {
+	it("cycles Original/Zentui independently of Starship colors, visibility and placement", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "hidden";
+		config.components.extensionStatuses.hidden = { placements: { "demo:build": "right" } };
+		config.components.extensionStatuses.visibility = { "demo:build": "show" };
+		const beforeFooter = structuredClone(config.components.footer);
+		const h = createHarness(config, {
+			getActiveExtensionStatuses: () => new Map([["demo:build", "\x1b[32mBUILD\x1b[0m"]]),
+		});
+		await h.command().handler("extensions", h.ctx);
+		const panel = h.component();
+		selectLabel(panel, "demo:build Hidden color");
+		expect(row(panel, "demo:build Hidden color")).toContain("Original");
+		expect(panel.render(160).join("\n")).not.toContain("Inactive now");
+		panel.handleInput("\r");
+		expect(row(panel, "demo:build Hidden color")).toContain("Zentui");
+		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({
+			"demo:build": "zentui",
+		});
+		panel.handleInput("\r");
+		expect(row(panel, "demo:build Hidden color")).toContain("Original");
+		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({});
+		expect(config.components.extensionStatuses.hidden.placements).toEqual({
+			"demo:build": "right",
+		});
+		expect(config.components.extensionStatuses.visibility).toEqual({ "demo:build": "show" });
+		expect(config.components.footer).toEqual(beforeFooter);
+	});
+
+	it("discovers color-only saved keys and removes their sparse override on Original", async () => {
+		const config = cloneConfig();
+		config.components.footer.style = "hidden";
+		config.components.extensionStatuses.hidden = { colorModes: { saved: "zentui" } };
+		const h = createHarness(config);
+		await h.command().handler("extensions", h.ctx);
+		const panel = h.component();
+		selectLabel(panel, "saved Hidden color");
+		expect(row(panel, "saved Hidden color")).toContain("Zentui");
+		panel.handleInput("\r");
+		expect(config.components.extensionStatuses.hidden.colorModes).toEqual({});
+		expect(panel.render(160).join("\n")).not.toContain("saved Hidden color");
+		expect(panel.render(160).join("\n")).toContain("No observed statuses");
+	});
+});
+
 describe("Hidden extension placement settings", () => {
 	it("shows only active Hidden placement controls and resets a saved unobserved key", async () => {
 		const config = cloneConfig();
@@ -2839,6 +2901,7 @@ describe("Hidden extension placement settings", () => {
 			"Hidden default placement",
 			"saved visibility",
 			"saved Hidden placement",
+			"saved Hidden color",
 		]);
 		selectLabel(panel, "saved Hidden placement");
 		expect(panel.render(160).join("\n")).not.toContain("Starship");

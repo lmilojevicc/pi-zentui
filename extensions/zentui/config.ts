@@ -283,6 +283,7 @@ export type ExtensionStatusComponentConfig = ExtensionStatusVisibilityConfig & {
 	hidden?: {
 		defaultPlacement?: HiddenExtensionStatusPlacement;
 		placements?: Record<string, HiddenExtensionStatusPlacement>;
+		colorModes?: Record<string, ExtensionStatusColorMode>;
 	};
 };
 
@@ -1243,6 +1244,14 @@ export function getHiddenExtensionStatusPlacement(
 	);
 }
 
+export function getHiddenExtensionStatusColorMode(
+	config: ExtensionStatusComponentConfig,
+	key: string,
+): ExtensionStatusColorMode {
+	const modes = config.hidden?.colorModes;
+	return modes && Object.hasOwn(modes, key) && modes[key] === "zentui" ? "zentui" : "original";
+}
+
 function resolveExtensionStatusComponent(raw: unknown): ExtensionStatusComponentConfig {
 	const owner = recordValue(raw);
 	const hidden = recordValue(owner.hidden);
@@ -1252,6 +1261,16 @@ function resolveExtensionStatusComponent(raw: unknown): ExtensionStatusComponent
 					hidden: {
 						...(isHiddenExtensionStatusPlacement(hidden.defaultPlacement)
 							? { defaultPlacement: hidden.defaultPlacement }
+							: {}),
+						...(isRecord(hidden.colorModes)
+							? {
+									colorModes: Object.fromEntries(
+										Object.entries(hidden.colorModes).filter(
+											(entry): entry is [string, ExtensionStatusColorMode] =>
+												isExtensionStatusColorMode(entry[1]),
+										),
+									),
+								}
 							: {}),
 						...(isRecord(hidden.placements)
 							? {
@@ -2369,6 +2388,24 @@ export function saveHiddenExtensionStatusPlacement(
 		} else {
 			record.components = overlayKnown(record.components, {
 				extensionStatuses: { hidden: { placements: { [key]: placement } } },
+			});
+		}
+	});
+}
+
+/** Original is Hidden's default; choosing it removes only this color override. */
+export function saveHiddenExtensionStatusColorMode(
+	key: string,
+	colorMode: ExtensionStatusColorMode,
+	path = configPath,
+): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		if (colorMode === "original") {
+			const owner = recordValue(recordValue(record.components).extensionStatuses);
+			delete recordValue(recordValue(owner.hidden).colorModes)[key];
+		} else {
+			record.components = overlayKnown(record.components, {
+				extensionStatuses: { hidden: { colorModes: { [key]: colorMode } } },
 			});
 		}
 	});

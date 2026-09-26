@@ -37,6 +37,7 @@ import {
 	type GitMetricsConfig,
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
+	getHiddenExtensionStatusColorMode,
 	type HiddenExtensionStatusPlacement,
 	type IconMode,
 	isExtensionStatusColorMode,
@@ -313,6 +314,7 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 		key: string,
 		placement: HiddenExtensionStatusPlacement | undefined,
 	) => void;
+	setHiddenExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
 	setExtensionStatusDefaultPlacement: (placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusPlacement: (key: string, placement: ExtensionStatusPlacement) => void;
 	setExtensionStatusColorMode: (key: string, colorMode: ExtensionStatusColorMode) => void;
@@ -417,7 +419,12 @@ const directCommandSuggestions = [
 
 const thirdPartyStatusSettingPrefix = "thirdPartyStatus:";
 const footerSegmentSettingPrefix = "footerSegment:";
-type ThirdPartyStatusSettingKind = "placement" | "hiddenPlacement" | "colorMode" | "visibility";
+type ThirdPartyStatusSettingKind =
+	| "placement"
+	| "hiddenPlacement"
+	| "colorMode"
+	| "hiddenColorMode"
+	| "visibility";
 
 function featureValue(enabled: boolean): FeatureState {
 	return enabled ? "enabled" : "disabled";
@@ -1108,6 +1115,7 @@ function thirdPartyStatusSettingFromId(
 	const [kind, ...key] = id.slice(thirdPartyStatusSettingPrefix.length).split(":");
 	return kind === "placement" ||
 		kind === "hiddenPlacement" ||
+		kind === "hiddenColorMode" ||
 		kind === "colorMode" ||
 		kind === "visibility"
 		? { kind, key: key.join(":") }
@@ -1126,6 +1134,7 @@ function buildExtensionsItems(
 			...active.keys(),
 			...Object.keys(visibility.visibility),
 			...Object.keys(hiddenPlacement?.placements ?? {}),
+			...Object.keys(hiddenPlacement?.colorModes ?? {}),
 			...Object.keys(local.placements),
 			...Object.keys(local.colorModes),
 		]),
@@ -1189,6 +1198,17 @@ function buildExtensionsItems(
 											]
 										: "Default",
 								values: ["Default", "Left", "Middle", "Right"],
+							},
+							{
+								id: thirdPartyStatusSettingId(key, "hiddenColorMode"),
+								label: `${key} Hidden color`,
+								description:
+									"Original keeps extension styling; Zentui uses the theme's muted color.",
+								currentValue:
+									getHiddenExtensionStatusColorMode(visibility, key) === "zentui"
+										? "Zentui"
+										: "Original",
+								values: ["Original", "Zentui"],
 							},
 						]
 					: [
@@ -2152,6 +2172,16 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											);
 											settingsList = makeSettingsList(id);
 											notifyChange(`${thirdParty.key} Hidden placement`, newValue);
+											return;
+										}
+										const hiddenColorMode = newValue.toLowerCase();
+										if (
+											thirdParty?.kind === "hiddenColorMode" &&
+											isExtensionStatusColorMode(hiddenColorMode)
+										) {
+											deps.setHiddenExtensionStatusColorMode(thirdParty.key, hiddenColorMode);
+											settingsList = makeSettingsList(id);
+											notifyChange(`${thirdParty.key} Hidden color`, newValue);
 											return;
 										}
 										if (

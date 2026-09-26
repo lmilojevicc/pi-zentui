@@ -144,6 +144,7 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setExtensionStatusVisibility() {},
 	setHiddenExtensionStatusDefaultPlacement() {},
 	setHiddenExtensionStatusPlacement() {},
+	setHiddenExtensionStatusColorMode() {},
 	setExtensionStatusDefaultPlacement() {},
 	setExtensionStatusPlacement() {},
 	setExtensionStatusColorMode() {},

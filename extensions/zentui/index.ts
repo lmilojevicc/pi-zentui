@@ -48,6 +48,7 @@ import {
 	saveExtensionStatusPlacement,
 	saveExtensionStatusVisibility,
 	saveFooterComponentPatch,
+	saveHiddenExtensionStatusColorMode,
 	saveHiddenExtensionStatusDefaultPlacement,
 	saveHiddenExtensionStatusPlacement,
 	saveIconsModePatch,
@@ -1484,6 +1485,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		setHiddenExtensionStatusPlacement(key, placement) {
 			currentConfig = saveHiddenExtensionStatusPlacement(key, placement);
+		},
+		setHiddenExtensionStatusColorMode(key, colorMode) {
+			currentConfig = saveHiddenExtensionStatusColorMode(key, colorMode);
 		},
 		setExtensionStatusDefaultPlacement(placement: ExtensionStatusPlacement) {
 			currentConfig = saveExtensionStatusDefaultPlacement(placement);
