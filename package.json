@@ -54,12 +54,12 @@
 		"access": "public"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.0",
-		"@earendil-works/pi-ai": "^0.84.0",
-		"@earendil-works/pi-coding-agent": "^0.84.0",
-		"@earendil-works/pi-tui": "^0.84.0",
-		"@types/node": "^26.0.0",
+		"@biomejs/biome": "^2.5.14",
+		"@earendil-works/pi-ai": "^0.87.1",
+		"@earendil-works/pi-coding-agent": "^0.87.1",
+		"@earendil-works/pi-tui": "^0.87.1",
+		"@types/node": "^26.6.2",
 		"typescript": "^7.0.2",
-		"vitest": "^4.1.8"
+		"vitest": "^5.0.1"
 	}
 }

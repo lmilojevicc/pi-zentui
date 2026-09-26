@@ -124,6 +124,17 @@ function component(hideThinkingBlock = false): AssistantMessageComponent {
 	);
 }
 
+function visibleNativeChild(child: object): object {
+	// Pi 0.85+ keeps the native Markdown inside a MouseRegion.
+	return "onMouse" in child &&
+		typeof child.onMouse === "function" &&
+		"child" in child &&
+		child.child !== null &&
+		typeof child.child === "object"
+		? child.child
+		: child;
+}
+
 // npm keeps Pi's own Pi-TUI package nested, while Pi's source loader deliberately
 // supplies one virtual-module identity. Bridge only the unit host to model that loader.
 function bridgeSourceLoadedMarkdownIdentity(): void {
@@ -140,9 +151,10 @@ function bridgeSourceLoadedMarkdownIdentity(): void {
 			const children = (this as { contentContainer?: { children?: object[] } }).contentContainer
 				?.children;
 			for (const child of children ?? []) {
-				const expected = constructors.get(child.constructor.name);
-				if (expected && Object.getPrototypeOf(child) !== expected)
-					Object.setPrototypeOf(child, expected);
+				const visible = visibleNativeChild(child);
+				const expected = constructors.get(visible.constructor.name);
+				if (expected && Object.getPrototypeOf(visible) !== expected)
+					Object.setPrototypeOf(visible, expected);
 			}
 			return result;
 		},
@@ -1219,7 +1231,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 					).contentContainer?.children;
 					if (!children) return result;
 					const markdownIndexes = children.flatMap((child, index) =>
-						child.constructor === Markdown ? [index] : [],
+						visibleNativeChild(child).constructor === Markdown ? [index] : [],
 					);
 					if (mismatch === "count") children.pop();
 					else if (mismatch === "order") {
@@ -1229,8 +1241,9 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 							[children[first], children[second]] = [children[second], children[first]];
 					} else {
 						const first = markdownIndexes[0];
-						const child = first === undefined ? undefined : children[first];
-						if (child && mismatch === "text") child.text = "__ZENTUI_MISMATCH_MARKER__";
+						const child = first === undefined ? undefined : visibleNativeChild(children[first]);
+						if (child && mismatch === "text")
+							Reflect.set(child, "text", "__ZENTUI_MISMATCH_MARKER__");
 						if (child && mismatch === "constructor") Object.setPrototypeOf(child, {});
 					}
 					return result;
