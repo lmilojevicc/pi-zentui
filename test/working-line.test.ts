@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { stripVTControlCharacters } from "node:util";
 import type { EventBus, Theme } from "@earendil-works/pi-coding-agent";
@@ -125,6 +126,135 @@ describe("working-line token formatting", () => {
 });
 
 describe("working-line presets and frame generation", () => {
+	it("preserves byte-for-byte schedules across spinner/color/grapheme variants", () => {
+		const digests: Record<string, string> = {};
+		for (const textAnimation of ["disabled", "classic", "kitt"] as const) {
+			// Baseline digests include every ANSI byte, frame state, width and scheduler field.
+			const digest = createHash("sha256");
+			for (const spinner of Object.keys(WORKING_LINE_SPINNERS) as Array<
+				keyof typeof WORKING_LINE_SPINNERS
+			>) {
+				for (const animateSpinnerColor of [false, true]) {
+					for (const message of ["Ready", "界 👩🏽‍💻 é ", "\u0301Leading"]) {
+						const current = config();
+						Object.assign(current.components.workingLine, {
+							spinner,
+							textAnimation,
+							animateSpinnerColor,
+							spinnerIntervalMs: 90,
+							textIntervalMs: 60,
+						});
+						digest.update(
+							JSON.stringify(
+								buildWorkingLineFrames(
+									current.components.workingLine,
+									current.colors,
+									theme(),
+									message,
+									{ tool: "read", elapsedMs: 1234, tokens: { input: 12, output: 3 } },
+									7,
+									11,
+									13,
+								),
+							),
+						);
+					}
+				}
+			}
+			digests[textAnimation] = digest.digest("hex");
+		}
+		expect(digests).toMatchInlineSnapshot(`
+			{
+			  "classic": "90335f9484e46610af5c06f3e476639db7cc679b218208e1d4da7b1258d9cd47",
+			  "disabled": "6c9519709c46954ae5aeeaab31e28b53f385ac3619f0106edf8566d1e39eefe9",
+			  "kitt": "29d65bca833c5e39c175aa704e74be8b2b54a72b1d452c79c8ee1905cbfa8260",
+			}
+		`);
+	});
+
+	it.each([
+		["classic", true, 1, 504],
+		["kitt", true, 1, 792],
+		["classic", false, 1, 468],
+		["disabled", true, 0, 6],
+	] as const)(
+		"bounds row segmentation for %s (spinner color: %s)",
+		(textAnimation, animateSpinnerColor, expected, frameCount) => {
+			const current = config();
+			Object.assign(current.components.workingLine, {
+				spinner: "star-bloom",
+				textAnimation,
+				animateSpinnerColor,
+				spinnerIntervalMs: 90,
+				textIntervalMs: 60,
+			});
+			const message = "界 👩🏽‍💻 é ";
+			const runtime = { tokens: { input: 12, output: 3 } };
+			const { row } = composeWorkingLineRow(current.components.workingLine, message, runtime);
+			// Warm the host's independent width cache before counting our row segmentation.
+			visibleWidth(row);
+			visibleWidth(` ${row}`);
+			const segment = vi.spyOn(Intl.Segmenter.prototype, "segment");
+			try {
+				const generated = buildWorkingLineFrames(
+					current.components.workingLine,
+					current.colors,
+					theme(),
+					message,
+					runtime,
+				);
+				const fullRowCalls = segment.mock.calls.filter(([input]) => input.endsWith(row));
+				expect(fullRowCalls).toHaveLength(expected);
+				const glyphs = new Set<string>(WORKING_LINE_SPINNERS["star-bloom"].frames);
+				const glyphCalls = segment.mock.calls.filter(([input]) => glyphs.has(input));
+				expect(glyphCalls).toHaveLength(
+					animateSpinnerColor && textAnimation !== "disabled" ? glyphs.size : 0,
+				);
+				expect(generated.frames).toHaveLength(frameCount);
+			} finally {
+				segment.mockRestore();
+			}
+		},
+	);
+
+	it("preserves whole-frame grapheme styling when Intl.Segmenter is unavailable", async () => {
+		vi.resetModules();
+		const fresh = await import("../extensions/zentui/working-line");
+		// biome-ignore lint/complexity/useArrowFunction: Intl.Segmenter is invoked as a constructor.
+		const segmenter = vi.spyOn(Intl, "Segmenter").mockImplementation(function () {
+			throw new Error("unavailable");
+		});
+		try {
+			const current = config();
+			Object.assign(current.components.workingLine, {
+				spinner: "pulse",
+				textAnimation: "classic",
+				animateSpinnerColor: true,
+				colorSource: "terminal",
+				colors: { low: "bright-black", mid: "cyan", high: "bold green" },
+			});
+			const generated = fresh.buildWorkingLineFrames(
+				current.components.workingLine,
+				current.colors,
+				theme(),
+				"界 👩🏽‍💻",
+			);
+			for (const [index, state] of generated.frameStates.entries()) {
+				const glyph =
+					WORKING_LINE_SPINNERS.pulse.frames[
+						state.spinnerTick % WORKING_LINE_SPINNERS.pulse.frames.length
+					];
+				const text = `${glyph} ${generated.row}`;
+				const distance = Math.abs((visibleWidth(text) - 1) / 2 - (state.textTick - 4));
+				const style = distance <= 1 ? "1;32" : distance <= 4 ? "36" : "90";
+				expect(generated.frames[index]).toBe(`\x1b[${style}m${text}\x1b[0m\x1b[0m`);
+			}
+		} finally {
+			segmenter.mockRestore();
+			vi.resetModules();
+		}
+	});
+
 	it("ships pinned Funky UI Pulse provenance and the required MIT notices", () => {
 		const source = readFileSync(
 			new URL("../extensions/zentui/working-line-spinners.ts", import.meta.url),
@@ -1104,6 +1234,79 @@ describe("working-line runtime ownership", () => {
 		};
 	}
 
+	it("composes one row and samples runtime once for changed and unchanged applies", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		current.components.workingLine.segments.elapsed = false;
+		const readTokens = vi.fn(() => true);
+		Object.defineProperty(current.components.workingLine.segments, "tokens", { get: readTokens });
+		const getThought = vi.fn(() => ({ durationMs: 1000, active: true }));
+		const ctx = { mode: "tui", ui: { setWorkingMessage: vi.fn(), setWorkingIndicator: vi.fn() } };
+		const controller = new WorkingLineController(
+			() => current,
+			theme,
+			undefined,
+			undefined,
+			() => 0,
+			getThought,
+		);
+		try {
+			expect(controller.startSession(ctx).applied).toBe(true);
+			expect(readTokens).toHaveBeenCalledTimes(1);
+			// Installation also samples thought activity to reconcile the elapsed listener.
+			expect(getThought).toHaveBeenCalledTimes(2);
+			expect(
+				stripTerminalSequences(ctx.ui.setWorkingIndicator.mock.calls[0]?.[0]?.frames[0] ?? ""),
+			).toContain("thinking 1s");
+			readTokens.mockClear();
+			getThought.mockClear();
+			controller.updateExtensionSegments(["note"], ctx);
+			expect(readTokens).toHaveBeenCalledTimes(1);
+			expect(getThought).toHaveBeenCalledTimes(1);
+			expect(ctx.ui.setWorkingIndicator).toHaveBeenCalledTimes(2);
+			readTokens.mockClear();
+			getThought.mockClear();
+			controller.finishTool("missing", ctx);
+			expect(readTokens).toHaveBeenCalledTimes(1);
+			expect(getThought).toHaveBeenCalledTimes(1);
+			expect(ctx.ui.setWorkingIndicator).toHaveBeenCalledTimes(2);
+		} finally {
+			controller.dispose(ctx);
+		}
+	});
+
+	it("keeps the frame key and rendered thought from the same runtime sample", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		const getThought = vi
+			.fn()
+			.mockReturnValueOnce({ durationMs: 999, active: true })
+			.mockReturnValue({ durationMs: 1000, active: true });
+		const ctx = { mode: "tui", ui: { setWorkingMessage: vi.fn(), setWorkingIndicator: vi.fn() } };
+		const controller = new WorkingLineController(
+			() => current,
+			theme,
+			undefined,
+			undefined,
+			() => 0,
+			getThought,
+		);
+		try {
+			controller.startSession(ctx);
+			expect(
+				stripTerminalSequences(ctx.ui.setWorkingIndicator.mock.calls[0]?.[0]?.frames[0] ?? ""),
+			).toContain("thinking 0s");
+			controller.finishTool("missing", ctx);
+			expect(
+				stripTerminalSequences(ctx.ui.setWorkingIndicator.mock.calls[1]?.[0]?.frames[0] ?? ""),
+			).toContain("thinking 1s");
+			controller.finishTool("missing", ctx);
+			expect(ctx.ui.setWorkingIndicator).toHaveBeenCalledTimes(2);
+		} finally {
+			controller.dispose(ctx);
+		}
+	});
+
 	it("makes exactly zero working-row calls while disabled", () => {
 		const harness = runtime(false);
 		harness.controller.startSession(harness.ctx);
@@ -1149,7 +1352,12 @@ describe("working-line runtime ownership", () => {
 			scheduler,
 		);
 		harness.current.components.workingLine.segments.elapsed = false;
+		const readTokens = vi.fn(() => true);
+		Object.defineProperty(harness.current.components.workingLine.segments, "tokens", {
+			get: readTokens,
+		});
 		harness.controller.startSession(harness.ctx);
+		readTokens.mockClear();
 		for (let output = 1; output <= 200; output += 1) {
 			harness.controller.updateMetrics({ input: 48_000, output }, undefined, harness.ctx);
 		}
@@ -1162,6 +1370,7 @@ describe("working-line runtime ownership", () => {
 		const finalIndicator = indicators.at(-1)?.[1] as { frames?: string[] } | undefined;
 		expect(stripTerminalSequences(finalIndicator?.frames?.[0] ?? "")).toContain("↑48k ↓200");
 		expect(scheduled.size).toBe(0);
+		expect(readTokens).toHaveBeenCalledTimes(2);
 	});
 
 	it("converges during sustained metrics, flushes lifecycle writes, and cancels stale work", () => {

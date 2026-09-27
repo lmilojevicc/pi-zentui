@@ -62,6 +62,28 @@ function rows(
 }
 
 describe("Experimental native Rail/Tree rows", () => {
+	it.each(["tree", "rail"] as const)(
+		"contains partial inline Markdown, CRLF, ANSI and unbroken Unicode across %s resizes",
+		(mode) => {
+			for (const label of [
+				"**partial emphasis",
+				"[unfinished link](https://example.test",
+				"x".repeat(500),
+				"界👩🏽‍💻é".repeat(30),
+			]) {
+				const value = rows(`\x1b[31m# ${label}\x1b[0m\r\nbody\r\ncontinued`, mode, 80, true, 1);
+				for (const width of [80, 10, 20, 80]) {
+					const rendered = value.component.render(width);
+					expect(rendered).toHaveLength(2);
+					expect(rendered.every((row) => visibleWidth(row) <= width && !/[\r\n]/.test(row))).toBe(
+						true,
+					);
+				}
+				// Widths too narrow for decoration deliberately retain native fallback.
+				expect(value.component.render(1)).toEqual(value.native.render(1));
+			}
+		},
+	);
 	it("renders all Rail labels and the latest five Tree labels with active/settled markers", () => {
 		const source = Array.from({ length: 7 }, (_, index) => `# Label ${index + 1}`).join("\n");
 		expect(rows(source, "rail", 80, true).rendered.map(plain)).toEqual([

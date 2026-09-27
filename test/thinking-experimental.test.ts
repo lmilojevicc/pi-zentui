@@ -13,6 +13,7 @@ import {
 	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 	ThinkingExperimentalController,
 } from "../extensions/zentui/thinking-experimental";
+import * as ThinkingStepsParser from "../extensions/zentui/thinking-steps";
 
 initTheme("dark", false);
 
@@ -228,6 +229,342 @@ function controller(
 }
 
 describe("Thinking (Experimental) private assistant decorator", () => {
+	it.each(
+		(["tree", "rail"] as const).flatMap((mode) =>
+			["```ts", "~~~", "$$", "\\["].map((opening) => ({ mode, opening })),
+		),
+	)("retains $mode during an append-only unfinished $opening body", ({ mode, opening }) => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode });
+		value.startSession(context().ctx);
+		const assistant = component();
+		const source = "# Plan\nbody";
+		assistant.updateContent(message(source), true);
+		const initial = plain(assistant.render(80));
+		const partial = `${source}\n\n${opening}\nconst x = 1;`;
+		assistant.updateContent(message(partial), true);
+		expect(plain(assistant.render(80))).toEqual(initial);
+		assistant.updateContent(message(`${partial}\nmore body`), true);
+		expect(plain(assistant.render(80))).toEqual(initial);
+		const closing = opening === "```ts" ? "```" : opening === "\\[" ? "\\]" : opening;
+		assistant.updateContent(message(`${partial}\n${closing}`), true);
+		expect(plain(assistant.render(80))).toEqual(initial);
+	});
+
+	it.each(["tree", "rail"] as const)(
+		"fails open for nonrecoverable %s streaming updates",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const source = "# Plan\nbody";
+			for (const next of [
+				"# Replacement\nbody\n```\nunfinished",
+				`${source}\n\n# ![image](asset.png)\n\n\`\`\`\nunfinished`,
+				`${source}\n\n# ${"x".repeat(513)}\n\n$$\nunfinished`,
+				`${source}\n\n\`\`\`bad\`info\nunfinished`,
+				`${source}\n\n\`\`\`\nunsafe\x1b[2J`,
+				`${source}\n\n$$\n${"x".repeat(65_536)}`,
+				`${source}\n${Array.from({ length: 128 }, (_, index) => `# Step ${index}`).join("\n")}\n$$`,
+			]) {
+				const assistant = component();
+				assistant.updateContent(message(source), true);
+				assistant.render(80);
+				assistant.updateContent(message(next), true);
+				const native = visibleNativeChild(
+					(assistant as unknown as { contentContainer: { children: object[] } }).contentContainer
+						.children[1],
+				);
+				expect(native).toBeInstanceOf(Markdown);
+			}
+		},
+	);
+
+	it.each(["tree", "rail"] as const)(
+		"does not retain %s without a prior successful presentation or active run",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const source = "# Plan\nbody";
+			const partial = `${source}\n\n\`\`\`\nunfinished`;
+			for (const condition of [
+				"first",
+				"unrendered",
+				"narrow",
+				"new-message",
+				"not-active",
+			] as const) {
+				const assistant = component();
+				if (condition !== "first") assistant.updateContent(message(source), true);
+				if (condition === "narrow") assistant.render(1);
+				if (condition === "new-message" || condition === "not-active") assistant.render(80);
+				assistant.updateContent(
+					message(
+						partial,
+						condition === "new-message" ? 2_000 : 1_000,
+						condition === "not-active" ? "answer" : undefined,
+					),
+					true,
+				);
+				expect(plain(assistant.render(80)).join("\n")).not.toContain(
+					mode === "tree" ? "┆ Thinking" : "│ Thinking",
+				);
+			}
+		},
+	);
+
+	it("drops retained presentation on a same-label body revision and on a native per-run hide", () => {
+		const overrides = new Map<number, boolean>();
+		installLegacyThinkingRenderer((_container, children) => {
+			const child = overrides.get(0) ? new Text("Thinking...", 1, 0) : children[1];
+			const region = {
+				child,
+				onMouse: () => undefined,
+				render(width: number) {
+					return this.child.render(width);
+				},
+				invalidate() {
+					this.child.invalidate();
+				},
+			};
+			children[1] = region;
+		});
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		const source = "# Plan\nbody";
+		const partial = `${source}\n\n\`\`\`\nunfinished`;
+		const prime = () => {
+			assistant.updateContent(message(source), true);
+			assistant.render(80);
+			assistant.updateContent(message(partial), true);
+			expect(plain(assistant.render(80)).join("\n")).toContain("┆ Thinking");
+		};
+		prime();
+		assistant.updateContent(message(partial.replace("unfinished", "replacement")), true);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("┆ Thinking");
+		prime();
+		Object.assign(assistant, { thinkingVisibilityOverrides: overrides });
+		overrides.set(0, true);
+		assistant.updateContent(message(partial), true);
+		expect(plain(assistant.render(80)).join("\n")).toContain("Thinking...");
+		overrides.set(0, false);
+		assistant.updateContent(message(partial), true);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("┆ Thinking");
+	});
+
+	it.each(["host", "event"] as const)(
+		"restores final malformed content on %s completion",
+		(completion) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode: "tree" });
+			value.startSession(context().ctx);
+			const assistant = component();
+			const source = "# Plan\nbody";
+			assistant.updateContent(message(source), true);
+			assistant.render(80);
+			const final = message(`${source}\n\n$$\nunfinished`);
+			assistant.updateContent(final, true);
+			expect(plain(assistant.render(80)).join("\n")).toContain("┆ Thinking");
+			if (completion === "host") assistant.updateContent(final, false);
+			else value.endMessage({ message: final });
+			const output = plain(assistant.render(80)).join("\n");
+			expect(output).not.toContain("┆ Thinking");
+			expect(output).toContain("unfinished");
+		},
+	);
+
+	it.each(["theme", "hide", "disable", "mode"] as const)(
+		"clears retained steps at the %s boundary",
+		(boundary) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const config: ThinkingStepsComponentConfig = { enabled: true, mode: "tree" };
+			const value = controller(config);
+			value.startSession(context().ctx);
+			const assistant = component();
+			const source = "# Plan\nbody";
+			assistant.updateContent(message(source), true);
+			assistant.render(80);
+			const partial = message(`${source}\n\n$$\nunfinished`);
+			assistant.updateContent(partial, true);
+			expect(plain(assistant.render(80)).join("\n")).toContain("┆ Thinking");
+			if (boundary === "theme") assistant.invalidate();
+			else if (boundary === "hide") {
+				assistant.setHideThinkingBlock(true);
+				expect(plain(assistant.render(80)).join("\n")).toContain("Thinking...");
+				assistant.setHideThinkingBlock(false);
+			} else {
+				if (boundary === "mode") config.mode = "rail";
+				else config.enabled = false;
+				value.reconcile();
+			}
+			expect(plain(assistant.render(80)).join("\n")).not.toMatch(/[┆│] Thinking/);
+			expect(plain(assistant.render(80)).join("\n")).toContain("unfinished");
+		},
+	);
+
+	it("parses unchanged runs once across 100 native answer updates, then invalidates on source/theme/hidden changes", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const parse = vi.spyOn(ThinkingStepsParser, "parseThinkingStepsResult");
+		try {
+			const value = controller({ enabled: true, mode: "tree" });
+			value.startSession(context().ctx);
+			const assistant = component();
+			const source = `# Plan\n${"x".repeat(60_000)}`;
+			for (let index = 0; index < 100; index += 1) {
+				assistant.updateContent(message(source, 1_000, `answer ${index}`), true);
+				expect(plain(assistant.render(80)).join("\n")).toContain(`answer ${index}`);
+			}
+			expect(parse).toHaveBeenCalledTimes(1);
+			assistant.invalidate();
+			expect(parse).toHaveBeenCalledTimes(2);
+			assistant.updateContent(message(`${source}y`, 1_000, "answer"), true);
+			expect(parse).toHaveBeenCalledTimes(3);
+			assistant.setHideThinkingBlock(true);
+			assistant.setHideThinkingBlock(false);
+			expect(parse).toHaveBeenCalledTimes(4);
+		} finally {
+			parse.mockRestore();
+		}
+	});
+
+	it("does not reuse retained presentation when a host mutates the message identity in place", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		const fixture = message("# Plan\nbody");
+		assistant.updateContent(fixture, true);
+		assistant.render(80);
+		fixture.timestamp += 1_000;
+		fixture.content = [{ type: "thinking", thinking: "# Plan\nbody\n\n$$\nunfinished" }];
+		assistant.updateContent(fixture, true);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("┆ Thinking");
+	});
+
+	it("bounds the combined retained parse source across runs and discards snapshots on shutdown", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		assistant.updateContent(
+			messageWithContent([
+				{ type: "thinking", thinking: `# First\n${"x".repeat(40_000)}` },
+				{ type: "text", text: "between" },
+				{ type: "thinking", thinking: `# Second\n${"y".repeat(40_000)}` },
+			]),
+			true,
+		);
+		assistant.render(80);
+		const states = (
+			value as unknown as {
+				states: WeakMap<object, { structuralCache: { entries: Map<number, { source: string }> } }>;
+			}
+		).states;
+		const entries = states.get(assistant)?.structuralCache.entries;
+		if (!entries) throw new Error("expected retained parse entries");
+		expect(entries.size).toBe(1);
+		expect(entries.has(1)).toBe(true);
+		expect(
+			[...entries.values()].reduce((total, entry) => total + entry.source.length, 0),
+		).toBeLessThanOrEqual(65_536);
+		value.shutdown();
+		expect(value.diagnostics.trackedComponents).toBe(0);
+	});
+
+	it("keeps cached structural parsing behind exact native child validation", () => {
+		let incompatible = false;
+		installLegacyThinkingRenderer((_container, children) => {
+			if (incompatible) children.push(new Text("foreign child"));
+		});
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		const fixture = message("# Plan\nbody");
+		assistant.updateContent(fixture, true);
+		assistant.render(80);
+		incompatible = true;
+		assistant.updateContent(fixture, true);
+		expect(value.state.active).toBe(false);
+		expect(plain(assistant.render(80)).join("\n")).toContain("foreign child");
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("┆ Thinking");
+	});
+
+	it("does not reattach or redraw elapsed headers after foreign child displacement", () => {
+		vi.useFakeTimers();
+		installLegacyThinkingRenderer();
+		const requestRender = vi.fn();
+		const value = controller({ enabled: true, mode: "streaming" }, Date.now, requestRender);
+		value.startSession(context().ctx);
+		const assistant = component();
+		assistant.updateContent(message("# Plan\nbody"), true);
+		const container = (assistant as unknown as { contentContainer: { children: Component[] } })
+			.contentContainer;
+		const foreign = new Text("foreign child");
+		container.children = [foreign];
+		vi.advanceTimersByTime(1_000);
+		expect(container.children).toEqual([foreign]);
+		expect(value.diagnostics.lastTimerWork).toBe(0);
+		expect(requestRender).not.toHaveBeenCalled();
+	});
+
+	it("advances Streaming headers without rebuilding native content or unchanged header Markdown", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(10_000);
+		const nativeUpdates = vi.fn();
+		installLegacyThinkingRenderer(nativeUpdates);
+		const host = context();
+		const requestRender = vi.fn();
+		const value = controller({ enabled: true, mode: "streaming" }, Date.now, requestRender);
+		value.startSession(host.ctx);
+		const assistant = component();
+		const source = `# Plan\n${"long body ".repeat(6_000)}`;
+		assistant.updateContent(message(source), true);
+		const render = vi.spyOn(Markdown.prototype, "render");
+		const setText = vi.spyOn(Markdown.prototype, "setText");
+		try {
+			assistant.render(80);
+			const header = render.mock.instances.find((instance) =>
+				(instance as unknown as { text: string }).text.startsWith("Thinking 0.0s"),
+			);
+			expect(header).toBeDefined();
+			nativeUpdates.mockClear();
+			render.mockClear();
+			requestRender.mockClear();
+			for (let second = 1; second <= 10; second += 1) {
+				vi.advanceTimersByTime(1_000);
+				expect(plain(assistant.render(80)).join("\n")).toContain(`Thinking ${second}.0s`);
+				assistant.render(80);
+			}
+			expect(nativeUpdates).not.toHaveBeenCalled();
+			expect(render.mock.instances.every((instance) => instance === header)).toBe(true);
+			expect(render).toHaveBeenCalledTimes(20);
+			expect(setText).toHaveBeenCalledTimes(10);
+			expect(requestRender).toHaveBeenCalledTimes(10);
+			render.mockClear();
+			assistant.render(40);
+			expect(render).toHaveBeenCalledTimes(2); // body + header at the new width
+			assistant.render(40);
+			expect(render).toHaveBeenCalledTimes(3); // header only on the repeated paint
+			const section = (assistant as unknown as { contentContainer: { children: Component[] } })
+				.contentContainer.children[1];
+			section.invalidate();
+			render.mockClear();
+			assistant.render(40);
+			expect(render).toHaveBeenCalledTimes(2);
+			expect(render.mock.instances).not.toContain(header);
+			host.input("\x14");
+			nativeUpdates.mockClear();
+			requestRender.mockClear();
+			vi.advanceTimersByTime(10_000);
+			expect(nativeUpdates).not.toHaveBeenCalled();
+			expect(requestRender).not.toHaveBeenCalled();
+		} finally {
+			render.mockRestore();
+			setText.mockRestore();
+		}
+	});
 	it.each(
 		(["rail", "tree", "streaming"] as const).flatMap((mode) =>
 			[false, true].map((emptyRun) => ({ mode, emptyRun })),

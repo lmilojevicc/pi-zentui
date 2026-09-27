@@ -1,12 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
 	parseThinkingSteps,
+	parseThinkingStepsResult,
 	THINKING_STEPS_MAX_INPUT_LENGTH,
 	THINKING_STEPS_MAX_LABEL_LENGTH,
 	THINKING_STEPS_MAX_STEPS,
 } from "../extensions/zentui/thinking-steps";
 
 describe("Thinking-step structural parser", () => {
+	it.each(["```ts", "~~~", "$$", "\\["])(
+		"distinguishes unfinished %s bodies without accepting them as finalized steps",
+		(opening) => {
+			const source = `# Plan\r\nbody\r\n${opening}\r\n# opaque`;
+			expect(parseThinkingStepsResult(source)).toEqual({
+				unfinished: true,
+				steps: [{ number: 1, label: "Plan", body: `body\n${opening}\n# opaque` }],
+			});
+			expect(parseThinkingSteps(source)).toBeUndefined();
+		},
+	);
+
+	it.each([
+		"```ts\nbody",
+		"# Plan\n```bad`info\nbody",
+		"# Plan\n```\nunsafe\x1b[2J",
+		`# ${"x".repeat(513)}\n$$\nbody`,
+		`# Plan\n$$\n${"x".repeat(65_536)}`,
+		`${Array.from({ length: 129 }, (_, index) => `# Step ${index}`).join("\n")}\n$$`,
+	])("never classifies unsafe, orphan, or over-budget input as recoverable", (source) => {
+		expect(parseThinkingStepsResult(source)).toBeUndefined();
+	});
 	it("derives headings, top-level lists, and prose while retaining bodies", () => {
 		expect(
 			parseThinkingSteps(

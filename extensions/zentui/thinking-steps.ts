@@ -18,7 +18,13 @@ type MutableStep = {
 };
 
 type StructuralLabel = { label: string };
-type OpaqueBlock = { end: number; malformed: boolean };
+type OpaqueBlock = { end: number; malformed: boolean; unfinished?: boolean };
+
+export type ThinkingStepsParseResult = Readonly<{
+	steps: readonly ThinkingStep[];
+	/** Only an unclosed recognized fence/math body; all source/label limits still passed. */
+	unfinished: boolean;
+}>;
 
 const meaningfulLabelPattern = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
 
@@ -49,7 +55,7 @@ function fenceBlock(lines: readonly string[], start: number): OpaqueBlock | unde
 	for (let index = start + 1; index < lines.length; index += 1) {
 		if (closing.test(lines[index] ?? "")) return { end: index, malformed: false };
 	}
-	return { end: lines.length - 1, malformed: true };
+	return { end: lines.length - 1, malformed: false, unfinished: true };
 }
 
 function mathBlock(lines: readonly string[], start: number): OpaqueBlock | undefined {
@@ -64,7 +70,7 @@ function mathBlock(lines: readonly string[], start: number): OpaqueBlock | undef
 	for (let index = start + 1; index < lines.length; index += 1) {
 		if (close.test(lines[index] ?? "")) return { end: index, malformed: false };
 	}
-	return { end: lines.length - 1, malformed: true };
+	return { end: lines.length - 1, malformed: false, unfinished: true };
 }
 
 function isTopLevelProse(line: string): boolean {
@@ -107,7 +113,7 @@ function finishSteps(steps: MutableStep[]): ThinkingStep[] | undefined {
 }
 
 /** Parse source-level structure; fenced and display-math blocks remain opaque bodies. */
-export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | undefined {
+export function parseThinkingStepsResult(markdown: string): ThinkingStepsParseResult | undefined {
 	if (!markdown || markdown.length > THINKING_STEPS_MAX_INPUT_LENGTH) return undefined;
 	const source = sanitizeSgrOnlySourceText(markdown.replace(/\r\n/g, "\n"));
 	if (source === undefined || !source.trim()) return undefined;
@@ -116,6 +122,7 @@ export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | 
 	const steps: MutableStep[] = [];
 	let current: MutableStep | undefined;
 	let paragraphBoundary = true;
+	let unfinished = false;
 	const startStep = (label: string) => {
 		if (steps.length >= THINKING_STEPS_MAX_STEPS) return false;
 		current = { number: steps.length + 1, label, bodyLines: [] };
@@ -134,6 +141,7 @@ export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | 
 		const opaque = fenceBlock(lines, index) ?? mathBlock(lines, index);
 		if (opaque) {
 			if (opaque.malformed || !current) return undefined;
+			unfinished = opaque.unfinished === true;
 			current.bodyLines.push(...lines.slice(index, opaque.end + 1));
 			index = opaque.end;
 			continue;
@@ -151,5 +159,12 @@ export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | 
 		current.bodyLines.push(line);
 	}
 	if (steps.length === 0) return undefined;
-	return finishSteps(steps);
+	const finished = finishSteps(steps);
+	return finished ? { steps: finished, unfinished } : undefined;
+}
+
+/** Finalized/standalone parsing never accepts an unfinished opaque block. */
+export function parseThinkingSteps(markdown: string): readonly ThinkingStep[] | undefined {
+	const result = parseThinkingStepsResult(markdown);
+	return result && !result.unfinished ? result.steps : undefined;
 }

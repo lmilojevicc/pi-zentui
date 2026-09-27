@@ -18,7 +18,13 @@ import {
 	type PrototypePatchRegistration,
 } from "./prototype-patch-registry";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
-import { parseThinkingSteps, type ThinkingStep } from "./thinking-steps";
+import {
+	parseThinkingStepsResult,
+	THINKING_STEPS_MAX_INPUT_LENGTH,
+	THINKING_STEPS_MAX_STEPS,
+	type ThinkingStep,
+	type ThinkingStepsParseResult,
+} from "./thinking-steps";
 
 /*
  * The rendered-row folding and lifecycle below are adapted from
@@ -87,11 +93,13 @@ type HiddenState = { own: boolean; value: boolean | undefined };
 
 type TrackedState = {
 	message: AssistantMessage;
+	timestamp: number | undefined;
 	args: unknown[];
 	predecessor: (this: unknown, ...args: unknown[]) => unknown;
 	incomplete: boolean;
 	nativeHidden: HiddenState;
 	folded: boolean;
+	structuralCache: ThinkingRunParseCache;
 };
 
 type Timing = { startedAt?: number; completedAt?: number };
@@ -219,6 +227,8 @@ export class ThinkingStepsRows implements Component {
 		private readonly mode: StructuralThinkingMode,
 		private readonly incomplete: boolean,
 		private readonly getTheme: () => AccentTheme,
+		private readonly onPresentation?: (visible: boolean) => void,
+		private readonly onInvalidate?: () => void,
 	) {
 		const selected = mode === "rail" ? steps : steps.slice(-5);
 		this.title = new Markdown(
@@ -235,6 +245,11 @@ export class ThinkingStepsRows implements Component {
 		}));
 	}
 
+	private renderNative(width: number): string[] {
+		this.onPresentation?.(false);
+		return this.native.render(width);
+	}
+
 	render(width: number): string[] {
 		try {
 			const outer = this.shape.paddingX;
@@ -242,7 +257,7 @@ export class ThinkingStepsRows implements Component {
 			const titleConnector = this.mode === "rail" ? "│ " : "┆ ";
 			const titleBudget = innerWidth - visibleWidth(titleConnector);
 			const title = croppedMarkdownRow(this.title, "**Thinking**", titleBudget);
-			if (!title) return this.native.render(width);
+			if (!title) return this.renderNative(width);
 			const renderedLabels: Array<{ connector: string; label: string }> = [];
 			for (const [index, value] of this.labels.entries()) {
 				const final = index === this.labels.length - 1;
@@ -258,7 +273,7 @@ export class ThinkingStepsRows implements Component {
 							: "├─ · ";
 				const budget = innerWidth - visibleWidth(connector);
 				const label = croppedMarkdownRow(value.markdown, value.source, budget);
-				if (!label) return this.native.render(width);
+				if (!label) return this.renderNative(width);
 				renderedLabels.push({ connector, label });
 			}
 			const theme = this.getTheme();
@@ -270,13 +285,16 @@ export class ThinkingStepsRows implements Component {
 					({ connector, label }) => `${left}${theme.fg("accent", connector)}${label}${right}`,
 				),
 			];
-			return rows.every((row) => visibleWidth(row) <= width) ? rows : this.native.render(width);
+			if (!rows.every((row) => visibleWidth(row) <= width)) return this.renderNative(width);
+			this.onPresentation?.(true);
+			return rows;
 		} catch {
-			return this.native.render(width);
+			return this.renderNative(width);
 		}
 	}
 
 	invalidate(): void {
+		this.onInvalidate?.();
 		this.native.invalidate();
 		this.title.invalidate();
 		for (const label of this.labels) label.markdown.invalidate();
@@ -300,6 +318,8 @@ class FoldContext {
 	private preparedWidth: number | undefined;
 	private allocations = new Map<FoldedThinkingSection, string[]>();
 	private hidden = false;
+	private headerMarkdown: Markdown | undefined;
+	private headerText: string | undefined;
 
 	constructor(
 		readonly incomplete: boolean,
@@ -337,19 +357,28 @@ class FoldContext {
 
 	headerRows(width: number): string[] {
 		this.prepare(width);
-		return new Markdown(
-			this.header(this.hidden),
-			this.template.paddingX,
-			this.template.paddingY,
-			this.template.theme,
-			this.template.defaultTextStyle,
-			this.template.options,
-		).render(width);
+		const text = this.header(this.hidden);
+		if (!this.headerMarkdown) {
+			this.headerMarkdown = new Markdown(
+				text,
+				this.template.paddingX,
+				this.template.paddingY,
+				this.template.theme,
+				this.template.defaultTextStyle,
+				this.template.options,
+			);
+		} else if (text !== this.headerText) {
+			this.headerMarkdown.setText(text);
+		}
+		this.headerText = text;
+		return this.headerMarkdown.render(width);
 	}
 
 	invalidate(): void {
 		this.preparedWidth = undefined;
 		this.allocations.clear();
+		this.headerMarkdown = undefined;
+		this.headerText = undefined;
 	}
 }
 
@@ -650,6 +679,72 @@ function activeThinkingRun(message: AssistantMessage, incomplete: boolean): numb
 	return contiguousRun;
 }
 
+type ThinkingRunParseEntry = {
+	source: string;
+	result: ThinkingStepsParseResult;
+	active: boolean;
+	token: symbol;
+	presented: boolean;
+	labels: readonly string[];
+};
+
+/** Per-component source budget, shared across runs; never retains rendered/theme-colored rows. */
+class ThinkingRunParseCache {
+	private entries = new Map<number, ThinkingRunParseEntry>();
+
+	clear(): void {
+		this.entries.clear();
+	}
+
+	retainRuns(runs: ReadonlySet<number>): void {
+		for (const run of this.entries.keys()) if (!runs.has(run)) this.entries.delete(run);
+	}
+
+	presentationListener(run: number, token: symbol): (visible: boolean) => void {
+		return (visible) => {
+			const entry = this.entries.get(run);
+			if (entry?.token === token) entry.presented = visible;
+		};
+	}
+
+	parse(run: number, source: string, active: boolean): ThinkingRunParseEntry | undefined {
+		const previous = this.entries.get(run);
+		if (previous?.source === source && previous.active === active) return previous;
+		const result = parseThinkingStepsResult(source);
+		this.entries.delete(run);
+		if (!result) return undefined;
+		const entry: ThinkingRunParseEntry = {
+			source,
+			result,
+			active,
+			token: Symbol(),
+			presented: false,
+			labels: result.steps.map((step) => step.label),
+		};
+		// Only an already displayed, append-only active run may survive unfinished syntax.
+		// Matching every label also prevents a newly appended unsafe label being suppressed.
+		if (
+			active &&
+			previous?.active &&
+			previous.presented &&
+			source.startsWith(previous.source) &&
+			previous.labels.length === entry.labels.length &&
+			entry.labels.every((label, index) => label === previous.labels[index])
+		)
+			entry.presented = true;
+		this.entries.set(run, entry);
+		let size = 0;
+		for (const value of this.entries.values()) size += value.source.length;
+		while (size > THINKING_STEPS_MAX_INPUT_LENGTH || this.entries.size > THINKING_STEPS_MAX_STEPS) {
+			const oldest = this.entries.entries().next().value;
+			if (!oldest) break;
+			size -= oldest[1].source.length;
+			this.entries.delete(oldest[0]);
+		}
+		return entry;
+	}
+}
+
 function replaceThinkingChildren(
 	instance: PatchableAssistant,
 	message: AssistantMessage,
@@ -657,16 +752,19 @@ function replaceThinkingChildren(
 	incomplete: boolean,
 	header: (hidden: boolean) => string,
 	getTheme: () => AccentTheme,
+	structuralCache: ThinkingRunParseCache,
 ): boolean {
 	const owned = writableOwnChildren(instance);
 	if (!owned) return false;
 	const { container, children } = owned;
 	const layout = thinkingMarkdownLayout(children, message, instance.thinkingVisibilityOverrides);
 	if (!layout) return false;
+	structuralCache.retainRuns(new Set(layout.matches.map((match) => match.run)));
 	if (layout.matches.length === 0) return true;
 	const replacements = new Map<number, Component>();
 	const removals = new Set<number>();
 	if (mode === "streaming") {
+		structuralCache.clear();
 		const template = layout.matches[0]?.shape;
 		if (!template) return false;
 		const context = new FoldContext(incomplete, header, template);
@@ -689,20 +787,23 @@ function replaceThinkingChildren(
 			const last = matches.at(-1);
 			if (!first || !last) continue;
 			const source = matches.map((match) => match.shape.text).join("\n\n");
-			const steps = parseThinkingSteps(source);
-			if (!steps?.length) continue;
+			const entry = structuralCache.parse(run, source, run === activeRun);
+			if (!entry || (entry.result.unfinished && (!entry.active || !entry.presented))) continue;
+			const steps = entry.result.steps;
 			const nativeChildren = children.slice(first.index, last.index + 1);
 			const native =
 				nativeChildren.length === 1 ? first.markdown : new NativeThinkingRun(nativeChildren);
 			replacements.set(
 				first.index,
-				createThinkingStepsRows(
+				new ThinkingStepsRows(
 					native,
 					{ ...first.shape, text: source },
 					steps,
 					mode,
 					run === activeRun,
 					getTheme,
+					structuralCache.presentationListener(run, entry.token),
+					() => structuralCache.clear(),
 				),
 			);
 			for (let index = first.index + 1; index <= last.index; index += 1) removals.add(index);
@@ -971,6 +1072,7 @@ export class ThinkingExperimentalController {
 		this.expanded = false;
 		this.activeMode = desired.mode;
 		this.restartRequired = false;
+		for (const [, state] of this.trackedEntries()) state.structuralCache.clear();
 		this.rerenderTracked();
 		const result = this.liveTransitionResult(desired.mode);
 		if (!result.applied || streamingCleanupSucceeded) return result;
@@ -1112,6 +1214,7 @@ export class ThinkingExperimentalController {
 										throw new Error("theme unavailable");
 									return theme;
 								},
+								trackedState.structuralCache,
 							)
 						) {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
@@ -1146,13 +1249,24 @@ export class ThinkingExperimentalController {
 		incomplete: boolean,
 		nativeHidden: HiddenState,
 	): TrackedState {
+		const previous = this.states.get(component);
+		const structuralCache =
+			previous &&
+			(previous.timestamp !== undefined
+				? previous.timestamp === messageTimestamp(message)
+				: previous.message === message) &&
+			previous.incomplete === incomplete
+				? previous.structuralCache
+				: new ThinkingRunParseCache();
 		const trackedState: TrackedState = {
 			message,
+			timestamp: messageTimestamp(message),
 			args: [...args],
 			predecessor,
 			incomplete,
 			nativeHidden,
 			folded: false,
+			structuralCache,
 		};
 		this.states.set(component, trackedState);
 		let reference = this.references.get(component);
@@ -1409,7 +1523,7 @@ export class ThinkingExperimentalController {
 			)
 				return;
 			if (this.checkDisplacement()) return;
-			this.rerenderActive();
+			this.refreshActiveHeaders();
 			this.reconcileTimer();
 		}, 1000);
 	}
@@ -1571,6 +1685,7 @@ export class ThinkingExperimentalController {
 										throw new Error("theme unavailable");
 									return theme;
 								},
+								state.structuralCache,
 							)
 						) {
 							this.failShape("Pi's private assistant renderer shape is incompatible");
@@ -1604,9 +1719,24 @@ export class ThinkingExperimentalController {
 		if (processed > 0) this.requestHostRender();
 	}
 
-	private rerenderActive(): void {
-		const entries = this.activeEntries();
-		this.lastTimerWork = this.rerenderEntries(entries);
+	private refreshActiveHeaders(): void {
+		// Elapsed headers are evaluated at render time. Rebuilding native children here
+		// would discard their Markdown/layout caches even though no content changed.
+		this.lastTimerWork = this.expanded
+			? 0
+			: this.activeEntries().filter(([component, state]) => {
+					try {
+						return (
+							state.folded &&
+							writableOwnChildren(component as PatchableAssistant)?.children.some(
+								(child) => unwrapMouseRegion(child) instanceof FoldedThinkingSection,
+							)
+						);
+					} catch {
+						// Foreign/stale children are not ours to repair on an elapsed-only tick.
+						return false;
+					}
+				}).length;
 		if (this.lastTimerWork > 0) this.requestHostRender();
 	}
 
@@ -1781,6 +1911,7 @@ export class ThinkingExperimentalController {
 		const completedEntries = this.activeEntries().filter(([, state]) => {
 			if (messageTimestamp(state.message) !== timestamp) return false;
 			state.incomplete = false;
+			state.structuralCache.clear();
 			return true;
 		});
 		for (const [component] of completedEntries) {

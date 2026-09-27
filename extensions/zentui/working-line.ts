@@ -149,8 +149,7 @@ export class AgentDurationClock {
 	}
 }
 
-// Creating an `Intl.Segmenter` per call is very expensive (ICU init). The working
-// line segments the same row for every animation frame, so reuse one instance.
+// Creating an `Intl.Segmenter` per call is very expensive (ICU init), so reuse one instance.
 let sharedGraphemeSegmenter: Intl.Segmenter | undefined;
 let sharedGraphemeSegmenterResolved = false;
 
@@ -614,6 +613,8 @@ function fitWorkingLineExtensionSegments(
 
 export type ComposedWorkingLine = { message: string; row: string };
 
+type PreparedWorkingLine = ComposedWorkingLine & { spinnerWidth: number; rowWidth: number };
+
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
 export function workingLineSpinnerWidth(spinnerId: WorkingLineComponentConfig["spinner"]): number {
 	const frames: readonly string[] = WORKING_LINE_SPINNERS[spinnerId].frames;
@@ -630,9 +631,18 @@ export function composeWorkingLineRow(
 	message: string,
 	runtime: WorkingLineRuntimeSegments = {},
 ): ComposedWorkingLine {
+	const composed = prepareWorkingLineRow(config, message, runtime);
+	return { message: composed.message, row: composed.row };
+}
+
+function prepareWorkingLineRow(
+	config: WorkingLineComponentConfig,
+	message: string,
+	runtime: WorkingLineRuntimeSegments,
+): PreparedWorkingLine {
 	const normalized = normalizeWorkingLineMessage(message) || WORKING_LINE_FALLBACK_MESSAGE;
-	const maximumRowCells =
-		MAX_WORKING_LINE_FRAME_CELLS - workingLineSpinnerWidth(config.spinner) - visibleWidth(" ");
+	const spinnerWidth = workingLineSpinnerWidth(config.spinner);
+	const maximumRowCells = MAX_WORKING_LINE_FRAME_CELLS - spinnerWidth - 1;
 	const delimiter = " · ";
 	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
 	const tokenWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
@@ -680,7 +690,8 @@ export function composeWorkingLineRow(
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
 	segments.push(...extensions);
-	return { message: normalized, row: segments.filter(Boolean).join(delimiter) };
+	const row = segments.filter(Boolean).join(delimiter);
+	return { message: normalized, row, spinnerWidth, rowWidth: visibleWidth(row) };
 }
 
 type ScheduleDefinition = {
@@ -774,12 +785,37 @@ function bestFallbackFrameCount(
 	return best;
 }
 
+function spinnerRowCells(
+	frames: readonly string[],
+	row: string,
+	spinnerWidth: number,
+): Map<string, GraphemeCell[]> {
+	const byGlyph = new Map<string, GraphemeCell[]>();
+	// Keep the separator attached to the row: a leading combining mark can join that space.
+	// Without Intl.Segmenter, preserve the conservative single-grapheme whole-frame fallback.
+	const suffix = getSharedGraphemeSegmenter()
+		? graphemeCells(` ${row}`).cells.map((cell) => ({
+				...cell,
+				start: cell.start + spinnerWidth,
+			}))
+		: undefined;
+	for (const glyph of frames) {
+		if (byGlyph.has(glyph)) continue;
+		byGlyph.set(
+			glyph,
+			suffix ? [...graphemeCells(glyph).cells, ...suffix] : graphemeCells(`${glyph} ${row}`).cells,
+		);
+	}
+	return byGlyph;
+}
+
 function renderWorkingLineSchedule(
 	definition: ScheduleDefinition,
 	config: WorkingLineComponentConfig,
 	colors: PolishedTuiColors,
 	theme: ThemeLike,
-	row: string,
+	rowCells: GraphemeCell[],
+	spinnerCells: Map<string, GraphemeCell[]> | undefined,
 	width: number,
 	textCycle: number,
 	spinnerStartTick: number,
@@ -791,8 +827,6 @@ function renderWorkingLineSchedule(
 	const frameStates: WorkingLineFrameState[] = [];
 	let codeUnits = 0;
 	const scheduleOrigin = definition.stateAt(scheduleStartFrame);
-	// `row` is invariant across the whole schedule; segment it once instead of per frame.
-	const rowCells = graphemeCells(row).cells;
 	// Many frames of the schedule share the same textTick/spinnerTick. Render each
 	// distinct value once and reuse — this dominates on slow CPUs (e.g. a Pi).
 	const textRenderCache = new Map<number, string>();
@@ -842,7 +876,7 @@ function renderWorkingLineSchedule(
 					theme,
 					config,
 					colors,
-					graphemeCells(`${spinnerGlyph} ${row}`).cells,
+					spinnerCells?.get(spinnerGlyph) ?? rowCells,
 					width,
 					state.textTick,
 					config.textAnimation,
@@ -866,11 +900,29 @@ export function buildWorkingLineFrames(
 	textStartTick = spinnerStartTick,
 	scheduleStartFrame = 0,
 ): WorkingLineFrames {
-	const composed = composeWorkingLineRow(config, message, runtime);
+	return buildPreparedWorkingLineFrames(
+		config,
+		colors,
+		theme,
+		prepareWorkingLineRow(config, message, runtime),
+		spinnerStartTick,
+		textStartTick,
+		scheduleStartFrame,
+	);
+}
+
+function buildPreparedWorkingLineFrames(
+	config: WorkingLineComponentConfig,
+	colors: PolishedTuiColors,
+	theme: ThemeLike,
+	composed: PreparedWorkingLine,
+	spinnerStartTick: number,
+	textStartTick: number,
+	scheduleStartFrame: number,
+): WorkingLineFrames {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
-	const spinnerWidth = workingLineSpinnerWidth(config.spinner);
-	const { width: rowWidth } = graphemeCells(composed.row);
-	const frameWidth = spinnerWidth + visibleWidth(" ") + rowWidth;
+	const { spinnerWidth, rowWidth } = composed;
+	const frameWidth = spinnerWidth + 1 + rowWidth;
 	if (frameWidth > MAX_WORKING_LINE_FRAME_CELLS) {
 		throw new Error("Working-line row exceeds its visible-width cap");
 	}
@@ -878,7 +930,7 @@ export function buildWorkingLineFrames(
 		? Math.max(0, Math.floor(spinnerStartTick))
 		: 0;
 	const animatedTextWidth = config.animateSpinnerColor ? frameWidth : rowWidth;
-	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + visibleWidth(" ");
+	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + 1;
 	const textCycle = textPeriod(config.textAnimation, animatedTextWidth);
 	const textPhase = normalizedPhaseTick(textStartTick, textCycle);
 
@@ -890,15 +942,7 @@ export function buildWorkingLineFrames(
 		let codeUnits = 0;
 		const frames = frameStates.map((state) => {
 			const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-			const frame = `${renderAnimatedText(
-				theme,
-				config,
-				colors,
-				graphemeCells(`${glyph} ${composed.row}`).cells,
-				frameWidth,
-				0,
-				"disabled",
-			)}${SGR_RESET}`;
+			const frame = `${renderTier(theme, config, colors, "mid", `${glyph} ${composed.row}`)}${SGR_RESET}`;
 			codeUnits += frame.length;
 			if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS)
 				throw new Error("Working-line animation exceeds its memory cap");
@@ -925,6 +969,11 @@ export function buildWorkingLineFrames(
 		};
 	}
 
+	// These cells are invariant even if the memory cap requires retrying a shorter schedule.
+	const rowCells = config.animateSpinnerColor ? [] : graphemeCells(composed.row).cells;
+	const spinnerCells = config.animateSpinnerColor
+		? spinnerRowCells(spinner.frames, composed.row, spinnerWidth)
+		: undefined;
 	const exact = exactSchedule(
 		config.spinnerIntervalMs,
 		config.textIntervalMs,
@@ -937,7 +986,8 @@ export function buildWorkingLineFrames(
 			config,
 			colors,
 			theme,
-			composed.row,
+			rowCells,
+			spinnerCells,
 			animatedTextWidth,
 			textCycle,
 			spinnerPhase,
@@ -980,7 +1030,8 @@ export function buildWorkingLineFrames(
 			config,
 			colors,
 			theme,
-			composed.row,
+			rowCells,
+			spinnerCells,
 			animatedTextWidth,
 			textCycle,
 			spinnerPhase,
@@ -1296,13 +1347,8 @@ export class WorkingLineController {
 		}
 	}
 
-	private makeFrameKey(rootConfig: ZentuiConfig, selectedMessage: string | undefined): string {
+	private makeFrameKey(rootConfig: ZentuiConfig, row: string): string {
 		const config = rootConfig.components.workingLine;
-		const { row } = composeWorkingLineRow(
-			config,
-			selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE,
-			this.runtimeSegments(),
-		);
 		return JSON.stringify([
 			"owned",
 			config.spinner,
@@ -1344,12 +1390,17 @@ export class WorkingLineController {
 		force = false,
 		rebase = false,
 	): void {
-		const key = this.makeFrameKey(rootConfig, selectedMessage);
+		const config = rootConfig.components.workingLine;
+		const composed = prepareWorkingLineRow(
+			config,
+			selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE,
+			this.runtimeSegments(),
+		);
+		const key = this.makeFrameKey(rootConfig, composed.row);
 		if (!force && this.installed && this.frameKey === key) {
 			this.extensionSegmentsDirty = false;
 			return;
 		}
-		const config = rootConfig.components.workingLine;
 		const sampledAtMs = this.now();
 		let spinnerTick = 0;
 		let spatial: TextSpatialPhase | undefined;
@@ -1371,16 +1422,11 @@ export class WorkingLineController {
 				sampled?.textTick ?? 0,
 			);
 		}
-		const message = selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE;
-		const runtime = this.runtimeSegments();
-		const composed = composeWorkingLineRow(config, message, runtime);
-		const spinnerWidth = workingLineSpinnerWidth(config.spinner);
+		const { spinnerWidth, rowWidth } = composed;
 		const textWidth =
-			config.textAnimation !== "disabled" && config.animateSpinnerColor
-				? spinnerWidth + 1 + visibleWidth(composed.row)
-				: config.textAnimation === "disabled"
-					? spinnerWidth + 1 + visibleWidth(composed.row)
-					: visibleWidth(composed.row);
+			config.animateSpinnerColor || config.textAnimation === "disabled"
+				? spinnerWidth + 1 + rowWidth
+				: rowWidth;
 		const textOrigin =
 			config.textAnimation !== "disabled" && !config.animateSpinnerColor ? spinnerWidth + 1 : 0;
 		const relativeSpatial = spatial
@@ -1390,12 +1436,11 @@ export class WorkingLineController {
 				}
 			: undefined;
 		const textTick = textTickForSpatialPhase(config.textAnimation, textWidth, relativeSpatial);
-		const generated = buildWorkingLineFrames(
+		const generated = buildPreparedWorkingLineFrames(
 			config,
 			rootConfig.colors,
 			this.getTheme(),
-			message,
-			runtime,
+			composed,
 			spinnerTick,
 			textTick,
 			scheduleStartFrame,
