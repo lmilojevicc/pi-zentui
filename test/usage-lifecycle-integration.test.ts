@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
 	AgentSession,
 	SessionManager,
@@ -65,6 +66,18 @@ vi.mock("../extensions/zentui/package-version", () => ({
 
 import { loadConfig } from "../extensions/zentui/config";
 import zentui from "../extensions/zentui/index";
+
+// Resolve the imported package, not Pi's VERSION export (which honors PI_PACKAGE_DIR).
+const installedPiVersion = (
+	JSON.parse(
+		readFileSync(
+			new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")),
+			"utf8",
+		),
+	) as { version: string }
+).version;
+// Pi 0.80.5 does not accept/persist summary usage; all other hosts must retain that coverage.
+const supportsSummaryUsage = installedPiVersion !== "0.80.5";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type Footer = { render(width: number): string[]; dispose?: () => void };
@@ -304,32 +317,48 @@ describe("event-owned usage production lifecycle", () => {
 			const h = harness();
 			const tool = { ...message(20, 2), role: "toolResult", toolCallId: "t", toolName: "nested" };
 			h.manager.appendMessage(tool as never);
-			h.manager.appendCompaction(
+			const compactionUsage = usage(30, 3);
+			const branchUsage = usage(40, 4);
+			const compactionId = h.manager.appendCompaction(
 				"summary",
 				h.entries[0].id,
 				100,
 				undefined,
 				undefined,
-				usage(30, 3) as never,
+				compactionUsage as never,
 			);
-			h.manager.branchWithSummary(
+			const branchId = h.manager.branchWithSummary(
 				h.entries[0].id,
 				"branch",
 				undefined,
 				undefined,
-				usage(40, 4) as never,
+				branchUsage as never,
 			);
+			for (const [id, type, expectedUsage] of [
+				[compactionId, "compaction", compactionUsage],
+				[branchId, "branch_summary", branchUsage],
+			] as const) {
+				const entry = h.manager.getEntry(id);
+				expect(entry).toHaveProperty("type", type);
+				if (supportsSummaryUsage) expect(entry).toHaveProperty("usage", expectedUsage);
+				else expect(entry).not.toHaveProperty("usage");
+			}
 			await h.emit("session_start");
 			const footer = h.footer();
 			try {
-				expect(rendered(footer)).toContain("↑100 ↓8");
+				expect(rendered(footer)).toContain(supportsSummaryUsage ? "↑100 ↓8" : "↑30 ↓4");
+				expect(rendered(footer)).toContain(supportsSummaryUsage ? "$10.000" : "$3.000");
+				const leafId = h.manager.getLeafId();
+				const reads = h.getEntries.mock.calls.length;
 				tool.usage.input = 50;
 				tool.usage.cost.total = 5;
 				h.requestRender.mockClear();
 				await h.emit(event, { message: tool });
+				expect(h.manager.getLeafId()).toBe(leafId);
+				expect(h.getEntries).toHaveBeenCalledTimes(reads + 1);
 				expect(h.requestRender).toHaveBeenCalled();
-				expect(rendered(footer)).toContain("↑130 ↓8");
-				expect(rendered(footer)).toContain("$13.000");
+				expect(rendered(footer)).toContain(supportsSummaryUsage ? "↑130 ↓8" : "↑60 ↓4");
+				expect(rendered(footer)).toContain(supportsSummaryUsage ? "$13.000" : "$6.000");
 			} finally {
 				footer.dispose?.();
 				await h.emit("session_shutdown");
