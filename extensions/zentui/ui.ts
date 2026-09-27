@@ -17,6 +17,7 @@ import type { EditorStyle, ZentuiConfig } from "./config";
 import {
 	type EditorMetadataZones,
 	renderEditorMetadataFormatSplit,
+	sanitizeEditorMetadataText,
 } from "./editor-metadata-format";
 import {
 	EditorMouseForwarder,
@@ -24,6 +25,7 @@ import {
 	editorMouseCells,
 	rememberEditorMouseLayout,
 } from "./editor-mouse";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { bashModeLabel } from "./format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import {
@@ -336,6 +338,15 @@ function isLowRailPolishedStyle(style: EditorStyle): boolean {
 
 function isShellModeInput(text: string): boolean {
 	return bashModeLabel(text) !== "";
+}
+
+export function editorWantsContext(config: ZentuiConfig): boolean {
+	const editor = config.components.editor;
+	if (!editor.enabled || editor.style === "accent-rail") return false;
+	if (editor.style === "minimalist") return true;
+	return collectFooterFormatReferences(
+		parseFooterFormat(sanitizeEditorMetadataText(editor.styles[editor.style].metadataFormat)),
+	).has("context");
 }
 
 function selectedPolishedConfig(config: ZentuiConfig) {

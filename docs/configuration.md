@@ -4,6 +4,16 @@
 
 Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
 
+## Refresh and cache freshness
+
+- Settings telemetry checks file signatures on each demanded sync, including inode, size, modification and change times. Ordinary edits, replacements and trust changes reload the snapshot; untrusted project settings are never inspected. Signature equality assumes normal filesystem metadata updates, not content hashing. Read failures retry.
+- Session usage reuses one event-owned snapshot under Pi's append-only session contract. Session/leaf changes and message, agent, settlement, tree and compaction boundaries refresh totals. Silent same-leaf history edits outside those boundaries are not detected by this fast path; the generic usage helper remains mutation-safe.
+- Repository path rendering uses the latest controlled project refresh. Creating or removing a `.git` marker becomes visible on the next demanded event, explicit or interval refresh, not every render. Disabling polling leaves event/explicit refreshes active.
+- Runtime and package discovery share one asynchronous filesystem snapshot per refresh; manifests are read fresh. Runtime versions retain the bounded 32-project cache, 60-second successful-version lifetime and 5-second failure retry, with marker and environment changes invalidating earlier results.
+- Footer syntax uses a 32-entry exact-format cache. Format and alias edits are observed immediately; theme, width, status and quota output are never cached with syntax.
+
+Disabled, native and unowned surfaces do not demand these probes on behalf of Zentui. Pi and other extensions may perform their own work.
+
 ## Start with minimal overrides
 
 Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line and Thinking (Experimental) are disabled.

@@ -79,6 +79,7 @@ export class RepositoryRootController {
 		return this.state.root;
 	}
 
+	/** Render-only snapshot; marker creation/removal is validated by controlled project refresh. */
 	cachedRootForCwd(cwd: string): string | undefined {
 		return this.state?.cwd === cwd ? this.state.root : undefined;
 	}

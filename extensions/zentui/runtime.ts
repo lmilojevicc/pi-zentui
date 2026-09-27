@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+
+import { ProjectDiscovery } from "./project-discovery.js";
 
 const execFileAsync = promisify(execFile);
 const VERSION_TIMEOUT_MS = 2500;
@@ -33,20 +35,36 @@ export function clearRuntimeInfoCache(): void {
 	runtimeInfoCache.clear();
 }
 
-function topLevelFingerprint(cwd: string, entries: readonly string[]): string {
-	const markers = entries
-		.filter((entry) => versionMarkers.has(entry))
-		.sort()
-		.map((entry) => {
-			try {
-				const stat = statSync(join(cwd, entry));
-				return `${entry}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
-			} catch {
-				return `${entry}:missing`;
-			}
-		});
-	return [...entries.slice().sort(), ...markers].join("\0");
+async function topLevelFingerprint(
+	discovery: ProjectDiscovery,
+	entries: readonly string[],
+): Promise<string> {
+	const markers: string[] = [];
+	for (const entry of versionMarkers) {
+		if (!(await discovery.hasCandidate(entry))) continue;
+		const stat = await discovery.stat(entry);
+		markers.push(
+			stat
+				? `${entry}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.dev}:${stat.ino}`
+				: `${entry}:missing`,
+		);
+	}
+	return [...entries, ...markers].join("\0");
 }
+
+// Detection and executable selection remain live even while a version is cached.
+const environmentSelectors = [
+	"PATH",
+	"CONDA_DEFAULT_ENV",
+	"CONDA_PREFIX",
+	"PIXI_ENVIRONMENT_NAME",
+	"GUIX_ENVIRONMENT",
+	"MESON_DEVENV",
+	"MESON_PROJECT_NAME",
+	"IN_NIX_SHELL",
+	"SPACK_ENV",
+	"VIRTUAL_ENV",
+] as const;
 
 function cacheRuntimeInfo(
 	cwd: string,
@@ -830,24 +848,51 @@ export function detectRuntime(
 	return undefined;
 }
 
-export async function readRuntimeInfo(cwd: string): Promise<RuntimeReadResult> {
-	let entries: string[];
-	try {
-		entries = readdirSync(cwd);
-	} catch {
-		// readdir failure is treated as a transient error so last-good can be kept.
-		return { kind: "error" };
+async function detectDiscoveredRuntime(
+	discovery: ProjectDiscovery,
+	entries: string[],
+	env: RuntimeEnvironment,
+): Promise<RuntimeDef | undefined> {
+	for (const runtime of sortedRuntimes) {
+		const spec = runtime.detect;
+		let excluded = false;
+		for (const file of spec.excludedFiles ?? []) {
+			if (await discovery.exists(file)) {
+				excluded = true;
+				break;
+			}
+		}
+		if (excluded) continue;
+		for (const file of spec.files ?? []) {
+			if (await discovery.exists(file)) return runtime;
+		}
+		for (const folder of spec.folders ?? []) {
+			if (await discovery.isDirectory(folder)) return runtime;
+		}
+		if ((spec.extensions && hasAnyExtension(entries, spec.extensions)) || spec.env?.(env))
+			return runtime;
 	}
+	return undefined;
+}
 
-	const fingerprint = topLevelFingerprint(cwd, entries);
-	const cacheKey = `${cwd}\0${fingerprint}`;
-	const cached = runtimeInfoCache.get(cacheKey);
-	if (cached && cached.fingerprint === fingerprint && Date.now() < cached.expiresAt) {
-		return { kind: "ok", runtime: cached.runtime };
-	}
-
+export async function readRuntimeInfo(
+	cwd: string,
+	discovery = new ProjectDiscovery(cwd),
+): Promise<RuntimeReadResult> {
 	try {
-		const runtime = detectRuntime(cwd, entries);
+		const entries = [...(await discovery.entries()).keys()].sort();
+		const env = Object.fromEntries(environmentSelectors.map((key) => [key, process.env[key]]));
+		const runtime = await detectDiscoveredRuntime(discovery, entries, env);
+		const fingerprint = JSON.stringify([
+			await topLevelFingerprint(discovery, entries),
+			runtime?.name,
+			env,
+		]);
+		const cacheKey = `${cwd}\0${fingerprint}`;
+		const cached = runtimeInfoCache.get(cacheKey);
+		if (cached && Date.now() < cached.expiresAt) {
+			return { kind: "ok", runtime: cached.runtime };
+		}
 		if (!runtime) {
 			cacheRuntimeInfo(cwd, fingerprint, undefined);
 			return { kind: "ok", runtime: undefined };
@@ -866,6 +911,7 @@ export async function readRuntimeInfo(cwd: string): Promise<RuntimeReadResult> {
 		);
 		return { kind: "ok", runtime: info };
 	} catch {
+		// Discovery failure is transient; do not poison the version snapshot.
 		return { kind: "error" };
 	}
 }

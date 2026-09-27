@@ -70,25 +70,35 @@ export function modelLabelFor(
 		: state.modelId || "no-model";
 }
 
+export function syncUsageState(
+	state: FooterState,
+	totals: UsageTotals,
+	cacheHitIcon: string,
+): void {
+	state.tokenLabel = buildTokenLabel(totals, cacheHitIcon);
+	state.cacheReadLabel = buildCacheReadLabel(totals.cacheRead);
+	state.cacheWriteLabel = buildCacheWriteLabel(totals.cacheWrite);
+	state.costLabel = buildCostLabel(totals);
+	state.usageTotals = totals;
+}
+
 export function syncState(
 	state: FooterState,
 	ctx: ExtensionContext,
 	cacheHitIcon: string,
 	telemetry: FooterTelemetry = {},
+	options: { includeContextLabel?: boolean; usageTotals?: UsageTotals } = {},
 ): void {
-	const totals = getUsageTotals(ctx);
+	const totals = options.usageTotals ?? getUsageTotals(ctx);
 	const m = ctx.model;
 	state.modelId = m?.id ?? "";
 	state.modelName = m?.name ?? "";
 	// Retained as a compatibility snapshot only; production surfaces format from raw fields.
 	state.modelLabel = modelLabelFor(state, "id");
 	state.providerLabel = formatProviderLabel(ctx.model?.provider);
-	state.contextLabel = buildContextLabel(ctx);
-	state.tokenLabel = buildTokenLabel(totals, cacheHitIcon);
-	state.cacheReadLabel = buildCacheReadLabel(totals.cacheRead);
-	state.cacheWriteLabel = buildCacheWriteLabel(totals.cacheWrite);
-	state.costLabel = buildCostLabel(totals);
-	state.usageTotals = totals;
+	// Production surfaces resolve fresh context on demand, not from this compatibility label.
+	state.contextLabel = options.includeContextLabel === false ? "--" : buildContextLabel(ctx);
+	syncUsageState(state, totals, cacheHitIcon);
 	state.subscription = telemetry.subscription === true;
 	state.autoCompaction = telemetry.autoCompaction === true;
 }

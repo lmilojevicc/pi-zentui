@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type Theme } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../extensions/zentui/config", async (importOriginal) => {
@@ -6,7 +6,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	return {
 		...actual,
 		ensureConfigExists: () => {},
-		loadConfig: () => ({
+		loadConfig: vi.fn(() => ({
 			...actual.defaultConfig,
 			projectRefreshIntervalMs: 0,
 			components: {
@@ -23,7 +23,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 				},
 			},
 			features: { ...actual.defaultConfig.features, editor: false, statusLine: true },
-		}),
+		})),
 	};
 });
 
@@ -48,6 +48,7 @@ vi.mock("../extensions/zentui/package-version", async (importOriginal) => {
 	};
 });
 
+import { loadConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import zentui from "../extensions/zentui/index";
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
@@ -124,7 +125,8 @@ function persistedEntry(
 	};
 }
 
-function loadExtension() {
+function loadExtension(config?: PolishedTuiConfig) {
+	if (config) vi.mocked(loadConfig).mockReturnValueOnce(config);
 	const handlers = new Map<string, Handler[]>();
 	zentui({
 		on(name: string, handler: Handler) {
@@ -150,11 +152,14 @@ async function emit(
 function createHarness(
 	options: {
 		model?: { id: string; provider: string; contextWindow: number };
-		contextUsage?: { tokens: number; contextWindow: number; percent: number } | null;
+		wrapped?: boolean;
+		contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } | null;
 	} = {},
 ) {
 	let footerFactory: FooterFactory | undefined;
-	let editorFactory: EditorFactory | undefined;
+	let editorFactory: EditorFactory | undefined = options.wrapped
+		? (...args) => new CustomEditor(...(args as ConstructorParameters<typeof CustomEditor>))
+		: undefined;
 	let editorText = "";
 	const requestRender = vi.fn();
 	const editorRequestRender = vi.fn();
@@ -182,7 +187,7 @@ function createHarness(
 			getEntries: () => entries,
 			getSessionName: () => undefined,
 		},
-		getContextUsage: () => state.contextUsage,
+		getContextUsage: vi.fn(() => state.contextUsage),
 		ui: {
 			theme,
 			getEditorText() {
@@ -369,5 +374,135 @@ describe("live streaming context event integration", () => {
 		vi.advanceTimersByTime(250);
 		expect(harness.requestRender).not.toHaveBeenCalled();
 		expect(rendered(footer)).toContain("10.0%/10k");
+	});
+});
+
+describe("context query demand", () => {
+	for (const wrapped of [false, true]) {
+		it.each(["opencode", "opencode-copy-friendly", "minimalist"] as const)(
+			`resolves %s metadata once per render (wrapped=${wrapped})`,
+			async (style) => {
+				vi.useFakeTimers();
+				const config = structuredClone(loadConfig());
+				config.components.editor.style = style;
+				if (style !== "minimalist")
+					config.components.editor.styles[style].metadataFormat = "$context";
+				config.components.footer.style = "native";
+				const handlers = loadExtension(config);
+				const harness = createHarness({ wrapped });
+				await emit(handlers, "session_start", harness.ctx);
+				await settleProjectRefresh();
+				const editor = harness.createEditor();
+				harness.ctx.getContextUsage.mockClear();
+				for (let i = 0; i < 100; i++) renderedEditor(editor);
+				expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(100);
+				harness.ctx.getContextUsage.mockClear();
+				await emit(handlers, "message_update", harness.ctx, { message: assistant(1_100) });
+				for (let i = 0; i < 100; i++) renderedEditor(editor);
+				expect(harness.ctx.getContextUsage).not.toHaveBeenCalled();
+				await emit(handlers, "session_shutdown", harness.ctx);
+			},
+		);
+
+		it.each(["accent-rail", "opencode", "opencode-copy-friendly"] as const)(
+			`skips context for quota-only %s metadata (wrapped=${wrapped})`,
+			async (style) => {
+				vi.useFakeTimers();
+				const config = structuredClone(loadConfig());
+				config.components.editor.style = style;
+				config.components.editor.styles.opencode.metadataFormat = "$model $codex_quota";
+				config.components.editor.styles["opencode-copy-friendly"].metadataFormat =
+					"$model $codex_quota";
+				config.components.footer.style = "native";
+				const handlers = loadExtension(config);
+				const harness = createHarness({ wrapped });
+				await emit(handlers, "session_start", harness.ctx);
+				await settleProjectRefresh();
+				const editor = harness.createEditor();
+				for (let i = 0; i < 100; i++) renderedEditor(editor);
+				expect(harness.ctx.getContextUsage).not.toHaveBeenCalled();
+				if (style !== "accent-rail") {
+					config.components.editor.styles[style].metadataFormat = "$context";
+					expect(renderedEditor(editor)).toContain("10.0%/10k");
+					expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(1);
+				}
+				await emit(handlers, "session_shutdown", harness.ctx);
+			},
+		);
+	}
+
+	it("publishes changed streaming context only and clears it across model/session boundaries", async () => {
+		vi.useFakeTimers();
+		const handlers = loadExtension();
+		const harness = createHarness();
+		await emit(handlers, "session_start", harness.ctx);
+		await settleProjectRefresh();
+		const footer = harness.createFooter();
+		const editor = harness.createEditor();
+		harness.requestRender.mockClear();
+		harness.editorRequestRender.mockClear();
+		harness.ctx.getContextUsage.mockClear();
+		for (let i = 0; i < 100; i++) {
+			await emit(handlers, "message_update", harness.ctx, { message: assistant(1_100) });
+			vi.advanceTimersByTime(250);
+			expect(rendered(footer)).toContain("11.0%/10k");
+			expect(renderedEditor(editor)).toContain("11.0%/10k");
+		}
+		expect(harness.ctx.getContextUsage).not.toHaveBeenCalled();
+		expect(harness.requestRender).toHaveBeenCalledTimes(1);
+		expect(harness.editorRequestRender).toHaveBeenCalledTimes(1);
+		harness.state.model = { id: "new", provider: "anthropic", contextWindow: 20_000 };
+		harness.state.contextUsage = { tokens: null, contextWindow: 20_000, percent: null };
+		await emit(handlers, "model_select", harness.ctx);
+		expect(rendered(footer)).toContain("?/20k");
+		expect(renderedEditor(editor)).toContain("?/20k");
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(2);
+		await emit(handlers, "message_update", harness.ctx, { message: assistant(1_100) });
+		expect(rendered(footer)).toContain("5.5%/20k");
+		await emit(handlers, "session_start", harness.ctx);
+		expect(renderedEditor(harness.createEditor())).toContain("?/20k");
+		footer.dispose?.();
+		await emit(handlers, "session_shutdown", harness.ctx);
+	});
+
+	it("skips unused compatibility context and footer estimates, then observes format changes", async () => {
+		vi.useFakeTimers();
+		const config = structuredClone(loadConfig());
+		config.components.editor.enabled = false;
+		const starship = config.components.footer.styles.starship;
+		starship.format = "$model";
+		starship.compactFormat = "$model";
+		const handlers = loadExtension(config);
+		const harness = createHarness();
+		await emit(handlers, "session_start", harness.ctx);
+		await settleProjectRefresh();
+		const footer = harness.createFooter();
+		for (let i = 0; i < 100; i++) {
+			await emit(handlers, "thinking_level_select", harness.ctx);
+			rendered(footer);
+		}
+		expect(harness.ctx.getContextUsage).not.toHaveBeenCalled();
+		starship.compactFormat = "$context";
+		footer.render(8);
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(1);
+		starship.responsive = false;
+		rendered(footer);
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(1);
+		starship.format = "$context";
+		expect(rendered(footer)).toContain("10.0%/10k");
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(2);
+		starship.format = "";
+		starship.segments.context = false;
+		rendered(footer);
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(2);
+		starship.segments.context = true;
+		expect(rendered(footer)).toContain("10.0%/10k");
+		expect(harness.ctx.getContextUsage).toHaveBeenCalledTimes(3);
+		harness.ctx.getContextUsage.mockClear();
+		await emit(handlers, "message_update", harness.ctx, { message: assistant(1_100) });
+		for (let i = 0; i < 100; i++) expect(rendered(footer)).toContain("11.0%/10k");
+		expect(harness.ctx.getContextUsage).not.toHaveBeenCalled();
+		footer.dispose?.();
+		await emit(handlers, "session_shutdown", harness.ctx);
 	});
 });

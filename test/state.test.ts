@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { emptyGitStatus } from "../extensions/zentui/git";
 import { createInitialState, modelLabelFor, syncState } from "../extensions/zentui/state";
 
@@ -81,4 +81,18 @@ describe("syncState model label", () => {
 			autoCompaction: false,
 		});
 	});
+});
+
+it("retains default compatibility context but lets render-time consumers skip it", () => {
+	const state = createInitialState(emptyGitStatus());
+	const ctx = {
+		...makeCtx({ ...model, contextWindow: 10_000 }),
+		getContextUsage: vi.fn(() => ({ tokens: 0, percent: 0, contextWindow: 10_000 })),
+	};
+	syncState(state, ctx, "");
+	expect(state.contextLabel).toBe("0.0%/10k");
+	expect(ctx.getContextUsage).toHaveBeenCalledTimes(1);
+	syncState(state, ctx, "", {}, { includeContextLabel: false });
+	expect(state.contextLabel).toBe("--");
+	expect(ctx.getContextUsage).toHaveBeenCalledTimes(1);
 });

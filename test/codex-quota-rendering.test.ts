@@ -1,7 +1,7 @@
 import { stripVTControlCharacters as plain } from "node:util";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderAccentRailEditorFrame } from "../extensions/zentui/accent-rail-editor";
 import type { CodexQuota } from "../extensions/zentui/codex-quota";
 import { codexQuotaText } from "../extensions/zentui/codex-quota-display";
@@ -383,6 +383,67 @@ it.each([
 					expect(rows).toEqual(footer?.render(width));
 					config.components.footer.codexQuota = true;
 				}
+			}
+		} finally {
+			footer?.dispose?.();
+		}
+	},
+);
+
+it.each([
+	{ prefix: "", width: 12 },
+	{ prefix: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", width: 100 },
+])(
+	"reuses one fresh context snapshot across quota fallback ($width columns)",
+	({ prefix, width }) => {
+		const config = mergeConfig({ components: { footer: { codexQuota: true } } });
+		Object.assign(config.components.footer.styles.starship, {
+			responsive: false,
+			format: `${prefix}$context$fill$codex_quota`,
+		});
+		const getConfig = vi.fn(() => config);
+		let percent: number | null = 10;
+		const getContextUsage = vi.fn(() => ({
+			tokens: percent === null ? null : percent * 100,
+			percent,
+			contextWindow: 10_000,
+		}));
+		let factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0];
+		installFooter(
+			{
+				cwd: "/repo",
+				model: { provider: "openai-codex", contextWindow: 10_000 },
+				sessionManager: { getSessionName: () => "" },
+				getContextUsage,
+				ui: {
+					setFooter(value: typeof factory) {
+						factory = value;
+					},
+				},
+			} as unknown as ExtensionContext,
+			createInitialState(emptyGitStatus()),
+			getConfig,
+			{
+				setRequestRender() {},
+				scheduleProjectRefresh() {},
+				getCodexQuota: () => ({ fiveHour: 80, week: 60 }),
+			},
+		);
+		const footer = factory?.({ requestRender() {} } as never, theme, {
+			onBranchChange: () => () => {},
+			getExtensionStatuses: () => new Map(),
+		} as never);
+		expect(footer).toBeDefined();
+		try {
+			for (const next of [10, null, 0]) {
+				percent = next;
+				getContextUsage.mockClear();
+				getConfig.mockClear();
+				const text = plain(footer?.render(width).join("\n") ?? "");
+				expect(text).not.toContain("5h");
+				expect(text).toContain(next === null ? "?/10k" : `${next.toFixed(1)}%/10k`);
+				expect(getConfig).toHaveBeenCalledTimes(2);
+				expect(getContextUsage).toHaveBeenCalledTimes(1);
 			}
 		} finally {
 			footer?.dispose?.();

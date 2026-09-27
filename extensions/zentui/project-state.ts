@@ -4,6 +4,43 @@ import type { PackageVersionReadResult } from "./package-version";
 import type { RuntimeReadResult } from "./runtime";
 import type { FooterState } from "./state";
 
+/** Value snapshot of project fields, excluding unrelated session/telemetry state. */
+export function projectStateSnapshot(
+	state: FooterState,
+	cwd: string | undefined,
+	root: string | undefined,
+): string {
+	return JSON.stringify([
+		cwd,
+		root,
+		state.branch,
+		state.dirty,
+		state.ahead,
+		state.behind,
+		state.conflicted,
+		state.untracked,
+		state.stashed,
+		state.modified,
+		state.staged,
+		state.renamed,
+		state.deleted,
+		state.typechanged,
+		state.gitState,
+		state.gitStateLabel,
+		state.commit?.oid,
+		state.commit?.detached,
+		state.commit?.tag,
+		state.metrics?.added,
+		state.metrics?.deleted,
+		state.runtime?.name,
+		state.runtime?.symbol,
+		state.runtime?.style,
+		state.runtime?.version,
+		state.packageVersion?.ecosystem,
+		state.packageVersion?.version,
+	]);
+}
+
 /**
  * Apply a project refresh (git + runtime) onto footer state, preserving
  * last-good values on transient errors and clearing on cwd change / not-a-repo.

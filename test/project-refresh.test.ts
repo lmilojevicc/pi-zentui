@@ -248,3 +248,47 @@ describe("createProjectRefreshScheduler", () => {
 		expect(afterRefresh).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("unchanged project publication", () => {
+	it("still runs forced probes but notifies only changed snapshots", async () => {
+		const refresh = vi.fn().mockResolvedValue(false);
+		const afterRefresh = vi.fn();
+		const scheduler = createProjectRefreshScheduler(refresh, afterRefresh);
+		scheduler.schedule("initial");
+		await flushPromises();
+		for (let i = 0; i < 100; i++) {
+			scheduler.schedule("same", { force: true });
+			await flushPromises();
+		}
+		expect(refresh).toHaveBeenCalledTimes(101);
+		expect(afterRefresh).not.toHaveBeenCalled();
+		refresh.mockResolvedValueOnce(true);
+		scheduler.schedule("changed", { force: true });
+		await flushPromises();
+		expect(afterRefresh).toHaveBeenCalledTimes(1);
+		scheduler.stop();
+	});
+
+	it("coalesces pending force after an unchanged refresh", async () => {
+		let resolve!: (changed: boolean) => void;
+		const refresh = vi
+			.fn()
+			.mockImplementationOnce(
+				() =>
+					new Promise<boolean>((done) => {
+						resolve = done;
+					}),
+			)
+			.mockResolvedValue(true);
+		const afterRefresh = vi.fn();
+		const scheduler = createProjectRefreshScheduler(refresh, afterRefresh);
+		scheduler.schedule("initial");
+		scheduler.schedule("forced", { force: true });
+		resolve(false);
+		await flushPromises();
+		await flushPromises();
+		expect(refresh).toHaveBeenCalledTimes(2);
+		expect(afterRefresh).toHaveBeenCalledTimes(1);
+		scheduler.stop();
+	});
+});

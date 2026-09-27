@@ -137,3 +137,48 @@ describe("live context usage", () => {
 		expect(controller.get()).toEqual({ tokens: 150 });
 	});
 });
+
+describe("unchanged live context", () => {
+	it("does not schedule or publish identical tokens after the first notification", () => {
+		vi.useFakeTimers();
+		const lifecycle = new SessionLifecycle();
+		lifecycle.start();
+		const defer = vi.spyOn(lifecycle, "defer");
+		const render = vi.fn();
+		const controller = new LiveContextController(lifecycle, render);
+		expect(controller.update(assistant(usage({ totalTokens: 100 })))).toBe(true);
+		vi.advanceTimersByTime(250);
+		const changed: boolean[] = [];
+		for (let i = 0; i < 100; i++) {
+			changed.push(controller.update(assistant(usage({ totalTokens: 100 }))));
+			vi.advanceTimersByTime(250);
+		}
+		expect(defer).toHaveBeenCalledTimes(1);
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(changed).toEqual(Array(100).fill(false));
+		controller.update(assistant(usage({ totalTokens: 200 })));
+		vi.advanceTimersByTime(250);
+		expect(render).toHaveBeenCalledTimes(2);
+		controller.clear();
+		controller.update(assistant(usage({ totalTokens: 200 })));
+		vi.advanceTimersByTime(250);
+		expect(render).toHaveBeenCalledTimes(3);
+	});
+
+	it("publishes identical tokens after a generation change even with a canceled pending render", () => {
+		vi.useFakeTimers();
+		const lifecycle = new SessionLifecycle();
+		lifecycle.start();
+		const render = vi.fn();
+		const controller = new LiveContextController(lifecycle, render);
+		controller.update(assistant(usage({ totalTokens: 100 })));
+		lifecycle.start();
+		expect(controller.update(assistant(usage({ totalTokens: 100 })))).toBe(true);
+		vi.advanceTimersByTime(250);
+		expect(render).toHaveBeenCalledTimes(1);
+		lifecycle.start();
+		expect(controller.update(assistant(usage({ totalTokens: 100 })))).toBe(true);
+		vi.advanceTimersByTime(250);
+		expect(render).toHaveBeenCalledTimes(2);
+	});
+});

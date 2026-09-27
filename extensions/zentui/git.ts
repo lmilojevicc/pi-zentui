@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -229,33 +229,44 @@ export function detectGitState(paths: GitStatePaths): {
 	return {};
 }
 
-async function resolveGitPath(cwd: string, pathSpec: string): Promise<string | undefined> {
-	try {
-		const { stdout } = await execFileAsync("git", ["rev-parse", "--git-path", pathSpec], {
-			cwd,
-			timeout: GIT_COMMAND_TIMEOUT_MS,
-		});
-		const resolved = (typeof stdout === "string" ? stdout : String(stdout)).trim();
-		if (!resolved) return undefined;
-		return resolved.startsWith("/") ? resolved : join(cwd, resolved);
-	} catch {
-		return undefined;
-	}
-}
+const GIT_OPERATION_PATHS = [
+	"rebase-merge",
+	"rebase-apply",
+	"MERGE_HEAD",
+	"CHERRY_PICK_HEAD",
+	"REVERT_HEAD",
+	"BISECT_LOG",
+] as const;
 
 async function readGitOperationState(cwd: string): Promise<{
 	gitState?: GitOperationState;
 	gitStateLabel?: string;
 }> {
-	const [rebaseMerge, rebaseApply, mergeHead, cherryPickHead, revertHead, bisectLog] =
-		await Promise.all([
-			resolveGitPath(cwd, "rebase-merge"),
-			resolveGitPath(cwd, "rebase-apply"),
-			resolveGitPath(cwd, "MERGE_HEAD"),
-			resolveGitPath(cwd, "CHERRY_PICK_HEAD"),
-			resolveGitPath(cwd, "REVERT_HEAD"),
-			resolveGitPath(cwd, "BISECT_LOG"),
-		]);
+	let paths: string[];
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			[
+				"rev-parse",
+				"--path-format=absolute",
+				...GIT_OPERATION_PATHS.flatMap((path) => ["--git-path", path]),
+			],
+			{ cwd, timeout: GIT_COMMAND_TIMEOUT_MS },
+		);
+		// rev-parse is line-delimited, not NUL-delimited. Reject ambiguous paths
+		// (including embedded newlines) rather than assigning another operation's path.
+		paths = String(stdout)
+			.replace(/\r?\n$/, "")
+			.split(/\r?\n/);
+		if (
+			paths.length !== GIT_OPERATION_PATHS.length ||
+			paths.some((path) => !isAbsolute(path) || /[\r\n\0]/.test(path))
+		)
+			return {};
+	} catch {
+		return {};
+	}
+	const [rebaseMerge, rebaseApply, mergeHead, cherryPickHead, revertHead, bisectLog] = paths;
 
 	const existing = (path: string | undefined) => (path && existsSync(path) ? path : undefined);
 	const rebaseDir = existing(rebaseMerge) ?? existing(rebaseApply);
@@ -282,10 +293,14 @@ function isNotARepoError(error: unknown): boolean {
 
 /**
  * Options for the optional probes that piggyback on the existing git refresh.
- * Both default to `false` so no extra git process is spawned unless a segment
- * is enabled and needs the data.
+ * Tag/metrics default to false; stash/operation state retain the full-status
+ * default for standalone callers. UI consumers may omit probes they do not display.
  */
 export type ReadGitStatusOptions = {
+	/** Read stash counts (default true). */
+	readStash?: boolean;
+	/** Resolve and inspect operation paths (default true). */
+	readOperationState?: boolean;
 	/** Run `git describe --tags --exact-match HEAD` for the git_commit segment. */
 	readExactTag?: boolean;
 	/**
@@ -311,10 +326,12 @@ export async function readGitStatus(
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
 			}),
-			execFileAsync("git", ["stash", "list"], {
-				cwd,
-				timeout: GIT_COMMAND_TIMEOUT_MS,
-			}).catch(() => ({ stdout: "" })),
+			options.readStash !== false
+				? execFileAsync("git", ["stash", "list"], {
+						cwd,
+						timeout: GIT_COMMAND_TIMEOUT_MS,
+					}).catch(() => ({ stdout: "" }))
+				: Promise.resolve({ stdout: "" }),
 			readExactTag
 				? execFileAsync("git", ["describe", "--tags", "--exact-match", "HEAD"], {
 						cwd,
@@ -356,7 +373,7 @@ export async function readGitStatus(
 				status.metrics = parseGitNumstat(metricsStdout);
 			}
 		}
-		const operation = await readGitOperationState(cwd);
+		const operation = options.readOperationState !== false ? await readGitOperationState(cwd) : {};
 		return {
 			kind: "ok",
 			status: {

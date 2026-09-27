@@ -34,6 +34,7 @@ export class LiveContextController {
 	private readonly lifecycle: SessionLifecycle;
 	private readonly requestRender: () => void;
 	private override: LiveContextOverride | undefined;
+	private overrideGeneration: number | undefined;
 	private cancelScheduledRender: (() => void) | undefined;
 	private scheduledGeneration: number | undefined;
 
@@ -49,8 +50,11 @@ export class LiveContextController {
 	update(message: unknown): boolean {
 		const next = liveContextFromMessage(message);
 		if (!next || !this.lifecycle.isCurrent()) return false;
-		this.override = next;
 		const generation = this.lifecycle.currentGeneration();
+		if (this.overrideGeneration === generation && this.override?.tokens === next.tokens)
+			return false;
+		this.override = next;
+		this.overrideGeneration = generation;
 		if (this.cancelScheduledRender && this.scheduledGeneration !== generation) {
 			this.cancelScheduledRender = undefined;
 			this.scheduledGeneration = undefined;
@@ -68,6 +72,7 @@ export class LiveContextController {
 
 	clear(): void {
 		this.override = undefined;
+		this.overrideGeneration = undefined;
 		this.cancelScheduledRender?.();
 		this.cancelScheduledRender = undefined;
 		this.scheduledGeneration = undefined;

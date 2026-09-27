@@ -20,6 +20,7 @@ import {
 	formatPackageVersionSegment,
 	getUsageTotals,
 	invalidateUsageTotalsCache,
+	resolveContextUsage,
 } from "../extensions/zentui/format";
 import {
 	ASCII_DEFAULT_ICONS,
@@ -866,4 +867,73 @@ describe("formatPackageVersionSegment", () => {
 		expect(out).toContain("#");
 		expect(out).not.toContain("\u{f487}");
 	});
+});
+
+describe("resolveContextUsage snapshot", () => {
+	it.each([0, 1_100])("uses authoritative live tokens %s without host estimation", (tokens) => {
+		const getContextUsage = vi.fn(() => {
+			throw new Error("unexpected host estimate");
+		});
+		const ctx = { model: { contextWindow: 10_000 }, getContextUsage };
+		expect(resolveContextUsage(ctx as never, { tokens })).toEqual({
+			percent: tokens / 100,
+			contextWindow: 10_000,
+		});
+		expect(getContextUsage).not.toHaveBeenCalled();
+	});
+
+	it("uses one coherent fresh host snapshot without live tokens, including unknown and zero", () => {
+		const getContextUsage = vi
+			.fn()
+			.mockReturnValueOnce({ tokens: null, percent: null, contextWindow: 10_000 })
+			.mockReturnValueOnce({ tokens: 0, percent: 0, contextWindow: 20_000 })
+			.mockReturnValueOnce(undefined);
+		const ctx = { model: undefined, getContextUsage };
+		expect(resolveContextUsage(ctx)).toEqual({ percent: undefined, contextWindow: 10_000 });
+		expect(resolveContextUsage(ctx)).toEqual({ percent: 0, contextWindow: 20_000 });
+		expect(resolveContextUsage(ctx)).toEqual({ percent: undefined, contextWindow: undefined });
+		expect(getContextUsage).toHaveBeenCalledTimes(3);
+	});
+
+	it("falls back once for absent model windows and observes changed model windows immediately", () => {
+		const getContextUsage = vi.fn(() => ({ tokens: null, percent: null, contextWindow: 10_000 }));
+		const ctx = { model: { contextWindow: undefined as number | undefined }, getContextUsage };
+		expect(resolveContextUsage(ctx as never, { tokens: 1_100 })).toEqual({
+			percent: 11,
+			contextWindow: 10_000,
+		});
+		expect(getContextUsage).toHaveBeenCalledTimes(1);
+		ctx.model.contextWindow = 20_000;
+		expect(resolveContextUsage(ctx as never, { tokens: 1_100 })).toEqual({
+			percent: 5.5,
+			contextWindow: 20_000,
+		});
+		expect(getContextUsage).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+		"falls back for invalid model window %s",
+		(contextWindow) => {
+			const getContextUsage = vi.fn(() => ({ tokens: 1_000, percent: 10, contextWindow: 10_000 }));
+			expect(
+				resolveContextUsage({ model: { contextWindow }, getContextUsage } as never, {
+					tokens: 1_100,
+				}).percent,
+			).toBe(10);
+			expect(getContextUsage).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+		"falls back for invalid live tokens %s",
+		(tokens) => {
+			const getContextUsage = vi.fn(() => ({ tokens: 1_000, percent: 10, contextWindow: 10_000 }));
+			expect(
+				resolveContextUsage({ model: { contextWindow: 10_000 }, getContextUsage } as never, {
+					tokens,
+				}).percent,
+			).toBe(10);
+			expect(getContextUsage).toHaveBeenCalledTimes(1);
+		},
+	);
 });

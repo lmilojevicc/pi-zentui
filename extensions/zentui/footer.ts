@@ -14,10 +14,8 @@ import {
 	sanitizeExtensionStatusText,
 } from "./extension-status";
 import {
-	type CompactFormatChunk,
-	collectFooterFormatReferences,
-	compileCompactFormatSplit,
-	parseFooterFormat,
+	type CompiledCompactChunk,
+	compiledFooterFormat,
 	renderFormatSplit,
 	renderFormatTokens,
 	stripOrphanSeparators,
@@ -34,6 +32,7 @@ import { truncateFooterText } from "./footer-text";
 import {
 	buildContextDisplayLabel,
 	buildSessionDurationLabel,
+	type ContextUsageSnapshot,
 	contextColorTier,
 	formatCwdLabel,
 	formatGitBranchText,
@@ -219,7 +218,11 @@ export function installFooter(
 				hooks.onDispose?.();
 			},
 			invalidate() {},
-			render: function renderFooter(width: number, showQuota = true): string[] {
+			render: function renderFooter(
+				width: number,
+				showQuota = true,
+				contextSnapshot?: ContextUsageSnapshot,
+			): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const footer = config.components.footer;
@@ -230,20 +233,18 @@ export function installFooter(
 				let quotaLabel = styledQuota;
 				let quotaProbe = "";
 				const footerModelLabel = modelLabelFor(state, footer.modelLabel);
-				const wideFormatTokens = config.components.footer.styles.starship.format
-					? parseFooterFormat(config.components.footer.styles.starship.format)
-					: [];
-				const compactFormatTokens = config.components.footer.styles.starship.responsive
-					? parseFooterFormat(config.components.footer.styles.starship.compactFormat)
-					: [];
-				const wideReferences = collectFooterFormatReferences(
-					wideFormatTokens,
+				const wideFormat = compiledFooterFormat(
+					footer.styles.starship.format,
 					FOOTER_FORMAT_ALIASES,
 				);
-				const compactReferences = collectFooterFormatReferences(
-					compactFormatTokens,
+				const compactFormat = compiledFooterFormat(
+					footer.styles.starship.responsive ? footer.styles.starship.compactFormat : "",
 					FOOTER_FORMAT_ALIASES,
 				);
+				const wideFormatTokens = wideFormat.tokens;
+				const compactFormatTokens = compactFormat.tokens;
+				const wideReferences = wideFormat.references;
+				const compactReferences = compactFormat.references;
 				const colorSource = config.components.footer.colorSource;
 				const iconMode = config.icons.effectiveMode;
 				const pathDisplay = config.components.footer.styles.starship.pathDisplay;
@@ -293,9 +294,9 @@ export function installFooter(
 				);
 				const needsSessionName =
 					(config.components.footer.styles.starship.format
-						? wideReferences.has("session_name")
+						? wideReferences.includes("session_name")
 						: config.components.footer.styles.starship.segments.sessionName) ||
-					compactReferences.has("session_name");
+					compactReferences.includes("session_name");
 				const sessionName = needsSessionName
 					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
 					: "";
@@ -314,10 +315,21 @@ export function installFooter(
 							config.components.footer.styles.starship.gitBranch.maxLength,
 						)
 					: undefined;
-				const { percent: contextPercent, contextWindow } = resolveContextUsage(
-					ctx,
-					hooks.getLiveContext?.(),
-				);
+				const needsContext =
+					(config.components.footer.styles.starship.format
+						? wideReferences.includes("context")
+						: config.components.footer.styles.starship.segments.context) ||
+					compactReferences.includes("context") ||
+					(state.autoCompaction &&
+						(wideReferences.includes("auto_compaction") ||
+							compactReferences.includes("auto_compaction")));
+				// Reuse only within this render's quota fallback, including resolved unknown usage.
+				const context =
+					contextSnapshot ??
+					(needsContext
+						? resolveContextUsage(ctx, hooks.getLiveContext?.())
+						: { percent: undefined, contextWindow: undefined });
+				const { percent: contextPercent, contextWindow } = context;
 				const contextLabel = buildContextDisplayLabel({
 					percent: contextPercent,
 					contextWindow,
@@ -794,7 +806,7 @@ export function installFooter(
 						(value) => !otherText.includes(value),
 					);
 					// Bounded fail-open fallback if every candidate collides with non-quota text.
-					if (!letter) return renderFooter(width, false);
+					if (!letter) return renderFooter(width, false, context);
 					quotaProbe = codexQuotaText(quota).replace(/[a-z0-9]/gi, letter);
 					quotaLabel = styledQuota.replace(codexQuotaText(quota), quotaProbe);
 				}
@@ -841,7 +853,7 @@ export function installFooter(
 								0,
 							);
 						// Recompose without quota if any occurrence was clipped, split, or omitted.
-						if (count(source) !== count(framedRows)) return renderFooter(width, false);
+						if (count(source) !== count(framedRows)) return renderFooter(width, false, context);
 						return framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
 					}
 					return framedRows;
@@ -907,7 +919,9 @@ export function installFooter(
 							return renderVariable(name);
 					}
 				};
-				const renderCompactChunks = (chunks: CompactFormatChunk[]): CompactLayoutChunk[] => {
+				const renderCompactChunks = (
+					chunks: readonly CompiledCompactChunk[],
+				): CompactLayoutChunk[] => {
 					const compactChunks: CompactLayoutChunk[] = [];
 					for (const chunk of chunks) {
 						if (chunk.kind === "extensions") {
@@ -927,10 +941,10 @@ export function installFooter(
 						let rendered = stripOrphanSeparators(
 							renderFormatTokens(chunk.tokens, renderCompactVariable),
 						);
-						const references = collectFooterFormatReferences(chunk.tokens, FOOTER_FORMAT_ALIASES);
+						const references = chunk.references;
 						if (
-							(!quotaLabel || !references.has("codex_quota")) &&
-							["cwd", "session_name", "git_branch"].some((name) => references.has(name))
+							(!quotaLabel || !references.includes("codex_quota")) &&
+							["cwd", "session_name", "git_branch"].some((name) => references.includes(name))
 						) {
 							rendered = truncateFooterText(rendered, chunkBudget, "…");
 						}
@@ -938,7 +952,7 @@ export function installFooter(
 					}
 					return compactChunks;
 				};
-				const compact = compileCompactFormatSplit(compactFormatTokens);
+				const compact = compactFormat.compact;
 				const compactLeft = renderCompactChunks(compact.left);
 				const compactRight = renderCompactChunks(compact.right);
 				return frameRows(

@@ -8,7 +8,14 @@ vi.mock("../extensions/zentui/config", async (original) => ({
 	loadConfig: () => settings.config,
 	ensureConfigExists() {},
 }));
-vi.mock("../extensions/zentui/telemetry", () => ({ resolveFooterTelemetry: () => ({}) }));
+vi.mock("../extensions/zentui/telemetry", () => ({
+	FooterTelemetryController: class {
+		resolve() {
+			return {};
+		}
+		reset() {}
+	},
+}));
 vi.mock("../extensions/zentui/git", async (original) => {
 	const actual = await original<typeof import("../extensions/zentui/git")>();
 	return {

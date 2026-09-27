@@ -28,8 +28,9 @@ export function startProjectRefreshInterval(
 	return () => clearInterval(timer);
 }
 
+/** A refresh may return false when no visible snapshot changed; void/errors still notify. */
 export function createProjectRefreshScheduler<T>(
-	refresh: (target: T, run: ProjectRefreshRun) => Promise<void>,
+	refresh: (target: T, run: ProjectRefreshRun) => Promise<void> | Promise<boolean>,
 	afterRefresh: () => void,
 	throttleMs = PROJECT_REFRESH_THROTTLE_MS,
 ): ProjectRefreshScheduler<T> {
@@ -62,12 +63,18 @@ export function createProjectRefreshScheduler<T>(
 		};
 		refreshInFlight = true;
 		lastRefreshStartedAt = Date.now();
+		let notify = true;
 		void refresh(target, run)
-			.catch(() => undefined)
+			.then(
+				(changed) => {
+					notify = changed !== false;
+				},
+				() => undefined,
+			)
 			.finally(() => {
 				if (currentGeneration !== generation) return;
 				refreshInFlight = false;
-				afterRefresh();
+				if (notify) afterRefresh();
 				if (refreshPending) {
 					refreshPending = false;
 					const nextForce = pendingForce;

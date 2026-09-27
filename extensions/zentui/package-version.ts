@@ -33,6 +33,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ProjectDiscovery } from "./project-discovery.js";
+
 export type PackageVersionResult = {
 	/** Starship ecosystem key — matches `runtimeMetadata[].name` where it exists. */
 	ecosystem: string;
@@ -621,21 +623,37 @@ export function readPackageVersion(cwd: string): PackageVersionResult | null {
 	return null;
 }
 
-/**
- * Async wrapper for use from the project-refresh path. `null` results from
- * `readPackageVersion` (no manifest present) are surfaced as `ok` with a
- * null result so the caller can distinguish "no manifest in this cwd"
- * (clear state) from "could not read cwd" / parse failure (error, keep
- * last-good). The synchronous reader never throws on its own; we still
- * wrap defensively so callers using this through a scheduler cannot be
- * broken by future filesystem exceptions.
- */
-export async function readPackageVersionResult(cwd: string): Promise<PackageVersionReadResult> {
+/** Fresh async reads, sharing only the current refresh's directory discovery. */
+export async function readPackageVersionResult(
+	cwd: string,
+	discovery = new ProjectDiscovery(cwd),
+): Promise<PackageVersionReadResult> {
+	let entries: readonly string[] | undefined;
 	try {
-		return { kind: "ok", result: readPackageVersion(cwd) };
+		entries = [...(await discovery.entries()).keys()];
 	} catch {
-		return { kind: "error" };
+		// A known manifest may be readable even when directory listing is denied.
 	}
+	for (const extensionMode of [false, true]) {
+		for (const source of parsers) {
+			if ((source.kind === "extensions") !== extensionMode) continue;
+			const candidates = extensionMode
+				? (entries ?? []).filter((entry) => hasAnyExtension(entry, source.files))
+				: source.files;
+			for (const file of candidates) {
+				if (entries && !(await discovery.hasCandidate(file))) continue;
+				const raw = await discovery.read(file);
+				if (raw === undefined) continue;
+				try {
+					const version = source.parse(raw);
+					if (version) return { kind: "ok", result: { ecosystem: ecosystemFor(file), version } };
+				} catch {
+					// Preserve candidate fallback for malformed manifests.
+				}
+			}
+		}
+	}
+	return entries ? { kind: "ok", result: null } : { kind: "error" };
 }
 
 /**

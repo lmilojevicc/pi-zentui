@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { emptyGitStatus } from "../extensions/zentui/git";
-import { applyProjectRefreshToState } from "../extensions/zentui/project-state";
+import {
+	applyProjectRefreshToState,
+	projectStateSnapshot,
+} from "../extensions/zentui/project-state";
 import { createInitialState } from "../extensions/zentui/state";
 
 describe("applyProjectRefreshToState", () => {
@@ -155,5 +158,39 @@ describe("applyProjectRefreshToState", () => {
 		});
 		expect(state.commit).toBeUndefined();
 		expect(state.metrics).toBeUndefined();
+	});
+});
+
+describe("projectStateSnapshot", () => {
+	it("compares project values rather than object identity and ignores unrelated session state", () => {
+		const state = createInitialState(emptyGitStatus());
+		state.commit = { oid: "abc", detached: false, tag: "v1" };
+		state.metrics = { added: 1, deleted: 2 };
+		state.runtime = { name: "nodejs", symbol: "n", style: "bold green", version: "v22" };
+		state.packageVersion = { ecosystem: "nodejs", version: "1.0" };
+		const snapshot = projectStateSnapshot(state, "/repo", "/repo");
+		const copy = structuredClone(state);
+		copy.tokenLabel = "changed by another event";
+		expect(projectStateSnapshot(copy, "/repo", "/repo")).toBe(snapshot);
+		for (const key of Object.keys(emptyGitStatus())) {
+			if (key === "commit" || key === "metrics") continue;
+			const changed = { ...state, [key]: key === "dirty" ? true : "changed" };
+			expect(projectStateSnapshot(changed, "/repo", "/repo"), key).not.toBe(snapshot);
+		}
+		for (const [owner, keys] of [
+			["commit", ["oid", "detached", "tag"]],
+			["metrics", ["added", "deleted"]],
+			["runtime", ["name", "symbol", "style", "version"]],
+			["packageVersion", ["ecosystem", "version"]],
+		] as const) {
+			for (const key of keys) {
+				const changed = { ...state, [owner]: { ...state[owner], [key]: "changed" } };
+				expect(projectStateSnapshot(changed, "/repo", "/repo"), `${owner}.${key}`).not.toBe(
+					snapshot,
+				);
+			}
+		}
+		expect(projectStateSnapshot(state, "/other", "/repo")).not.toBe(snapshot);
+		expect(projectStateSnapshot(state, "/repo", undefined)).not.toBe(snapshot);
 	});
 });
