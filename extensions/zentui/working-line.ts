@@ -59,6 +59,7 @@ type GraphemeCell = { text: string; start: number; width: number };
 type WorkingLineUi = {
 	setWorkingMessage(message?: string): void;
 	setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+	setWorkingVisible?(visible: boolean): void;
 };
 
 type WorkingLineContext = {
@@ -1144,6 +1145,8 @@ export class WorkingLineController {
 	private ownsIndicator = false;
 	private ownsMessage = false;
 	private agentActive = false;
+	private animationTimer?: ReturnType<typeof setInterval>;
+	private hiddenWorkingVisible = false;
 	private selectedMessage: string | undefined;
 	private frameKey: string | undefined;
 	private installedPhase: InstalledAnimationPhase | undefined;
@@ -1190,6 +1193,7 @@ export class WorkingLineController {
 			// stored indicator so the subsequently constructed Loader begins at intended frame zero.
 			this.install(ctx, true, true);
 		}
+		this.startAnimationTicks(ctx);
 		this.reconcileElapsedUpdates(ctx);
 	}
 
@@ -1254,6 +1258,7 @@ export class WorkingLineController {
 
 	finishAgent(ctx: WorkingLineContext): void {
 		this.agentActive = false;
+		this.stopAnimationTicks();
 		this.activeTools.clear();
 		this.deactivateElapsedUpdates();
 		this.updateIndicator(ctx);
@@ -1301,6 +1306,20 @@ export class WorkingLineController {
 
 	currentMessage(): string | undefined {
 		return this.selectedMessage;
+	}
+
+	currentWorkingLineFrame(): string | undefined {
+		if (!this.agentActive) return undefined;
+		const frames = this.installedIndicatorOptions?.frames;
+		if (!frames || frames.length === 0) {
+			return this.selectedMessage;
+		}
+		if (!this.installedPhase || this.installedPhase.frameStates.length === 0) {
+			return frames[0];
+		}
+		const elapsedMs = Math.max(0, this.now() - this.installedPhase.frameEpochMs);
+		const frameIndex = Math.floor(elapsedMs / this.installedPhase.intervalMs) % frames.length;
+		return frames[frameIndex] ?? this.selectedMessage;
 	}
 
 	/** Whether this controller currently claims both required public Working-row surfaces. */
@@ -1453,6 +1472,13 @@ export class WorkingLineController {
 		this.ownsIndicator = true;
 		const indicatorOptions = { frames: generated.frames, intervalMs: generated.intervalMs };
 		ui.setWorkingIndicator(indicatorOptions);
+		if (config.placement !== "above") {
+			ui.setWorkingVisible?.(false);
+			this.hiddenWorkingVisible = true;
+		} else if (this.hiddenWorkingVisible) {
+			ui.setWorkingVisible?.(true);
+			this.hiddenWorkingVisible = false;
+		}
 		this.installedPhase = {
 			frameEpochMs: rebase ? this.now() : frameEpochMs,
 			scheduleFrame: rebase ? 0 : scheduleStartFrame,
@@ -1527,7 +1553,26 @@ export class WorkingLineController {
 		this.metricUpdateScheduled = false;
 		this.metricUpdateHandle = undefined;
 	}
+	private startAnimationTicks(ctx: WorkingLineContext): void {
+		this.stopAnimationTicks();
+		const config = this.getConfig().components.workingLine;
+		if (!config.enabled || config.placement === "above") return;
+		this.animationTimer = setInterval(() => {
+			if (!this.agentActive) {
+				this.stopAnimationTicks();
+				return;
+			}
+			const ui = ctx.ui as { requestRender?: () => void };
+			ui?.requestRender?.();
+		}, config.spinnerIntervalMs || 160);
+	}
 
+	private stopAnimationTicks(): void {
+		if (this.animationTimer) {
+			clearInterval(this.animationTimer);
+			this.animationTimer = undefined;
+		}
+	}
 	private reconcileElapsedUpdates(ctx: WorkingLineContext): void {
 		this.elapsedUpdatesContext = ctx;
 		const config = this.getConfig().components.workingLine;
@@ -1640,6 +1685,15 @@ export class WorkingLineController {
 		this.deactivateElapsedUpdates();
 		if (!this.ownsIndicator && !this.ownsMessage) return;
 		const ui = workingLineUi(ctx);
+		if (ui && this.hiddenWorkingVisible) {
+			try {
+				ui.setWorkingVisible?.(true);
+				this.hiddenWorkingVisible = false;
+			} catch {
+				// Cleanup is best effort and remains idempotent.
+			}
+		}
+		this.stopAnimationTicks();
 		if (ui && this.ownsIndicator) {
 			try {
 				ui.setWorkingIndicator();

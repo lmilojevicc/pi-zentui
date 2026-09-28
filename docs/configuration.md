@@ -247,6 +247,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     },
     "workingLine": {
       "enabled": false,
+      "placement": "above",
       "turnSummary": true,
       "spinner": "star-bloom",
       "spinnerIntervalMs": 100,
@@ -423,6 +424,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
 - All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.80.5, 0.82.1, 0.83.0, 0.84.0, 0.84.4, and 0.85.1. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
+- `components.workingLine.placement` (`above | border | input`) controls where the working row appears: `above` (default floating row), `border` (embedded into the Minimalist editor top border), or `input` (embedded inside the prompt box as an active placeholder while empty).
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.

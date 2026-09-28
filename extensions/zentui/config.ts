@@ -54,6 +54,7 @@ export type WorkingLineSpinner =
 	| "claude-inspired"
 	| "pulse";
 export type WorkingLineTextAnimation = "classic" | "kitt" | "disabled";
+export type WorkingLinePlacement = "above" | "border" | "input";
 export type ThinkingStepsMode = "rail" | "tree" | "streaming";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
@@ -260,6 +261,7 @@ export type WorkingLineComponentConfig = {
 	colorSource: ColorSource;
 	messages: WorkingLineMessagesConfig;
 	segments: WorkingLineSegmentsConfig;
+	placement: WorkingLinePlacement;
 };
 
 export type WorkingLineComponentPatch = Partial<
@@ -560,6 +562,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "theme",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
 		segments: { tool: true, elapsed: true, thought: true, tokens: true },
+		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 	footer: {
@@ -1473,6 +1476,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				workingLine.textAnimation === "disabled"
 					? workingLine.textAnimation
 					: defaultComponents.workingLine.textAnimation,
+			placement:
+				workingLine.placement === "border" || workingLine.placement === "input"
+					? workingLine.placement
+					: defaultComponents.workingLine.placement,
 			colorSource: parseColorSource(
 				workingLine.colorSource,
 				defaultComponents.workingLine.colorSource,
@@ -1978,6 +1985,7 @@ export function saveWorkingLineComponentPatch(
 			if (patch.textIntervalMs !== undefined) component.textIntervalMs = patch.textIntervalMs;
 			if (patch.textAnimation !== undefined) component.textAnimation = patch.textAnimation;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.placement !== undefined) component.placement = patch.placement;
 			if (patch.messages?.custom !== undefined) component.messages.custom = patch.messages.custom;
 			if (patch.messages?.values !== undefined) {
 				component.messages.values = normalizeWorkingLineMessages([...patch.messages.values]);

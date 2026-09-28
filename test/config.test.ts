@@ -154,6 +154,7 @@ describe("canonical config resolution", () => {
 					values: [...defaultConfig.components.workingLine.messages.values],
 				},
 				segments: { tool: true, elapsed: true, thought: true, tokens: true },
+				placement: "above",
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
 			footer: {
@@ -780,7 +781,20 @@ describe("working-line config", () => {
 			}).components.workingLine.spinnerIntervalMs,
 		).toBe(100);
 	});
-
+	it("normalizes canonical working-line placement and falls back invalid values to above", () => {
+		for (const placement of ["above", "border", "input"] as const) {
+			expect(
+				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
+					.placement,
+			).toBe(placement);
+		}
+		for (const placement of ["below", "", 1, null, true]) {
+			expect(
+				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
+					.placement,
+			).toBe("above");
+		}
+	});
 	it("defaults malformed or missing Turn summary to true and preserves explicit false", () => {
 		expect(mergeConfig({}).components.workingLine.turnSummary).toBe(true);
 		expect(
@@ -852,6 +866,7 @@ describe("working-line config", () => {
 			colorSource: "terminal",
 			messages: { custom: true, values: ["One", "Two"] },
 			segments: { tool: false, elapsed: true, thought: true, tokens: false },
+			placement: "above",
 		});
 		expect(config.colors).toMatchObject({
 			workingLineLow: "fg:240",

@@ -58,6 +58,7 @@ export type MinimalistEditorMetadata = {
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
+	workingLineFrame?: string;
 };
 
 export type MinimalistFrameOptions = {
@@ -181,6 +182,14 @@ function renderTopLeft(
 					)
 				: safeThemeFg(uiTheme, "muted", duration),
 		);
+	}
+	if (
+		config.components.workingLine.enabled &&
+		config.components.workingLine.placement === "border" &&
+		metadata.agentActive &&
+		metadata.workingLineFrame
+	) {
+		parts.push(metadata.workingLineFrame);
 	}
 	const sessionName = includeSessionName
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
@@ -522,7 +531,14 @@ export function renderMinimalistFrame({
 		rightCorner: "╯",
 		renderBorder,
 	});
-	const content = editorLines.map(
+	const inputActivePlaceholder =
+		config.components.workingLine.enabled &&
+		config.components.workingLine.placement === "input" &&
+		metadata.agentActive &&
+		Boolean(metadata.workingLineFrame) &&
+		(!inputText || inputText.trim() === "");
+	const displayLines = inputActivePlaceholder ? [metadata.workingLineFrame ?? ""] : editorLines;
+	const content = displayLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);
 	const autocomplete = renderFramedAutocompleteRows({

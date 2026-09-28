@@ -932,3 +932,65 @@ it("fits long minimalist metadata without context rather than clearing both labe
 	expect(lines[0]).toContain("model");
 	expect(visibleWidth(lines[0])).toBe(40);
 });
+
+describe("minimalist working line placement", () => {
+	it("renders working line in the top border when placement is border", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		current.components.workingLine.placement = "border";
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: [""],
+			inputText: "",
+			uiTheme: theme(),
+			config: current,
+			metadata: {
+				cwd: "/tmp",
+				agentActive: true,
+				agentDurationMs: 5000,
+				workingLineFrame: "✧ Zigzagging…",
+			},
+		});
+		expect(lines[0]).toContain("5s · ✧ Zigzagging…");
+	});
+
+	it("renders working line inside the input box when placement is input and text is empty", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		current.components.workingLine.placement = "input";
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: ["   "],
+			inputText: "",
+			uiTheme: theme(),
+			config: current,
+			metadata: {
+				cwd: "/tmp",
+				agentActive: true,
+				workingLineFrame: "✧ Zigzagging…",
+			},
+		});
+		expect(lines[1]).toContain("✧ Zigzagging…");
+		expect(lines[0]).not.toContain("Zigzagging");
+	});
+
+	it("yields input placeholder to user input when user types", () => {
+		const current = config();
+		current.components.workingLine.enabled = true;
+		current.components.workingLine.placement = "input";
+		const lines = renderMinimalistFrame({
+			width: 100,
+			editorLines: ["my prompt"],
+			inputText: "my prompt",
+			uiTheme: theme(),
+			config: current,
+			metadata: {
+				cwd: "/tmp",
+				agentActive: true,
+				workingLineFrame: "✧ Zigzagging…",
+			},
+		});
+		expect(lines[1]).toContain("my prompt");
+		expect(lines[1]).not.toContain("Zigzagging");
+	});
+});

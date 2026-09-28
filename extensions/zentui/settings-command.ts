@@ -58,6 +58,7 @@ import {
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
+	type WorkingLinePlacement,
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
 } from "./config";
@@ -153,6 +154,12 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	...presets.map(({ label }) => label),
 	"Custom…",
 ];
+const workingLinePlacementLabels: Record<WorkingLinePlacement, string> = {
+	above: "Above editor (default)",
+	border: "Editor top border",
+	input: "Inside prompt input",
+};
+const workingLinePlacementValues = Object.values(workingLinePlacementLabels);
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
@@ -804,6 +811,14 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Own and stylize Pi's complete working row.",
 			currentValue: featureValue(workingLine.enabled),
 			values: featureStateValues,
+		},
+		{
+			id: "workingLinePlacement",
+			label: "Placement",
+			description: "Show above editor, on editor top border, or inside prompt input.",
+			currentValue:
+				workingLinePlacementLabels[workingLine.placement ?? "above"] ?? "Above editor (default)",
+			values: workingLinePlacementValues,
 		},
 		{
 			id: "workingLineTurnSummary",
@@ -1833,6 +1848,19 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											settingsList.updateValue(id, newValue);
 											notifyWorkingLineChange("Turn summary", newValue, result, false);
 											return;
+										}
+										if (id === "workingLinePlacement") {
+											const placement = (
+												Object.entries(workingLinePlacementLabels) as Array<
+													[WorkingLinePlacement, string]
+												>
+											).find(([, label]) => label === newValue)?.[0];
+											if (placement) {
+												const result = deps.setWorkingLineComponent({ placement }, ctx);
+												settingsList.updateValue(id, newValue);
+												notifyWorkingLineChange("Placement", newValue, result);
+												return;
+											}
 										}
 										const selectedWorkingLineSpinner =
 											id === "workingLineSpinner" ? workingLineSpinnerId(newValue) : undefined;

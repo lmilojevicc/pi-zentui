@@ -473,6 +473,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Enabled",
+			"Placement",
 			"Turn summary",
 			"Spinner",
 			"Spinner speed",
@@ -1247,6 +1248,7 @@ describe("component-oriented /zentui settings", () => {
 		const component = harness.component();
 		expectFocusOrder(component, [
 			"Enabled",
+			"Placement",
 			"Turn summary",
 			"Spinner",
 			"Spinner speed",
@@ -1265,6 +1267,7 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		for (const [label, expected] of [
 			["Enabled", "enabled"],
+			["Placement", "Editor top border"],
 			["Turn summary", "disabled"],
 			["Spinner", "ASCII Pinwheel"],
 			["Spinner speed", "Slow 160 ms"],
@@ -1284,6 +1287,7 @@ describe("component-oriented /zentui settings", () => {
 		}
 		expect(harness.calls.workingLine).toEqual([
 			{ enabled: true },
+			{ placement: "border" },
 			{ turnSummary: false },
 			{ spinner: "pinwheel" },
 			{ spinnerIntervalMs: 160 },
@@ -1298,7 +1302,7 @@ describe("component-oriented /zentui settings", () => {
 			{ segments: { tokens: false } },
 		]);
 		expect(harness.calls.renders.shared).toBe(0);
-		expect(harness.calls.renders.local).toBeGreaterThanOrEqual(13);
+		expect(harness.calls.renders.local).toBeGreaterThanOrEqual(14);
 	});
 
 	it("displays, previews, and stores all named spinner presets with canonical IDs", async () => {
