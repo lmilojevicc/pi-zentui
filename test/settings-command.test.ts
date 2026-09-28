@@ -1242,6 +1242,49 @@ describe("component-oriented /zentui settings", () => {
 		).toMatch(/thinking.steps/i);
 	});
 
+	it.each(["minimalist", "opencode", "opencode-copy-friendly"] as const)(
+		"offers only Above/Border for %s without changing Editor",
+		async (style) => {
+			const config = cloneConfig();
+			config.components.editor.style = style;
+			config.components.editor.enabled = true;
+			const editor = structuredClone(config.components.editor);
+			const h = createHarness(config);
+			await h.command().handler("working-line", h.ctx);
+			const panel = h.component();
+			selectLabel(panel, "Placement");
+			expect(focusedRow(panel)).toMatch(/Above$/);
+			panel.handleInput(" ");
+			expect(focusedRow(panel)).toMatch(/Border$/);
+			panel.handleInput(" ");
+			expect(focusedRow(panel)).toMatch(/Above$/);
+			expect(h.calls.workingLine).toEqual([{ placement: "border" }, { placement: "above" }]);
+			expect(config.components.editor).toEqual(editor);
+			expect(h.calls.editor).toEqual([]);
+		},
+	);
+
+	it.each(["accent-rail", "disabled"] as const)(
+		"hides Placement for %s and guards stale selection without changing saved Border",
+		async (mode) => {
+			const config = cloneConfig();
+			config.components.editor.enabled = true;
+			config.components.editor.style = "minimalist";
+			const h = createHarness(config);
+			await h.command().handler("working-line", h.ctx);
+			selectLabel(h.component(), "Placement");
+			if (mode === "accent-rail") config.components.editor.style = "accent-rail";
+			else config.components.editor.enabled = false;
+			h.component().handleInput(" ");
+			expect(h.calls.workingLine).toEqual([]);
+			config.components.workingLine.placement = "border";
+			h.component().handleInput("\x1b");
+			await h.command().handler("working-line", h.ctx);
+			expect(h.component().render(160).join("\n")).not.toContain("Placement");
+			expect(config.components.workingLine.placement).toBe("border");
+		},
+	);
+
 	it("routes all Working-line rows independently", async () => {
 		const harness = createHarness();
 		await harness.command().handler("working-line", harness.ctx);
@@ -1267,7 +1310,7 @@ describe("component-oriented /zentui settings", () => {
 		]);
 		for (const [label, expected] of [
 			["Enabled", "enabled"],
-			["Placement", "Editor top border"],
+			["Placement", "Border"],
 			["Turn summary", "disabled"],
 			["Spinner", "ASCII Pinwheel"],
 			["Spinner speed", "Slow 160 ms"],

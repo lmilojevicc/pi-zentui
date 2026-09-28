@@ -26,6 +26,10 @@ const tests = [
 	"user-message-osc.test.ts",
 	"runtime.test.ts",
 	"minimalist-editor.test.ts",
+	"working-line.test.ts",
+	"working-line-placement.test.ts",
+	"working-line-editor-placement.test.ts",
+	"working-line-lifecycle.integration.test.ts",
 ];
 const vitest = JSON.parse(
 	readFileSync(join(root, "node_modules/vitest/package.json"), "utf8"),

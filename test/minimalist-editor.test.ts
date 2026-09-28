@@ -954,14 +954,13 @@ describe("minimalist working line placement", () => {
 		expect(lines[0]).toContain("5s · ✧ Zigzagging…");
 	});
 
-	it("renders working line inside the input box when placement is input and text is empty", () => {
+	it.each(["", "my prompt"])("preserves input and its cursor during work: %j", (inputText) => {
 		const current = config();
-		current.components.workingLine.enabled = true;
-		current.components.workingLine.placement = "input";
+		const editorLine = `${inputText}\x1b_pi:c\x07\x1b[7m \x1b[27m`;
 		const lines = renderMinimalistFrame({
 			width: 100,
-			editorLines: ["   "],
-			inputText: "",
+			editorLines: [editorLine],
+			inputText,
 			uiTheme: theme(),
 			config: current,
 			metadata: {
@@ -970,27 +969,8 @@ describe("minimalist working line placement", () => {
 				workingLineFrame: "✧ Zigzagging…",
 			},
 		});
-		expect(lines[1]).toContain("✧ Zigzagging…");
-		expect(lines[0]).not.toContain("Zigzagging");
-	});
-
-	it("yields input placeholder to user input when user types", () => {
-		const current = config();
-		current.components.workingLine.enabled = true;
-		current.components.workingLine.placement = "input";
-		const lines = renderMinimalistFrame({
-			width: 100,
-			editorLines: ["my prompt"],
-			inputText: "my prompt",
-			uiTheme: theme(),
-			config: current,
-			metadata: {
-				cwd: "/tmp",
-				agentActive: true,
-				workingLineFrame: "✧ Zigzagging…",
-			},
-		});
-		expect(lines[1]).toContain("my prompt");
+		expect(lines[1]).toContain(editorLine);
 		expect(lines[1]).not.toContain("Zigzagging");
+		expect(lines[0]).toContain("Zigzagging");
 	});
 });

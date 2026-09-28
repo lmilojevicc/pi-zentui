@@ -71,6 +71,28 @@ const ownerSaves = [
 ] as const;
 
 describe("owner-only component persistence", () => {
+	it.each(ownerSaves.filter(([owner]) => owner !== "workingLine"))(
+		"preserves raw legacy Working placement when saving %s",
+		(_owner, save) => {
+			const workingLine = { enabled: true, placement: "input", future: { keep: true } };
+			withFile({ components: { workingLine } }, (path) => {
+				expect(mergeConfig(raw(path)).components.workingLine.placement).toBe("above");
+				save(path);
+				expect(raw(path).components.workingLine).toEqual(workingLine);
+			});
+		},
+	);
+
+	it("keeps dormant Border across editor style and enabled changes", () => {
+		withFile({ components: { workingLine: { placement: "border" } } }, (path) => {
+			saveEditorComponentPatch({ style: "accent-rail", enabled: false }, path);
+			expect(raw(path).components.workingLine).toEqual({ placement: "border" });
+			const editor = raw(path).components.editor;
+			saveWorkingLineComponentPatch({ placement: "above" }, path);
+			expect(raw(path).components.editor).toEqual(editor);
+		});
+	});
+
 	it("saves quota consent without enabling consumers or rewriting custom formats", () => {
 		const metadataFormat = "$model  $provider(  $thinking)";
 		const initial = {

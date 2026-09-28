@@ -155,9 +155,8 @@ const speedValues = (presets: readonly { label: string }[]) => [
 	"Custom…",
 ];
 const workingLinePlacementLabels: Record<WorkingLinePlacement, string> = {
-	above: "Above editor (default)",
-	border: "Editor top border",
-	input: "Inside prompt input",
+	above: "Above",
+	border: "Border",
 };
 const workingLinePlacementValues = Object.values(workingLinePlacementLabels);
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
@@ -812,14 +811,16 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: featureValue(workingLine.enabled),
 			values: featureStateValues,
 		},
-		{
-			id: "workingLinePlacement",
-			label: "Placement",
-			description: "Show above editor, on editor top border, or inside prompt input.",
-			currentValue:
-				workingLinePlacementLabels[workingLine.placement ?? "above"] ?? "Above editor (default)",
-			values: workingLinePlacementValues,
-		},
+		...(config.components.editor.enabled && config.components.editor.style !== "accent-rail"
+			? [
+					{
+						id: "workingLinePlacement",
+						label: "Placement",
+						currentValue: workingLinePlacementLabels[workingLine.placement],
+						values: workingLinePlacementValues,
+					},
+				]
+			: []),
 		{
 			id: "workingLineTurnSummary",
 			label: "Turn summary",
@@ -1850,6 +1851,8 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											return;
 										}
 										if (id === "workingLinePlacement") {
+											const editor = deps.getConfig().components.editor;
+											if (!editor.enabled || editor.style === "accent-rail") return;
 											const placement = (
 												Object.entries(workingLinePlacementLabels) as Array<
 													[WorkingLinePlacement, string]

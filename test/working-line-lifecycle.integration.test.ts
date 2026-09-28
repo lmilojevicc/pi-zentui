@@ -1,9 +1,19 @@
 import { stripVTControlCharacters } from "node:util";
-import type { EventBus, Theme } from "@earendil-works/pi-coding-agent";
-import { Loader, visibleWidth } from "@earendil-works/pi-tui";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	CustomEditor,
+	type EventBus,
+	type ExtensionContext,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { type Focusable, Loader, visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const stripTerminalSequences = stripVTControlCharacters;
+
+function required<T>(value: T | undefined): T {
+	if (value === undefined) throw new Error("Expected initialized test state");
+	return value;
+}
 
 const runtime = vi.hoisted(() => ({
 	enabled: true,
@@ -12,6 +22,10 @@ const runtime = vi.hoisted(() => ({
 	spinner: "star-bloom" as "star-bloom" | "pulse",
 	spinnerIntervalMs: 100,
 	textIntervalMs: 60,
+	editorEnabled: false,
+	editorStyle: "minimalist" as import("../extensions/zentui/config").EditorStyle,
+	placement: "above" as "above" | "border",
+	config: undefined as import("../extensions/zentui/config").ZentuiConfig | undefined,
 }));
 
 const startupGate = vi.hoisted(() => ({
@@ -40,7 +54,12 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		loadConfig: () => {
 			const config = structuredClone(actual.defaultConfig);
 			config.projectRefreshIntervalMs = 0;
-			config.components.editor.enabled = false;
+			config.components.editor.enabled = runtime.editorEnabled;
+			config.components.editor.style = runtime.editorStyle;
+			config.components.editor.styles.minimalist.showTimer = false;
+			config.components.editor.styles.minimalist.showGit = false;
+			config.components.editor.styles.minimalist.pathDisplay = "full";
+			config.components.workingLine.placement = runtime.placement;
 			config.components.userMessages.enabled = false;
 			config.components.selectorBorders.enabled = false;
 			config.components.footer.style = "native";
@@ -52,10 +71,32 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 				custom: runtime.custom,
 				values: [runtime.message],
 			};
+			runtime.config = config;
 			return config;
+		},
+		saveEditorComponentPatch(patch: object) {
+			Object.assign(required(runtime.config).components.editor, patch);
+			return required(runtime.config);
+		},
+		saveWorkingLineComponentPatch(patch: object) {
+			Object.assign(required(runtime.config).components.workingLine, patch);
+			return required(runtime.config);
 		},
 	};
 });
+
+const settings = vi.hoisted(() => ({
+	actions: undefined as
+		| Parameters<
+				typeof import("../extensions/zentui/settings-command").registerZentuiSettingsCommand
+		  >[1]
+		| undefined,
+}));
+vi.mock("../extensions/zentui/settings-command", () => ({
+	registerZentuiSettingsCommand(_pi: unknown, actions: NonNullable<typeof settings.actions>) {
+		settings.actions = actions;
+	},
+}));
 
 import zentui from "../extensions/zentui/index";
 import { WORKING_LINE_METRIC_UPDATE_INTERVAL_MS } from "../extensions/zentui/working-line";
@@ -199,7 +240,14 @@ beforeEach(() => {
 	runtime.spinnerIntervalMs = 100;
 	runtime.textIntervalMs = 60;
 	startupGate.pending = undefined;
+	runtime.editorEnabled = false;
+	runtime.editorStyle = "minimalist";
+	runtime.placement = "above";
+	runtime.config = undefined;
+	settings.actions = undefined;
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("working-line extension lifecycle integration", () => {
 	it("wires full-row rebuilds, authoritative usage, parallel tools, and isolated cleanup", async () => {
@@ -988,5 +1036,372 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "session_shutdown", current.ctx);
 		expect(current.calls).toEqual([]);
 		expect(current.forbidden).not.toHaveBeenCalled();
+	});
+});
+
+type EditorFactory = NonNullable<Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0]>;
+
+function editorHarness(wrapped = false) {
+	const current = harness();
+	const requestRender = vi.fn();
+	const tui = { requestRender, terminal: { rows: 24, cols: 100 } };
+	const editorTheme = { borderColor: (text: string) => text, selectList: {} };
+	const keybindings = { matches: () => false };
+	const native = () => new CustomEditor(tui as never, editorTheme as never, keybindings as never);
+	let factory: EditorFactory | undefined = wrapped ? native : undefined;
+	let editor: ReturnType<EditorFactory> & Partial<Focusable> = native();
+	editor.focused = true;
+	const visible = vi.fn();
+	const ui = {
+		...current.ctx.ui,
+		getEditorComponent: () => factory,
+		setEditorComponent(next: EditorFactory | undefined) {
+			factory = next;
+			const text = editor.getText();
+			editor = next?.(tui as never, editorTheme as never, keybindings as never) ?? native();
+			editor.setText(text);
+			// Public host focus transfer occurs after installing the new editor.
+			editor.focused = true;
+		},
+		getEditorText: () => editor.getText(),
+		setEditorText: (text: string) => editor.setText(text),
+		setWorkingVisible: visible,
+	};
+	return {
+		...current,
+		ctx: { ...current.ctx, ui },
+		visible,
+		requestRender,
+		get editor() {
+			return editor;
+		},
+		get factory() {
+			return factory;
+		},
+		invokeFactory(value: EditorFactory) {
+			const instance: ReturnType<EditorFactory> & Partial<Focusable> = value(
+				tui as never,
+				editorTheme as never,
+				keybindings as never,
+			);
+			instance.focused = true;
+			return instance;
+		},
+		render: (width = 100) => editor.render(width).map(stripTerminalSequences),
+	};
+}
+
+describe("working-line owned editor border integration", () => {
+	beforeEach(() => {
+		runtime.editorEnabled = true;
+		runtime.placement = "border";
+		vi.useFakeTimers();
+	});
+	afterEach(() => {
+		vi.clearAllTimers();
+		vi.useRealTimers();
+	});
+
+	for (const wrapped of [false, true]) {
+		it.each(["minimalist", "opencode", "opencode-copy-friendly"] as const)(
+			`releases %s immediately for a native dialog in the ${wrapped ? "wrapped" : "standalone"} factory`,
+			async (style) => {
+				runtime.editorStyle = style;
+				const handlers = loadExtension();
+				const h = editorHarness(wrapped);
+				await emit(handlers, "session_start", h.ctx);
+				await emit(handlers, "agent_start", h.ctx);
+				const choices = structuredClone(required(runtime.config).components);
+				const factory = h.factory;
+				const aboveTimers = vi.getTimerCount();
+				h.editor.setText("steering prompt");
+				expect(h.render()[0]).toContain("Stable");
+				expect(vi.getTimerCount()).toBe(aboveTimers + 1);
+				// Native select/input/editor dialogs transfer focus but retain this factory.
+				h.editor.focused = false;
+				expect(h.factory).toBe(factory);
+				expect(h.visible.mock.calls).toEqual([[false], [true]]);
+				expect(vi.getTimerCount()).toBe(aboveTimers);
+				h.requestRender.mockClear();
+				vi.advanceTimersByTime(300);
+				expect(h.requestRender).not.toHaveBeenCalled();
+				const refocusTimers = vi.getTimerCount();
+				h.editor.focused = true;
+				expect(h.visible.mock.calls).toEqual([[false], [true]]);
+				expect(vi.getTimerCount()).toBe(refocusTimers);
+				vi.advanceTimersByTime(300);
+				expect(h.visible).toHaveBeenLastCalledWith(true);
+				expect(h.render()[0]).toContain("Stable");
+				expect(h.visible.mock.calls).toEqual([[false], [true], [false]]);
+				expect(vi.getTimerCount()).toBe(refocusTimers + 1);
+				expect(h.editor.getText()).toBe("steering prompt");
+				expect(required(runtime.config).components).toEqual(choices);
+				await emit(handlers, "session_shutdown", h.ctx);
+				expect(vi.getTimerCount()).toBe(0);
+			},
+		);
+
+		it(`ignores stale focus callbacks from a replaced ${wrapped ? "wrapped" : "standalone"} instance`, async () => {
+			const handlers = loadExtension();
+			const h = editorHarness(wrapped);
+			await emit(handlers, "session_start", h.ctx);
+			await emit(handlers, "agent_start", h.ctx);
+			expect(h.render()[0]).toContain("Stable");
+			const old = h.editor;
+			const factory = h.factory;
+			h.ctx.ui.setEditorComponent(factory);
+			expect(h.render()[0]).toContain("Stable");
+			const calls = h.visible.mock.calls.length;
+			const timers = vi.getTimerCount();
+			old.focused = false;
+			old.focused = true;
+			expect(old.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
+			expect(h.factory).toBe(factory);
+			expect(h.visible).toHaveBeenCalledTimes(calls);
+			expect(vi.getTimerCount()).toBe(timers);
+			expect(h.render()[0]).toContain("Stable");
+			await emit(handlers, "session_shutdown", h.ctx);
+			old.focused = false;
+			old.focused = true;
+			old.render(100);
+			expect(h.visible).toHaveBeenLastCalledWith(true);
+			expect(vi.getTimerCount()).toBe(0);
+		});
+
+		it.each(["minimalist", "opencode", "opencode-copy-friendly"] as const)(
+			`bootstraps %s in the ${wrapped ? "wrapped" : "standalone"} factory and releases on resize, failure and finish`,
+			async (style) => {
+				runtime.editorStyle = style;
+				const handlers = loadExtension();
+				const h = editorHarness(wrapped);
+				await emit(handlers, "session_start", h.ctx);
+				await emit(handlers, "agent_start", h.ctx);
+				expect(h.visible).not.toHaveBeenCalled();
+				h.editor.setText("steering prompt");
+				expect(h.render()[0]).toContain("Stable");
+				expect(h.render().slice(1).join("\n")).toContain("steering prompt");
+				expect(h.visible.mock.calls).toEqual([[false]]);
+				const renders = h.requestRender.mock.calls.length;
+				vi.advanceTimersByTime(300);
+				expect(h.requestRender.mock.calls.length).toBeGreaterThan(renders);
+
+				expect(h.render(12).join("\n")).not.toContain("Stable");
+				expect(h.visible.mock.calls).toEqual([[false], [true]]);
+				expect(h.render()[0]).toContain("Stable");
+				const nativeRender = vi.spyOn(CustomEditor.prototype, "render").mockReturnValue(["unsafe"]);
+				expect(h.render()).toEqual(["unsafe"]);
+				expect(h.visible).toHaveBeenLastCalledWith(true);
+				nativeRender.mockRestore();
+				expect(h.render()[0]).toContain("Stable");
+				await emit(handlers, "agent_end", h.ctx);
+				expect(h.visible).toHaveBeenLastCalledWith(true);
+				expect(h.render().join("\n")).not.toContain("Stable");
+				await emit(handlers, "session_shutdown", h.ctx);
+				expect(vi.getTimerCount()).toBe(0);
+			},
+		);
+	}
+
+	it("reconciles Above/Border, styles and disabled/native without rewriting independent choices", async () => {
+		const handlers = loadExtension();
+		const h = editorHarness();
+		await emit(handlers, "session_start", h.ctx);
+		await emit(handlers, "agent_start", h.ctx);
+		expect(h.render()[0]).toContain("Stable");
+		const actions = required(settings.actions);
+		const ctx = h.ctx as unknown as ExtensionContext;
+		const working = structuredClone(actions.getConfig().components.workingLine);
+		const editor = structuredClone(actions.getConfig().components.editor);
+		actions.setWorkingLineComponent({ placement: "above" }, ctx);
+		expect(h.visible).toHaveBeenLastCalledWith(true);
+		expect(h.render().join("\n")).not.toContain("Stable");
+		actions.setWorkingLineComponent({ placement: "border" }, ctx);
+		expect(h.visible).toHaveBeenLastCalledWith(false);
+		expect(actions.getConfig().components.editor).toEqual(editor);
+		for (const style of [
+			"accent-rail",
+			"opencode",
+			"opencode-copy-friendly",
+			"minimalist",
+		] as const) {
+			actions.setEditorComponent({ style }, ctx);
+			if (style === "accent-rail") {
+				expect(h.visible).toHaveBeenLastCalledWith(true);
+				expect(h.render().join("\n")).not.toContain("Stable");
+			} else {
+				expect(h.render()[0]).toContain("Stable");
+				expect(h.visible).toHaveBeenLastCalledWith(false);
+			}
+		}
+		actions.setEditorComponent({ enabled: false }, ctx);
+		expect(h.factory).toBeUndefined();
+		expect(h.visible).toHaveBeenLastCalledWith(true);
+		expect(h.render().join("\n")).not.toContain("Stable");
+		actions.setEditorComponent({ enabled: true }, ctx);
+		expect(h.render()[0]).toContain("Stable");
+		expect(actions.getConfig().components.workingLine).toEqual(working);
+		await emit(handlers, "session_shutdown", h.ctx);
+	});
+
+	it.each(["native", "foreign", "throwing-getter"] as const)(
+		"detects %s ownership loss on animation ticks without metric changes and ignores stale instances/factories",
+		async (replacement) => {
+			const handlers = loadExtension();
+			const h = editorHarness();
+			await emit(handlers, "session_start", h.ctx);
+			await emit(handlers, "agent_start", h.ctx);
+			expect(h.render()[0]).toContain("Stable");
+			const oldEditor = h.editor;
+			const oldFactory = required(h.factory);
+			if (replacement === "throwing-getter") {
+				h.ctx.ui.getEditorComponent = () => {
+					throw new Error("unobservable");
+				};
+			} else {
+				h.ctx.ui.setEditorComponent(
+					replacement === "native"
+						? undefined
+						: () => ({
+								render: () => ["foreign"],
+								getText: () => "",
+								setText() {},
+								handleInput() {},
+								invalidate() {},
+							}),
+				);
+			}
+			vi.advanceTimersByTime(300);
+			expect(h.visible).toHaveBeenLastCalledWith(true);
+			const calls = h.visible.mock.calls.length;
+			oldEditor.render(12);
+			expect(oldEditor.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
+			expect(
+				h.invokeFactory(oldFactory).render(100).map(stripTerminalSequences).join("\n"),
+			).not.toContain("Stable");
+			vi.advanceTimersByTime(300);
+			expect(h.visible).toHaveBeenCalledTimes(calls);
+			expect(required(settings.actions).getConfig().components.workingLine.placement).toBe(
+				"border",
+			);
+			await emit(handlers, "session_shutdown", h.ctx);
+		},
+	);
+
+	it.each(["visibility", "editor-getter", "editor-transfer"] as const)(
+		"falls above with missing %s APIs, preserving canonical Border",
+		async (missing) => {
+			const handlers = loadExtension();
+			const h = editorHarness();
+			const method = {
+				visibility: "setWorkingVisible",
+				"editor-getter": "getEditorComponent",
+				"editor-transfer": "getEditorText",
+			}[missing];
+			Object.defineProperty(h.ctx.ui, method, { value: undefined, configurable: true });
+			await emit(handlers, "session_start", h.ctx);
+			await emit(handlers, "agent_start", h.ctx);
+			expect(h.render().join("\n")).not.toContain("Stable");
+			expect(h.visible).not.toHaveBeenCalled();
+			expect(h.calls.some(([name]) => name === "indicator")).toBe(true);
+			expect(required(settings.actions).getConfig().components.workingLine.placement).toBe(
+				"border",
+			);
+			await emit(handlers, "session_shutdown", h.ctx);
+		},
+	);
+
+	it.each(["disabled", "accent-rail"] as const)(
+		"keeps saved Border above at %s startup",
+		async (mode) => {
+			runtime.editorEnabled = mode !== "disabled";
+			if (mode === "accent-rail") runtime.editorStyle = "accent-rail";
+			const handlers = loadExtension();
+			const h = editorHarness();
+			await emit(handlers, "session_start", h.ctx);
+			await emit(handlers, "agent_start", h.ctx);
+			expect(h.render().join("\n")).not.toContain("Stable");
+			expect(h.visible).not.toHaveBeenCalled();
+			expect(required(settings.actions).getConfig().components.workingLine.placement).toBe(
+				"border",
+			);
+			await emit(handlers, "session_shutdown", h.ctx);
+		},
+	);
+
+	it("releases on a late metadata exception and ignores a replaced instance of the same factory", async () => {
+		const handlers = loadExtension();
+		const h = editorHarness();
+		await emit(handlers, "session_start", h.ctx);
+		await emit(handlers, "agent_start", h.ctx);
+		expect(h.render()[0]).toContain("Stable");
+		const getName = h.ctx.sessionManager.getSessionName;
+		h.ctx.sessionManager.getSessionName = () => {
+			throw new Error("metadata unavailable");
+		};
+		expect(h.render().join("\n")).not.toContain("Stable");
+		expect(h.visible).toHaveBeenLastCalledWith(true);
+		h.ctx.sessionManager.getSessionName = getName;
+		expect(h.render()[0]).toContain("Stable");
+		const old = h.editor;
+		h.ctx.ui.setEditorComponent(h.factory);
+		expect(h.render()[0]).toContain("Stable");
+		const calls = h.visible.mock.calls.length;
+		old.render(12);
+		expect(old.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
+		expect(h.visible).toHaveBeenCalledTimes(calls);
+		expect(h.render()[0]).toContain("Stable");
+		await emit(handlers, "session_shutdown", h.ctx);
+	});
+
+	it("detects ownership replacement during rendering before the next timer tick", async () => {
+		const handlers = loadExtension();
+		const h = editorHarness();
+		await emit(handlers, "session_start", h.ctx);
+		await emit(handlers, "agent_start", h.ctx);
+		expect(h.render()[0]).toContain("Stable");
+		const old = h.editor;
+		h.ctx.ui.setEditorComponent(undefined);
+		expect(old.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
+		expect(h.visible).toHaveBeenLastCalledWith(true);
+		await emit(handlers, "session_shutdown", h.ctx);
+	});
+
+	it("ignores old generation callbacks during asynchronous restart and uses the current session", async () => {
+		const handlers = loadExtension();
+		const first = editorHarness();
+		await emit(handlers, "session_start", first.ctx);
+		await emit(handlers, "agent_start", first.ctx);
+		expect(first.render()[0]).toContain("Stable");
+		const oldEditor = first.editor;
+		const oldFactory = required(first.factory);
+		let release = () => {};
+		startupGate.pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const second = editorHarness();
+		const starting = emit(handlers, "session_start", second.ctx);
+		expect(first.visible).toHaveBeenLastCalledWith(true);
+		oldEditor.render(12);
+		expect(oldEditor.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
+		release();
+		await starting;
+		startupGate.pending = undefined;
+		await emit(handlers, "agent_start", second.ctx);
+		expect(second.render()[0]).toContain("Stable");
+		const calls = second.visible.mock.calls.length;
+		first.invokeFactory(oldFactory).render(100);
+		oldEditor.render(12);
+		oldEditor.render(100);
+		expect(second.visible).toHaveBeenCalledTimes(calls);
+		expect(second.render()[0]).toContain("Stable");
+		const fresh = {
+			...second.ctx,
+			sessionManager: { ...second.ctx.sessionManager, getSessionName: () => "CURRENT SESSION" },
+		};
+		await emit(handlers, "session_info_changed", fresh);
+		expect(second.render().join("\n")).toContain("CURRENT SESSION");
+		await emit(handlers, "session_shutdown", fresh);
+		expect(second.visible).toHaveBeenLastCalledWith(true);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });

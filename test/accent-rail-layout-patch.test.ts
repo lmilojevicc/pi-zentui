@@ -10,6 +10,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Container, VStack } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
@@ -556,18 +557,24 @@ describe("Accent Rail fullscreen layout patch", () => {
 	);
 
 	it.skipIf(!localSupportsAccentRailPatch)(
-		"discovers the checked-in coding-agent nested host package instance",
+		"discovers the installed coding-agent host package instance",
 		async () => {
-			const require = createRequire(import.meta.url);
-			const tuiEntry = require.resolve("@earendil-works/pi-tui");
-			const entrypoint = join(dirname(tuiEntry), "../../pi-coding-agent/dist/cli.js");
-			const target = await discoverAccentRailLayoutPatchTargetFromEntrypoint(entrypoint);
-			expect(target?.version).toBe(localPiTuiVersion);
-			expect(target?.resolvedModulePath).not.toBe(target?.localModulePath);
-			expect(target?.resolvedModulePath).toContain(
-				"pi-coding-agent/node_modules/@earendil-works/pi-tui",
+			const agentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+			const entrypoint = realpathSync(join(dirname(agentEntry), "cli.js"));
+			// Isolated npm trees may dedupe Pi TUI; the host's resolution is authoritative.
+			const hostTuiEntry = realpathSync(
+				createRequire(entrypoint).resolve("@earendil-works/pi-tui"),
 			);
-			expect(target?.prototype).not.toBe(VStack.prototype);
+			const hostVersion = JSON.parse(
+				readFileSync(join(dirname(hostTuiEntry), "../package.json"), "utf8"),
+			).version;
+			const hostTui = await import(pathToFileURL(hostTuiEntry).href);
+			const target = await discoverAccentRailLayoutPatchTargetFromEntrypoint(entrypoint);
+			expect(target?.version).toBe(hostVersion);
+			expect(target?.canonicalEntrypoint).toBe(entrypoint);
+			expect(target?.resolvedModulePath).toBe(hostTuiEntry);
+			expect(target?.localModulePath).toBe(realpathSync(localPiTuiEntry));
+			expect(target?.prototype).toBe(hostTui.VStack.prototype);
 		},
 	);
 
@@ -586,7 +593,7 @@ describe("Accent Rail fullscreen layout patch", () => {
 		},
 	);
 
-	it("canonicalizes an npm-bin symlink and patches only the distinct host VStack", async () => {
+	it("canonicalizes an npm-bin symlink and patches only the distinct nested host VStack", async () => {
 		const fixture = makeHostPackageFixture();
 		try {
 			const target = await discoverAccentRailLayoutPatchTargetFromEntrypoint(fixture.bin);
@@ -703,7 +710,7 @@ function makeHostPackageFixture(useLocalTui = false): {
 } {
 	const root = mkdtempSync(join(tmpdir(), "zentui-layout-host-"));
 	const codingRoot = join(root, "node_modules/@earendil-works/pi-coding-agent");
-	const tuiRoot = join(root, "node_modules/@earendil-works/pi-tui");
+	const tuiRoot = join(useLocalTui ? root : codingRoot, "node_modules/@earendil-works/pi-tui");
 	const cli = join(codingRoot, "dist/cli.js");
 	const tuiEntry = join(tuiRoot, "index.js");
 	let expectedTuiEntry = tuiEntry;

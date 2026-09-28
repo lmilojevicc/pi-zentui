@@ -782,13 +782,13 @@ describe("working-line config", () => {
 		).toBe(100);
 	});
 	it("normalizes canonical working-line placement and falls back invalid values to above", () => {
-		for (const placement of ["above", "border", "input"] as const) {
+		for (const placement of ["above", "border"] as const) {
 			expect(
 				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
 					.placement,
 			).toBe(placement);
 		}
-		for (const placement of ["below", "", 1, null, true]) {
+		for (const placement of ["input", "below", "", 1, null, true]) {
 			expect(
 				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
 					.placement,

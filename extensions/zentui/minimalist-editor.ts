@@ -58,6 +58,7 @@ export type MinimalistEditorMetadata = {
 	sessionName?: string;
 	agentDurationMs?: number;
 	agentActive?: boolean;
+	/** Controller-gated border content; never resolve canonical placement in the renderer. */
 	workingLineFrame?: string;
 };
 
@@ -183,14 +184,7 @@ function renderTopLeft(
 				: safeThemeFg(uiTheme, "muted", duration),
 		);
 	}
-	if (
-		config.components.workingLine.enabled &&
-		config.components.workingLine.placement === "border" &&
-		metadata.agentActive &&
-		metadata.workingLineFrame
-	) {
-		parts.push(metadata.workingLineFrame);
-	}
+	if (metadata.workingLineFrame) parts.push(metadata.workingLineFrame);
 	const sessionName = includeSessionName
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
@@ -508,6 +502,7 @@ export function renderMinimalistFrame({
 	const topFallbacks = [
 		joinStyled([topViewport, topOperational], separator),
 		topOperational,
+		...(metadata.workingLineFrame ? [metadata.workingLineFrame] : []),
 	].filter((value, index, values) => value !== topLeft && values.indexOf(value) === index);
 	const top = renderLabeledBorder({
 		width,
@@ -531,17 +526,7 @@ export function renderMinimalistFrame({
 		rightCorner: "╯",
 		renderBorder,
 	});
-	const inputActivePlaceholder =
-		config.components.workingLine.enabled &&
-		config.components.workingLine.placement === "input" &&
-		metadata.agentActive &&
-		Boolean(metadata.workingLineFrame) &&
-		(!inputText || inputText.length === 0);
-	const cursorMarker = editorLines[0]?.includes("\x1b_pi:c\x07") ? "\x1b_pi:c\x07" : "";
-	const displayLines = inputActivePlaceholder
-		? [`${metadata.workingLineFrame ?? ""}${cursorMarker}`]
-		: editorLines;
-	const content = displayLines.map(
+	const content = editorLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);
 	const autocomplete = renderFramedAutocompleteRows({
