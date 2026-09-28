@@ -331,6 +331,11 @@ export default function (pi: ExtensionAPI) {
 		() => interactionMetrics.currentThought(),
 		() => invalidateWorkingLinePublisherState(),
 	);
+	workingLine.setRequestRender(() => {
+		if (sessionLifecycle.isCurrent()) {
+			requestEditorRender?.();
+		}
+	});
 	let workingLineSessionReady = false;
 	const workingLineExtensions = new WorkingLineExtensionSegments(
 		pi.events,

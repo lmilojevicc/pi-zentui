@@ -1147,6 +1147,7 @@ export class WorkingLineController {
 	private agentActive = false;
 	private animationTimer?: ReturnType<typeof setInterval>;
 	private hiddenWorkingVisible = false;
+	private requestRender: () => void = () => {};
 	private selectedMessage: string | undefined;
 	private frameKey: string | undefined;
 	private installedPhase: InstalledAnimationPhase | undefined;
@@ -1193,7 +1194,7 @@ export class WorkingLineController {
 			// stored indicator so the subsequently constructed Loader begins at intended frame zero.
 			this.install(ctx, true, true);
 		}
-		this.startAnimationTicks(ctx);
+		this.startAnimationTicks();
 		this.reconcileElapsedUpdates(ctx);
 	}
 
@@ -1262,6 +1263,7 @@ export class WorkingLineController {
 		this.activeTools.clear();
 		this.deactivateElapsedUpdates();
 		this.updateIndicator(ctx);
+		this.requestRender();
 	}
 
 	flushMetrics(
@@ -1308,6 +1310,10 @@ export class WorkingLineController {
 		return this.selectedMessage;
 	}
 
+	setRequestRender(requestRender: () => void): void {
+		this.requestRender = requestRender;
+	}
+
 	currentWorkingLineFrame(): string | undefined {
 		if (!this.agentActive) return undefined;
 		const frames = this.installedIndicatorOptions?.frames;
@@ -1317,8 +1323,9 @@ export class WorkingLineController {
 		if (!this.installedPhase || this.installedPhase.frameStates.length === 0) {
 			return frames[0];
 		}
+		const interval = this.installedPhase.intervalMs > 0 ? this.installedPhase.intervalMs : 100;
 		const elapsedMs = Math.max(0, this.now() - this.installedPhase.frameEpochMs);
-		const frameIndex = Math.floor(elapsedMs / this.installedPhase.intervalMs) % frames.length;
+		const frameIndex = Math.max(0, Math.floor(elapsedMs / interval)) % frames.length;
 		return frames[frameIndex] ?? this.selectedMessage;
 	}
 
@@ -1492,6 +1499,9 @@ export class WorkingLineController {
 		this.frameKey = key;
 		this.installedIndicatorOptions = indicatorOptions;
 		this.extensionSegmentsDirty = false;
+		if (this.agentActive && config.placement !== "above") {
+			this.startAnimationTicks();
+		}
 	}
 
 	private updateIndicator(ctx: WorkingLineContext): boolean {
@@ -1553,18 +1563,21 @@ export class WorkingLineController {
 		this.metricUpdateScheduled = false;
 		this.metricUpdateHandle = undefined;
 	}
-	private startAnimationTicks(ctx: WorkingLineContext): void {
+	private startAnimationTicks(): void {
 		this.stopAnimationTicks();
 		const config = this.getConfig().components.workingLine;
 		if (!config.enabled || config.placement === "above") return;
+		const interval =
+			this.installedPhase && this.installedPhase.intervalMs > 0
+				? this.installedPhase.intervalMs
+				: config.spinnerIntervalMs || 100;
 		this.animationTimer = setInterval(() => {
 			if (!this.agentActive) {
 				this.stopAnimationTicks();
 				return;
 			}
-			const ui = ctx.ui as { requestRender?: () => void };
-			ui?.requestRender?.();
-		}, config.spinnerIntervalMs || 160);
+			this.requestRender();
+		}, interval);
 	}
 
 	private stopAnimationTicks(): void {
