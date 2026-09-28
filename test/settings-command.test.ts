@@ -621,7 +621,7 @@ describe("component-oriented /zentui settings", () => {
 			"Cost",
 			"Cache hit rate",
 			"Git",
-
+			"Separator",
 			"Color overrides",
 		]);
 		component.handleInput("\t");
@@ -650,6 +650,7 @@ describe("component-oriented /zentui settings", () => {
 			["Cost", "disabled"],
 			["Cache hit rate", "enabled"],
 			["Git", "disabled"],
+			["Separator", "dot"],
 		] as const) {
 			selectLabel(component, label);
 			component.handleInput(" ");
@@ -665,6 +666,7 @@ describe("component-oriented /zentui settings", () => {
 			{ showCost: false },
 			{ showCacheHit: true },
 			{ showGit: false },
+			{ separator: "dot" },
 		]);
 
 		for (let index = 0; index < 4; index += 1) component.handleInput("\t");

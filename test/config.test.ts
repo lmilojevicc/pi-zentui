@@ -129,6 +129,7 @@ describe("canonical config resolution", () => {
 						showCacheHit: false,
 						showGit: true,
 						contextThresholds: { warning: 70, error: 90 },
+						separator: "dash",
 					},
 				},
 			},
@@ -393,6 +394,21 @@ describe("canonical config resolution", () => {
 			).toBe("percent");
 		}
 
+		for (const separator of ["dash", "dot"]) {
+			expect(
+				mergeConfig({
+					components: { editor: { styles: { minimalist: { separator } } } },
+				}).components.editor.styles.minimalist.separator,
+			).toBe(separator);
+		}
+		for (const separator of ["pipe", "", 1, null, true]) {
+			expect(
+				mergeConfig({
+					editorStyles: { minimalist: { separator: "dot" } },
+					components: { editor: { styles: { minimalist: { separator } } } },
+				}).components.editor.styles.minimalist.separator,
+			).toBe("dash");
+		}
 		const valid = mergeConfig({
 			components: {
 				editor: {
@@ -404,6 +420,7 @@ describe("canonical config resolution", () => {
 							showCost: false,
 							showCacheHit: true,
 							showGit: false,
+							separator: "dot",
 						},
 					},
 				},
@@ -416,6 +433,7 @@ describe("canonical config resolution", () => {
 			showCost: false,
 			showCacheHit: true,
 			showGit: false,
+			separator: "dot",
 		});
 
 		const invalid = mergeConfig({

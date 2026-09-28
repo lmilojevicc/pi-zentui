@@ -225,7 +225,8 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
           "contextThresholds": {
             "warning": 70,
             "error": 90
-          }
+          },
+          "separator": "dash"
         }
       }
     },
@@ -531,7 +532,7 @@ Set `ZENTUI_DEBUG=1` when launching Pi to log the workaround diagnostic without 
 
 Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, context, and optional latest-prompt cache hit rate at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
 
-Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable.
+Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable. Metadata items are joined with dashes by default (`separator: "dash"`) or dots (`separator: "dot"`).
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 

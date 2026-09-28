@@ -209,8 +209,9 @@ function renderTopRight(
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
+	const separator = config.components.editor.styles.minimalist.separator === "dot" ? " · " : " – ";
 	const joinParts = (values: string[]) =>
-		values.map((part, index) => (index > 0 ? `${renderBorder(" – ")}${part}` : part)).join("");
+		values.map((part, index) => (index > 0 ? `${renderBorder(separator)}${part}` : part)).join("");
 	const cost = config.components.editor.styles.minimalist.showCost
 		? sanitizeEditorMetadataText(metadata.costLabel ?? "")
 		: "";

@@ -58,6 +58,7 @@ export type ThinkingStepsMode = "rail" | "tree" | "streaming";
 export type ComponentStyleOwner = "editor" | "userMessages" | "selectorBorders" | "footer";
 export type MinimalistPathDisplayMode = "compact" | "project" | "full";
 export type MinimalistContextFormat = "percent" | "percent-total";
+export type MinimalistEditorSeparator = "dash" | "dot";
 export type EditorBorderColorMode = "static" | "adaptive";
 export type CompletionMenuStyle = "native" | "palette";
 export type CompactFooterMaxLines = 1 | 2 | 3 | "unlimited";
@@ -142,6 +143,7 @@ export type MinimalistEditorStyleConfig = {
 	showCacheHit: boolean;
 	showGit: boolean;
 	contextThresholds: ContextThresholds;
+	separator: MinimalistEditorSeparator;
 };
 
 /** Temporary name retained for existing settings consumers. */
@@ -498,6 +500,7 @@ const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
 	showCacheHit: false,
 	showGit: true,
 	contextThresholds: { warning: 70, error: 90 },
+	separator: "dash",
 };
 
 const defaultStarshipStyle: StarshipFooterStyleConfig = {
@@ -1405,6 +1408,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					showCacheHit: parseBoolean(minimalist.showCacheHit, defaultMinimalistStyle.showCacheHit),
 					showGit: parseBoolean(minimalist.showGit, defaultMinimalistStyle.showGit),
 					contextThresholds: minimalistThresholds,
+					separator:
+						minimalist.separator === "dash" || minimalist.separator === "dot"
+							? minimalist.separator
+							: defaultMinimalistStyle.separator,
 				},
 			},
 		},
@@ -1903,6 +1910,7 @@ function applyMinimalistStylePatch(
 	if (patch.showCost !== undefined) style.showCost = patch.showCost;
 	if (patch.showCacheHit !== undefined) style.showCacheHit = patch.showCacheHit;
 	if (patch.showGit !== undefined) style.showGit = patch.showGit;
+	if (patch.separator !== undefined) style.separator = patch.separator;
 	if (patch.contextThresholds !== undefined) {
 		style.contextThresholds = { ...style.contextThresholds, ...patch.contextThresholds };
 	}

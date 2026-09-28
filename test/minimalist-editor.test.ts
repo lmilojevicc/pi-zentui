@@ -134,6 +134,29 @@ describe("minimalist editor frame", () => {
 		expect(visibleWidth(narrow)).toBeLessThanOrEqual(30);
 	});
 
+	it("renders dotted or dashed metadata separators according to config", () => {
+		const renderWithSeparator = (separator: "dash" | "dot") => {
+			const current = config();
+			current.components.editor.styles.minimalist.separator = separator;
+			return renderMinimalistFrame({
+				width: 120,
+				editorLines: ["draft"],
+				inputText: "draft",
+				metadata: {
+					cwd: "/tmp/project",
+					costLabel: "$0.123",
+					modelLabel: "model-x",
+					thinkingLevel: "high",
+					contextPercent: 42,
+				},
+				uiTheme: theme(),
+				config: current,
+			})[0];
+		};
+
+		expect(renderWithSeparator("dash")).toContain("$0.123 – model-x – high – 42%");
+		expect(renderWithSeparator("dot")).toContain("$0.123 · model-x · high · 42%");
+	});
 	it("uses distinct theme roles for default minimalist metadata", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const lines = renderMinimalistFrame({

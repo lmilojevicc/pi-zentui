@@ -215,6 +215,7 @@ describe("settings previews", () => {
 			() => (minimalist.showCacheHit = !minimalist.showCacheHit),
 			() => (minimalist.showGit = !minimalist.showGit),
 			() => (minimalist.contextThresholds = { warning: 80, error: 90 }),
+			() => (minimalist.separator = "dot"),
 		];
 		for (const [index, change] of changes.entries()) {
 			const before = render();

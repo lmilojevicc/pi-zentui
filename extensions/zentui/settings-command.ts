@@ -45,6 +45,7 @@ import {
 	MAX_WORKING_LINE_INTERVAL_MS,
 	MIN_WORKING_LINE_INTERVAL_MS,
 	type MinimalistConfig,
+	type MinimalistEditorSeparator,
 	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
@@ -126,6 +127,7 @@ const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
 const accentRailSurfaceValues = ["filled", "transparent"];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
+const minimalistSeparatorValues: MinimalistEditorSeparator[] = ["dash", "dot"];
 const editorBorderColorModeValues: EditorBorderColorMode[] = ["static", "adaptive"];
 const compactFooterMaxLineValues = ["1", "2", "3", "unlimited"];
 const featureStateValues: FeatureState[] = ["enabled", "disabled"];
@@ -727,6 +729,13 @@ function buildMinimalistEditorStyleItems(config: PolishedTuiConfig): SettingItem
 			description: "Show branch and working-tree state.",
 			currentValue: featureValue(minimalist.showGit),
 			values: featureStateValues,
+		},
+		{
+			id: "minimalistSeparator",
+			label: "Separator",
+			description: "Choose dash (–) or dot (·) between editor metadata items.",
+			currentValue: minimalist.separator,
+			values: minimalistSeparatorValues,
 		},
 	];
 }
@@ -1743,6 +1752,14 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											)
 												deps.setMinimalist(
 													{ contextFormat: newValue as MinimalistConfig["contextFormat"] },
+													ctx,
+												);
+											else if (
+												id === "minimalistSeparator" &&
+												(newValue === "dash" || newValue === "dot")
+											)
+												deps.setMinimalist(
+													{ separator: newValue as MinimalistEditorSeparator },
 													ctx,
 												);
 											else if (enabled !== undefined) {
