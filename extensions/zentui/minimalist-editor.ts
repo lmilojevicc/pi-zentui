@@ -536,8 +536,11 @@ export function renderMinimalistFrame({
 		config.components.workingLine.placement === "input" &&
 		metadata.agentActive &&
 		Boolean(metadata.workingLineFrame) &&
-		(!inputText || inputText.trim() === "");
-	const displayLines = inputActivePlaceholder ? [metadata.workingLineFrame ?? ""] : editorLines;
+		(!inputText || inputText.length === 0);
+	const cursorMarker = editorLines[0]?.includes("\x1b_pi:c\x07") ? "\x1b_pi:c\x07" : "";
+	const displayLines = inputActivePlaceholder
+		? [`${metadata.workingLineFrame ?? ""}${cursorMarker}`]
+		: editorLines;
 	const content = displayLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);

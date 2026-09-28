@@ -1564,9 +1564,12 @@ export class WorkingLineController {
 		this.metricUpdateHandle = undefined;
 	}
 	private startAnimationTicks(): void {
-		this.stopAnimationTicks();
 		const config = this.getConfig().components.workingLine;
-		if (!config.enabled || config.placement === "above") return;
+		if (!config.enabled || config.placement === "above") {
+			this.stopAnimationTicks();
+			return;
+		}
+		if (this.animationTimer !== undefined) return;
 		const interval =
 			this.installedPhase && this.installedPhase.intervalMs > 0
 				? this.installedPhase.intervalMs
