@@ -7659,18 +7659,19 @@ describe("component preset lifecycle", () => {
 			const nativeThinking = AssistantMessageComponent.prototype.updateContent;
 			const displacedSelector = () => ["other selector"];
 			ModelSelectorComponent.prototype.render = displacedSelector;
-			const workingMessageCalls = setWorkingMessage.mock.calls.length;
 			const workingIndicatorCalls = setWorkingIndicator.mock.calls.length;
 			const command = commands.get("zentui") as {
 				handler(args: string, ctx: unknown): Promise<void>;
 			};
 			for (const id of ["opencode-copy-friendly", "rail", "minimalist", "opencode"]) {
+				const workingMessageCalls = setWorkingMessage.mock.calls.length;
 				await command.handler(`preset ${id}`, ctx);
 				expect(ctx.ui.getEditorComponent()).toBe(editor);
 				expect(ctx.ui.getEditorText()).toBe("unsent draft");
 				expect(ModelSelectorComponent.prototype.render).toBe(displacedSelector);
 				expect(AssistantMessageComponent.prototype.updateContent).toBe(nativeThinking);
-				expect(setWorkingMessage).toHaveBeenCalledTimes(workingMessageCalls);
+				// Existing reconciles reassert the owned message, without reacquiring frames.
+				expect(setWorkingMessage.mock.calls.slice(workingMessageCalls)).toEqual([[""], [""]]);
 				expect(setWorkingIndicator).toHaveBeenCalledTimes(workingIndicatorCalls);
 				if (id === "minimalist") {
 					expect(footer?.render(100)).toEqual([]);

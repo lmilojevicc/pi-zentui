@@ -645,7 +645,9 @@ Classic and KITT move color across message and segments. **Animate spinner color
 
 Both speeds accept `30..1000` ms. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule with at most half a spinner-cycle and half a text-step rounding. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
-Content reserves the complete Tokens label and active extension segments first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens · Extensions** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase. Pi's working-row APIs are global and unkeyed, so another extension may win by writing last.
+Content reserves the complete Tokens label and active extension segments first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens · Extensions** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase.
+
+Pi's working-row APIs are global and unkeyed. While owning the row, Zentui reasserts its blank message on owned refreshes/reconciles (even with unchanged frames) and before a Border fallback reveals the Above row. A later external message write or reset can still win until the next such boundary; native spinner ticks alone do not repair it, and there is no added polling. Separate multiline widgets are unaffected; extensions sharing the working-message slot should use keyed segments below instead.
 
 ### Working-line extension integration
 

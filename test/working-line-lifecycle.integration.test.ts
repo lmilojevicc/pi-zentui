@@ -257,7 +257,9 @@ describe("working-line extension lifecycle integration", () => {
 			const handlers = loadExtension();
 			const current = harness();
 			const row = () => {
-				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+					| { frames?: string[] }
+					| undefined;
 				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 			};
 			await emit(handlers, "session_start", current.ctx);
@@ -291,7 +293,7 @@ describe("working-line extension lifecycle integration", () => {
 			expect(current.calls).toHaveLength(writesBeforeDeadline);
 			expect(row()).toMatch(/Stable · \d+s · ↑100 ↓4/);
 			vi.advanceTimersByTime(1);
-			expect(current.calls).toHaveLength(writesBeforeDeadline + 1);
+			expect(current.calls).toHaveLength(writesBeforeDeadline + 2);
 			expect(row()).toMatch(/Stable · \d+s · ↑120 ↓7/);
 			await emit(handlers, "message_end", current.ctx, { message: finalAssistant });
 			expect(row()).toMatch(/Stable · \d+s · ↑150 ↓9/);
@@ -315,7 +317,12 @@ describe("working-line extension lifecycle integration", () => {
 			});
 			expect(row()).toContain("↑150 ↓9");
 			await emit(handlers, "agent_end", current.ctx);
-			expect(current.calls.filter(([name]) => name === "message")).toEqual([["message", ""]]);
+			expect(
+				current.calls.filter(([name]) => name === "message").every(([, value]) => value === ""),
+			).toBe(true);
+			for (const [index, [name]] of current.calls.entries()) {
+				if (name === "indicator") expect(current.calls[index - 1]).toEqual(["message", ""]);
+			}
 			expect(current.forbidden).not.toHaveBeenCalled();
 			const beforeLateEnds = current.calls.length;
 			await emit(handlers, "message_end", current.ctx, {
@@ -336,11 +343,65 @@ describe("working-line extension lifecycle integration", () => {
 		}
 	});
 
+	it.each(["before", "after"])(
+		"repairs an external message_end reset %s Zentui's handler at the next owned refresh",
+		async (ordering) => {
+			vi.useFakeTimers();
+			const handlers = loadExtension();
+			const current = harness();
+			let loader: Loader | undefined;
+			try {
+				await emit(handlers, "session_start", current.ctx);
+				const config = required(runtime.config).components.workingLine;
+				config.textAnimation = "disabled";
+				config.segments.elapsed = false;
+				config.segments.thought = false;
+				await emit(handlers, "agent_start", current.ctx);
+				await emit(handlers, "turn_start", current.ctx, { turnIndex: 0, timestamp: Date.now() });
+				loader = current.activateLoader();
+				const row = () => stripTerminalSequences(required(loader).render(120).join("\n")).trim();
+				const message = {
+					role: "assistant",
+					usage: { input: 12, output: 3 },
+					content: [],
+					api: "google-generative-ai",
+					provider: "google",
+					model: "test",
+					stopReason: "stop",
+					timestamp: Date.now(),
+				};
+				await emit(handlers, "message_update", current.ctx, { message });
+				const writes = current.calls.filter(([name]) => name === "indicator").length;
+				const reset = () => current.ctx.ui.setWorkingMessage();
+				const finalHandlers = required(handlers.get("message_end"));
+				if (ordering === "before") finalHandlers.unshift(reset);
+				else finalHandlers.push(reset);
+				await emit(handlers, "message_end", current.ctx, { message });
+				if (ordering === "after") {
+					expect(row()).toContain("Working...");
+					// No polling or setter interception: native animation alone cannot repair this.
+					vi.advanceTimersByTime(1000);
+					expect(row()).toContain("Working...");
+					await emit(handlers, "agent_end", current.ctx);
+				}
+				expect(row()).toMatch(/Stable · ↑12 ↓3$/);
+				expect(current.calls.filter(([name]) => name === "indicator")).toHaveLength(writes);
+				expect(current.forbidden).not.toHaveBeenCalled();
+			} finally {
+				await emit(handlers, "session_shutdown", current.ctx);
+				loader?.stop();
+				vi.useRealTimers();
+			}
+		},
+	);
+
 	it("composes keyed extension segments into the owned animated row", async () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		await emit(handlers, "session_start", current.ctx);
@@ -528,7 +589,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const message = (input: number, output: number) => ({
@@ -554,7 +617,9 @@ describe("working-line extension lifecycle integration", () => {
 			const handlers = loadExtension();
 			const current = harness();
 			const row = () => {
-				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+					| { frames?: string[] }
+					| undefined;
 				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 			};
 			const message = (output: number) => ({
@@ -591,7 +656,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const assistant = (input: number, output: number, responseId: string) => ({
@@ -625,7 +692,7 @@ describe("working-line extension lifecycle integration", () => {
 			message: assistant(12, 3, "second"),
 		});
 		expect(row()).toContain("↑1000M ↓1000M");
-		expect(current.calls).toHaveLength(writesBeforeLiveUsage);
+		expect(current.calls.slice(writesBeforeLiveUsage)).toEqual([["message", ""]]);
 
 		await emit(handlers, "tool_execution_end", current.ctx, { toolCallId: "wide" });
 		await emit(handlers, "message_end", current.ctx, {
@@ -644,7 +711,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const assistant = (input: number, output: number, responseId: string) => ({
@@ -682,7 +751,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const partial = {
@@ -706,7 +777,7 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "message_update", current.ctx, {
 			message: { role: "user", usage: { input: 99, output: 99 } },
 		});
-		expect(current.calls).toHaveLength(writesBeforeUpdates + 1);
+		expect(current.calls).toHaveLength(writesBeforeUpdates + 2);
 		expect(row()).toContain("↑0 ↓0");
 		await emit(handlers, "message_end", current.ctx, {
 			message: { ...partial, usage: { input: 42, output: 6 } },
@@ -718,7 +789,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const assistantMessage = (input: number, output: number, responseId: string) => ({
@@ -854,7 +927,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const message = (input: number, output: number, responseId: string) => ({
@@ -903,7 +978,9 @@ describe("working-line extension lifecycle integration", () => {
 		const handlers = loadExtension();
 		const current = harness();
 		const row = () => {
-			const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+			const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+				| { frames?: string[] }
+				| undefined;
 			return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 		};
 		const message = (input: number, output: number) => ({
@@ -982,7 +1059,9 @@ describe("working-line extension lifecycle integration", () => {
 			const handlers = loadExtension();
 			const current = harness();
 			const row = () => {
-				const indicator = current.calls.at(-1)?.[1] as { frames?: string[] } | undefined;
+				const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as
+					| { frames?: string[] }
+					| undefined;
 				return stripTerminalSequences(indicator?.frames?.[0] ?? "");
 			};
 			await emit(handlers, "session_start", current.ctx);
@@ -998,9 +1077,9 @@ describe("working-line extension lifecycle integration", () => {
 					},
 				});
 			}
-			expect(current.calls).toHaveLength(callsBeforeStreaming + 1);
-			vi.advanceTimersByTime(WORKING_LINE_METRIC_UPDATE_INTERVAL_MS);
 			expect(current.calls).toHaveLength(callsBeforeStreaming + 2);
+			vi.advanceTimersByTime(WORKING_LINE_METRIC_UPDATE_INTERVAL_MS);
+			expect(current.calls).toHaveLength(callsBeforeStreaming + 4);
 			expect(row()).toContain("↑1000M ↓20");
 			await emit(handlers, "session_shutdown", current.ctx);
 		} finally {
@@ -1017,7 +1096,9 @@ describe("working-line extension lifecycle integration", () => {
 		await emit(handlers, "turn_start", current.ctx, { turnIndex: 0, timestamp: Date.now() });
 		await emit(handlers, "agent_end", current.ctx);
 		expect(current.calls[0]).toEqual(["message", ""]);
-		const indicator = current.calls.at(-1)?.[1] as { frames?: string[] };
+		const indicator = current.calls.findLast(([name]) => name === "indicator")?.[1] as {
+			frames?: string[];
+		};
 		expect(stripTerminalSequences(indicator.frames?.[0] ?? "")).toContain("Working…");
 		await emit(handlers, "session_shutdown", current.ctx);
 		expect(current.calls.slice(-2)).toEqual([

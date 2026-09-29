@@ -1266,10 +1266,10 @@ export class WorkingLineController {
 	finishAgent(ctx: WorkingLineContext): void {
 		this.agentActive = false;
 		this.stopAnimationTicks();
-		this.releaseWorkingVisibility();
 		this.activeTools.clear();
 		this.deactivateElapsedUpdates();
 		this.updateIndicator(ctx);
+		this.releaseWorkingVisibility();
 		this.requestRender();
 	}
 
@@ -1369,13 +1369,9 @@ export class WorkingLineController {
 			selectedMessage ?? this.selectedMessage ?? effectiveWorkingLineMessages(config)[0];
 		const snapshot = this.installationSnapshot();
 		try {
-			if (!this.ownsMessage) {
-				this.ownsMessage = true;
-				ui.setWorkingMessage("");
-			}
 			this.applyIndicator(ui, rootConfig, nextMessage, forceIndicator, rebasePhase);
 			this.selectedMessage = nextMessage;
-			this.reconcilePlacement(ctx);
+			this.reconcilePlacement(ctx, true);
 			this.reconcileElapsedUpdates(ctx);
 			return { applied: true };
 		} catch {
@@ -1427,6 +1423,10 @@ export class WorkingLineController {
 		force = false,
 		rebase = false,
 	): void {
+		// Pi stores message separately from indicator frames. Reassert even when the row
+		// is unchanged, without replacing cached frames or restarting Loader animation.
+		this.ownsMessage = true;
+		ui.setWorkingMessage("");
 		const config = rootConfig.components.workingLine;
 		const composed = prepareWorkingLineRow(
 			config,
@@ -1523,7 +1523,7 @@ export class WorkingLineController {
 		const snapshot = this.installationSnapshot();
 		try {
 			this.applyIndicator(ui, rootConfig);
-			this.reconcilePlacement(ctx);
+			this.reconcilePlacement(ctx, true);
 			return !this.extensionSegmentsDirty;
 		} catch {
 			// A transient last-writer/public-API failure must not break the agent turn.
@@ -1575,16 +1575,17 @@ export class WorkingLineController {
 		this.metricUpdateHandle = undefined;
 	}
 	/** Placement is independent of the cached row contents and never changes user choices. */
-	private reconcilePlacement(ctx: WorkingLineContext): boolean {
+	private reconcilePlacement(ctx: WorkingLineContext, messageRefreshed = false): boolean {
 		let canEmbed = false;
+		let ownsCurrentRow = false;
 		const ui = this.installedUi;
 		try {
+			ownsCurrentRow = this.isAvailable() && workingLineUi(ctx) === ui;
 			canEmbed = Boolean(
 				this.agentActive &&
-					this.isAvailable() &&
+					ownsCurrentRow &&
 					this.getConfig().components.workingLine.placement === "border" &&
 					ui &&
-					workingLineUi(ctx) === ui &&
 					typeof ui.setWorkingVisible === "function" &&
 					this.canEmbedBorder(ctx),
 			);
@@ -1593,6 +1594,17 @@ export class WorkingLineController {
 		}
 		if (!canEmbed || !ui) {
 			this.stopAnimationTicks();
+			// A render/capability change can reveal the native row without applyIndicator.
+			// Clear its separate message before Pi constructs the visible Loader.
+			if (!messageRefreshed && this.hiddenWorkingVisible && ownsCurrentRow && ui) {
+				const snapshot = this.installationSnapshot();
+				try {
+					ui.setWorkingMessage("");
+				} catch {
+					this.recoverOrReleaseAfterFailure(ui, snapshot);
+					return false;
+				}
+			}
 			this.releaseWorkingVisibility();
 			return false;
 		}
@@ -1720,7 +1732,7 @@ export class WorkingLineController {
 		try {
 			ui.setWorkingIndicator(snapshot.indicatorOptions);
 			if (snapshot.ownsMessage) ui.setWorkingMessage("");
-			if (this.placementContext) this.reconcilePlacement(this.placementContext);
+			if (this.placementContext) this.reconcilePlacement(this.placementContext, true);
 		} catch {
 			// Recovery is deliberately direct rather than recursive. If either setter cannot
 			// restore the last successful public state, release both unkeyed surfaces.

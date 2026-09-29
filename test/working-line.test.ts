@@ -1517,7 +1517,7 @@ describe("working-line runtime ownership", () => {
 		harness.current.components.workingLine.textIntervalMs = 40;
 		harness.current.components.workingLine.animateSpinnerColor = true;
 		expect(harness.controller.reconcile(harness.ctx).applied).toBe(true);
-		expect(harness.calls).toEqual([]);
+		expect(harness.calls).toEqual([["message", ""]]);
 	});
 
 	it("selects exactly once per turn_start and keeps that message through tool activity", () => {
@@ -1579,23 +1579,46 @@ describe("working-line runtime ownership", () => {
 		harness.controller.startTool("b", "bash", harness.ctx);
 		const text = () =>
 			stripTerminalSequences(
-				(harness.calls.at(-1)?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
+				(
+					harness.calls.findLast(([name]) => name === "indicator")?.[1] as
+						| { frames?: string[] }
+						| undefined
+				)?.frames?.[0] ?? "",
 			);
 		expect(text()).toMatch(/B · bash · ↑120 ↓7/);
 		harness.controller.finishTool("b", harness.ctx);
 		expect(text()).toMatch(/B · read · ↑120 ↓7/);
 		harness.controller.finishTool("a", harness.ctx);
 		expect(text()).toMatch(/B · ↑120 ↓7/);
-		expect(harness.calls.every(([name]) => name === "indicator")).toBe(true);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls.map(([name]) => name)).toEqual([
+			"message",
+			"indicator",
+			"message",
+			"message",
+			"indicator",
+			"message",
+			"indicator",
+			"message",
+			"message",
+			"indicator",
+			"message",
+			"indicator",
+		]);
+		expect(
+			harness.calls.filter(([name]) => name === "message").every(([, value]) => value === ""),
+		).toBe(true);
+		const writes = harness.calls.length;
 		harness.controller.finishTool("missing", harness.ctx);
-		expect(harness.calls).toHaveLength(5);
 		harness.controller.startTurn(harness.ctx);
 		expect(text()).toMatch(/↑120 ↓7/);
-		expect(harness.calls).toHaveLength(5);
 		harness.current.components.workingLine.segments.tool = false;
 		harness.controller.reconcile(harness.ctx);
-		expect(harness.calls).toHaveLength(5);
+		expect(harness.calls.slice(writes)).toEqual([
+			["message", ""],
+			["message", ""],
+			["message", ""],
+		]);
+		expect(harness.calls.filter(([name]) => name === "indicator")).toHaveLength(5);
 		harness.controller.dispose(harness.ctx);
 		harness.clock.reset();
 	});
@@ -1621,7 +1644,7 @@ describe("working-line runtime ownership", () => {
 			harness.controller.startSession(harness.ctx);
 			harness.controller.startAgent(harness.ctx);
 			harness.controller.startTurn(harness.ctx);
-			const activation = harness.calls.at(-1)?.[1] as {
+			const activation = harness.calls.findLast(([name]) => name === "indicator")?.[1] as {
 				frames: string[];
 				intervalMs: number;
 			};
@@ -2186,15 +2209,17 @@ describe("working-line runtime ownership", () => {
 		vi.advanceTimersByTime(999);
 		expect(harness.calls).toEqual([]);
 		vi.advanceTimersByTime(1);
-		expect(harness.calls).toHaveLength(1);
-		expect(harness.calls[0]?.[0]).toBe("indicator");
+		expect(harness.calls).toHaveLength(2);
+		expect(harness.calls[0]).toEqual(["message", ""]);
+		expect(harness.calls[1]?.[0]).toBe("indicator");
 		expect(
 			stripTerminalSequences(
-				(harness.calls[0]?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
+				(harness.calls[1]?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
 			),
 		).toContain(" · 1s");
 		vi.advanceTimersByTime(1000);
-		expect(harness.calls).toHaveLength(2);
+		expect(harness.calls).toHaveLength(4);
+		expect(harness.calls[2]).toEqual(["message", ""]);
 		expect(
 			stripTerminalSequences(
 				(harness.calls.at(-1)?.[1] as { frames?: string[] } | undefined)?.frames?.[0] ?? "",
@@ -2301,7 +2326,7 @@ describe("working-line runtime ownership", () => {
 		expect(calls.slice(-2)).toEqual(["message-set", "indicator-set"]);
 		const afterRetry = calls.length;
 		expect(controller.reconcile(ctx).applied).toBe(true);
-		expect(calls).toHaveLength(afterRetry);
+		expect(calls.slice(afterRetry)).toEqual(["message-set"]);
 		controller.dispose(ctx);
 		controller.dispose(ctx);
 		expect(calls.slice(-2)).toEqual(["indicator-reset", "message-reset"]);
@@ -2354,7 +2379,7 @@ describe("working-line runtime ownership", () => {
 		expect(retriedFrames).toEqual(failedFrames);
 		const afterRetry = calls.length;
 		expect(controller.reconcile(ctx).applied).toBe(true);
-		expect(calls).toHaveLength(afterRetry);
+		expect(calls.slice(afterRetry)).toEqual(["message-set"]);
 		controller.dispose(ctx);
 		controller.dispose(ctx);
 		expect(calls.slice(-2)).toEqual(["indicator-reset", "message-reset"]);
