@@ -451,6 +451,43 @@ describe.skipIf(!nativeMouse)("actual native mouse-capable editor", () => {
 				}
 			},
 		);
+		for (const paddingX of [1, 2, 3]) {
+			it.each(styles)(
+				`keeps %s decorated completion rows with editorPaddingX ${paddingX} shifting native autocomplete on ${wrapped ? "wrapped" : "standalone"}`,
+				async (style) => {
+					const { editor, base, cfg } = editors(style, wrapped);
+					cfg.components.editor.styles.opencode.completionMenu = "palette";
+					cfg.components.editor.styles["opencode-copy-friendly"].completionMenu = "palette";
+					base.setPaddingX(paddingX);
+					base.setAutocompleteMaxVisible(3);
+					base.setAutocompleteProvider({
+						async getSuggestions() {
+							return {
+								prefix: "/",
+								items: Array.from({ length: 8 }, (_, index) => ({
+									value: `/item${index}`,
+									label: `/item${index}`,
+								})),
+							};
+						},
+						applyCompletion(_lines, _line, _col, item) {
+							return { lines: [item.value], cursorLine: 0, cursorCol: item.value.length };
+						},
+					});
+					editor.setText("/");
+					editor.handleInput("\t");
+					await vi.waitFor(() => expect(base.isShowingAutocomplete()).toBe(true));
+					const joined = editor.render(40).map(stripVTControlCharacters).join("\n");
+					expect(joined).toContain("/item0");
+					if (style === "minimalist") expect(joined).toContain("├");
+					else expect(joined).not.toContain("→ /item");
+					if (style.startsWith("opencode")) {
+						expect(joined).not.toContain("(1/8)");
+						expect(joined).toContain("Navigate");
+					}
+				},
+			);
+		}
 	}
 	it("composes mappings through owned editor wrappers", () => {
 		const inner = editors("opencode", false).editor;

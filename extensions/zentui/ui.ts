@@ -64,6 +64,7 @@ type AutocompleteListInternals = Pick<Component, "render">;
 type AutocompleteEditorInternals = {
 	autocompleteList?: AutocompleteListInternals;
 	isShowingAutocomplete?: () => boolean;
+	getPaddingX?: () => number;
 };
 
 type AutocompleteCapture = {
@@ -127,6 +128,7 @@ export type PolishedEditorFrameOptions = {
 
 type PolishedFrameOptions = {
 	width: number;
+	baseWidth: number;
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
 	autocompleteCapture?: AutocompleteCapture;
@@ -151,6 +153,7 @@ type PolishedFrameResult = {
 type AccentRailFrameAdapterOptions = {
 	codexQuota?: CodexQuota;
 	width: number;
+	baseWidth: number;
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
 	autocompleteCapture?: AutocompleteCapture;
@@ -162,6 +165,7 @@ type AccentRailFrameAdapterOptions = {
 
 type MinimalistFrameAdapterOptions = {
 	width: number;
+	baseWidth: number;
 	baseRendered: string[];
 	autocompleteSource: AutocompleteEditorInternals;
 	autocompleteCapture?: AutocompleteCapture;
@@ -204,10 +208,25 @@ function stripNativeRightPadding(value: string): string {
 	return value.replace(/ +$/, "");
 }
 
+// Mirrors the native editor's per-render padding clamp: effective horizontal
+// padding never exceeds half of the rendered width.
+function nativeHorizontalPadding(source: AutocompleteEditorInternals, baseWidth: number): number {
+	try {
+		if (typeof source.getPaddingX !== "function") return 0;
+		const padding = source.getPaddingX.call(source);
+		if (!Number.isFinite(padding)) return 0;
+		const maxPadding = Math.max(0, Math.floor((baseWidth - 1) / 2));
+		return Math.min(Math.max(0, Math.floor(padding)), maxPadding);
+	} catch {
+		return 0;
+	}
+}
+
 function autocompleteCount(
 	source: AutocompleteEditorInternals,
 	capture: AutocompleteCapture | undefined,
 	baseRendered: string[],
+	baseWidth: number,
 ): AutocompleteCount {
 	try {
 		const showing = source.isShowingAutocomplete;
@@ -219,13 +238,18 @@ function autocompleteCount(
 			capture.rows.length >= baseRendered.length
 		)
 			return { known: false };
+		const paddingX = nativeHorizontalPadding(source, baseWidth);
+		const leftPadding = " ".repeat(paddingX);
 		const suffix = baseRendered.slice(-capture.rows.length);
 		if (
 			!suffix.every((line, index) => {
 				const captured = capture.rows[index];
+				const unpadded =
+					paddingX > 0 && line.startsWith(leftPadding) ? line.slice(leftPadding.length) : line;
 				return (
 					captured !== undefined &&
-					(line === captured || stripNativeRightPadding(line) === stripNativeRightPadding(captured))
+					(line === captured ||
+						stripNativeRightPadding(unpadded) === stripNativeRightPadding(captured))
 				);
 			})
 		)
@@ -234,6 +258,17 @@ function autocompleteCount(
 	} catch {
 		return { known: false };
 	}
+}
+
+// The native editor renders autocomplete rows wrapped in its horizontal
+// padding; prefer the raw captured rows so decoration starts at column zero.
+function capturedAutocompleteLines(
+	capture: AutocompleteCapture | undefined,
+	baseRendered: string[],
+	count: number,
+): string[] {
+	if (count <= 0) return [];
+	return capture && capture.rows.length === count ? capture.rows : baseRendered.slice(-count);
 }
 
 /** @internal Exported only for descriptor-safety regression tests. */
@@ -618,6 +653,7 @@ function readVimStatus(editor: WrappedEditor, uiTheme: Theme): string | undefine
 function renderAccentRailFrameFromBase({
 	codexQuota,
 	width,
+	baseWidth,
 	baseRendered,
 	autocompleteSource,
 	autocompleteCapture,
@@ -634,7 +670,7 @@ function renderAccentRailFrameFromBase({
 	}
 	const autocomplete = ownedFrame
 		? { known: true as const, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
 	if (!autocomplete.known) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -644,9 +680,7 @@ function renderAccentRailFrameFromBase({
 			: baseRendered;
 	const autocompleteLines = ownedFrame
 		? ownedFrame.trailingLines
-		: autocomplete.count > 0
-			? baseRendered.slice(-autocomplete.count)
-			: [];
+		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
 	if (editorFrame.length < 2) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -695,6 +729,7 @@ function renderAccentRailFrameFromBase({
 
 function renderMinimalistFrameFromBase({
 	width,
+	baseWidth,
 	baseRendered,
 	autocompleteSource,
 	autocompleteCapture,
@@ -715,7 +750,7 @@ function renderMinimalistFrameFromBase({
 	}
 	const autocomplete = ownedFrame
 		? { known: true as const, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
 	if (!autocomplete.known) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -725,9 +760,7 @@ function renderMinimalistFrameFromBase({
 			: baseRendered;
 	const autocompleteLines = ownedFrame
 		? ownedFrame.trailingLines
-		: autocomplete.count > 0
-			? baseRendered.slice(-autocomplete.count)
-			: [];
+		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
 	if (editorFrame.length < 2) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -771,6 +804,7 @@ function renderMinimalistFrameFromBase({
 
 function renderPolishedFrame({
 	width,
+	baseWidth,
 	baseRendered,
 	autocompleteSource,
 	autocompleteCapture,
@@ -797,7 +831,7 @@ function renderPolishedFrame({
 
 	const autocomplete = ownedFrame
 		? { known: true, count: ownedFrame.trailingLines.length }
-		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered);
+		: autocompleteCount(autocompleteSource, autocompleteCapture, baseRendered, baseWidth);
 	if (!autocomplete.known) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -807,9 +841,7 @@ function renderPolishedFrame({
 			: baseRendered;
 	const autocompleteLines = ownedFrame
 		? ownedFrame.trailingLines
-		: autocomplete.count > 0
-			? baseRendered.slice(-autocomplete.count)
-			: [];
+		: capturedAutocompleteLines(autocompleteCapture, baseRendered, autocomplete.count);
 	if (editorFrame.length < 2) {
 		return { lines: clampRenderedLines(baseRendered, width), decorated: false };
 	}
@@ -1124,6 +1156,7 @@ export class PolishedEditor extends CustomEditor {
 				const result = renderAccentRailFrameFromBase({
 					codexQuota: this.getModelMeta().codexQuota,
 					width,
+					baseWidth: width - ACCENT_RAIL_CHROME_WIDTH,
 					baseRendered: captured.value,
 					autocompleteSource: this as unknown as AutocompleteEditorInternals,
 					autocompleteCapture: captured.capture,
@@ -1155,6 +1188,7 @@ export class PolishedEditor extends CustomEditor {
 			try {
 				const result = renderMinimalistFrameFromBase({
 					width,
+					baseWidth: Math.max(0, width - 4),
 					baseRendered: captured.value,
 					autocompleteSource: this as unknown as AutocompleteEditorInternals,
 					autocompleteCapture: captured.capture,
@@ -1193,6 +1227,7 @@ export class PolishedEditor extends CustomEditor {
 		try {
 			const result = renderPolishedFrame({
 				width,
+				baseWidth: innerWidth,
 				baseRendered: captured.value,
 				autocompleteSource: this as unknown as AutocompleteEditorInternals,
 				autocompleteCapture: captured.capture,
@@ -1403,6 +1438,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 					const result = renderAccentRailFrameFromBase({
 						codexQuota: this.getModelMeta().codexQuota,
 						width,
+						baseWidth: width - ACCENT_RAIL_CHROME_WIDTH,
 						baseRendered: captured.value,
 						autocompleteSource: this.base,
 						autocompleteCapture: captured.capture,
@@ -1441,6 +1477,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 				if (provenance.safe) {
 					const result = renderMinimalistFrameFromBase({
 						width,
+						baseWidth: Math.max(0, width - 4),
 						baseRendered: captured.value,
 						autocompleteSource: this.base,
 						autocompleteCapture: captured.capture,
@@ -1486,6 +1523,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 			if (provenance.safe) {
 				result = renderPolishedFrame({
 					width,
+					baseWidth: innerWidth,
 					baseRendered: captured.value,
 					autocompleteSource: this.base,
 					autocompleteCapture: captured.capture,
