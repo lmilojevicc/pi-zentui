@@ -24,10 +24,6 @@ vi.mock("../extensions/zentui/git", async (original) => {
 	};
 });
 vi.mock("../extensions/zentui/runtime", () => ({ readRuntimeInfo: async () => ({ kind: "ok" }) }));
-vi.mock("../extensions/zentui/accent-rail-layout-patch", async (original) => ({
-	...(await original<typeof import("../extensions/zentui/accent-rail-layout-patch")>()),
-	retainAccentRailLayoutPatchInstallation: async () => "retained",
-}));
 
 import zentui from "../extensions/zentui/index";
 

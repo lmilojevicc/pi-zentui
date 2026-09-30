@@ -6,7 +6,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-// Injected managers on older hosts may not expose namespaced TUI actions.
+// Incomplete injected managers may not expose namespaced TUI actions.
 type SettingsKeybindings = {
 	getKeys?(action: Keybinding): string[];
 	getDefinition?(action: Keybinding): unknown;

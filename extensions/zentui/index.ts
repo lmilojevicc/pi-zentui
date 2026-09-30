@@ -5,12 +5,6 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
-import {
-	type AccentRailLayoutPatchDiagnostic,
-	installHostAccentRailLayoutPatch,
-	markAccentRailLayoutEditor,
-	retainAccentRailLayoutPatchInstallation,
-} from "./accent-rail-layout-patch";
 import { CodexQuotaCollector, editorWantsCodexQuota } from "./codex-quota";
 import { componentColor } from "./component-colors";
 import {
@@ -262,20 +256,6 @@ export default function (pi: ExtensionAPI) {
 	const repositoryRoots = new RepositoryRootController();
 	let projectRefreshActive = false;
 	let activeTuiContext: ExtensionContext | undefined;
-	let cleanupAccentRailLayoutPatch: () => void = () => {};
-	let accentRailLayoutPatchInstallSerial = 0;
-
-	const recordAccentRailLayoutPatchDiagnostic = (
-		diagnostic: AccentRailLayoutPatchDiagnostic,
-		version?: string,
-	) => {
-		if (process.env.ZENTUI_DEBUG === "1") {
-			console.error(
-				`[zentui] Accent Rail fullscreen layout patch: ${diagnostic}${version ? ` (Pi TUI ${version})` : ""}`,
-			);
-		}
-	};
-
 	const isOwnedEditorFactory = (factory: EditorFactory | undefined) =>
 		(factory as ZentuiEditorFactory | undefined)?.[ZENTUI_EDITOR_OWNER] === editorOwnerToken;
 	const effectiveEditorEnabled = () =>
@@ -845,17 +825,6 @@ export default function (pi: ExtensionAPI) {
 		return observed;
 	};
 
-	const accentRailLayoutActive = () =>
-		sessionLifecycle.isCurrent() &&
-		ownsInstalledEditorFactory() &&
-		effectiveEditorEnabled() &&
-		currentConfig.components.editor.style === "accent-rail";
-
-	const markOwnedAccentRailEditor = <T extends object>(editor: T): T => {
-		markAccentRailLayoutEditor(editor, editorOwnerToken, accentRailLayoutActive);
-		return editor;
-	};
-
 	const isActiveEditor = (editor: PolishedEditor | WrappedPolishedEditor, generation: number) =>
 		sessionLifecycle.isCurrent(generation) && activeEditor?.editor === editor;
 
@@ -878,44 +847,42 @@ export default function (pi: ExtensionAPI) {
 		const sessionTheme = ctx.ui.theme;
 		const generation = sessionLifecycle.currentGeneration();
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
-			const editor: PolishedEditor = markOwnedAccentRailEditor(
-				new PolishedEditor(
-					tui,
-					theme,
-					keybindings,
-					sessionTheme,
-					getCurrentConfig,
-					() => getEditorMeta(activeTuiContext ?? ctx),
-					getThinkingLevel,
-					() => {
-						const workingLineFrame = editorWorkingLineFrame(editor, generation);
-						if (currentConfig.components.editor.style !== "minimalist") {
-							return { cwd: "", workingLineFrame };
-						}
-						return {
-							codexQuota: getEditorQuota(),
-							cwd: (activeTuiContext ?? ctx).cwd,
-							projectRoot: minimalistProjectRoot,
-							branch: state.branch,
-							dirty: state.dirty,
-							ahead: state.ahead,
-							behind: state.behind,
-							costLabel: state.costLabel,
-							modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-							thinkingLevel: getThinkingLevel(),
-							...getEditorContextMetadata(activeTuiContext ?? ctx),
-							cacheHitRate: state.usageTotals.latestCacheHitRate,
-							sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
-							agentDurationMs: getAgentDurationMs(),
-							agentActive: agentRunActive,
-							workingLineFrame,
-						};
-					},
-					(active) => {
-						if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
-					},
-					() => editorBorderCapabilityChanged(editor, generation),
-				),
+			const editor: PolishedEditor = new PolishedEditor(
+				tui,
+				theme,
+				keybindings,
+				sessionTheme,
+				getCurrentConfig,
+				() => getEditorMeta(activeTuiContext ?? ctx),
+				getThinkingLevel,
+				() => {
+					const workingLineFrame = editorWorkingLineFrame(editor, generation);
+					if (currentConfig.components.editor.style !== "minimalist") {
+						return { cwd: "", workingLineFrame };
+					}
+					return {
+						codexQuota: getEditorQuota(),
+						cwd: (activeTuiContext ?? ctx).cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						...getEditorContextMetadata(activeTuiContext ?? ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
+						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+						workingLineFrame,
+					};
+				},
+				(active) => {
+					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
+				},
+				() => editorBorderCapabilityChanged(editor, generation),
 			);
 			const observed = observeEditorFactory(ctx);
 			if (
@@ -941,42 +908,40 @@ export default function (pi: ExtensionAPI) {
 		const sessionTheme = ctx.ui.theme;
 		const generation = sessionLifecycle.currentGeneration();
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
-			const editor: WrappedPolishedEditor = markOwnedAccentRailEditor(
-				new WrappedPolishedEditor(
-					baseFactory(tui, theme, keybindings),
-					sessionTheme,
-					getCurrentConfig,
-					() => getEditorMeta(activeTuiContext ?? ctx),
-					getThinkingLevel,
-					() => {
-						const workingLineFrame = editorWorkingLineFrame(editor, generation);
-						if (currentConfig.components.editor.style !== "minimalist") {
-							return { cwd: "", workingLineFrame };
-						}
-						return {
-							codexQuota: getEditorQuota(),
-							cwd: (activeTuiContext ?? ctx).cwd,
-							projectRoot: minimalistProjectRoot,
-							branch: state.branch,
-							dirty: state.dirty,
-							ahead: state.ahead,
-							behind: state.behind,
-							costLabel: state.costLabel,
-							modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
-							thinkingLevel: getThinkingLevel(),
-							...getEditorContextMetadata(activeTuiContext ?? ctx),
-							cacheHitRate: state.usageTotals.latestCacheHitRate,
-							sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
-							agentDurationMs: getAgentDurationMs(),
-							agentActive: agentRunActive,
-							workingLineFrame,
-						};
-					},
-					(active) => {
-						if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
-					},
-					() => editorBorderCapabilityChanged(editor, generation),
-				),
+			const editor: WrappedPolishedEditor = new WrappedPolishedEditor(
+				baseFactory(tui, theme, keybindings),
+				sessionTheme,
+				getCurrentConfig,
+				() => getEditorMeta(activeTuiContext ?? ctx),
+				getThinkingLevel,
+				() => {
+					const workingLineFrame = editorWorkingLineFrame(editor, generation);
+					if (currentConfig.components.editor.style !== "minimalist") {
+						return { cwd: "", workingLineFrame };
+					}
+					return {
+						codexQuota: getEditorQuota(),
+						cwd: (activeTuiContext ?? ctx).cwd,
+						projectRoot: minimalistProjectRoot,
+						branch: state.branch,
+						dirty: state.dirty,
+						ahead: state.ahead,
+						behind: state.behind,
+						costLabel: state.costLabel,
+						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
+						thinkingLevel: getThinkingLevel(),
+						...getEditorContextMetadata(activeTuiContext ?? ctx),
+						cacheHitRate: state.usageTotals.latestCacheHitRate,
+						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
+						agentDurationMs: getAgentDurationMs(),
+						agentActive: agentRunActive,
+						workingLineFrame,
+					};
+				},
+				(active) => {
+					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
+				},
+				() => editorBorderCapabilityChanged(editor, generation),
 			);
 			const observed = observeEditorFactory(ctx);
 			if (
@@ -1363,9 +1328,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!retainedEditorOwnership) clearEditorOwnership();
-		accentRailLayoutPatchInstallSerial += 1;
-		cleanupAccentRailLayoutPatch();
-		cleanupAccentRailLayoutPatch = () => {};
 		uninstallUserMessages();
 		uninstallSelectorBorders();
 		installedFooterKind = undefined;
@@ -1391,7 +1353,7 @@ export default function (pi: ExtensionAPI) {
 		const lifecycleGeneration = sessionLifecycle.start();
 		activeEditor = undefined;
 		// A new generation must not expose or route extension segments through the previous
-		// session while asynchronous TUI startup is still pending.
+		// session while TUI startup is in progress.
 		workingLineSessionReady = false;
 		workingLineExtensions.invalidate();
 		if (activeTuiContext) workingLine.dispose(activeTuiContext);
@@ -1402,25 +1364,6 @@ export default function (pi: ExtensionAPI) {
 		extensionStatuses.dispose();
 		if (isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
 		thinkingExperimental.startSession(ctx);
-		const layoutInstallSerial = ++accentRailLayoutPatchInstallSerial;
-		cleanupAccentRailLayoutPatch();
-		cleanupAccentRailLayoutPatch = () => {};
-		if (isTuiContext(ctx)) {
-			const layoutPatchRetention = await retainAccentRailLayoutPatchInstallation(
-				() => installHostAccentRailLayoutPatch(editorOwnerToken),
-				() =>
-					sessionLifecycle.isCurrent(lifecycleGeneration) &&
-					layoutInstallSerial === accentRailLayoutPatchInstallSerial,
-				(layoutPatch) => {
-					cleanupAccentRailLayoutPatch = layoutPatch.cleanup;
-					recordAccentRailLayoutPatchDiagnostic(layoutPatch.diagnostic, layoutPatch.version);
-				},
-			);
-			if (layoutPatchRetention === "stale") return;
-			if (layoutPatchRetention === "failed") {
-				recordAccentRailLayoutPatchDiagnostic("host-module-unavailable");
-			}
-		}
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();

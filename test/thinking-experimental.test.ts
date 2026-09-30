@@ -162,20 +162,29 @@ function bridgeSourceLoadedMarkdownIdentity(): void {
 	});
 }
 
-function installLegacyThinkingRenderer(
+function installCoalescedThinkingRenderer(
 	afterNative?: (container: { children: Component[] }, children: Component[]) => void,
 ): void {
 	Object.defineProperty(prototype, "updateContent", {
 		...originalDescriptor,
-		value: function legacyThinkingChildren(
+		value: function coalescedThinkingChildren(
 			this: { contentContainer?: { children: Component[] } },
 			value: AssistantMessage,
 		) {
 			const children: Component[] = [new Spacer(1)];
-			for (const [index, part] of value.content.entries()) {
-				if (part.type === "thinking" && part.thinking.trim()) {
+			for (let index = 0; index < value.content.length; index++) {
+				const part = value.content[index];
+				if (part.type === "thinking") {
+					const blocks: string[] = [];
+					for (; index < value.content.length; index++) {
+						const next = value.content[index];
+						if (next.type !== "thinking") break;
+						if (next.thinking.trim()) blocks.push(next.thinking.trim());
+					}
+					index--;
+					if (!blocks.length) continue;
 					children.push(
-						new Markdown(part.thinking.trim(), 1, 0, markdownTheme, {
+						new Markdown(blocks.join("\n\n"), 1, 0, markdownTheme, {
 							color: identity,
 							italic: true,
 						}),
@@ -316,7 +325,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 
 	it("drops retained presentation on a same-label body revision and on a native per-run hide", () => {
 		const overrides = new Map<number, boolean>();
-		installLegacyThinkingRenderer((_container, children) => {
+		installCoalescedThinkingRenderer((_container, children) => {
 			const child = overrides.get(0) ? new Text("Thinking...", 1, 0) : children[1];
 			const region = {
 				child,
@@ -475,7 +484,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 
 	it("keeps cached structural parsing behind exact native child validation", () => {
 		let incompatible = false;
-		installLegacyThinkingRenderer((_container, children) => {
+		installCoalescedThinkingRenderer((_container, children) => {
 			if (incompatible) children.push(new Text("foreign child"));
 		});
 		const value = controller({ enabled: true, mode: "tree" });
@@ -493,7 +502,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 
 	it("does not reattach or redraw elapsed headers after foreign child displacement", () => {
 		vi.useFakeTimers();
-		installLegacyThinkingRenderer();
+		installCoalescedThinkingRenderer();
 		const requestRender = vi.fn();
 		const value = controller({ enabled: true, mode: "streaming" }, Date.now, requestRender);
 		value.startSession(context().ctx);
@@ -513,7 +522,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(10_000);
 		const nativeUpdates = vi.fn();
-		installLegacyThinkingRenderer(nativeUpdates);
+		installCoalescedThinkingRenderer(nativeUpdates);
 		const host = context();
 		const requestRender = vi.fn();
 		const value = controller({ enabled: true, mode: "streaming" }, Date.now, requestRender);
@@ -590,7 +599,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 				render: (width: number) => string[];
 				invalidate: () => void;
 			};
-			installLegacyThinkingRenderer((_container, children) => {
+			installCoalescedThinkingRenderer((_container, children) => {
 				const child = overrides.get(0) ? new Text("Thinking...", 1, 0) : children[childIndex];
 				region = {
 					child,
@@ -857,7 +866,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 
 	it("does not fold the first pending Streaming message when timer startup fails", () => {
 		let nativeChildren: Component[] | undefined;
-		installLegacyThinkingRenderer((_container, children) => {
+		installCoalescedThinkingRenderer((_container, children) => {
 			nativeChildren = children;
 		});
 		const config: ThinkingStepsComponentConfig = { enabled: true, mode: "streaming" };
@@ -1225,9 +1234,9 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 	});
 
 	it.each(["rail", "tree"] as const)(
-		"groups a legacy adjacent thinking run into one %s title and run-level selection",
+		"groups a coalesced adjacent thinking run into one %s title and run-level selection",
 		(mode) => {
-			installLegacyThinkingRenderer();
+			installCoalescedThinkingRenderer();
 			const value = controller({ enabled: true, mode });
 			expect(value.startSession(context().ctx)).toEqual({ applied: true });
 			const assistant = component();
@@ -1235,77 +1244,73 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 				messageWithContent([
 					{
 						type: "thinking",
-						thinking: ["# Legacy 1", "# Legacy 2", "# Legacy 3", "# Legacy 4"].join("\n"),
+						thinking: ["# Adjacent 1", "# Adjacent 2", "# Adjacent 3", "# Adjacent 4"].join("\n"),
 					},
 					{
 						type: "thinking",
-						thinking: ["# Legacy 5", "# Legacy 6", "# Legacy 7", "# Legacy 8"].join("\n"),
+						thinking: ["# Adjacent 5", "# Adjacent 6", "# Adjacent 7", "# Adjacent 8"].join("\n"),
 					},
 				]),
 				true,
 			);
 			const output = plain(assistant.render(80));
 			const titleRows = output.filter((row) => row.includes("Thinking"));
-			const labelRows = output.filter((row) => row.includes("Legacy"));
+			const labelRows = output.filter((row) => row.includes("Adjacent"));
 			expect(titleRows).toHaveLength(1);
 			expect(labelRows).toHaveLength(mode === "rail" ? 8 : 5);
-			expect(labelRows.at(0)).toContain(mode === "rail" ? "Legacy 1" : "Legacy 4");
-			expect(labelRows.at(-1)).toContain("Legacy 8");
+			expect(labelRows.at(0)).toContain(mode === "rail" ? "Adjacent 1" : "Adjacent 4");
+			expect(labelRows.at(-1)).toContain("Adjacent 8");
 			const titleIndex = output.findIndex((row) => row.includes("Thinking"));
 			expect(output.slice(titleIndex, titleIndex + labelRows.length + 1)).not.toContain("");
 		},
 	);
 
-	it.each(["modern", "legacy"] as const)(
-		"marks only an actually open final thinking run in exact %s streaming layouts",
-		(layout) => {
-			if (layout === "modern") bridgeSourceLoadedMarkdownIdentity();
-			else installLegacyThinkingRenderer();
-			for (const mode of ["rail", "tree"] as const) {
-				const value = controller({ enabled: true, mode });
-				expect(value.startSession(context().ctx)).toEqual({ applied: true });
-				const fixtures = [
-					{
-						name: "thinking→text→thinking",
-						content: [
-							{ type: "thinking" as const, thinking: "# Before" },
-							{ type: "text" as const, text: "boundary" },
-							{ type: "thinking" as const, thinking: "# After" },
-						],
-						rail: [" │ Thinking", " │ Before", " boundary", " │ Thinking", " │ • After"],
-						tree: [" ┆ Thinking", " └─ · Before", " boundary", " ┆ Thinking", " └─ • After"],
-					},
-					{
-						name: "thinking→tool→thinking",
-						content: [
-							{ type: "thinking" as const, thinking: "# Before" },
-							{ type: "toolCall" as const, id: "tool", name: "read", arguments: {} },
-							{ type: "thinking" as const, thinking: "# After" },
-						],
-						rail: [" │ Thinking", " │ Before", " │ Thinking", " │ • After"],
-						tree: [" ┆ Thinking", " └─ · Before", " ┆ Thinking", " └─ • After"],
-					},
-					{
-						name: "thinking→text",
-						content: [
-							{ type: "thinking" as const, thinking: "# Before" },
-							{ type: "text" as const, text: "boundary" },
-						],
-						rail: [" │ Thinking", " │ Before", " boundary"],
-						tree: [" ┆ Thinking", " └─ · Before", " boundary"],
-					},
-				] as const;
-				for (const fixture of fixtures) {
-					const assistant = component();
-					assistant.updateContent(messageWithContent([...fixture.content]), true);
-					const exactRows = plain(assistant.render(80)).filter(Boolean);
-					expect(exactRows, `${layout} ${mode} ${fixture.name}`).toEqual(fixture[mode]);
-				}
-				value.shutdown();
-				controllers.delete(value);
+	it("marks only an actually open final thinking run in exact supported streaming layouts", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		for (const mode of ["rail", "tree"] as const) {
+			const value = controller({ enabled: true, mode });
+			expect(value.startSession(context().ctx)).toEqual({ applied: true });
+			const fixtures = [
+				{
+					name: "thinking→text→thinking",
+					content: [
+						{ type: "thinking" as const, thinking: "# Before" },
+						{ type: "text" as const, text: "boundary" },
+						{ type: "thinking" as const, thinking: "# After" },
+					],
+					rail: [" │ Thinking", " │ Before", " boundary", " │ Thinking", " │ • After"],
+					tree: [" ┆ Thinking", " └─ · Before", " boundary", " ┆ Thinking", " └─ • After"],
+				},
+				{
+					name: "thinking→tool→thinking",
+					content: [
+						{ type: "thinking" as const, thinking: "# Before" },
+						{ type: "toolCall" as const, id: "tool", name: "read", arguments: {} },
+						{ type: "thinking" as const, thinking: "# After" },
+					],
+					rail: [" │ Thinking", " │ Before", " │ Thinking", " │ • After"],
+					tree: [" ┆ Thinking", " └─ · Before", " ┆ Thinking", " └─ • After"],
+				},
+				{
+					name: "thinking→text",
+					content: [
+						{ type: "thinking" as const, thinking: "# Before" },
+						{ type: "text" as const, text: "boundary" },
+					],
+					rail: [" │ Thinking", " │ Before", " boundary"],
+					tree: [" ┆ Thinking", " └─ · Before", " boundary"],
+				},
+			] as const;
+			for (const fixture of fixtures) {
+				const assistant = component();
+				assistant.updateContent(messageWithContent([...fixture.content]), true);
+				const exactRows = plain(assistant.render(80)).filter(Boolean);
+				expect(exactRows, `${mode} ${fixture.name}`).toEqual(fixture[mode]);
 			}
-		},
-	);
+			value.shutdown();
+			controllers.delete(value);
+		}
+	});
 
 	it("does not invoke an accessor setter that mutates native children before throwing", () => {
 		let originalChildren: Component[] = [];
@@ -1313,7 +1318,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			originalChildren.splice(0, originalChildren.length, ...replacement);
 			throw new Error("atomic replacement rejected");
 		});
-		installLegacyThinkingRenderer((container, children) => {
+		installCoalescedThinkingRenderer((container, children) => {
 			originalChildren = children;
 			Object.defineProperty(container, "children", {
 				configurable: true,
@@ -1337,12 +1342,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			.contentContainer.children;
 		expect(setter).not.toHaveBeenCalled();
 		expect(children).toBe(originalChildren);
-		expect(children.map((child) => child.constructor.name)).toEqual([
-			"Spacer",
-			"Markdown",
-			"Spacer",
-			"Markdown",
-		]);
+		expect(children.map((child) => child.constructor.name)).toEqual(["Spacer", "Markdown"]);
 		expect(children.some((child) => child.constructor.name === "ThinkingStepsRows")).toBe(false);
 		expect(value.diagnostics.trackedComponents).toBe(0);
 	});
@@ -1351,7 +1351,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 		"retains native identity and output for a %s children property",
 		(shape) => {
 			let originalChildren: Component[] = [];
-			installLegacyThinkingRenderer((container, children) => {
+			installCoalescedThinkingRenderer((container, children) => {
 				originalChildren = children;
 				if (shape === "nonwritable") {
 					Object.defineProperty(container, "children", {

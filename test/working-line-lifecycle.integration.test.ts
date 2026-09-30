@@ -28,24 +28,6 @@ const runtime = vi.hoisted(() => ({
 	config: undefined as import("../extensions/zentui/config").ZentuiConfig | undefined,
 }));
 
-const startupGate = vi.hoisted(() => ({
-	pending: undefined as Promise<void> | undefined,
-}));
-
-vi.mock("../extensions/zentui/accent-rail-layout-patch", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../extensions/zentui/accent-rail-layout-patch")>();
-	return {
-		...actual,
-		async retainAccentRailLayoutPatchInstallation(
-			...args: Parameters<typeof actual.retainAccentRailLayoutPatchInstallation>
-		) {
-			if (startupGate.pending) await startupGate.pending;
-			return actual.retainAccentRailLayoutPatchInstallation(...args);
-		},
-	};
-});
-
 vi.mock("../extensions/zentui/config", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../extensions/zentui/config")>();
 	return {
@@ -239,7 +221,6 @@ beforeEach(() => {
 	runtime.spinner = "star-bloom";
 	runtime.spinnerIntervalMs = 100;
 	runtime.textIntervalMs = 60;
-	startupGate.pending = undefined;
 	runtime.editorEnabled = false;
 	runtime.editorStyle = "minimalist";
 	runtime.placement = "above";
@@ -427,7 +408,7 @@ describe("working-line extension lifecycle integration", () => {
 		expect(capability(handlers).active).toBe(false);
 	});
 
-	it("suspends capability and routing synchronously while a replacement session starts", async () => {
+	it("resets capability and routing when a replacement session starts", async () => {
 		const handlers = loadExtension();
 		const first = harness();
 		await emit(handlers, "session_start", first.ctx);
@@ -437,30 +418,24 @@ describe("working-line extension lifecycle integration", () => {
 		});
 		expect(capability(handlers).active).toBe(true);
 
-		let releaseStartup = () => {};
-		startupGate.pending = new Promise<void>((resolve) => {
-			releaseStartup = resolve;
-		});
 		const second = harness();
-		const starting = emit(handlers, "session_start", second.ctx);
-		expect(capability(handlers).active).toBe(false);
-		const firstCallsAfterSuspension = first.calls.length;
-		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
-			key: "@scope/publisher:session",
-			text: "must not reach session A",
-		});
-		expect(first.calls).toHaveLength(firstCallsAfterSuspension);
-		expect(second.calls).toEqual([]);
-
-		releaseStartup();
-		await starting;
-		startupGate.pending = undefined;
+		await emit(handlers, "session_start", second.ctx);
 		expect(capability(handlers).active).toBe(true);
 		const installed = second.calls
 			.filter(([name, value]) => name === "indicator" && value !== undefined)
 			.at(-1)?.[1] as { frames?: string[] } | undefined;
 		expect(stripTerminalSequences(installed?.frames?.[0] ?? "")).not.toContain("session A");
-		expect(stripTerminalSequences(installed?.frames?.[0] ?? "")).not.toContain("must not reach");
+		const firstCallsAfterRestart = first.calls.length;
+		handlers.events.emit(ZENTUI_WORKING_LINE_SEGMENT_EVENT, {
+			key: "@scope/publisher:session",
+			text: "session B",
+		});
+		expect(first.calls).toHaveLength(firstCallsAfterRestart);
+		const updated = second.calls
+			.filter(([name, value]) => name === "indicator" && value !== undefined)
+			.at(-1)?.[1] as { frames?: string[] } | undefined;
+		expect(stripTerminalSequences(updated?.frames?.[0] ?? "")).toContain("session B");
+		expect(stripTerminalSequences(updated?.frames?.[0] ?? "")).not.toContain("session A");
 		await emit(handlers, "session_shutdown", second.ctx);
 	});
 
@@ -1447,7 +1422,7 @@ describe("working-line owned editor border integration", () => {
 		await emit(handlers, "session_shutdown", h.ctx);
 	});
 
-	it("ignores old generation callbacks during asynchronous restart and uses the current session", async () => {
+	it("ignores old generation callbacks during restart and uses the current session", async () => {
 		const handlers = loadExtension();
 		const first = editorHarness();
 		await emit(handlers, "session_start", first.ctx);
@@ -1455,18 +1430,12 @@ describe("working-line owned editor border integration", () => {
 		expect(first.render()[0]).toContain("Stable");
 		const oldEditor = first.editor;
 		const oldFactory = required(first.factory);
-		let release = () => {};
-		startupGate.pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
 		const second = editorHarness();
 		const starting = emit(handlers, "session_start", second.ctx);
 		expect(first.visible).toHaveBeenLastCalledWith(true);
 		oldEditor.render(12);
 		expect(oldEditor.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
-		release();
 		await starting;
-		startupGate.pending = undefined;
 		await emit(handlers, "agent_start", second.ctx);
 		expect(second.render()[0]).toContain("Stable");
 		const calls = second.visible.mock.calls.length;

@@ -40,9 +40,9 @@
 		"prepublishOnly": "npm run verify && npm run pack:check"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": ">=0.80.5",
-		"@earendil-works/pi-coding-agent": ">=0.80.5",
-		"@earendil-works/pi-tui": ">=0.80.5"
+		"@earendil-works/pi-ai": ">=0.85.0",
+		"@earendil-works/pi-coding-agent": ">=0.85.0",
+		"@earendil-works/pi-tui": ">=0.85.0"
 	},
 	"pi": {
 		"extensions": [

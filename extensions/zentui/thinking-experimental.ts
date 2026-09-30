@@ -492,13 +492,12 @@ function trailingDescriptors(message: AssistantMessage): NativeChildDescriptor[]
 }
 
 /**
- * Mirrors the visible child layouts shipped by the supported Pi hosts. Pi 0.83+
- * coalesces a contiguous thinking run; Pi 0.80.5 emitted one section per block.
+ * Mirrors the supported Pi child layout, which coalesces contiguous thinking runs.
  * Tool calls emit no child here, but still terminate a thinking run and suppress
  * trailing errors, so iteration over the original ordered content is required.
  */
 function nativeChildLayouts(message: AssistantMessage): NativeChildDescriptor[][] {
-	const build = (coalesceThinking: boolean): NativeChildDescriptor[] => {
+	const build = (): NativeChildDescriptor[] => {
 		const descriptors: NativeChildDescriptor[] = [];
 		let nextRun = 0;
 		let contiguousRun: number | undefined;
@@ -517,14 +516,6 @@ function nativeChildLayouts(message: AssistantMessage): NativeChildDescriptor[][
 			}
 			const run = contiguousRun ?? nextRun++;
 			contiguousRun = run;
-			if (!coalesceThinking) {
-				const source = content.thinking.trim();
-				if (source) {
-					descriptors.push({ kind: "markdown", source, thinkingRun: run });
-					if (hasVisibleContentAfter(message, index + 1)) descriptors.push({ kind: "spacer" });
-				}
-				continue;
-			}
 			const blocks: string[] = [];
 			for (; index < message.content.length; index += 1) {
 				const next = message.content[index];
@@ -539,9 +530,7 @@ function nativeChildLayouts(message: AssistantMessage): NativeChildDescriptor[][
 		}
 		return [...descriptors, ...trailingDescriptors(message)];
 	};
-	const coalesced = build(true);
-	const legacy = build(false);
-	return JSON.stringify(coalesced) === JSON.stringify(legacy) ? [coalesced] : [coalesced, legacy];
+	return [build()];
 }
 
 function plainTextMarker(text: string): string {

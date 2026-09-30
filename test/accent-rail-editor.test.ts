@@ -36,6 +36,16 @@ function plain(value: string): string {
 }
 
 describe("accent rail editor frame", () => {
+	it("renders one input row without private host layout padding", () => {
+		const rows = renderAccentRailEditorFrame({
+			width: 20,
+			editorLines: ["draft"],
+			uiTheme: theme(),
+			config: config(),
+		});
+		expect(rows.map(plain)).toEqual(["▎ draft             "]);
+	});
+
 	it("renders a full-width filled rail surface for every input row", () => {
 		const rows = renderAccentRailEditorFrame({
 			width: 20,

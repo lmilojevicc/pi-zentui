@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 
-/** Close retained links before joining/padding footer fragments, even on Pi < 0.84.0. */
+/** Close retained links before joining/padding footer fragments, even when truncation drops the final closure. */
 export function truncateFooterText(text: string, width: number, ellipsis: string): string {
 	const truncated = truncateToWidth(text, width, ellipsis);
 	let activeLink = false;

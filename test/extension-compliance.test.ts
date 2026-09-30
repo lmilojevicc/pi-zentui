@@ -7,9 +7,8 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	AssistantMessageComponent,
@@ -22,10 +21,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, type EditorComponent, visibleWidth } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import {
-	discoverAccentRailLayoutPatchTargetFromEntrypoint,
-	ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR,
-} from "../extensions/zentui/accent-rail-layout-patch";
 import {
 	type ExtensionStatusPlacement,
 	mergeConfig,
@@ -52,14 +47,6 @@ import { sanitizeUserMessageSourceText } from "../extensions/zentui/user-message
 
 // These integration fixtures assert the historical Nerd glyphs, independent of the host terminal.
 const defaultConfig = mergeConfig({ icons: { mode: "nerd" } }, {});
-
-const localPiTuiEntry = createRequire(import.meta.url).resolve("@earendil-works/pi-tui");
-const localPiTuiVersion = (
-	JSON.parse(readFileSync(join(dirname(localPiTuiEntry), "../package.json"), "utf8")) as {
-		version: string;
-	}
-).version;
-const localSupportsAccentRailLayoutPatch = /^0\.84\.\d+$/.test(localPiTuiVersion);
 
 const isolatedAgentDir = vi.hoisted(() => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -1058,7 +1045,7 @@ describe("Pi docs compliance", () => {
 		expect(editorInstalled).toBe(false);
 	});
 
-	it("treats missing ctx.mode as legacy TUI for older Pi runtimes", async () => {
+	it("treats missing ctx.mode in incomplete injected contexts as TUI", async () => {
 		const handlers = loadExtension();
 		let editorFactory: unknown;
 		const ctx = makeContext({
@@ -7019,106 +7006,7 @@ describe("three-state Footer lifecycle", () => {
 		expect(harness.factory).toBe(replacement);
 	});
 
-	it("reports the Accent Rail layout diagnostic only when debug logging is enabled", async () => {
-		const previousEntrypoint = process.argv[1];
-		const previousDebug = process.env.ZENTUI_DEBUG;
-		const error = vi.spyOn(console, "error").mockImplementation(() => {});
-		process.argv[1] = join(isolatedAgentDir.path, "missing-pi-entrypoint.js");
-		process.env.ZENTUI_DEBUG = "1";
-		const handlers = loadExtension();
-		const ctx = makeContext();
-		try {
-			await emit(handlers, "session_start", ctx);
-			expect(error).toHaveBeenCalledWith(
-				"[zentui] Accent Rail fullscreen layout patch: host-module-unavailable",
-			);
-			await emit(handlers, "session_shutdown", ctx);
-		} finally {
-			process.argv[1] = previousEntrypoint;
-			if (previousDebug === undefined) delete process.env.ZENTUI_DEBUG;
-			else process.env.ZENTUI_DEBUG = previousDebug;
-			error.mockRestore();
-		}
-	});
-
-	it.skipIf(!localSupportsAccentRailLayoutPatch)(
-		"installs and restores the fullscreen Accent Rail layout patch with the owned outer editor",
-		async () => {
-			writeFileSync(
-				join(isolatedAgentDir.path, "zentui.json"),
-				JSON.stringify({
-					projectRefreshIntervalMs: 0,
-					components: {
-						editor: { enabled: true, style: "accent-rail" },
-						userMessages: { enabled: false },
-						selectorBorders: { enabled: false },
-						footer: { style: "hidden" },
-					},
-				}),
-			);
-			let editorFactory: unknown;
-			const ctx = makeContext({
-				ui: {
-					theme: makeTheme(),
-					setFooter() {},
-					setEditorComponent(factory: unknown) {
-						editorFactory = factory;
-					},
-					getEditorComponent: () => editorFactory,
-				},
-			});
-			const require = createRequire(import.meta.url);
-			const tuiEntry = require.resolve("@earendil-works/pi-tui");
-			const hostEntrypoint = join(dirname(tuiEntry), "../../pi-coding-agent/dist/cli.js");
-			const previousEntrypoint = process.argv[1];
-			process.argv[1] = hostEntrypoint;
-			const handlers = loadExtension();
-			try {
-				await emit(handlers, "session_start", ctx);
-				const editor = (
-					editorFactory as (...args: unknown[]) => {
-						render(width: number): string[];
-						invalidate(): void;
-					}
-				)(
-					{ requestRender() {}, terminal: { rows: 24, cols: 80 } } as never,
-					{ borderColor: (text: string) => text, selectList: {} } as never,
-					{} as never,
-				);
-				expect(Object.hasOwn(editor, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(true);
-				const target = await discoverAccentRailLayoutPatchTargetFromEntrypoint(hostEntrypoint);
-				expect(target?.version).toBe(localPiTuiVersion);
-				const editorContainer = {
-					children: [editor],
-					render: () => ["rail"],
-					invalidate() {},
-				};
-				const stack = Object.create(target?.prototype ?? null) as Record<PropertyKey, unknown>;
-				stack.entries = [{ component: editorContainer, shrink: 1, minSize: 3 }];
-				stack.layoutType = "vstack";
-				stack.gap = 0;
-				stack.align = "stretch";
-				const layout = () =>
-					(
-						stack[Symbol.for("@earendil-works/pi-tui/layout-node")] as () => {
-							entries: Array<{ component: { render(): string[] }; minSize?: number }>;
-						}
-					)();
-				const adjusted = layout().entries[0];
-				expect(adjusted?.minSize).toBe(3);
-				expect(adjusted?.component).not.toBe(editorContainer);
-				expect(adjusted?.component.render()).toEqual(["", "rail"]);
-
-				await emit(handlers, "session_shutdown", ctx);
-				expect(layout().entries[0]?.minSize).toBe(3);
-				expect(layout().entries[0]?.component).toBe(editorContainer);
-			} finally {
-				process.argv[1] = previousEntrypoint;
-			}
-		},
-	);
-
-	it("marks only the outer editor when wrapping a third-party factory", async () => {
+	it("keeps ambiguous third-party Accent Rail rows and editor state intact", async () => {
 		writeFileSync(
 			join(isolatedAgentDir.path, "zentui.json"),
 			JSON.stringify({
@@ -7152,8 +7040,17 @@ describe("three-state Footer lifecycle", () => {
 			{ borderColor: (text: string) => text, selectList: {} } as never,
 			{} as never,
 		);
-		expect(Object.hasOwn(outer, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(true);
-		expect(Object.hasOwn(baseEditor, ZENTUI_ACCENT_RAIL_LAYOUT_EDITOR)).toBe(false);
+		expect(outer).not.toBe(baseEditor);
+		const rows = (outer as { render(width: number): string[] }).render(80);
+		expect(rows).toHaveLength(3);
+		expect(rows.join("\n")).toContain("third-party");
+		expect(Reflect.ownKeys(baseEditor)).toEqual([
+			"render",
+			"invalidate",
+			"handleInput",
+			"getText",
+			"setText",
+		]);
 		await emit(handlers, "session_shutdown", ctx);
 	});
 

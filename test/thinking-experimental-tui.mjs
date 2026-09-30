@@ -17,14 +17,7 @@ import {
 	hasExtensionLoaderDiagnostic,
 } from "./thinking-experimental-loader-diagnostics.mjs";
 
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? [
-	"0.80.5",
-	"0.82.1",
-	"0.83.0",
-	"0.84.0",
-	"0.84.4",
-	"0.85.1",
-];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1"];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
 const npmCli = process.env.npm_execpath;
@@ -40,6 +33,7 @@ function resolveInstalledManifest(installRoot, packageName) {
 
 function attestInstalledVersions(installRoot, requestedVersion) {
 	const packages = {
+		...(requestedVersion === "0.85.0" ? { server: "@earendil-works/pi-server" } : {}),
 		codingAgent: "@earendil-works/pi-coding-agent",
 		tui: "@earendil-works/pi-tui",
 		ai: "@earendil-works/pi-ai",
@@ -464,8 +458,7 @@ export default function (pi) {
 					[],
 				);
 				const beforeWrapperCalls = forwarded.length;
-				if (version === "0.80.5" || version === "0.83.0") tested.updateContent(structuralFixture);
-				else tested.updateContent(structuralFixture, spec.active);
+				tested.updateContent(structuralFixture, spec.active);
 				if (generation === 0) {
 					initialCalls = forwarded.slice(beforeWrapperCalls).map((call) => ({
 						count: call.count,
@@ -584,8 +577,7 @@ export default function (pi) {
 
 		const tested = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), "Thinking...", 1, []);
 		const beforeWrapperCalls = forwarded.length;
-		if (version === "0.80.5" || version === "0.83.0") tested.updateContent(liveFixture);
-		else tested.updateContent(liveFixture, true);
+		tested.updateContent(liveFixture, true);
 		const testedCalls = forwarded.slice(beforeWrapperCalls).map((call) => ({
 			count: call.count,
 			isStreaming: call.isStreaming,
@@ -716,7 +708,7 @@ export default function (pi) {
 		});
 
 		const hidden = new AssistantMessageComponent(undefined, true, getMarkdownTheme(), "Thinking...", 1, []);
-		hidden.updateContent(liveFixture, version === "0.80.5" || version === "0.83.0" ? undefined : true);
+		hidden.updateContent(liveFixture, true);
 		const hiddenFolded = cleanRows(hidden.render(40)).some((row) => row.includes("Thinking"));
 		const hiddenStatePreserved = hidden.hideThinkingBlock === true;
 
@@ -1539,6 +1531,8 @@ while True: time.sleep(1)
 				`@earendil-works/pi-ai@${version}`,
 				`@earendil-works/pi-coding-agent@${version}`,
 				`@earendil-works/pi-tui@${version}`,
+				// Pi 0.85.0's unbundled exports import pi-server but omit its dependency.
+				...(version === "0.85.0" ? [`@earendil-works/pi-server@${version}`] : []),
 			],
 			{ cwd: versionRoot, stdio: "inherit", timeout: 180_000 },
 		);
@@ -1795,7 +1789,6 @@ while True: time.sleep(1)
 		const extractedLiveBody = extractedLiveRows.filter(
 			(_row, index) => index !== extractedLiveHeaderIndexes[0],
 		);
-		const oldContract = runtimeVersion === "0.80.5" || runtimeVersion === "0.83.0";
 		const call = live?.testedCalls?.[0];
 		const signatures = live?.orderedIdentitySignatures;
 		const countConstructor = (signature, name) =>
@@ -1814,9 +1807,9 @@ while True: time.sleep(1)
 			importedMarkdownIdentity: live?.importedMarkdownIdentity === true,
 			wrapperCallCount: live?.wrapperCalls === 1,
 			testedCallCount: live?.testedCalls?.length === 1,
-			argumentCount: call?.count === (oldContract ? 1 : 2),
+			argumentCount: call?.count === 2,
 			messageIdentity: call?.messageIdentity === true,
-			streamingArgument: oldContract ? call?.isStreaming === undefined : call?.isStreaming === true,
+			streamingArgument: call?.isStreaming === true,
 			hiddenFolded: live?.hiddenFolded === true,
 			hiddenStatePreserved: live?.hiddenStatePreserved === true,
 		};
@@ -1827,8 +1820,7 @@ while True: time.sleep(1)
 			equalThinkingCount: countConstructor(signatures?.equal, "FoldedThinkingSection") === 1,
 			equalMarkdown: equalRows(markdownTexts(signatures?.equal), ["equal source"]),
 			contiguousThinkingCount:
-				countConstructor(signatures?.contiguous, "FoldedThinkingSection") ===
-				(runtimeVersion === "0.80.5" ? 2 : 1),
+				countConstructor(signatures?.contiguous, "FoldedThinkingSection") === 1,
 			toolSeparatedThinkingCount:
 				countConstructor(signatures?.toolSeparated, "FoldedThinkingSection") === 2,
 			toolSeparatedMarkdownCount: markdownTexts(signatures?.toolSeparated).length === 0,
@@ -2111,7 +2103,6 @@ while True: time.sleep(1)
 			const clean = (rows) => cleanExact(rows).filter((text) => text.trim().length > 0);
 			const generations = completedStructural?.structuralGenerations ?? [];
 			const snapshots = modeResult.structuralSnapshots ?? [];
-			const oldContract = runtimeVersion === "0.80.5" || runtimeVersion === "0.83.0";
 			const modeCall = structural?.testedCalls?.[0];
 			let generationFailure;
 			for (const generation of generations) {
@@ -2198,7 +2189,7 @@ while True: time.sleep(1)
 				ready: structural?.ready === true,
 				installed: structural?.installed === true,
 				wrapperCallCount: structural?.wrapperCalls === 1,
-				forwardedArgumentCount: modeCall?.count === (oldContract ? 1 : 2),
+				forwardedArgumentCount: modeCall?.count === 2,
 				forwardedMessageIdentity: modeCall?.messageIdentity === true,
 				generationCount: generations.length === 6,
 				snapshotCount: snapshots.length === 12,
@@ -2258,7 +2249,7 @@ while True: time.sleep(1)
 
 		assertNoTransientArtifacts(version, "normal PTY cases", versionRoot, agentDir, home);
 
-		if (runtimeVersion === "0.84.4") {
+		{
 			writeFileSync(
 				join(agentDir, "zentui.json"),
 				JSON.stringify({
@@ -2333,7 +2324,7 @@ while True: time.sleep(1)
 				) !== JSON.stringify(["__ZENTUI_RESOURCES__ input=1 timer=1"])
 			)
 				throw new Error(
-					`Pi 0.84.4 fullscreen live transition smoke failed: ${boundedJson({ fullscreenPairs, fullscreenTransitionsValid, fullscreenShutdown, exit: fullscreen.exit, groupAlive: fullscreen.groupAlive })}`,
+					`Pi ${runtimeVersion} fullscreen live transition smoke failed: ${boundedJson({ fullscreenPairs, fullscreenTransitionsValid, fullscreenShutdown, exit: fullscreen.exit, groupAlive: fullscreen.groupAlive })}`,
 				);
 			writeFileSync(
 				join(agentDir, "zentui.json"),
@@ -2383,16 +2374,16 @@ while True: time.sleep(1)
 				fullscreenActiveFinal?.widgetOwnershipCount !== 0
 			)
 				throw new Error(
-					`Pi 0.84.4 fullscreen active Streaming shutdown failed: ${boundedJson({ transitions: fullscreenActive.transitionSequence, fullscreenActiveFinal, exit: fullscreenActive.exit, groupAlive: fullscreenActive.groupAlive })}`,
+					`Pi ${runtimeVersion} fullscreen active Streaming shutdown failed: ${boundedJson({ transitions: fullscreenActive.transitionSequence, fullscreenActiveFinal, exit: fullscreenActive.exit, groupAlive: fullscreenActive.groupAlive })}`,
 				);
 			assertNoTransientArtifacts(version, "fullscreen PTY cases", versionRoot, agentDir, home);
 			console.log(
-				`0.84.4 fullscreen: live=Streaming->Tree,Tree->Rail entering-Streaming=restart-only rows/status/resources=exact active-Streaming-EOF=1/1->${fullscreenActiveFinal.controllerResources.inputs}/${fullscreenActiveFinal.controllerResources.timers} descriptor=${JSON.stringify(fullscreenActiveFinal.descriptorEvidence.fields)} widget-ownership=0 process-group=gone artifacts=none`,
+				`${runtimeVersion} fullscreen: live=Streaming->Tree,Tree->Rail entering-Streaming=restart-only rows/status/resources=exact active-Streaming-EOF=1/1->${fullscreenActiveFinal.controllerResources.inputs}/${fullscreenActiveFinal.controllerResources.timers} descriptor=${JSON.stringify(fullscreenActiveFinal.descriptorEvidence.fields)} widget-ownership=0 process-group=gone artifacts=none`,
 			);
 		}
 
 		console.log(
-			`${runtimeVersion}: measured=${JSON.stringify(attestation.versions)} live=Thinking sentinel-rows=${JSON.stringify(extractedLiveRows)} header-index=${extractedLiveHeaderIndexes[0]} native-tail=${JSON.stringify(expectedScreenTail)} exact=5/5 wrapped=row4-continuation+rows5-8 args=${call.count}:${String(call.isStreaming)} wrapperCalls=${live.wrapperCalls} identities=exact ordered-collisions=thinking2+text1/equal1+text1 contiguous=${runtimeVersion === "0.80.5" ? "legacy2" : "coalesced1"} tool-separated=2 binding=validated-ctrl+t descriptor=${JSON.stringify(probes.at(-1).descriptorEvidence.fields)} restored-completed=Thought folded=${JSON.stringify(foldedCompletedRows)} expanded=${JSON.stringify(expandedCompletedRows)} refolded=${JSON.stringify(refoldedCompletedRows)} live-transitions=Streaming->Tree,Tree->Rail entering-Streaming=restart-only states/resources=${JSON.stringify(result.transitionSequence.map(({ from, to, status, resources }) => ({ from, to, status, resources })))} tree=${JSON.stringify(treeTransitionRows)} rail=${JSON.stringify(railTransitionRows)} hidden-start=preserved widget=removed artifacts=none handshake=${result.supervisor.handshake} cleanup-signals=${JSON.stringify(result.supervisor.cleanupSignals ?? [])} python=${result.supervisor.pythonPid}:reaped pi=${result.supervisor.piPid}:reaped group=${result.supervisor.piPgid}:gone`,
+			`${runtimeVersion}: measured=${JSON.stringify(attestation.versions)} live=Thinking sentinel-rows=${JSON.stringify(extractedLiveRows)} header-index=${extractedLiveHeaderIndexes[0]} native-tail=${JSON.stringify(expectedScreenTail)} exact=5/5 wrapped=row4-continuation+rows5-8 args=${call.count}:${String(call.isStreaming)} wrapperCalls=${live.wrapperCalls} identities=exact ordered-collisions=thinking2+text1/equal1+text1 contiguous=coalesced1 tool-separated=2 binding=validated-ctrl+t descriptor=${JSON.stringify(probes.at(-1).descriptorEvidence.fields)} restored-completed=Thought folded=${JSON.stringify(foldedCompletedRows)} expanded=${JSON.stringify(expandedCompletedRows)} refolded=${JSON.stringify(refoldedCompletedRows)} live-transitions=Streaming->Tree,Tree->Rail entering-Streaming=restart-only states/resources=${JSON.stringify(result.transitionSequence.map(({ from, to, status, resources }) => ({ from, to, status, resources })))} tree=${JSON.stringify(treeTransitionRows)} rail=${JSON.stringify(railTransitionRows)} hidden-start=preserved widget=removed artifacts=none handshake=${result.supervisor.handshake} cleanup-signals=${JSON.stringify(result.supervisor.cleanupSignals ?? [])} python=${result.supervisor.pythonPid}:reaped pi=${result.supervisor.piPid}:reaped group=${result.supervisor.piPgid}:gone`,
 		);
 	}
 } finally {

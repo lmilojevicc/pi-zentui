@@ -21,33 +21,36 @@ function fixture(enableSearch = false) {
 	const list = new SettingsList(items, 3, theme, onChange, () => {}, { enableSearch });
 	return { items, list, onChange };
 }
-function legacy(list: SettingsList) {
-	// Exercise the maintained 0.80.5 path even on hosts with the public API.
+function withoutSelectionApi(list: SettingsList) {
+	// Incomplete injected lists must fail open without private state writes.
 	Object.defineProperty(list, "selectItem", { value: undefined });
 }
 
 describe("owned SettingsList selection compatibility", () => {
-	it.each(["installed", "legacy"])(
-		"keeps native scrolling, help, values and input receivers on %s API",
-		(api) => {
-			const { list, items, onChange } = fixture();
-			if (api === "legacy") legacy(list);
-			expect(selectOwnedSetting(list, items, "row-10")).toBe(true);
-			let output = list.render(80).join("\n");
-			expect(output).toContain("> Row 10");
-			expect(output).toContain("Help 10");
-			expect(output).toContain("(11/12)");
-			expect(output).not.toContain("Row 0 ");
-			list.handleInput("\r");
-			expect(onChange).toHaveBeenCalledExactlyOnceWith("row-10", "on");
-			expect(selectOwnedSetting(list, items, "row-0")).toBe(true);
-			output = list.render(80).join("\n");
-			expect(output).toContain("> Row 0");
-			expect(output).toContain("Help 0");
-			expect(output).not.toContain("Row 10");
-			expect(items[10].currentValue).toBe("on");
-		},
-	);
+	it("keeps native scrolling, help, values and input receivers on the supported public API", () => {
+		const { list, items, onChange } = fixture();
+		expect(selectOwnedSetting(list, items, "row-10")).toBe(true);
+		let output = list.render(80).join("\n");
+		expect(output).toContain("> Row 10");
+		expect(output).toContain("Help 10");
+		expect(output).toContain("(11/12)");
+		expect(output).not.toContain("Row 0 ");
+		list.handleInput("\r");
+		expect(onChange).toHaveBeenCalledExactlyOnceWith("row-10", "on");
+		expect(selectOwnedSetting(list, items, "row-0")).toBe(true);
+		output = list.render(80).join("\n");
+		expect(output).toContain("> Row 0");
+		expect(output).toContain("Help 0");
+		expect(output).not.toContain("Row 10");
+		expect(items[10].currentValue).toBe("on");
+	});
+
+	it("rejects an unknown id without changing selection", () => {
+		const { list, items } = fixture();
+		const select = vi.spyOn(list, "selectItem");
+		expect(selectOwnedSetting(list, items, "missing")).toBe(false);
+		expect(select).not.toHaveBeenCalled();
+	});
 
 	it("calls the public selection method with its original receiver", () => {
 		const { list, items } = fixture();
@@ -60,11 +63,11 @@ describe("owned SettingsList selection compatibility", () => {
 		expect(selectItem).toHaveBeenCalledOnce();
 	});
 
-	it.each(["foreign items", "search", "submenu", "readonly", "unknown selection"])(
+	it.each(["missing API", "foreign items", "search", "submenu", "readonly", "unknown selection"])(
 		"leaves %s state untouched rather than forwarding keys through a global manager",
 		(shape) => {
 			const { list, items } = fixture(shape === "search");
-			legacy(list);
+			withoutSelectionApi(list);
 			if (shape === "search") list.handleInput("Row 1");
 			if (shape === "submenu") {
 				items[0].submenu = () => ({ render: () => ["SUBMENU"], invalidate() {} });

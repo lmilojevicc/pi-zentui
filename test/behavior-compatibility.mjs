@@ -8,14 +8,13 @@ const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-behavior-compatibility-"));
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("Run through npm run test:behavior-compatibility");
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.80.5", "0.84.0", "0.85.1"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1"];
 const packages = ["pi-ai", "pi-coding-agent", "pi-tui"];
 const tests = [
 	"codex-quota.test.ts",
 	"codex-quota-rendering.test.ts",
 	"codex-quota-lifecycle.test.ts",
 	"accent-rail-editor.test.ts",
-	"accent-rail-layout-patch.test.ts",
 	"editor-mouse.test.ts",
 	"user-message-native.test.ts",
 	"user-message-native-reduced-capabilities.test.ts",
@@ -36,6 +35,8 @@ const vitest = JSON.parse(
 ).version;
 try {
 	for (const version of versions) {
+		// Pi 0.85.0's unbundled exports import pi-server but omit it from dependencies.
+		const installPackages = version === "0.85.0" ? [...packages, "pi-server"] : packages;
 		const cwd = join(workspace, version);
 		mkdirSync(cwd);
 		cpSync(join(root, "extensions"), join(cwd, "extensions"), { recursive: true });
@@ -52,12 +53,12 @@ try {
 				"--no-package-lock",
 				"--no-audit",
 				"--no-fund",
-				...packages.map((name) => `@earendil-works/${name}@${version}`),
+				...installPackages.map((name) => `@earendil-works/${name}@${version}`),
 				`vitest@${vitest}`,
 			],
 			{ cwd, stdio: "inherit", timeout: 180_000 },
 		);
-		for (const name of packages) {
+		for (const name of installPackages) {
 			const installed = JSON.parse(
 				readFileSync(join(cwd, "node_modules/@earendil-works", name, "package.json"), "utf8"),
 			);
