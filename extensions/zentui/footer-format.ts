@@ -70,6 +70,12 @@ function freezeTokens(tokens: FormatToken[]): readonly ReadonlyFormatToken[] {
 	return Object.freeze(tokens);
 }
 
+function canonicalVariableName(name: string, aliases: Readonly<Record<string, string>>): string {
+	const alias = aliases[name];
+	// Inherited string aliases are supported, but Object.prototype methods are not aliases.
+	return typeof alias === "string" ? alias : name;
+}
+
 /** Share bounded syntax/analysis across rendering and dependency-demand checks. */
 export function compiledFooterFormat(
 	format: string,
@@ -115,7 +121,9 @@ export function compiledFooterFormat(
 	// This observes in-place alias edits without retaining mutable caller objects.
 	if (
 		entry.compiled &&
-		entry.names.every((name, i) => (aliases[name] ?? name) === entry.canonicalNames?.[i])
+		entry.names.every(
+			(name, i) => canonicalVariableName(name, aliases) === entry.canonicalNames?.[i],
+		)
 	) {
 		return entry.compiled;
 	}
@@ -131,7 +139,9 @@ export function compiledFooterFormat(
 				}),
 			),
 		);
-	entry.canonicalNames = Object.freeze(entry.names.map((name) => aliases[name] ?? name));
+	entry.canonicalNames = Object.freeze(
+		entry.names.map((name) => canonicalVariableName(name, aliases)),
+	);
 	entry.compiled = Object.freeze({
 		tokens: entry.tokens,
 		references: references(entry.tokens),
@@ -367,7 +377,7 @@ export function collectFooterFormatReferences(
 				continue;
 			}
 			if (token.kind !== "var") continue;
-			const canonical = aliases[token.name] ?? token.name;
+			const canonical = canonicalVariableName(token.name, aliases);
 			if (canonical !== "wrap" && canonical !== "wrap_sep" && canonical !== "extensions") {
 				references.add(canonical);
 			}
