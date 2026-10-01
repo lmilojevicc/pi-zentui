@@ -226,6 +226,7 @@ export function installFooter(
 				showQuota = true,
 				contextSnapshot?: ContextUsageSnapshot,
 				excludedCustom: ReadonlySet<string> = new Set(),
+				builtinSnapshots = new Map<string, string>(),
 			): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
@@ -257,19 +258,7 @@ export function installFooter(
 								: text,
 						);
 				}
-				const atomicCustom = new AtomicTemplateValues(
-					customTexts,
-					customTexts.size
-						? [
-								JSON.stringify(state),
-								ctx.cwd,
-								JSON.stringify(config.icons),
-								footer.styles.starship.format,
-								footer.styles.starship.compactFormat,
-								...footerData.getExtensionStatuses().values(),
-							]
-						: [],
-				);
+				const statusSnapshot = footerData.getExtensionStatuses();
 				const quota =
 					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
 				const styledQuota = renderCodexQuota(quota, theme, config, "footer");
@@ -341,17 +330,21 @@ export function installFooter(
 						? wideReferences.includes("session_name")
 						: config.components.footer.styles.starship.segments.sessionName) ||
 					compactReferences.includes("session_name");
-				const sessionName = needsSessionName
-					? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
-					: "";
-				const sessionNameLabel = sessionName
-					? renderStyleForSource(
-							theme,
-							colorSource,
-							componentColor(config, "footer", "sessionName"),
-							sessionName,
-						)
-					: "";
+				const sessionName =
+					needsSessionName && !builtinSnapshots.has("session_name")
+						? sanitizeExtensionStatusText(ctx.sessionManager.getSessionName() ?? "")
+						: "";
+				const sessionNameLabel =
+					builtinSnapshots.get("session_name") ??
+					(sessionName
+						? renderStyleForSource(
+								theme,
+								colorSource,
+								componentColor(config, "footer", "sessionName"),
+								sessionName,
+							)
+						: "");
+				if (needsSessionName) builtinSnapshots.set("session_name", sessionNameLabel);
 				const builtInSessionNameLabel = sessionNameLabel ? `in ${sessionNameLabel}` : "";
 				const branchText = branch
 					? formatGitBranchText(
@@ -464,7 +457,7 @@ export function installFooter(
 				const statusBlock =
 					allStatus || aheadBehind ? gitStatusColor(`[${allStatus}${aheadBehind}]`) : "";
 				const gitStateBlock = gitStateLabel ? gitStatusColor(gitStateLabel) : "";
-				const renderVariable = (name: string): string => {
+				const renderBuiltInVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
 					switch (canonical) {
 						case "cwd":
@@ -626,8 +619,23 @@ export function installFooter(
 									)
 								: "";
 						default:
-							return Object.hasOwn(aliases, name) ? atomicCustom.resolve(aliases[name]) : "";
+							return "";
 					}
+				};
+				// Reserve actual referenced builtin output, not just static state. Reuse the
+				// same values during scans, packing and fallback so callbacks cannot collide later.
+				const builtinNames = new Set<string>(FOOTER_FORMAT_VARIABLES);
+				for (const name of new Set([...wideReferences, ...compactReferences])) {
+					if (name !== "codex_quota" && builtinNames.has(name) && !builtinSnapshots.has(name))
+						builtinSnapshots.set(name, renderBuiltInVariable(name));
+				}
+				const renderVariable = (name: string): string => {
+					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
+					if (canonical === "codex_quota") return quotaLabel;
+					if (builtinSnapshots.has(canonical)) return builtinSnapshots.get(canonical) ?? "";
+					return Object.hasOwn(aliases, name)
+						? atomicCustom.resolve(aliases[name])
+						: renderBuiltInVariable(name);
 				};
 				const branchParts: string[] = [];
 				if (config.components.footer.styles.starship.segments.gitBranch) {
@@ -805,10 +813,7 @@ export function installFooter(
 				]
 					.filter(Boolean)
 					.join(" ");
-				const extensionStatuses = collectExtensionStatusSegments(
-					footerData.getExtensionStatuses(),
-					config,
-				);
+				const extensionStatuses = collectExtensionStatusSegments(statusSnapshot, config);
 				const renderExtensionStatus = (segment: ExtensionStatusSegment) =>
 					segment.colorMode === "original"
 						? segment.text
@@ -828,6 +833,26 @@ export function installFooter(
 					config.components.footer.styles.starship.segments.cost ? builtInCostLabel : "",
 					timeSegment,
 				];
+				const atomicCustom = new AtomicTemplateValues(
+					customTexts,
+					customTexts.size
+						? [
+								JSON.stringify(state),
+								ctx.cwd,
+								JSON.stringify(config.icons),
+								footer.styles.starship.format,
+								footer.styles.starship.compactFormat,
+								...builtinSnapshots.values(),
+								left,
+								separator,
+								...rightParts,
+								styledQuota,
+								...extensionLeftSegments,
+								...extensionMiddleSegments,
+								...extensionRightSegments,
+							]
+						: [],
+				);
 				if (styledQuota) {
 					// Measure an internal, same-shape probe so unrelated status text cannot
 					// count as owned quota. Restore text only after the existing layout fits it.
@@ -850,7 +875,7 @@ export function installFooter(
 						(value) => !otherText.includes(value),
 					);
 					// Bounded fail-open fallback if every candidate collides with non-quota text.
-					if (!letter) return renderFooter(width, false, context, excludedCustom);
+					if (!letter) return renderFooter(width, false, context, excludedCustom, builtinSnapshots);
 					quotaProbe = codexQuotaText(quota).replace(/[a-z0-9]/gi, letter);
 					quotaLabel = styledQuota.replace(codexQuotaText(quota), quotaProbe);
 				}
@@ -898,7 +923,7 @@ export function installFooter(
 							);
 						// Recompose without quota if any occurrence was clipped, split, or omitted.
 						if (count(source) !== count(framedRows))
-							return renderFooter(width, false, context, excludedCustom);
+							return renderFooter(width, false, context, excludedCustom, builtinSnapshots);
 						framedRows = framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
 					}
 					const omitted = atomicCustom.omitted(source, framedRows);
@@ -908,6 +933,7 @@ export function installFooter(
 							showQuota,
 							context,
 							new Set([...excludedCustom, ...omitted]),
+							builtinSnapshots,
 						);
 					return atomicCustom.restore(framedRows);
 				};
