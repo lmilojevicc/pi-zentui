@@ -288,6 +288,39 @@ it.each(["opencode", "opencode-copy-friendly"] as const)(
 	},
 );
 
+it.each([false, true])(
+	"reconciles external Footer disposal before reinstall with Editor enabled=%s",
+	async (editorEnabled) => {
+		if (!runtime.config) throw new Error("missing config");
+		runtime.config.components.editor.enabled = editorEnabled;
+		runtime.config.components.footer.style = "starship";
+		Object.assign(runtime.config.components.footer.styles.starship, {
+			format: "$quota",
+			variables: { quota: "@scope/usage:quota" },
+			responsive: false,
+		});
+		const h = harness();
+		await h.emit("session_start");
+		h.render();
+		h.publish("old quota");
+		expect(h.renderFooter()).toContain("old quota");
+
+		// Another extension disposes Footer; reinstall before any event or timer refresh.
+		h.ui.setFooter(undefined);
+		h.hook("setFooterComponent", { style: "starship" });
+		if (editorEnabled) {
+			expect(h.render()).toContain("old quota");
+			expect(h.renderFooter()).toContain("old quota");
+		} else {
+			expect(h.renderFooter()).not.toContain("old quota");
+		}
+		expect(h.capability().active).toBe(true);
+		h.publish("new quota");
+		expect(h.renderFooter()).toContain("new quota");
+		await h.emit("session_shutdown");
+	},
+);
+
 it("retains a shared value while Footer still consumes it after Editor disable, then clears after both release", async () => {
 	if (!runtime.config) throw new Error("missing config");
 	Object.assign(runtime.config.components.footer.styles.starship, {

@@ -1104,6 +1104,7 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender = undefined;
 		getActiveExtensionStatuses = () => new Map();
 		stopSessionTimer();
+		customVariables.reconcile();
 		codexQuota.reconcile();
 		if (sessionLifecycle.isCurrent()) reconcileProjectRefresh(ctx, true);
 	};
