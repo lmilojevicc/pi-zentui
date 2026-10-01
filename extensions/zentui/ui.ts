@@ -28,6 +28,7 @@ import {
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { bashModeLabel } from "./format";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
+import { minimalistTemplateReferences } from "./minimalist-template";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -385,7 +386,8 @@ function isShellModeInput(text: string): boolean {
 export function editorWantsContext(config: ZentuiConfig): boolean {
 	const editor = config.components.editor;
 	if (!editor.enabled || editor.style === "accent-rail") return false;
-	if (editor.style === "minimalist") return true;
+	if (editor.style === "minimalist")
+		return minimalistTemplateReferences(editor.styles.minimalist).has("context");
 	return collectFooterFormatReferences(
 		parseFooterFormat(sanitizeEditorMetadataText(editor.styles[editor.style].metadataFormat)),
 	).has("context");

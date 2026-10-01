@@ -3,6 +3,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ZentuiConfig } from "./config";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
+import { minimalistTemplateReferences } from "./minimalist-template";
 
 const INTERVAL = 60_000;
 const TIMEOUT = 10_000;
@@ -45,8 +46,9 @@ export function parseCodexQuota(value: unknown): CodexQuota | undefined {
 export function editorWantsCodexQuota(config: ZentuiConfig): boolean {
 	const editor = config.components.editor;
 	if (!editor.enabled || !editor.codexQuota) return false;
+	if (editor.style === "minimalist")
+		return minimalistTemplateReferences(editor.styles.minimalist).has("codex_quota");
 	return (
-		editor.style === "minimalist" ||
 		editor.style === "accent-rail" ||
 		collectFooterFormatReferences(
 			parseFooterFormat(sanitizeEditorMetadataText(editor.styles[editor.style].metadataFormat)),

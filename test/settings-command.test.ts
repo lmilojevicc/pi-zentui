@@ -623,6 +623,9 @@ describe("component-oriented /zentui settings", () => {
 			"Cache hit rate",
 			"Git",
 			"Separator",
+			"Custom value colors",
+			"Metadata templates",
+			"Custom variable aliases",
 			"Color overrides",
 		]);
 		component.handleInput("\t");

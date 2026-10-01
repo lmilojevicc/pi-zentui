@@ -22,6 +22,7 @@ import {
 	componentColorKeys,
 	normalizeComponentColors,
 } from "./component-colors";
+import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
 import {
 	ICON_GLYPH_KEYS,
 	type IconEnvironment,
@@ -31,6 +32,12 @@ import {
 	type ResolvedIcons,
 	resolveConfiguredIcons,
 } from "./icons";
+import {
+	MINIMALIST_FORMAT_SLOTS,
+	type MinimalistFormats,
+	normalizeMinimalistFormats,
+	normalizeMinimalistVariables,
+} from "./minimalist-template";
 import type { ComponentPreset } from "./presets";
 import { isSupportedColorSpec } from "./style";
 import { normalizeWorkingLineMessages } from "./working-line";
@@ -135,6 +142,10 @@ export type AccentRailEditorStyleConfig = {
 };
 
 export type MinimalistEditorStyleConfig = {
+	formats?: MinimalistFormats;
+	variables?: Record<string, string>;
+	/** Missing means Original, keeping publisher SGR rather than recoloring it. */
+	extensionColorMode?: ExtensionStatusColorMode;
 	pathDisplay: MinimalistPathDisplayMode;
 	contextFormat: MinimalistContextFormat;
 	contextGauge: boolean;
@@ -1391,6 +1402,15 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					transparent: parseBoolean(accentRail.transparent, defaultAccentRailStyle.transparent),
 				},
 				minimalist: {
+					...(isRecord(minimalist.formats)
+						? { formats: normalizeMinimalistFormats(minimalist.formats) }
+						: {}),
+					...(isRecord(minimalist.variables)
+						? { variables: normalizeMinimalistVariables(minimalist.variables) }
+						: {}),
+					...(isExtensionStatusColorMode(minimalist.extensionColorMode)
+						? { extensionColorMode: minimalist.extensionColorMode }
+						: {}),
 					pathDisplay:
 						minimalist.pathDisplay === "compact" ||
 						minimalist.pathDisplay === "project" ||
@@ -1907,7 +1927,7 @@ export function saveAccentRailEditorStylePatch(
 
 function applyMinimalistStylePatch(
 	style: MinimalistEditorStyleConfig,
-	patch: Partial<MinimalistEditorStyleConfig>,
+	patch: Partial<Omit<MinimalistEditorStyleConfig, "formats" | "variables" | "extensionColorMode">>,
 ): void {
 	if (patch.pathDisplay !== undefined) style.pathDisplay = patch.pathDisplay;
 	if (patch.contextFormat !== undefined) style.contextFormat = patch.contextFormat;
@@ -1923,10 +1943,80 @@ function applyMinimalistStylePatch(
 	}
 }
 
-export function saveMinimalistEditorStylePatch(
-	patch: Partial<MinimalistEditorStyleConfig>,
+export type MinimalistEditorStylePatch = Partial<
+	Omit<MinimalistEditorStyleConfig, "formats" | "variables" | "extensionColorMode">
+> & {
+	/** null removes an override; empty strings deliberately hide a slot. */
+	formats?: Partial<Record<keyof MinimalistFormats, string | null>>;
+	variables?: Record<string, string | null>;
+	extensionColorMode?: ExtensionStatusColorMode | null;
+};
+
+/** Sparse template transaction: never snapshot another style or component. */
+export function saveMinimalistTemplatePatch(
+	patch: MinimalistEditorStylePatch,
 	path = configPath,
 ): PolishedTuiConfig {
+	return mutateConfig(path, (record) => {
+		const rawStyle = recordValue(
+			recordValue(recordValue(recordValue(record.components).editor).styles).minimalist,
+		);
+		const style = { ...rawStyle };
+		const { formats, variables, extensionColorMode, ...ordinary } = patch;
+		const updated = mergeConfig(record).components.editor.styles.minimalist;
+		applyMinimalistStylePatch(updated, ordinary);
+		const normalized = mergeConfig({ components: { editor: { styles: { minimalist: updated } } } })
+			.components.editor.styles.minimalist;
+		for (const key of Object.keys(ordinary) as Array<keyof typeof ordinary>) {
+			if (ordinary[key] !== undefined)
+				style[key] =
+					key === "contextThresholds"
+						? { ...recordValue(style[key]), ...normalized.contextThresholds }
+						: normalized[key];
+		}
+		if (formats !== undefined) {
+			const saved = { ...recordValue(style.formats) };
+			for (const slot of MINIMALIST_FORMAT_SLOTS) {
+				if (formats[slot] === null) delete saved[slot];
+				else if (typeof formats[slot] === "string") saved[slot] = formats[slot];
+			}
+			if (Object.keys(saved).length) style.formats = saved;
+			else delete style.formats;
+		}
+		if (variables !== undefined) {
+			const saved = { ...recordValue(style.variables) };
+			for (const [name, key] of Object.entries(variables)) {
+				if (key === null) delete saved[name];
+				else if (Object.hasOwn(normalizeMinimalistVariables({ [name]: key }), name)) {
+					if (
+						Object.hasOwn(saved, name) ||
+						Object.keys(normalizeMinimalistVariables(saved)).length < MAX_CUSTOM_VARIABLES
+					)
+						saved[name] = key;
+				}
+			}
+			if (Object.keys(saved).length) style.variables = saved;
+			else delete style.variables;
+		}
+		if (extensionColorMode === null) delete style.extensionColorMode;
+		else if (isExtensionStatusColorMode(extensionColorMode))
+			style.extensionColorMode = extensionColorMode;
+		record.components = overlayKnown(record.components, { editor: { styles: { minimalist: {} } } });
+		const styles = recordValue(recordValue(recordValue(record.components).editor).styles);
+		styles.minimalist = style;
+	});
+}
+
+export function saveMinimalistEditorStylePatch(
+	patch: MinimalistEditorStylePatch,
+	path = configPath,
+): PolishedTuiConfig {
+	if (
+		patch.formats !== undefined ||
+		patch.variables !== undefined ||
+		patch.extensionColorMode !== undefined
+	)
+		return saveMinimalistTemplatePatch(patch, path);
 	return saveComponentsMutation(
 		["editor"],
 		(components) => applyMinimalistStylePatch(components.editor.styles.minimalist, patch),
@@ -2275,7 +2365,7 @@ export function saveEditorStyle(value: EditorStyle, path = configPath): Polished
 }
 
 export function saveMinimalistPatch(
-	patch: Partial<MinimalistConfig>,
+	patch: MinimalistEditorStylePatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveMinimalistEditorStylePatch(patch, path);

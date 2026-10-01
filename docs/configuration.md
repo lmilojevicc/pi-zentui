@@ -534,6 +534,126 @@ Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/z
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 
+### Minimalist metadata templates and custom values
+
+Minimalist has six independently configurable border slots under
+`components.editor.styles.minimalist.formats`: `topLeft`, `topMiddle`,
+`topRight`, `bottomLeft`, `bottomMiddle`, and `bottomRight`. Missing slots keep
+Zentui's generated layout; an empty string hides that slot's configurable
+metadata. No extra rows are added. Use **Editor → Metadata templates** in
+`/zentui` to edit a slot or **Reset / inherit** to delete its override.
+
+Templates use the existing `$variable`, `${variable}`, literal text, and
+conditional `( ... )` grammar. Layout is selected by the six slot names, not
+`$fill`. Viewport counts, Bash mode, and an embedded Working line remain
+operational indicators outside the templates. Explicit templates may show
+metadata whose ordinary visibility toggle is off, but can never bypass Editor
+Codex quota consent. Nothing is appended outside an explicit template.
+
+Custom values are published by other extensions. Give them simple local names
+with `variables`, then reference those names in any slot:
+
+```json
+{
+  "components": {
+    "editor": {
+      "style": "minimalist",
+      "styles": {
+        "minimalist": {
+          "variables": { "claude_quota": "@scope/usage:quota" },
+          "formats": {
+            "topMiddle": "$claude_quota",
+            "bottomMiddle": "$session_name"
+          },
+          "extensionColorMode": "original"
+        }
+      }
+    }
+  }
+}
+```
+
+**Editor → Custom variable aliases** edits the name-to-publisher-key JSON or
+resets the aliases. Names use letters, digits, and underscores, start with a
+letter or underscore, and cannot replace built-in/structural variables or
+prototype names. At most 16 aliases are accepted; keys are nonempty, at most
+64 UTF-16 code units, and contain no whitespace or terminal controls. Reset
+removes only the edited overrides. Unrelated owners/styles and unknown raw
+configuration remain untouched. These settings never enable Footer or Working
+line.
+
+Built-ins are `$model`, `$model_id`, `$model_name`, `$provider`, `$thinking`,
+`$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
+`$codex_quota`, `$cwd`, `$git_branch`, `$git_status`, `$tokens`, `$input_tokens`,
+and `$output_tokens`. `$turn_duration` is current/completed interaction time,
+not total session duration. Existing path, context, separator and color
+preferences still apply. `$sep` (alias `$separator`) uses the configured
+Minimalist dash/dot separator. Prefer optional groups such as
+`$model($sep$thinking)` to avoid separators around empty values.
+
+`$extensions` aggregates published custom values in deterministic key order.
+The generated top-right layout includes it after cost; setting an explicit
+slot lets you move or omit it. Values referenced through an alias anywhere in
+the six effective templates are excluded from the aggregate, avoiding an
+automatic duplicate. This is distinct from Footer's existing extension-status
+integration. Custom values do not automatically consume `ctx.ui.setStatus()`.
+
+Centers are terminal-centered and clamped between side labels; they disappear
+whole when they cannot fit. Custom values yield whole before built-in side
+metadata at narrow widths, rather than clipping quotas or activity labels.
+Large aggregates yield as one unit. Literal separators are template-owned;
+use conditional groups around optional values. Width cannot guarantee that
+all configured metadata is visible.
+
+**Custom value colors** offers Original (default) and Zentui. Original retains
+safe SGR and HTTP(S) links from the publisher, with closing resets so styles
+cannot leak into borders. Zentui strips publisher styling and applies the
+Editor color source and extension-status fallback style. Newlines and other
+terminal controls are sanitized; no publisher callbacks or commands run while
+rendering.
+
+#### Custom-value publisher protocol v1
+
+The versioned event-bus protocol publishes data, not a location. Probe before
+each refresh and keep the extension's normal fallback when inactive:
+
+```typescript
+const key = "@scope/usage:quota";
+const capability = { supported: false, active: false, key };
+pi.events.emit("zentui:variable-capability", capability);
+
+if (capability.active) {
+  pi.events.emit("zentui:variable", { key, text: "CC $459/1200" });
+  ctx.ui.setStatus(key, undefined); // remove this publisher's own fallback
+} else {
+  ctx.ui.setStatus(key, "CC $459/1200");
+}
+
+// Remove a value on publisher shutdown or when no longer applicable.
+pi.events.emit("zentui:variable", { key, text: undefined });
+```
+
+Zentui adds `version: 1` and `supported: true` to a mutable probe. Optional
+`key` tests demand for that particular publication; without it, `active`
+reports whether any custom value is demanded. Active requires an owned,
+enabled, safely decorated Minimalist editor in the current TUI session and a
+referencing alias or aggregate. It describes availability, not a guarantee of
+visibility at the current width. Startup probes may precede the first safe
+editor render: probe again on the publisher's next refresh. This protocol
+adds no Zentui poller and no capability-change notification.
+
+Use stable package-qualified keys. The namespace is global by convention;
+collisions are last-update-wins, and either publisher can remove a shared key.
+At most 16 unique values are retained, with keys up to 64 and raw text up to
+256 UTF-16 code units. Malformed/over-limit updates are ignored; existing
+keys can still update at capacity. Empty text also removes. Positive updates
+while inactive are ignored. Session replacement, shutdown, disable, loss of
+ownership, or loss of template demand drops inactive values; publishers must
+republish after reactivation. Publishers own their refresh resources, data
+freshness, and stale markers. Zentui neither fetches account data nor persists
+these values. Opencode/Footer consumption is not part of this first slice;
+Working-line protocol v1 remains unchanged.
+
 ### Opencode completion menu
 
 Both Opencode variants default to `completionMenu: "palette"` and can be configured independently. The transparent palette keeps captured native rows and embedded backgrounds, removes only a recognized selected `→` while preserving native emphasis, omits a narrowly recognized trailing count row such as `(1/47)`, fills available width without adding a background, and adds a bottom separator plus `↑↓ Navigate   Enter Use   Esc Close`.

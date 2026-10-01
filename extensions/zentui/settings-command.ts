@@ -46,6 +46,7 @@ import {
 	MIN_WORKING_LINE_INTERVAL_MS,
 	type MinimalistConfig,
 	type MinimalistEditorSeparator,
+	type MinimalistEditorStylePatch,
 	type ModelLabelSource,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
@@ -70,6 +71,7 @@ import {
 	extensionStatusDefaultChoice,
 } from "./extension-status-settings";
 import { isIconMode } from "./icons";
+import { editMinimalistTemplates, editMinimalistVariables } from "./minimalist-settings";
 import {
 	componentPresets,
 	getComponentPreset,
@@ -219,6 +221,8 @@ type SettingsOutcome =
 	| "close"
 	| "migrate"
 	| `edit-colors:${ColorOwner}`
+	| "edit-minimalist-templates"
+	| "edit-minimalist-variables"
 	| "edit-working-line-messages"
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
@@ -274,7 +278,7 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 		ctx: ExtensionContext,
 	) => void;
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
-	setMinimalist: (patch: Partial<MinimalistConfig>, ctx: ExtensionContext) => void;
+	setMinimalist: (patch: MinimalistEditorStylePatch, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
 	thinkingStepsCapability: ThinkingStepsSettingsCapability;
 	setThinkingStepsComponent: (
@@ -742,6 +746,30 @@ function buildMinimalistEditorStyleItems(config: PolishedTuiConfig): SettingItem
 			description: "Choose dash (–) or dot (·) between editor metadata items.",
 			currentValue: minimalist.separator,
 			values: minimalistSeparatorValues,
+		},
+		{
+			id: "minimalistExtensionColorMode",
+			label: "Custom value colors",
+			description:
+				"Original preserves safe publisher styling; Zentui uses the Editor's color source.",
+			currentValue: minimalist.extensionColorMode === "zentui" ? "Zentui" : "Original",
+			values: extensionStatusColorModeValues,
+		},
+		{
+			id: "edit-minimalist-templates",
+			label: "Metadata templates",
+			description:
+				"Edit or reset six border slots. Explicit templates override metadata visibility toggles, never quota consent or operational indicators.",
+			currentValue: "Edit…",
+			values: ["Edit…"],
+		},
+		{
+			id: "edit-minimalist-variables",
+			label: "Custom variable aliases",
+			description:
+				"Map template variables to extension publisher keys; edit JSON or reset aliases.",
+			currentValue: "Edit…",
+			values: ["Edit…"],
 		},
 	];
 }
@@ -1642,7 +1670,12 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											tui.requestRender();
 											return;
 										}
-										if (id === "migrate" || id.startsWith("edit-colors:")) {
+										if (
+											id === "migrate" ||
+											id.startsWith("edit-colors:") ||
+											id === "edit-minimalist-templates" ||
+											id === "edit-minimalist-variables"
+										) {
 											requestedSection = activeSection;
 											requestedFocusId = id;
 											finishSettings(id as SettingsOutcome);
@@ -1755,6 +1788,14 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										}
 										if (id.startsWith("minimalist")) {
 											if (
+												id === "minimalistExtensionColorMode" &&
+												(newValue === "Original" || newValue === "Zentui")
+											)
+												deps.setMinimalist(
+													{ extensionColorMode: newValue === "Original" ? null : "zentui" },
+													ctx,
+												);
+											else if (
 												id === "minimalistPathDisplay" &&
 												["compact", "project", "full"].includes(newValue)
 											)
@@ -2312,6 +2353,12 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 							deps,
 							outcome.slice("edit-colors:".length) as ColorOwner,
 						);
+					if (!deps.sessionLifecycle.isCurrent(generation)) return;
+					continue;
+				}
+				if (outcome === "edit-minimalist-templates" || outcome === "edit-minimalist-variables") {
+					if (outcome === "edit-minimalist-templates") await editMinimalistTemplates(ctx, deps);
+					else await editMinimalistVariables(ctx, deps);
 					if (!deps.sessionLifecycle.isCurrent(generation)) return;
 					continue;
 				}

@@ -22,6 +22,8 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			const config = structuredClone(actual.defaultConfig);
 			config.projectRefreshIntervalMs = 0;
 			config.components.editor.enabled = options.editor;
+			// Editor usage is demanded by its authoritative metadata template.
+			if (options.editor) config.components.editor.styles.opencode.metadataFormat = "$tokens";
 			config.components.footer.style = options.style;
 			config.components.footer.styles.starship.format = options.format;
 			config.components.footer.styles.starship.compactFormat = options.compactFormat;

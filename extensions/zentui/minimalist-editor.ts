@@ -5,16 +5,24 @@ import type { CodexQuota } from "./codex-quota";
 import { renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
+import { sanitizeCustomVariableText } from "./custom-variables";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	bashModeLabel,
 	buildContextGauge,
+	buildSessionTokenLabel,
 	contextColorTier,
 	formatCacheHitRate,
 	formatCount,
 	formatCwdLabel,
 	formatElapsedDuration,
 } from "./format";
+import {
+	type MinimalistFormatSlot,
+	minimalistExplicitCustomKeys,
+	normalizeMinimalistVariables,
+	renderMinimalistTemplate,
+} from "./minimalist-template";
 
 export { formatElapsedDuration } from "./format";
 
@@ -51,6 +59,12 @@ export type MinimalistEditorMetadata = {
 	behind?: number;
 	costLabel?: string;
 	modelLabel?: string;
+	modelId?: string;
+	modelName?: string;
+	provider?: string;
+	inputTokens?: number;
+	outputTokens?: number;
+	customVariables?: ReadonlyMap<string, string>;
 	thinkingLevel?: string;
 	contextPercent?: number;
 	contextWindow?: number;
@@ -209,6 +223,7 @@ function renderTopRight(
 	renderBorder: (text: string) => string,
 	renderThinking: (text: string) => string,
 	fit = false,
+	extensions = "",
 ): string {
 	const source = config.components.editor.colorSource;
 	const parts: string[] = [];
@@ -298,7 +313,13 @@ function renderTopRight(
 	}
 	const quota = renderCodexQuota(metadata.codexQuota, uiTheme, config, "editor");
 	if (quota && visibleWidth(joinParts([...parts, quota])) <= availableWidth) parts.push(quota);
-	const joined = joinParts(parts);
+	let joined = joinParts(parts);
+	// Optional values never displace the established context/gauge/cache/quota layout.
+	if (extensions) {
+		const candidate = [...parts];
+		candidate.splice(cost ? 1 : 0, 0, extensions);
+		if (visibleWidth(joinParts(candidate)) <= availableWidth) joined = joinParts(candidate);
+	}
 	return fit ? truncateToWidth(joined, availableWidth, "…") : joined;
 }
 
@@ -366,10 +387,133 @@ function renderBottomRight(
 		: "";
 }
 
+function renderTemplateBuiltin(
+	name: string,
+	metadata: MinimalistEditorMetadata,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+	width: number,
+	renderBorder: (text: string) => string,
+	renderThinking: (text: string) => string,
+): string {
+	const style = config.components.editor.styles.minimalist;
+	const explicitConfig: ZentuiConfig = {
+		...config,
+		components: {
+			...config.components,
+			editor: {
+				...config.components.editor,
+				styles: {
+					...config.components.editor.styles,
+					minimalist: {
+						...style,
+						showTimer: true,
+						showSessionName: true,
+						showCost: true,
+						showCacheHit: true,
+						showGit: true,
+					},
+				},
+			},
+		},
+	};
+	const isolated: MinimalistEditorMetadata = { cwd: "" };
+	switch (name) {
+		case "cwd":
+			return renderBottomRight(metadata, uiTheme, config);
+		case "git_branch":
+			return renderBottomLeft({ cwd: "", branch: metadata.branch }, uiTheme, explicitConfig);
+		case "git_status":
+			return renderBottomLeft({ ...metadata, branch: undefined }, uiTheme, explicitConfig);
+		case "session_name":
+			return renderTopLeft(
+				"",
+				{ cwd: "", sessionName: metadata.sessionName },
+				uiTheme,
+				explicitConfig,
+			);
+		case "turn_duration":
+			return renderTopLeft(
+				"",
+				{ cwd: "", agentDurationMs: metadata.agentDurationMs, agentActive: metadata.agentActive },
+				uiTheme,
+				explicitConfig,
+			);
+		case "model":
+			isolated.modelLabel = metadata.modelLabel;
+			break;
+		case "model_id":
+			isolated.modelLabel = metadata.modelId;
+			break;
+		case "model_name":
+			isolated.modelLabel = metadata.modelName;
+			break;
+		case "cost":
+			isolated.costLabel = metadata.costLabel;
+			break;
+		case "thinking":
+			isolated.thinkingLevel = metadata.thinkingLevel;
+			break;
+		case "context":
+			isolated.contextPercent = metadata.contextPercent;
+			isolated.contextWindow = metadata.contextWindow;
+			break;
+		case "cache_hit":
+			isolated.cacheHitRate = metadata.cacheHitRate;
+			break;
+		case "codex_quota":
+			return renderCodexQuota(metadata.codexQuota, uiTheme, config, "editor");
+		case "sep":
+		case "separator":
+			return renderBorder(style.separator === "dot" ? " · " : " – ");
+		case "provider": {
+			const provider = sanitizeEditorMetadataText(metadata.provider ?? "");
+			return provider
+				? renderStyleForSourceOrFallback(
+						uiTheme,
+						config.components.editor.colorSource,
+						componentColor(config, "editor", "provider"),
+						"text",
+						provider,
+					)
+				: "";
+		}
+		case "tokens":
+			return safeThemeFg(
+				uiTheme,
+				"muted",
+				buildSessionTokenLabel({
+					input: metadata.inputTokens ?? 0,
+					output: metadata.outputTokens ?? 0,
+				}),
+			);
+		case "input_tokens":
+		case "output_tokens": {
+			const value = name === "input_tokens" ? metadata.inputTokens : metadata.outputTokens;
+			return value !== undefined && Number.isFinite(value)
+				? safeThemeFg(uiTheme, "muted", formatCount(value))
+				: "";
+		}
+		default:
+			return "";
+	}
+	return renderTopRight(
+		isolated,
+		uiTheme,
+		explicitConfig,
+		width,
+		renderBorder,
+		renderThinking,
+		true,
+	);
+}
+
 function renderLabeledBorder(options: {
 	width: number;
 	left: string;
 	leftFallbacks?: string[];
+	fitLeft?: (width: number) => string;
+	middle?: string;
 	right: string;
 	fitRight?: (width: number) => string;
 	leftCorner: string;
@@ -399,7 +543,10 @@ function renderLabeledBorder(options: {
 				leftBudget = budget - rightBudget;
 			}
 		}
-		left = leftBudget > 0 ? truncateToWidth(left, leftBudget, "…") : "";
+		left =
+			leftBudget > 0
+				? (options.fitLeft?.(leftBudget) ?? truncateToWidth(left, leftBudget, "…"))
+				: "";
 		right =
 			rightBudget > 0
 				? (options.fitRight?.(rightBudget) ?? truncateToWidth(right, rightBudget, "…"))
@@ -430,9 +577,20 @@ function renderLabeledBorder(options: {
 	const rightPart = right
 		? `${options.renderBorder(" ")}${right}${options.renderBorder(" ─")}`
 		: options.renderBorder("─");
-	return `${options.renderBorder(options.leftCorner)}${leftPart}${options.renderBorder(
-		"─".repeat(fillWidth),
-	)}${rightPart}${options.renderBorder(options.rightCorner)}`;
+	let fill = options.renderBorder("─".repeat(fillWidth));
+	const middle = options.middle ?? "";
+	const middleWidth = visibleWidth(middle);
+	if (middle && middleWidth + 2 <= fillWidth) {
+		const start = Math.max(
+			leftWidth + 1,
+			Math.min(
+				Math.floor((options.width - middleWidth) / 2) - 1,
+				innerWidth - rightWidth - middleWidth - 1,
+			),
+		);
+		fill = `${options.renderBorder("─".repeat(start - leftWidth - 1))}${options.renderBorder(" ")}${middle}${options.renderBorder(" ")}${options.renderBorder("─".repeat(innerWidth - rightWidth - start - middleWidth - 1))}`;
+	}
+	return `${options.renderBorder(options.leftCorner)}${leftPart}${fill}${rightPart}${options.renderBorder(options.rightCorner)}`;
 }
 
 export function renderMinimalistFrame({
@@ -490,6 +648,27 @@ export function renderMinimalistFrame({
 		);
 	const renderThinking = adaptive ? renderBorder : renderStaticThinking;
 	const separator = safeThemeFg(uiTheme, "muted", " · ");
+	const minimalist = config.components.editor.styles.minimalist;
+	const aliases = normalizeMinimalistVariables(minimalist.variables);
+	const customNames = new Set([...Object.keys(aliases), "extensions"]);
+	const explicitKeys = minimalistExplicitCustomKeys(minimalist);
+	const customValue = (key: string) => {
+		const raw = metadata.customVariables?.get(key);
+		if (!raw) return "";
+		const text = sanitizeCustomVariableText(raw, minimalist.extensionColorMode ?? "original");
+		if (!visibleWidth(text.trim())) return "";
+		return minimalist.extensionColorMode === "zentui"
+			? renderStyleForSource(uiTheme, source, config.colors.extensionStatus, text)
+			: text;
+	};
+	const extensionValues = [...(metadata.customVariables?.keys() ?? [])]
+		.sort()
+		.filter((key) => !explicitKeys.has(key))
+		.map(customValue)
+		.filter(Boolean);
+	const extensions = extensionValues.join(
+		renderBorder(minimalist.separator === "dot" ? " · " : " – "),
+	);
 	const viewportLabel = (direction: "above" | "below", count: string | undefined) => {
 		if (!count || !/^[1-9]\d*$/.test(count)) return "";
 		return safeThemeFg(uiTheme, "muted", `${direction === "above" ? "↑" : "↓"} ${count} more`);
@@ -504,20 +683,38 @@ export function renderMinimalistFrame({
 		topOperational,
 		...(metadata.workingLineFrame ? [metadata.workingLineFrame] : []),
 	].filter((value, index, values) => value !== topLeft && values.indexOf(value) === index);
-	const top = renderLabeledBorder({
+	let top = renderLabeledBorder({
 		width,
 		left: topLeft,
 		leftFallbacks: topFallbacks,
-		right: renderTopRight(metadata, uiTheme, config, topRightBudget, renderBorder, renderThinking),
+		right: renderTopRight(
+			metadata,
+			uiTheme,
+			config,
+			topRightBudget,
+			renderBorder,
+			renderThinking,
+			false,
+			extensions,
+		),
 		fitRight: (budget) =>
-			renderTopRight(metadata, uiTheme, config, budget, renderBorder, renderThinking, true),
+			renderTopRight(
+				metadata,
+				uiTheme,
+				config,
+				budget,
+				renderBorder,
+				renderThinking,
+				true,
+				extensions,
+			),
 		leftCorner: "╭",
 		rightCorner: "╮",
 		renderBorder,
 	});
 	const bottomMetadata = renderBottomLeft(metadata, uiTheme, config);
 	const bottomViewport = viewportLabel("below", viewport?.below);
-	const bottom = renderLabeledBorder({
+	let bottom = renderLabeledBorder({
 		width,
 		left: joinStyled([bottomViewport, bottomMetadata], separator),
 		leftFallbacks: bottomViewport ? [bottomMetadata] : undefined,
@@ -526,6 +723,127 @@ export function renderMinimalistFrame({
 		rightCorner: "╯",
 		renderBorder,
 	});
+	if (Object.keys(minimalist.formats ?? {}).length) {
+		const row = (position: "top" | "bottom") => {
+			let includeCustom = true;
+			const label = (slot: MinimalistFormatSlot, budget = Number.POSITIVE_INFINITY): string => {
+				const format = minimalist.formats?.[slot];
+				let rendered: string;
+				if (format !== undefined) {
+					const resolve = (name: string) => {
+						if (customNames.has(name))
+							return includeCustom
+								? name === "extensions"
+									? extensions
+									: customValue(aliases[name])
+								: "";
+						return renderTemplateBuiltin(
+							name,
+							metadata,
+							uiTheme,
+							config,
+							budget,
+							renderBorder,
+							renderThinking,
+						);
+					};
+					// Operational indicators are not configurable template metadata.
+					const operational =
+						slot === "topLeft"
+							? renderTopLeft(
+									inputText,
+									{ cwd: "", workingLineFrame: metadata.workingLineFrame },
+									uiTheme,
+									config,
+									false,
+								)
+							: "";
+					const viewportText =
+						slot === "topLeft" ? topViewport : slot === "bottomLeft" ? bottomViewport : "";
+					let prefix = joinStyled([viewportText, operational], separator);
+					if (visibleWidth(prefix) > budget) prefix = operational;
+					if (visibleWidth(prefix) > budget)
+						prefix = truncateToWidth(prefix, Math.max(0, budget), "…");
+					rendered = renderMinimalistTemplate(
+						format,
+						resolve,
+						customNames,
+						Math.max(0, budget - visibleWidth(prefix) - (prefix ? visibleWidth(separator) : 0)),
+					);
+					return joinStyled([prefix, rendered], separator);
+				}
+				switch (slot) {
+					case "topLeft": {
+						rendered = topLeft;
+						for (const fallback of topFallbacks) {
+							if (visibleWidth(rendered) <= budget) break;
+							rendered = fallback;
+						}
+						break;
+					}
+					case "topRight":
+						return renderTopRight(
+							metadata,
+							uiTheme,
+							config,
+							Number.isFinite(budget)
+								? budget
+								: Math.max(0, width - 8 - visibleWidth(label("topLeft"))),
+							renderBorder,
+							renderThinking,
+							Number.isFinite(budget),
+							includeCustom ? extensions : "",
+						);
+					case "bottomLeft":
+						rendered = joinStyled([bottomViewport, bottomMetadata], separator);
+						if (visibleWidth(rendered) > budget && bottomViewport) rendered = bottomMetadata;
+						break;
+					case "bottomRight":
+						rendered = renderBottomRight(metadata, uiTheme, config);
+						break;
+					default:
+						return "";
+				}
+				return Number.isFinite(budget)
+					? truncateToWidth(rendered, Math.max(0, budget), "…")
+					: rendered;
+			};
+			const leftSlot = position === "top" ? "topLeft" : "bottomLeft";
+			const rightSlot = position === "top" ? "topRight" : "bottomRight";
+			const middleSlot = position === "top" ? "topMiddle" : "bottomMiddle";
+			let left = label(leftSlot);
+			let right = label(rightSlot);
+			if (visibleWidth(left) + visibleWidth(right) + (left ? 3 : 1) + (right ? 3 : 1) > width - 2) {
+				includeCustom = false;
+				left = label(leftSlot);
+				right = label(rightSlot);
+			}
+			return renderLabeledBorder({
+				width,
+				left,
+				right,
+				middle: label(middleSlot),
+				leftFallbacks:
+					minimalist.formats?.[leftSlot] === undefined
+						? position === "top"
+							? topFallbacks
+							: bottomViewport
+								? [bottomMetadata]
+								: undefined
+						: undefined,
+				fitLeft:
+					minimalist.formats?.[leftSlot] === undefined
+						? undefined
+						: (budget) => label(leftSlot, budget),
+				fitRight: (budget) => label(rightSlot, budget),
+				leftCorner: position === "top" ? "╭" : "╰",
+				rightCorner: position === "top" ? "╮" : "╯",
+				renderBorder,
+			});
+		};
+		top = row("top");
+		bottom = row("bottom");
+	}
 	const content = editorLines.map(
 		(line) => `${renderBorder("│")} ${fillLine(line, contentWidth)} ${renderBorder("│")}`,
 	);

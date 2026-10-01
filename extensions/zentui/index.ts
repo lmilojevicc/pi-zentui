@@ -25,7 +25,7 @@ import {
 	hasUnsupportedComponentStyle,
 	type IconMode,
 	loadConfig,
-	type MinimalistConfig,
+	type MinimalistEditorStylePatch,
 	migrateComponentSelections,
 	type PathDisplayConfig,
 	type PolishedCopyFriendlyEditorStyleConfig,
@@ -56,6 +56,8 @@ import {
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
 } from "./config";
+import { editorDemandsCustomVariable, editorMetadataReferences } from "./custom-variable-demand";
+import { CustomVariables } from "./custom-variables";
 import {
 	type EditorTransferFailureReason,
 	replaceEditorComponentWithExpandedText,
@@ -246,6 +248,7 @@ export default function (pi: ExtensionAPI) {
 	let stopMinimalistDurationUpdates: () => void = () => {};
 	let minimalistDurationUpdatesActive = false;
 	let minimalistDecorationActive = false;
+	let customVariableSessionReady = false;
 	let sessionTimerRequirements = "";
 	let lastDurationLabel = "";
 	let lastProjectCwd: string | undefined;
@@ -291,8 +294,23 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	const customVariables = new CustomVariables(
+		pi.events,
+		(key) =>
+			customVariableSessionReady &&
+			sessionLifecycle.isCurrent() &&
+			effectiveEditorEnabled() &&
+			ownsInstalledEditorFactory() &&
+			minimalistDecorationActive &&
+			editorDemandsCustomVariable(currentConfig, key),
+		() => {
+			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return;
+			requestEditorRender?.();
+		},
+	);
 	const refresh = () => {
 		if (!sessionLifecycle.isCurrent()) return;
+		customVariables.reconcile();
 		codexQuota.reconcile();
 		requestFooterRender?.();
 		requestEditorRender?.();
@@ -401,7 +419,11 @@ export default function (pi: ExtensionAPI) {
 		const references = installedFooterReferences();
 		return usageTotals.resolve(
 			ctx,
-			(effectiveEditorEnabled() && ownsInstalledEditorFactory()) ||
+			(effectiveEditorEnabled() &&
+				ownsInstalledEditorFactory() &&
+				["tokens", "input_tokens", "output_tokens", "cost", "cache_hit"].some((name) =>
+					editorMetadataReferences(currentConfig).has(name),
+				)) ||
 				["tokens", "cache_read", "cache_write", "cost"].some((name) => references.has(name)),
 		);
 	};
@@ -632,7 +654,7 @@ export default function (pi: ExtensionAPI) {
 			effectiveEditorEnabled() &&
 			ownsInstalledEditorFactory() &&
 			currentConfig.components.editor.style === "minimalist" &&
-			currentConfig.components.editor.styles.minimalist.showTimer;
+			editorMetadataReferences(currentConfig).has("turn_duration");
 		if (!needed) {
 			stopMinimalistDurationUpdates();
 			stopMinimalistDurationUpdates = () => {};
@@ -655,6 +677,7 @@ export default function (pi: ExtensionAPI) {
 		const next = sessionLifecycle.isCurrent() && active && ownsInstalledEditorFactory();
 		if (minimalistDecorationActive === next) return;
 		minimalistDecorationActive = next;
+		customVariables.reconcile();
 		reconcileAgentTimer();
 	};
 
@@ -869,6 +892,12 @@ export default function (pi: ExtensionAPI) {
 						ahead: state.ahead,
 						behind: state.behind,
 						costLabel: state.costLabel,
+						customVariables: customVariables.snapshot(),
+						modelId: state.modelId,
+						modelName: state.modelName,
+						provider: state.providerLabel,
+						inputTokens: state.usageTotals.input,
+						outputTokens: state.usageTotals.output,
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
@@ -928,6 +957,12 @@ export default function (pi: ExtensionAPI) {
 						ahead: state.ahead,
 						behind: state.behind,
 						costLabel: state.costLabel,
+						customVariables: customVariables.snapshot(),
+						modelId: state.modelId,
+						modelName: state.modelName,
+						provider: state.providerLabel,
+						inputTokens: state.usageTotals.input,
+						outputTokens: state.usageTotals.output,
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
@@ -1350,6 +1385,8 @@ export default function (pi: ExtensionAPI) {
 		codexQuota.stop();
 		usageTotals.invalidate();
 		footerTelemetry.reset();
+		customVariableSessionReady = false;
+		customVariables.clear();
 		const lifecycleGeneration = sessionLifecycle.start();
 		activeEditor = undefined;
 		// A new generation must not expose or route extension segments through the previous
@@ -1374,6 +1411,7 @@ export default function (pi: ExtensionAPI) {
 		minimalistProjectRoot = undefined;
 		repositoryRoots.reset();
 		installUi(ctx);
+		customVariableSessionReady = isTuiContext(ctx);
 		workingLine.startSession(ctx);
 		workingLineSessionReady = true;
 		scheduleEditorReconciliation(ctx);
@@ -1474,10 +1512,17 @@ export default function (pi: ExtensionAPI) {
 			currentConfig = saveAccentRailEditorStylePatch(patch);
 			refresh();
 		},
-		setMinimalist(patch: Partial<MinimalistConfig>, ctx: ExtensionContext) {
+		setMinimalist(patch: MinimalistEditorStylePatch, ctx: ExtensionContext) {
 			currentConfig = saveMinimalistEditorStylePatch(patch);
+			customVariables.reconcile();
+			syncFooterUsage(ctx);
 			reconcileAgentTimer();
-			reconcileProjectRefresh(ctx, patch.pathDisplay !== undefined || patch.showGit !== undefined);
+			reconcileProjectRefresh(
+				ctx,
+				patch.formats !== undefined ||
+					patch.pathDisplay !== undefined ||
+					patch.showGit !== undefined,
+			);
 			refresh();
 		},
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
@@ -1591,6 +1636,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		customVariableSessionReady = false;
+		customVariables.clear();
 		usageTotals.invalidate();
 		footerTelemetry.reset();
 		workingLineSessionReady = false;

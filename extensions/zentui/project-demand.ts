@@ -1,4 +1,5 @@
 import type { ZentuiConfig } from "./config";
+import { minimalistTemplateReferences } from "./minimalist-template";
 
 /** References include both wide and responsive compact formats, but only owned surfaces. */
 export function projectDemand(
@@ -9,6 +10,9 @@ export function projectDemand(
 	const starship = config.components.footer.styles.starship;
 	const minimalist = config.components.editor.styles.minimalist;
 	const has = (...names: string[]) => names.some((name) => references.has(name));
+	const editorReferences = ownsMinimalist
+		? minimalistTemplateReferences(minimalist)
+		: new Set<string>();
 	const git =
 		has(
 			"git_branch",
@@ -19,11 +23,10 @@ export function projectDemand(
 			"git_metrics",
 			"git_added",
 			"git_deleted",
-		) ||
-		(ownsMinimalist && minimalist.showGit);
+		) || ["git_branch", "git_status"].some((name) => editorReferences.has(name));
 	const root =
 		(references.has("cwd") && starship.pathDisplay.mode === "repository") ||
-		(ownsMinimalist && minimalist.pathDisplay === "project");
+		(editorReferences.has("cwd") && minimalist.pathDisplay === "project");
 	const runtime = has("runtime");
 	const packageVersion = has("package", "package_version");
 	return {
