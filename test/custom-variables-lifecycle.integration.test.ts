@@ -16,6 +16,14 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			Object.assign(runtime.config?.components.editor ?? {}, patch);
 			return runtime.config;
 		},
+		saveFooterComponentPatch(patch: object) {
+			Object.assign(runtime.config?.components.footer ?? {}, patch);
+			return runtime.config;
+		},
+		savePolishedEditorStylePatch(patch: object) {
+			Object.assign(runtime.config?.components.editor.styles.opencode ?? {}, patch);
+			return runtime.config;
+		},
 		saveMinimalistEditorStylePatch(patch: object) {
 			Object.assign(runtime.config?.components.editor.styles.minimalist ?? {}, patch);
 			return runtime.config;
@@ -59,6 +67,7 @@ function harness(mode = "tui") {
 	};
 	let factory: Factory | undefined;
 	let editor: Editor | undefined;
+	let footer: { render(width: number): string[]; dispose?(): void } | undefined;
 	let text = "retained draft";
 	const requestRender = vi.fn();
 	const theme = {
@@ -97,7 +106,14 @@ function harness(mode = "tui") {
 			text = value;
 			editor?.setText(value);
 		},
-		setFooter: vi.fn(),
+		setFooter(value?: (...args: never[]) => NonNullable<typeof footer>) {
+			footer?.dispose?.();
+			footer = value?.(
+				{ requestRender } as never,
+				theme as never,
+				{ getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} } as never,
+			);
+		},
 		setStatus: vi.fn(),
 	};
 	const ctx = {
@@ -126,6 +142,7 @@ function harness(mode = "tui") {
 		requestRender,
 		render: (width = 140) => editor?.render(width).join("\n") ?? "",
 		editorText: () => editor?.getText() ?? text,
+		renderFooter: () => footer?.render(100).join("\n") ?? "",
 		async emit(name: string) {
 			for (const handler of handlers.get(name) ?? []) await handler({}, ctx);
 		},
@@ -243,4 +260,58 @@ describe("custom variable editor lifecycle", () => {
 		expect(headless.capability().active).toBe(false);
 		await headless.emit("session_shutdown");
 	});
+});
+
+it.each(["opencode", "opencode-copy-friendly"] as const)(
+	"activates %s only after safe rendering and drops stale values on a style transition",
+	async (style) => {
+		if (!runtime.config) throw new Error("missing config");
+		runtime.config.components.editor.style = style;
+		runtime.config.components.editor.styles[style].metadataFormat = "$quota";
+		runtime.config.components.editor.styles[style].variables = { quota: "@scope/usage:quota" };
+		const h = harness();
+		await h.emit("session_start");
+		expect(h.capability().active).toBe(false);
+		h.render();
+		expect(h.capability().active).toBe(true);
+		h.publish("quota first");
+		expect(h.render()).toContain("quota first");
+		h.hook("setEditorComponent", { style: "accent-rail" });
+		expect(h.capability().active).toBe(false);
+		h.render();
+		h.hook("setEditorComponent", { style });
+		h.render();
+		expect(h.render()).not.toContain("quota first");
+		h.publish("quota second");
+		expect(h.render()).toContain("quota second");
+		await h.emit("session_shutdown");
+	},
+);
+
+it("retains a shared value while Footer still consumes it after Editor disable, then clears after both release", async () => {
+	if (!runtime.config) throw new Error("missing config");
+	Object.assign(runtime.config.components.footer.styles.starship, {
+		format: "$quota",
+		variables: { quota: "@scope/usage:quota" },
+		responsive: false,
+	});
+	const h = harness();
+	await h.emit("session_start");
+	h.render();
+	h.hook("setFooterComponent", { style: "starship" });
+	h.publish("shared quota");
+	expect(h.renderFooter()).toContain("shared quota");
+	h.hook("setEditorComponent", { enabled: false });
+	expect(h.capability().active).toBe(true);
+	expect(h.renderFooter()).toContain("shared quota");
+	h.hook("setEditorComponent", { enabled: true });
+	h.render();
+	expect(h.render()).toContain("shared quota");
+	h.hook("setEditorComponent", { enabled: false });
+	h.hook("setFooterComponent", { style: "native" });
+	expect(h.capability().active).toBe(false);
+	h.hook("setEditorComponent", { enabled: true });
+	h.render();
+	expect(h.render()).not.toContain("shared quota");
+	await h.emit("session_shutdown");
 });

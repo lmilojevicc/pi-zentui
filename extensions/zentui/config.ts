@@ -22,6 +22,7 @@ import {
 	componentColorKeys,
 	normalizeComponentColors,
 } from "./component-colors";
+import { normalizeTemplateVariables } from "./custom-variable-format";
 import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
 import {
 	ICON_GLYPH_KEYS,
@@ -125,12 +126,31 @@ export type FooterSegmentsConfig = {
 	packageVersion: boolean;
 };
 
-export type PolishedEditorStyleConfig = {
+export type TemplateVariableConfig = {
+	variables?: Record<string, string>;
+	extensionColorMode?: ExtensionStatusColorMode;
+};
+export const OPENCODE_FORMAT_VARIABLES = [
+	"model",
+	"model_id",
+	"model_name",
+	"provider",
+	"thinking",
+	"session_name",
+	"context",
+	"tokens",
+	"cache_hit",
+	"codex_quota",
+	"sep",
+	"separator",
+] as const;
+
+export type PolishedEditorStyleConfig = TemplateVariableConfig & {
 	metadataFormat: string;
 	completionMenu: CompletionMenuStyle;
 };
 
-export type PolishedCopyFriendlyEditorStyleConfig = {
+export type PolishedCopyFriendlyEditorStyleConfig = TemplateVariableConfig & {
 	metadataFormat: string;
 	completionMenu: CompletionMenuStyle;
 };
@@ -207,7 +227,7 @@ export type SelectorBordersComponentConfig = {
 	colorSource: ColorSource;
 };
 
-export type StarshipFooterStyleConfig = {
+export type StarshipFooterStyleConfig = TemplateVariableConfig & {
 	format: string;
 	responsive: boolean;
 	compactFormat: string;
@@ -1050,6 +1070,20 @@ function recordValue(value: unknown): ConfigRecord {
 	return isRecord(value) ? value : {};
 }
 
+function templateVariableOptions(
+	record: ConfigRecord,
+	reserved: readonly string[],
+): TemplateVariableConfig {
+	return {
+		...(isRecord(record.variables)
+			? { variables: normalizeTemplateVariables(record.variables, reserved) }
+			: {}),
+		...(isExtensionStatusColorMode(record.extensionColorMode)
+			? { extensionColorMode: record.extensionColorMode }
+			: {}),
+	};
+}
+
 function resolvedValue(
 	canonical: ConfigRecord,
 	canonicalKey: string,
@@ -1386,10 +1420,12 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			styles: {
 				opencode: {
+					...templateVariableOptions(opencode, OPENCODE_FORMAT_VARIABLES),
 					metadataFormat: parseNonEmptyString(metadataFormat, DEFAULT_EDITOR_METADATA_FORMAT),
 					completionMenu: parseCompletionMenuStyle(opencode.completionMenu),
 				},
 				"opencode-copy-friendly": {
+					...templateVariableOptions(opencodeCopyFriendly, OPENCODE_FORMAT_VARIABLES),
 					metadataFormat: parseNonEmptyString(
 						lowRailMetadataFormat,
 						DEFAULT_EDITOR_METADATA_FORMAT,
@@ -1551,6 +1587,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			styles: {
 				starship: {
+					...templateVariableOptions(starship, [
+						...FOOTER_FORMAT_VARIABLES,
+						...Object.keys(FOOTER_FORMAT_ALIASES),
+					]),
 					format:
 						typeof resolvedValue(starship, "format", config, "footerFormat") === "string"
 							? (resolvedValue(starship, "format", config, "footerFormat") as string)
@@ -1879,8 +1919,54 @@ export function saveEditorComponentPatch(
 	);
 }
 
+export type TemplateVariablePatch = {
+	variables?: Record<string, string | null>;
+	extensionColorMode?: ExtensionStatusColorMode | null;
+};
+export type PolishedEditorStylePatch = Partial<
+	Omit<PolishedEditorStyleConfig, keyof TemplateVariableConfig>
+> &
+	TemplateVariablePatch;
+export type PolishedCopyFriendlyEditorStylePatch = Partial<
+	Omit<PolishedCopyFriendlyEditorStyleConfig, keyof TemplateVariableConfig>
+> &
+	TemplateVariablePatch;
+export type StarshipFooterStylePatch = Partial<
+	Omit<StarshipFooterStyleConfig, keyof TemplateVariableConfig>
+> &
+	TemplateVariablePatch;
+
+function applyTemplateVariablePatch(
+	record: ConfigRecord,
+	owner: "editor" | "footer",
+	id: string,
+	patch: TemplateVariablePatch,
+	reserved: readonly string[],
+): void {
+	const style = recordValue(
+		recordValue(recordValue(recordValue(record.components)[owner]).styles)[id],
+	);
+	if (patch.variables !== undefined) {
+		const saved = { ...recordValue(style.variables) };
+		for (const [name, key] of Object.entries(patch.variables)) {
+			if (key === null) delete saved[name];
+			else if (
+				Object.hasOwn(normalizeTemplateVariables({ [name]: key }, reserved), name) &&
+				(Object.hasOwn(saved, name) ||
+					Object.keys(normalizeTemplateVariables(saved, reserved)).length < MAX_CUSTOM_VARIABLES)
+			)
+				saved[name] = key;
+		}
+		if (Object.keys(saved).length) style.variables = saved;
+		else delete style.variables;
+	}
+	if (patch.extensionColorMode === null) delete style.extensionColorMode;
+	else if (isExtensionStatusColorMode(patch.extensionColorMode))
+		style.extensionColorMode = patch.extensionColorMode;
+}
+
 export function savePolishedEditorStylePatch(
-	patch: Partial<PolishedEditorStyleConfig>,
+	patch: PolishedEditorStylePatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
@@ -1891,11 +1977,13 @@ export function savePolishedEditorStylePatch(
 			if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
 		},
 		path,
+		(record) =>
+			applyTemplateVariablePatch(record, "editor", "opencode", patch, OPENCODE_FORMAT_VARIABLES),
 	);
 }
 
 export function savePolishedCopyFriendlyEditorStylePatch(
-	patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
+	patch: PolishedCopyFriendlyEditorStylePatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
@@ -1906,6 +1994,14 @@ export function savePolishedCopyFriendlyEditorStylePatch(
 			if (patch.completionMenu !== undefined) style.completionMenu = patch.completionMenu;
 		},
 		path,
+		(record) =>
+			applyTemplateVariablePatch(
+				record,
+				"editor",
+				"opencode-copy-friendly",
+				patch,
+				OPENCODE_FORMAT_VARIABLES,
+			),
 	);
 }
 
@@ -2138,7 +2234,7 @@ export function saveFooterComponentPatch(
 
 function applyStarshipStylePatch(
 	style: StarshipFooterStyleConfig,
-	patch: Partial<StarshipFooterStyleConfig>,
+	patch: StarshipFooterStylePatch,
 ): void {
 	if (patch.format !== undefined) style.format = patch.format;
 	if (patch.responsive !== undefined) style.responsive = patch.responsive;
@@ -2174,13 +2270,18 @@ function applyStarshipStylePatch(
 }
 
 export function saveStarshipFooterStylePatch(
-	patch: Partial<StarshipFooterStyleConfig>,
+	patch: StarshipFooterStylePatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
 		["footer"],
 		(components) => applyStarshipStylePatch(components.footer.styles.starship, patch),
 		path,
+		(record) =>
+			applyTemplateVariablePatch(record, "footer", "starship", patch, [
+				...FOOTER_FORMAT_VARIABLES,
+				...Object.keys(FOOTER_FORMAT_ALIASES),
+			]),
 	);
 }
 

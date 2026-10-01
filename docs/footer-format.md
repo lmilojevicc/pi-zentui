@@ -158,6 +158,57 @@ Example:
 
 These tokens are structural in compact mode: `$wrap` and `$wrap_sep` render no text themselves, and `$extensions` is empty when no third-party status is active.
 
+## Custom extension values
+
+Publishers can provide named text through `zentui:variable` protocol v1, without
+owning or wrapping Footer. Map stable publisher keys to simple local names under
+`components.footer.styles.starship.variables`, then reference the names in either
+template:
+
+```json
+{
+  "components": {
+    "footer": {
+      "styles": {
+        "starship": {
+          "variables": { "quota": "@scope/usage:quota" },
+          "extensionColorMode": "original",
+          "format": "$cwd$fill($quota)($sep$cost)",
+          "compactFormat": "$cwd$fill($quota)$wrap_sep$tokens"
+        }
+      }
+    }
+  }
+}
+```
+
+These JSON-only aliases cannot replace built-in variables, aliases such as
+`branch`, structural tokens, or prototype names. Missing values are empty;
+conditional groups remove associated optional text. No custom value is appended
+outside an explicit template. A compact-only reference creates demand only
+while responsive mode is enabled. Native and Hidden never acquire this registry
+on behalf of Footer, and configuring aliases does not select Starship or enable
+Editor.
+
+Original is the default color mode and preserves permitted publisher SGR and
+HTTP(S) hyperlinks. Zentui strips incoming styling and uses Footer's own
+`colors.extensionStatus` role and color source. These choices are independent of
+Editor and of the existing `extensionStatuses.colorModes` preferences.
+
+Values are kept whole through wide alignment, reflow, and compact packing.
+When a value would be partially cropped or split, Footer recomposes without it
+instead of showing misleading partial quotas or labels. Width fitting uses safe
+internal probes that are restored before terminal output. Built-in narrow-width
+behavior remains unchanged, and template literals still own their spacing.
+
+The compact `$extensions` token above its existing configuration section
+continues to expand `ctx.ui.setStatus()` statuses; it is **not** an aggregate of
+new custom values. A publisher can use `setStatus()` as its own fallback when
+capability is inactive, and must remove only its own fallback when active to
+avoid duplicate output. See [publisher protocol](./configuration.md#custom-value-publisher-protocol-v1)
+for capability, bounds, session lifecycle, and ownership rules. Disabling one
+surface does not evict a value still consumed by another owned surface.
+
 ## `$fill` behavior
 
 In the wide template:

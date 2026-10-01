@@ -2,10 +2,17 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor, editorShellColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
+import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config";
+import { normalizeTemplateVariables } from "./custom-variable-format";
+import { sanitizeCustomVariableText } from "./custom-variables";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
-import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
+import {
+	EDITOR_ACCENT_FALLBACK,
+	renderStyleForSource,
+	renderStyleForSourceOrFallback,
+	safeThemeFg,
+} from "./style";
 
 export type EditorMetadataValues = {
 	codexQuota?: CodexQuota;
@@ -20,6 +27,7 @@ export type EditorMetadataValues = {
 	inputTokens?: number;
 	outputTokens?: number;
 	cacheHitRate?: number;
+	customVariables?: ReadonlyMap<string, string>;
 };
 
 type RenderedTokens = {
@@ -181,6 +189,25 @@ function renderVariable(
 	config: ZentuiConfig,
 	shellMode = false,
 ): { plain: string; styled: string } {
+	const editor = config.components.editor;
+	const style =
+		editor.style === "opencode-copy-friendly"
+			? editor.styles[editor.style]
+			: editor.styles.opencode;
+	const aliases = normalizeTemplateVariables(style.variables, OPENCODE_FORMAT_VARIABLES);
+	if (Object.hasOwn(aliases, name)) {
+		const raw = values.customVariables?.get(aliases[name]) ?? "";
+		const text = sanitizeCustomVariableText(raw, style.extensionColorMode ?? "original");
+		const plain = sanitizeEditorMetadataText(text);
+		return {
+			plain,
+			styled: plain
+				? style.extensionColorMode === "zentui"
+					? renderStyleForSource(uiTheme, editor.colorSource, config.colors.extensionStatus, plain)
+					: text
+				: "",
+		};
+	}
 	if (name === "codex_quota") {
 		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
 		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };

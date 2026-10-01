@@ -635,10 +635,13 @@ pi.events.emit("zentui:variable", { key, text: undefined });
 
 Zentui adds `version: 1` and `supported: true` to a mutable probe. Optional
 `key` tests demand for that particular publication; without it, `active`
-reports whether any custom value is demanded. Active requires an owned,
-enabled, safely decorated Minimalist editor in the current TUI session and a
-referencing alias or aggregate. It describes availability, not a guarantee of
-visibility at the current width. Startup probes may precede the first safe
+reports whether any custom value is demanded. Active requires the current TUI
+session and either an owned, enabled, safely decorated Minimalist/Opencode
+editor with a referencing alias or aggregate, or an owned Starship Footer with
+a referencing alias in its wide or responsive compact template. Availability
+is the union of independently owned consumers: disabling Editor never drops a
+value still demanded by Footer. It is not a guarantee of visibility at the
+current width. Startup probes may precede the first safe
 editor render: probe again on the publisher's next refresh. This protocol
 adds no Zentui poller and no capability-change notification.
 
@@ -651,8 +654,7 @@ while inactive are ignored. Session replacement, shutdown, disable, loss of
 ownership, or loss of template demand drops inactive values; publishers must
 republish after reactivation. Publishers own their refresh resources, data
 freshness, and stale markers. Zentui neither fetches account data nor persists
-these values. Opencode/Footer consumption is not part of this first slice;
-Working-line protocol v1 remains unchanged.
+these values. Working-line protocol v1 remains unchanged.
 
 ### Opencode completion menu
 
@@ -707,6 +709,48 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$codex_quota` | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` |
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
+
+### Custom values in Opencode metadata
+
+Both Opencode styles can reference the same event-bus values used by Minimalist.
+Each style has independent `variables` and `extensionColorMode` settings:
+
+```json
+{
+  "components": {
+    "editor": {
+      "styles": {
+        "opencode": {
+          "variables": { "quota": "@scope/usage:quota" },
+          "metadataFormat": "$model( · $quota)$fill($session_name)",
+          "extensionColorMode": "original"
+        },
+        "opencode-copy-friendly": {
+          "variables": { "quota": "@scope/usage:quota" },
+          "metadataFormat": "$model$fill($quota)"
+        }
+      }
+    }
+  }
+}
+```
+
+Aliases and these formats are JSON-only for Opencode; Minimalist's settings
+controls still edit only Minimalist. Missing color mode means Original; Zentui
+uses Editor's color source and the historical extension-status fallback style.
+Custom values yield whole before built-in metadata when the row cannot fit.
+No value is automatically appended to an explicit format. Enabling/disabling
+Editor or changing a format never changes Footer choices.
+
+Starship independently supports aliases under
+`components.footer.styles.starship.variables` and Original/Zentui under
+`extensionColorMode`; both wide `format` and responsive `compactFormat` can
+reference them. See [custom Footer values](./footer-format.md#custom-extension-values).
+Native/Hidden Footer and existing `setStatus` placement/color choices are
+unchanged. Footer's compact `$extensions` continues to mean Pi's keyed extension
+statuses, not this new variable registry. Removing an alias/format reference
+releases only that consumer's demand; values survive while any other owned
+consumer still references them.
 
 Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 

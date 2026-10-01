@@ -110,6 +110,7 @@ export type EditorMeta = {
 	inputTokens?: number;
 	outputTokens?: number;
 	cacheHitRate?: number;
+	customVariables?: ReadonlyMap<string, string>;
 };
 
 export type PolishedEditorFrameOptions = {
@@ -928,7 +929,7 @@ export function renderPolishedEditorFrame({
 	);
 	const innerWidth = Math.max(0, width - railWidth);
 	const lowRailContinuation = " ".repeat(promptWidth);
-	const renderMetadata = (codexQuota?: CodexQuota) =>
+	const renderMetadata = (codexQuota?: CodexQuota, includeCustom = true) =>
 		renderEditorMetadataFormatSplit(
 			selectedPolishedConfig(config)?.metadataFormat ??
 				config.components.editor.styles.opencode.metadataFormat,
@@ -945,6 +946,7 @@ export function renderPolishedEditorFrame({
 				inputTokens: modelMeta.inputTokens,
 				outputTokens: modelMeta.outputTokens,
 				cacheHitRate: modelMeta.cacheHitRate,
+				customVariables: includeCustom ? modelMeta.customVariables : undefined,
 			},
 			uiTheme,
 			config,
@@ -955,12 +957,16 @@ export function renderPolishedEditorFrame({
 	const metadataBudget = isLowRailPolishedStyle(config.components.editor.style)
 		? width - 1
 		: innerWidth;
-	const naturalWidth =
+	const naturalWidth = () =>
 		Object.values(metadataZones).reduce((sum, zone) => sum + visibleWidth(zone), 0) +
 		Object.values(metadataZones).filter(Boolean).length -
 		1 +
 		(rightStatus ? visibleWidth(rightStatus) + 1 : 0);
-	if (modelMeta.codexQuota && naturalWidth > metadataBudget) metadataZones = renderMetadata();
+	// Configured extension values yield whole before any built-in metadata is cropped.
+	const includeCustom = naturalWidth() <= metadataBudget;
+	if (!includeCustom) metadataZones = renderMetadata(modelMeta.codexQuota, false);
+	if (modelMeta.codexQuota && naturalWidth() > metadataBudget)
+		metadataZones = renderMetadata(undefined, includeCustom);
 	const lowRailMeta = composeEditorMetadataLine(metadataZones, rightStatus, Math.max(0, width - 1));
 	const railedMeta = composeEditorMetadataLine(metadataZones, rightStatus, innerWidth);
 
@@ -1054,6 +1060,8 @@ export class PolishedEditor extends CustomEditor {
 
 	private readonly mouse = new EditorMouseForwarder();
 	private workingLineBorderCapable = false;
+	private metadataDecorated = false;
+	private metadataDecoratedStyle?: EditorStyle;
 
 	constructor(
 		tui: TUI,
@@ -1066,6 +1074,7 @@ export class PolishedEditor extends CustomEditor {
 		getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
 		onMinimalistDecorationChange: (active: boolean) => void = () => {},
 		private readonly onWorkingLineBorderCapabilityChange: () => void = () => {},
+		private readonly onMetadataDecorationChange: () => void = () => {},
 	) {
 		super(tui, theme, keybindings, { paddingX: 0 });
 		this.borderColor = (text: string) => safeThemeFg(uiTheme, "border", text);
@@ -1100,6 +1109,20 @@ export class PolishedEditor extends CustomEditor {
 		}
 	}
 
+	isMetadataDecorated(): boolean {
+		return (
+			this.metadataDecorated &&
+			this.metadataDecoratedStyle === this.getConfig().components.editor.style
+		);
+	}
+	private reportMetadataDecoration(active: boolean): void {
+		const style = active ? this.getConfig().components.editor.style : undefined;
+		if (this.metadataDecorated === active && this.metadataDecoratedStyle === style) return;
+		this.metadataDecorated = active;
+		this.metadataDecoratedStyle = style;
+		this.onMetadataDecorationChange();
+	}
+
 	private reportMinimalistDecoration(active: boolean): void {
 		this.onMinimalistDecorationChange(active);
 	}
@@ -1120,6 +1143,7 @@ export class PolishedEditor extends CustomEditor {
 	};
 
 	private renderFallback(lines: string[], width: number): string[] {
+		this.reportMetadataDecoration(false);
 		this.reportWorkingLineBorder(false);
 		return clampRenderedLines(lines, width);
 	}
@@ -1128,6 +1152,7 @@ export class PolishedEditor extends CustomEditor {
 		try {
 			return this.mouse.rendered(this.renderDecorated(width));
 		} catch (error) {
+			this.reportMetadataDecoration(false);
 			this.reportWorkingLineBorder(false);
 			throw error;
 		}
@@ -1140,6 +1165,7 @@ export class PolishedEditor extends CustomEditor {
 			return this.renderFallback(this.renderBase(width), width);
 		}
 		if (config.components.editor.style === "accent-rail") {
+			this.reportMetadataDecoration(false);
 			this.reportWorkingLineBorder(false);
 			this.reportMinimalistDecoration(false);
 			if (width < ACCENT_RAIL_CHROME_WIDTH + 1) {
@@ -1202,6 +1228,7 @@ export class PolishedEditor extends CustomEditor {
 					trustedBaseFrame: true,
 					borderColor: this.borderColor,
 				});
+				this.reportMetadataDecoration(result.decorated);
 				this.reportMinimalistDecoration(result.decorated);
 				if (!result.decorated) this.reportWorkingLineBorder(false);
 				return result.lines;
@@ -1243,7 +1270,10 @@ export class PolishedEditor extends CustomEditor {
 				trustedBaseFrame: true,
 				borderColor: this.borderColor,
 			});
-			if (result.decorated) return result.lines;
+			if (result.decorated) {
+				this.reportMetadataDecoration(true);
+				return result.lines;
+			}
 		} catch {
 			// Decoration is optional; preserve the completed same-render rows below.
 		}
@@ -1261,6 +1291,8 @@ export class WrappedPolishedEditor implements EditorComponent {
 
 	private readonly mouse = new EditorMouseForwarder();
 	private workingLineBorderCapable = false;
+	private metadataDecorated = false;
+	private metadataDecoratedStyle?: EditorStyle;
 
 	constructor(
 		private readonly base: WrappedEditor,
@@ -1271,6 +1303,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 		private readonly getMinimalistMetadata: () => MinimalistEditorMetadata = () => ({ cwd: "" }),
 		private readonly onMinimalistDecorationChange: (active: boolean) => void = () => {},
 		private readonly onWorkingLineBorderCapabilityChange: () => void = () => {},
+		private readonly onMetadataDecorationChange: () => void = () => {},
 	) {
 		if (typeof base.handleMouse === "function") {
 			this.handleMouse = (event) => {
@@ -1376,6 +1409,20 @@ export class WrappedPolishedEditor implements EditorComponent {
 		this.base.disableSubmit = value;
 	}
 
+	isMetadataDecorated(): boolean {
+		return (
+			this.metadataDecorated &&
+			this.metadataDecoratedStyle === this.getConfig().components.editor.style
+		);
+	}
+	private reportMetadataDecoration(active: boolean): void {
+		const style = active ? this.getConfig().components.editor.style : undefined;
+		if (this.metadataDecorated === active && this.metadataDecoratedStyle === style) return;
+		this.metadataDecorated = active;
+		this.metadataDecoratedStyle = style;
+		this.onMetadataDecorationChange();
+	}
+
 	private reportMinimalistDecoration(active: boolean): void {
 		this.onMinimalistDecorationChange(active);
 	}
@@ -1396,6 +1443,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 	};
 
 	private renderFallback(lines: string[], width: number): string[] {
+		this.reportMetadataDecoration(false);
 		this.reportWorkingLineBorder(false);
 		return clampRenderedLines(lines, width);
 	}
@@ -1404,6 +1452,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 		try {
 			return this.mouse.rendered(this.renderDecorated(width));
 		} catch (error) {
+			this.reportMetadataDecoration(false);
 			this.reportWorkingLineBorder(false);
 			throw error;
 		}
@@ -1416,6 +1465,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 			return this.renderFallback(this.renderBase(width), width);
 		}
 		if (config.components.editor.style === "accent-rail") {
+			this.reportMetadataDecoration(false);
 			this.reportWorkingLineBorder(false);
 			this.reportMinimalistDecoration(false);
 			if (width < ACCENT_RAIL_CHROME_WIDTH + 1) {
@@ -1492,6 +1542,7 @@ export class WrappedPolishedEditor implements EditorComponent {
 						borderColor: this.borderColor,
 					});
 					if (result.decorated) {
+						this.reportMetadataDecoration(true);
 						this.reportMinimalistDecoration(true);
 						return result.lines;
 					}
@@ -1544,7 +1595,10 @@ export class WrappedPolishedEditor implements EditorComponent {
 		} catch {
 			// Decoration is optional; preserve the completed same-render rows below.
 		}
-		if (result?.decorated) return result.lines;
+		if (result?.decorated) {
+			this.reportMetadataDecoration(true);
+			return result.lines;
+		}
 		return this.renderFallback(captured.value, width);
 	}
 

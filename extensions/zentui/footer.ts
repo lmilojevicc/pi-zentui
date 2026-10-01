@@ -5,7 +5,9 @@ import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
-import { FOOTER_FORMAT_ALIASES } from "./config";
+import { FOOTER_FORMAT_ALIASES, FOOTER_FORMAT_VARIABLES } from "./config";
+import { AtomicTemplateValues, normalizeTemplateVariables } from "./custom-variable-format";
+import { sanitizeCustomVariableText } from "./custom-variables";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	collectExtensionStatusSegments,
@@ -198,6 +200,7 @@ export function installFooter(
 		getThinkingLevel?: () => string | undefined;
 		getLiveContext?: () => LiveContextOverride | undefined;
 		getCodexQuota?: () => CodexQuota | undefined;
+		getCustomVariables?: () => ReadonlyMap<string, string>;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
 	},
@@ -222,10 +225,51 @@ export function installFooter(
 				width: number,
 				showQuota = true,
 				contextSnapshot?: ContextUsageSnapshot,
+				excludedCustom: ReadonlySet<string> = new Set(),
 			): string[] {
 				if (width <= 0) return [""];
 				const config = getConfig();
 				const footer = config.components.footer;
+				const aliases = normalizeTemplateVariables(footer.styles.starship.variables, [
+					...FOOTER_FORMAT_VARIABLES,
+					...Object.keys(FOOTER_FORMAT_ALIASES),
+				]);
+				const published = hooks.getCustomVariables?.() ?? new Map<string, string>();
+				const customTexts = new Map<string, string>();
+				for (const key of Object.values(aliases)) {
+					if (excludedCustom.has(key)) continue;
+					const raw = published.get(key);
+					if (!raw) continue;
+					const text = sanitizeCustomVariableText(
+						raw,
+						footer.styles.starship.extensionColorMode ?? "original",
+					);
+					if (visibleWidth(text))
+						customTexts.set(
+							key,
+							footer.styles.starship.extensionColorMode === "zentui"
+								? renderStyleForSource(
+										theme,
+										footer.colorSource,
+										componentColor(config, "footer", "extensionStatus"),
+										text,
+									)
+								: text,
+						);
+				}
+				const atomicCustom = new AtomicTemplateValues(
+					customTexts,
+					customTexts.size
+						? [
+								JSON.stringify(state),
+								ctx.cwd,
+								JSON.stringify(config.icons),
+								footer.styles.starship.format,
+								footer.styles.starship.compactFormat,
+								...footerData.getExtensionStatuses().values(),
+							]
+						: [],
+				);
 				const quota =
 					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
 				const styledQuota = renderCodexQuota(quota, theme, config, "footer");
@@ -582,7 +626,7 @@ export function installFooter(
 									)
 								: "";
 						default:
-							return "";
+							return Object.hasOwn(aliases, name) ? atomicCustom.resolve(aliases[name]) : "";
 					}
 				};
 				const branchParts: string[] = [];
@@ -806,7 +850,7 @@ export function installFooter(
 						(value) => !otherText.includes(value),
 					);
 					// Bounded fail-open fallback if every candidate collides with non-quota text.
-					if (!letter) return renderFooter(width, false, context);
+					if (!letter) return renderFooter(width, false, context, excludedCustom);
 					quotaProbe = codexQuotaText(quota).replace(/[a-z0-9]/gi, letter);
 					quotaLabel = styledQuota.replace(codexQuotaText(quota), quotaProbe);
 				}
@@ -842,7 +886,7 @@ export function installFooter(
 						innerWidth,
 					);
 				const frameRows = (rows: string[], source = [contentLeft, contentMiddle, contentRight]) => {
-					const framedRows = rows.map((row) => {
+					let framedRows = rows.map((row) => {
 						const framed = width > 2 ? ` ${truncateFooterText(row, width - 2, "")} ` : row;
 						return truncateFooterText(framed, width, "");
 					});
@@ -853,10 +897,19 @@ export function installFooter(
 								0,
 							);
 						// Recompose without quota if any occurrence was clipped, split, or omitted.
-						if (count(source) !== count(framedRows)) return renderFooter(width, false, context);
-						return framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
+						if (count(source) !== count(framedRows))
+							return renderFooter(width, false, context, excludedCustom);
+						framedRows = framedRows.map((row) => row.replaceAll(quotaProbe, codexQuotaText(quota)));
 					}
-					return framedRows;
+					const omitted = atomicCustom.omitted(source, framedRows);
+					if (omitted.length)
+						return renderFooter(
+							width,
+							showQuota,
+							context,
+							new Set([...excludedCustom, ...omitted]),
+						);
+					return atomicCustom.restore(framedRows);
 				};
 
 				if (!config.components.footer.styles.starship.responsive)

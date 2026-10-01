@@ -56,7 +56,11 @@ import {
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
 } from "./config";
-import { editorDemandsCustomVariable, editorMetadataReferences } from "./custom-variable-demand";
+import {
+	editorDemandsCustomVariable,
+	editorMetadataReferences,
+	footerDemandsCustomVariable,
+} from "./custom-variable-demand";
 import { CustomVariables } from "./custom-variables";
 import {
 	type EditorTransferFailureReason,
@@ -296,16 +300,22 @@ export default function (pi: ExtensionAPI) {
 
 	const customVariables = new CustomVariables(
 		pi.events,
-		(key) =>
-			customVariableSessionReady &&
-			sessionLifecycle.isCurrent() &&
-			effectiveEditorEnabled() &&
-			ownsInstalledEditorFactory() &&
-			minimalistDecorationActive &&
-			editorDemandsCustomVariable(currentConfig, key),
+		(key) => {
+			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return false;
+			return (
+				(effectiveEditorEnabled() &&
+					ownsInstalledEditorFactory() &&
+					activeEditor?.editor.isMetadataDecorated() === true &&
+					editorDemandsCustomVariable(currentConfig, key)) ||
+				(installedFooterKind === "starship" &&
+					ownsInstalledFooter() &&
+					footerDemandsCustomVariable(currentConfig, key))
+			);
+		},
 		() => {
 			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return;
 			requestEditorRender?.();
+			requestFooterRender?.();
 		},
 	);
 	const refresh = () => {
@@ -396,6 +406,7 @@ export default function (pi: ExtensionAPI) {
 			inputTokens: state.usageTotals.input,
 			outputTokens: state.usageTotals.output,
 			cacheHitRate: state.usageTotals.latestCacheHitRate,
+			customVariables: customVariables.snapshot(),
 		};
 	};
 	const getAgentDurationMs = () => agentDurationClock.elapsedMs();
@@ -861,6 +872,13 @@ export default function (pi: ExtensionAPI) {
 		if (workingLine.isAvailable()) requestEditorRender?.();
 	};
 
+	const editorMetadataDecorationChanged = (
+		editor: PolishedEditor | WrappedPolishedEditor,
+		generation: number,
+	) => {
+		if (isActiveEditor(editor, generation)) customVariables.reconcile();
+	};
+
 	const editorWorkingLineFrame = (
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
@@ -912,6 +930,7 @@ export default function (pi: ExtensionAPI) {
 					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
 				},
 				() => editorBorderCapabilityChanged(editor, generation),
+				() => editorMetadataDecorationChanged(editor, generation),
 			);
 			const observed = observeEditorFactory(ctx);
 			if (
@@ -977,6 +996,7 @@ export default function (pi: ExtensionAPI) {
 					if (isActiveEditor(editor, generation)) setMinimalistDecorationActive(active);
 				},
 				() => editorBorderCapabilityChanged(editor, generation),
+				() => editorMetadataDecorationChanged(editor, generation),
 			);
 			const observed = observeEditorFactory(ctx);
 			if (
@@ -1140,6 +1160,7 @@ export default function (pi: ExtensionAPI) {
 				getThinkingLevel,
 				getLiveContext: () => liveContext.get(),
 				getCodexQuota: () => codexQuota.get(),
+				getCustomVariables: () => customVariables.snapshot(),
 				getRepositoryRoot: (cwd) => repositoryRoots.cachedRootForCwd(cwd),
 				onDispose: () => clearFooterOwnership(ctx, token),
 			});
@@ -1497,15 +1518,17 @@ export default function (pi: ExtensionAPI) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
-		setPolished(patch: Partial<PolishedEditorStyleConfig>, _ctx: ExtensionContext) {
+		setPolished(patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) {
 			currentConfig = savePolishedEditorStylePatch(patch);
+			syncFooterUsage(ctx);
 			refresh();
 		},
 		setPolishedCopyFriendly(
 			patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
-			_ctx: ExtensionContext,
+			ctx: ExtensionContext,
 		) {
 			currentConfig = savePolishedCopyFriendlyEditorStylePatch(patch);
+			syncFooterUsage(ctx);
 			refresh();
 		},
 		setAccentRail(patch: Partial<AccentRailEditorStyleConfig>, _ctx: ExtensionContext) {
