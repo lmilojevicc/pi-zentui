@@ -1,6 +1,6 @@
 {
 	"name": "pi-zentui",
-	"version": "0.28.0",
+	"version": "0.29.0",
 	"description": "Modular UI components for Pi and Oh My Pi — customizable editors, messages, progress displays, and statuslines.",
 	"type": "module",
 	"license": "MIT",
