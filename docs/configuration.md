@@ -2,7 +2,7 @@
 
 [Back to README](../README.md) · [Footer format template](./footer-format.md)
 
-Zentui reads optional user configuration from `~/.pi/agent/zentui.json`. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
+Zentui reads optional user configuration from `~/.pi/agent/zentui.json` in Pi, or `~/.omp/agent/zentui.json` in Oh My Pi. The active host/profile agent-directory override is respected. Missing or invalid known values fall back to defaults. Unknown fields are ignored at runtime but preserved on disk by component save operations where they are user-owned migration or future-style data.
 
 ## Refresh and cache freshness
 
@@ -201,11 +201,11 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "viewportIndicators": true,
       "styles": {
         "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $codex_quota)",
+          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
           "completionMenu": "palette"
         },
         "accent-rail": {
@@ -583,7 +583,7 @@ configuration remain untouched. These settings never enable Footer or Working
 line.
 
 Built-ins are `$model`, `$model_id`, `$model_name`, `$provider`, `$thinking`,
-`$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
+`$fast_mode`, `$session_name`, `$turn_duration`, `$cost`, `$context`, `$cache_hit`,
 `$codex_quota`, `$cwd`, `$git_branch`, `$git_status`, `$tokens`, `$input_tokens`,
 and `$output_tokens`. `$turn_duration` is current/completed interaction time,
 not total session duration. Existing path, context, separator and color
@@ -702,6 +702,7 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$model_name` | display name; empty when unset |
 | `$provider` | formatted provider label |
 | `$thinking` | current level; empty when `off` |
+| `$fast_mode` | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
 | `$session_name` | current Pi session name; empty when unnamed |
 | `$context` | compact current context usage and window, for example `26.8%/272k` |
 | `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
@@ -754,7 +755,7 @@ consumer still references them.
 
 Model variables use Editor `colors.model` (legacy `editorModel`), provider uses `colors.provider` (legacy `editorProvider`), and thinking uses the matching Editor level style. Literal text, session name, and usage metadata use the neutral editor-border theme style. ANSI/VT sequences, controls, and line-breaking whitespace are sanitized without collapsing ordinary spaces.
 
-Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $codex_quota)`, with identical spacing while quota is off. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
+Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)`, with identical Pi spacing while the optional values are empty. OMP's current per-family service tier is checked against the active model's capabilities each render, so `/fast` and model changes do not leave stale indicators. Saved nonempty templates are not rewritten; add `( · $fast_mode)` explicitly to opt in. A non-empty format that resolves to no metadata preserves the normal blank spacer and metadata rows. This option is JSON-only; `/zentui format` controls the Footer.
 
 ## User-message styles
 
@@ -937,6 +938,23 @@ Pi 0.84 adds a native fullscreen TUI with sticky Editor and Footer plus an indep
 ```
 
 Save this in Pi's `~/.pi/agent/settings.json`, select fullscreen in Pi's `/settings`, or use `--tui-mode fullscreen`. Zentui does not enable it automatically. Pi owns layout and scrolling while Zentui supplies configured components. Zentui requires Pi 0.85.0 or newer.
+
+## Oh My Pi compatibility
+
+OMP 18.4.10+ uses `omp.ts` as a deliberately focused skin for **Editor, User messages, and Statusline only**. `/zentui` defaults to Editor and cycles through those three sections; `/zentui statusline` opens the canonical Footer owner. Footer-local Segments/Git controls and three-owner presets remain available. Working, thinking, selectors, turn summaries, and all-owner migration remain OMP-owned; their saved values are ignored by the focused runtime without being rewritten. Pi's full component set is unchanged.
+
+`npm run omp:dev` launches with only this extension; `npm run omp:install-local` links the checkout with `omp plugin link`. OMP remaps shared Pi package imports to its own host modules, avoiding duplicate runtime classes/theme state.
+
+| Surface | OMP behavior |
+| --- | --- |
+| Editor | All Zentui styles support OMP's built-in Box, Band, Claude, Pi, Borderless, Rule, Field, and Rail layouts, preserving multiline input, cursor markers, shell submission, and autocomplete. Public composer row capture leaves native input layout/preferences unchanged. Unknown/ambiguous chrome fails open; decorated mouse geometry is not guessed. |
+| Fast mode | `$fast_mode` is `fast` for supported priority service and `ultrafast` for supported OpenAI ultrafast service. Other families' preferences, off/default/flex tiers, and unsupported models render empty. This reports the selected supported tier, not a latency guarantee. |
+| User messages | Normal Markdown messages support Zentui styles. Native image, badge, synthetic, and unfamiliar message surfaces remain native. |
+| Statusline | Starship replaces the native lower status slot and suppresses native attached status content; there is no persistent footer widget or duplicate main line. Hidden suppresses main status content and retains only permitted extension statuses; Native delegates exact native behavior. Editor enablement is independent. |
+
+OMP's `setFooter()` is inert, so the adapter decorates exported native status renderers and restores only its own methods. Scope is established by matching session identity and mounted public `editor.composerFacts` identity. Verified ownership survives temporary dialog unmounting, but editor replacement, detached containers, session changes, and foreign method displacement release it; native startup/preview and other sessions remain untouched. The guarded runtime `session` field is the private compatibility boundary—changed/uninspectable shapes fail open to native. Native preferences/status maps are not rewritten. Extension statuses are recorded from successful public publications starting at extension initialization, including earlier `session_start` handlers; publications predating observation cannot be recovered. In TSP terminals, custom status is plain semantic composer text rather than ANSI frame/color parity; host-owned model-picker action/icon chrome remains native.
+
+OMP has no public editor-factory getter. Zentui observes public setter descriptors across handler scopes and preserves expanded drafts for its observed editors. Initial replacement is OMP's normal last-writer-wins behavior: an opaque pre-existing editor factory cannot be recovered or wrapped. Once a later setter is observed, cleanup restores only Zentui-owned state. Handler-local dialog cancellation remains scoped to the invoking command.
 
 ## Compatibility and migration
 

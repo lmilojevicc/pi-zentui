@@ -22,6 +22,7 @@ export type EditorMetadataValues = {
 	provider: string;
 	thinking: string;
 	sessionName: string;
+	fastMode?: string;
 	contextPercent?: number;
 	contextWindow?: number;
 	inputTokens?: number;
@@ -211,6 +212,10 @@ function renderVariable(
 	if (name === "codex_quota") {
 		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
 		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };
+	}
+	if (name === "fast_mode") {
+		const plain = sanitizeEditorMetadataText(values.fastMode ?? "");
+		return { plain, styled: plain ? safeThemeFg(uiTheme, "accent", plain) : "" };
 	}
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;

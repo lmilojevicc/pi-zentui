@@ -182,6 +182,7 @@ const settingsSections = [
 	"footer",
 	"extensions",
 ] as const;
+const skinSections: readonly TopLevelSection[] = ["editor", "userMessages", "footer"];
 const footerPages = ["segments", "git"] as const;
 type FooterPage = (typeof footerPages)[number];
 type TopLevelSection = (typeof settingsSections)[number];
@@ -259,6 +260,7 @@ function experimentalThinkingCapability(
 }
 
 type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
+	skinOnly?: boolean;
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	applyPreset: (
@@ -535,12 +537,22 @@ function directSection(args: string): SettingsSection | undefined {
 	return sectionRoutes[args.trim().toLowerCase().replaceAll(/[_ ]+/g, "-")];
 }
 
-function argumentCompletions(prefix: string): AutocompleteItem[] | null {
+function argumentCompletions(prefix: string, skinOnly = false): AutocompleteItem[] | null {
 	const normalized = prefix.trimStart().toLowerCase();
-	const matches = directCommandSuggestions
+	const suggestions = skinOnly
+		? directCommandSuggestions.filter((value) => {
+				const section = directSection(value);
+				return section
+					? skinSections.includes(topLevelSection(section))
+					: /^(editor|messages|statusline|viewport-indicators|format|preset) /.test(value);
+			})
+		: directCommandSuggestions;
+	const matches = suggestions
 		.map((value) => ({
 			value,
-			label: isFooterPage(value) ? `${value} — Footer > ${sectionLabels[value]}` : value,
+			label: isFooterPage(value)
+				? `${value} — ${skinOnly ? "Statusline" : "Footer"} > ${sectionLabels[value]}`
+				: value,
 		}))
 		.filter((item) => item.value.startsWith(normalized));
 	return matches.length ? matches : null;
@@ -1271,35 +1283,44 @@ function buildSectionItems(
 	}
 }
 
-function nextSection(section: SettingsSection): SettingsSection {
+function nextSection(
+	section: SettingsSection,
+	sections: readonly TopLevelSection[] = settingsSections,
+): SettingsSection {
 	return (
-		settingsSections[
-			(settingsSections.indexOf(topLevelSection(section)) + 1) % settingsSections.length
-		] ?? "appearance"
+		sections[(sections.indexOf(topLevelSection(section)) + 1) % sections.length] ??
+		sections[0] ??
+		"editor"
 	);
 }
-function previousSection(section: SettingsSection): SettingsSection {
+function previousSection(
+	section: SettingsSection,
+	sections: readonly TopLevelSection[] = settingsSections,
+): SettingsSection {
 	return (
-		settingsSections[
-			(settingsSections.indexOf(topLevelSection(section)) - 1 + settingsSections.length) %
-				settingsSections.length
-		] ?? "appearance"
+		sections[
+			(sections.indexOf(topLevelSection(section)) - 1 + sections.length) % sections.length
+		] ??
+		sections[0] ??
+		"editor"
 	);
 }
 function formatSectionTabs(
 	active: SettingsSection,
 	theme: ExtensionContext["ui"]["theme"],
 	width: number,
+	sections: readonly TopLevelSection[] = settingsSections,
+	skinOnly = false,
 ): string {
-	if (isFooterPage(active)) return `  ${theme.bold(`Footer > ${sectionLabels[active]}`)}`;
-	const rendered = settingsSections.map((section) =>
-		section === active
-			? theme.bold(sectionLabels[section])
-			: safeThemeFg(theme, "muted", sectionLabels[section]),
+	const label = (section: SettingsSection) =>
+		skinOnly && section === "footer" ? "Statusline" : sectionLabels[section];
+	if (isFooterPage(active)) return `  ${theme.bold(`${label("footer")} > ${label(active)}`)}`;
+	const rendered = sections.map((section) =>
+		section === active ? theme.bold(label(section)) : safeThemeFg(theme, "muted", label(section)),
 	);
 	const full = `  ${rendered.join(safeThemeFg(theme, "muted", " / "))}`;
 	if (visibleWidth(full) <= width) return full;
-	return `  ${theme.bold(sectionLabels[active])} (${settingsSections.indexOf(active) + 1}/${settingsSections.length})`;
+	return `  ${theme.bold(label(active))} (${sections.indexOf(topLevelSection(active)) + 1}/${sections.length})`;
 }
 function markDormantItems(
 	items: SettingItem[],
@@ -1356,6 +1377,12 @@ function markDormantItems(
 }
 
 export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCommandDeps): void {
+	const sections = deps.skinOnly ? skinSections : settingsSections;
+	const scopeWarning =
+		"OMP Zentui skins only Editor, User messages, and Statusline. Working, thinking, selectors, and all-owner migration remain host-owned.";
+	const usage = deps.skinOnly
+		? "Usage: /zentui [editor|user-messages|statusline|segments|git], /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>"
+		: usageText();
 	const setEditor = (patch: EditorPatch, ctx: ExtensionContext): ApplyResult =>
 		deps.setEditorComponent(patch, ctx);
 	const setMessages = (patch: UserMessagesPatch, ctx: ExtensionContext) => {
@@ -1387,18 +1414,35 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 
 	pi.registerCommand("zentui", {
 		description: "Configure Zentui",
-		getArgumentCompletions: argumentCompletions,
+		getArgumentCompletions: (prefix) => argumentCompletions(prefix, deps.skinOnly),
 		handler: async (_args, ctx) => {
 			const args = typeof _args === "string" ? _args : "";
 			const words = args.trim().split(/\s+/);
+			if (deps.skinOnly && args.trim().toLowerCase() === "migrate") {
+				if (ctx.hasUI) ctx.ui.notify(scopeWarning, "warning");
+				return;
+			}
 			if (args.trim().toLowerCase() === "migrate") {
 				await confirmComponentMigration(ctx, deps);
 				return;
 			}
 			if (words[0]?.toLowerCase() === "preset") {
 				const preset = words.length === 2 ? getComponentPreset(words[1] ?? "") : undefined;
-				if (preset) applyPreset(preset.id, ctx);
-				else if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
+				if (
+					preset &&
+					deps.skinOnly &&
+					(Object.keys(preset.components).length !== 3 ||
+						Object.keys(preset.components).some(
+							(owner) => !skinSections.includes(owner as TopLevelSection),
+						))
+				) {
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							"This preset changes owners outside OMP's Editor, User messages, and Statusline skin scope.",
+							"warning",
+						);
+				} else if (preset) applyPreset(preset.id, ctx);
+				else if (ctx.hasUI) ctx.ui.notify(usage, "warning");
 				return;
 			}
 			const format = parseFormatCommand(args);
@@ -1463,14 +1507,22 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 			}
 
 			const initialSection = directSection(args);
+			if (
+				deps.skinOnly &&
+				initialSection &&
+				!skinSections.includes(topLevelSection(initialSection))
+			) {
+				if (ctx.hasUI) ctx.ui.notify(scopeWarning, "warning");
+				return;
+			}
 			if (args.trim() && !initialSection) {
-				if (ctx.hasUI) ctx.ui.notify(usageText(), "warning");
+				if (ctx.hasUI) ctx.ui.notify(usage, "warning");
 				return;
 			}
 			const mode = (ctx as typeof ctx & { mode?: string }).mode;
 			if (!ctx.hasUI || (mode !== undefined && mode !== "tui")) return;
 
-			let requestedSection = initialSection ?? "appearance";
+			let requestedSection = initialSection ?? (deps.skinOnly ? "editor" : "appearance");
 			let requestedFocusId: string | undefined;
 			while (true) {
 				if (!deps.sessionLifecycle.isCurrent()) return;
@@ -1618,6 +1670,12 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								deps.getActiveExtensionStatuses(),
 								deps.thinkingStepsCapability,
 							);
+							if (deps.skinOnly && activeSection === "footer") {
+								for (const item of items) {
+									item.label = item.label.replaceAll("Footer", "Statusline");
+									item.description = item.description?.replaceAll("Pi", "OMP");
+								}
+							}
 							const colorOwner =
 								activeSection === "appearance"
 									? "selectorBorders"
@@ -2270,7 +2328,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								bodyRows.push(...help);
 								return [
 									truncateToWidth(border, width, ""),
-									truncateToWidth(formatSectionTabs(activeSection, theme, width), width, ""),
+									truncateToWidth(
+										formatSectionTabs(activeSection, theme, width, sections, deps.skinOnly),
+										width,
+										"",
+									),
 									truncateToWidth(border, width, ""),
 									...bodyRows,
 									truncateToWidth(border, width, ""),
@@ -2288,7 +2350,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								if (!deps.sessionLifecycle.isCurrent(generation)) return;
 								if (matchesKey(data, Key.tab)) {
 									stopPreview();
-									activeSection = nextSection(activeSection);
+									activeSection = nextSection(activeSection, sections);
 									settingsList = makeSettingsList();
 									startPreview();
 									tui.requestRender();
@@ -2296,7 +2358,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								}
 								if (matchesKey(data, Key.shift("tab"))) {
 									stopPreview();
-									activeSection = previousSection(activeSection);
+									activeSection = previousSection(activeSection, sections);
 									settingsList = makeSettingsList();
 									startPreview();
 									tui.requestRender();

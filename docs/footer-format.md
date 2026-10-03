@@ -53,6 +53,9 @@ Show model, provider, and active thinking level in the Footer:
 
 Add `$model $provider( $thinkingLevel)` to `components.footer.styles.starship.compactFormat` separately to keep these details in compact layouts. Defaults and the built-in Model info segment are unchanged.
 
+In OMP, include the independent fast-mode token with `/zentui format "$model $provider( $thinkingLevel)( · $fast_mode)"`. Add it to `compactFormat` separately if needed. `$fast_mode` uses the active model's service-tier family and OMP's model capability checks, not another provider family's saved priority preference.
+
+
 To keep metadata on the right, set both templates independently:
 
 ```json
@@ -93,6 +96,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$model` | | selected Footer model label |
 | `$provider` | | formatted provider label |
 | `$thinkingLevel` | | current thinking level; empty when unavailable or `off` |
+| `$fast_mode` | | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
 | `$package` | | project package version as `is <glyph> <version>` |
 | `$package_version` | | raw project package version |
 | `$session_duration` | `$duration` | session running time |

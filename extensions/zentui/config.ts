@@ -136,6 +136,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"model_name",
 	"provider",
 	"thinking",
+	"fast_mode",
 	"session_name",
 	"context",
 	"tokens",
@@ -365,7 +366,8 @@ export type ExtensionStatusesConfig = {
 
 const DEFAULT_PROJECT_REFRESH_INTERVAL_MS = 30_000;
 const MIN_PROJECT_REFRESH_INTERVAL_MS = 5_000;
-export const DEFAULT_EDITOR_METADATA_FORMAT = "$model  $provider(  $thinking)(  $codex_quota)";
+export const DEFAULT_EDITOR_METADATA_FORMAT =
+	"$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)";
 
 export type ZentuiConfig = {
 	projectRefreshIntervalMs: number;
@@ -456,6 +458,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"model",
 	"provider",
 	"thinkingLevel",
+	"fast_mode",
 	"session_duration",
 	"username",
 	"os",

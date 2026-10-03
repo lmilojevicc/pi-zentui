@@ -363,6 +363,70 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+describe("focused OMP skin settings", () => {
+	it("defaults to Editor and cycles only the three supported owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		await h.command().handler("", h.ctx);
+		const component = h.component();
+		expect(component.render(160)[1]).toContain("[Editor] / User messages / Statusline");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("Editor / [User messages] / Statusline");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("Editor / User messages / [Statusline]");
+		component.handleInput("\t");
+		expect(component.render(160)[1]).toContain("[Editor] / User messages / Statusline");
+		component.handleInput("\x1b[Z");
+		expect(component.render(160)[1]).toContain("Editor / User messages / [Statusline]");
+	});
+
+	it("rejects unsupported pages and migration without changing saved owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		const before = structuredClone(h.config);
+		for (const route of [
+			"appearance",
+			"thinking",
+			"thinking-steps",
+			"working-line",
+			"extensions",
+			"migrate",
+		]) {
+			await h.command().handler(route, h.ctx);
+			expect(h.notifications.at(-1)).toContain("host-owned");
+		}
+		expect(h.config).toEqual(before);
+		expect(h.calls.thinkingSteps).toEqual([]);
+		expect(h.calls.workingLine).toEqual([]);
+		expect(h.calls.selectors).toEqual([]);
+		const completions = h
+			.command()
+			.getArgumentCompletions("")
+			?.map(({ value }) => value);
+		for (const route of ["appearance", "thinking", "working-line", "extensions", "migrate"]) {
+			expect(completions).not.toContain(route);
+		}
+		expect(completions).toContain("statusline");
+	});
+
+	it("retains supported shared presets without saving unsupported owners", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		const unsupported = structuredClone({
+			working: h.config.components.workingLine,
+			thinking: h.config.components.thinkingSteps,
+			selectors: h.config.components.selectorBorders,
+		});
+		await h.command().handler("preset rail", h.ctx);
+		expect(h.calls.presets).toEqual(["rail"]);
+		expect(h.config.components.editor.style).toBe("accent-rail");
+		expect(h.config.components.userMessages.style).toBe("compact");
+		expect(h.config.components.footer.style).toBe("starship");
+		expect({
+			working: h.config.components.workingLine,
+			thinking: h.config.components.thinkingSteps,
+			selectors: h.config.components.selectorBorders,
+		}).toEqual(unsupported);
+	});
+});
+
 describe("component-oriented /zentui settings", () => {
 	it("uses the exact seven-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();

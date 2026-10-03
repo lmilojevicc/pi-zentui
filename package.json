@@ -1,7 +1,7 @@
 {
 	"name": "pi-zentui",
 	"version": "0.28.0",
-	"description": "Modular UI components for Pi — customizable editors, messages, progress displays, and statuslines.",
+	"description": "Modular UI components for Pi and Oh My Pi — customizable editors, messages, progress displays, and statuslines.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
@@ -16,11 +16,13 @@
 		"pi-package",
 		"pi-extension",
 		"pi-theme",
+		"omp-plugin",
 		"starship",
 		"tui"
 	],
 	"files": [
 		"extensions",
+		"omp.ts",
 		"docs/configuration.md",
 		"docs/footer-format.md"
 	],
@@ -33,6 +35,8 @@
 		"test:thinking-experimental-diagnostics": "node test/thinking-experimental-loader-diagnostics.mjs",
 		"pi:dev": "${PI_BIN:-/opt/homebrew/bin/pi} --no-extensions -e ./extensions/zentui/index.ts",
 		"pi:install-local": "${PI_BIN:-/opt/homebrew/bin/pi} install ./ -l",
+		"omp:dev": "${OMP_BIN:-omp} --no-extensions -e ./omp.ts",
+		"omp:install-local": "${OMP_BIN:-omp} plugin link ./",
 		"fmt": "biome format --write .",
 		"fmt:check": "biome format .",
 		"verify": "npm run lint && npm run typecheck && npm run test",
@@ -42,7 +46,35 @@
 	"peerDependencies": {
 		"@earendil-works/pi-ai": ">=0.85.0",
 		"@earendil-works/pi-coding-agent": ">=0.85.0",
-		"@earendil-works/pi-tui": ">=0.85.0"
+		"@earendil-works/pi-tui": ">=0.85.0",
+		"@oh-my-pi/pi-ai": ">=18.4.10",
+		"@oh-my-pi/pi-coding-agent": ">=18.4.10",
+		"@oh-my-pi/pi-tui": ">=18.4.10"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		},
+		"@earendil-works/pi-tui": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-ai": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-coding-agent": {
+			"optional": true
+		},
+		"@oh-my-pi/pi-tui": {
+			"optional": true
+		}
+	},
+	"omp": {
+		"extensions": [
+			"./omp.ts"
+		]
 	},
 	"pi": {
 		"extensions": [
@@ -58,6 +90,9 @@
 		"@earendil-works/pi-ai": "^0.87.1",
 		"@earendil-works/pi-coding-agent": "^0.87.1",
 		"@earendil-works/pi-tui": "^0.87.1",
+		"@oh-my-pi/pi-ai": "18.4.10",
+		"@oh-my-pi/pi-coding-agent": "18.4.10",
+		"@oh-my-pi/pi-tui": "18.4.10",
 		"@types/node": "^26.6.2",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.1"

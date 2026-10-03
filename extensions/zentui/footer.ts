@@ -198,11 +198,13 @@ export function installFooter(
 		scheduleProjectRefresh: (ctx: ExtensionContext) => void;
 		setExtensionStatusesGetter?: (fn: (() => ReadonlyMap<string, string>) | undefined) => void;
 		getThinkingLevel?: () => string | undefined;
+		getFastMode?: () => string | undefined;
 		getLiveContext?: () => LiveContextOverride | undefined;
 		getCodexQuota?: () => CodexQuota | undefined;
 		getCustomVariables?: () => ReadonlyMap<string, string>;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
+		beforeRender?: () => void;
 	},
 ): void {
 	ctx.ui.setFooter((tui, theme, footerData) => {
@@ -229,6 +231,7 @@ export function installFooter(
 				builtinSnapshots = new Map<string, string>(),
 			): string[] {
 				if (width <= 0) return [""];
+				hooks.beforeRender?.();
 				const config = getConfig();
 				const footer = config.components.footer;
 				const aliases = normalizeTemplateVariables(footer.styles.starship.variables, [
@@ -488,6 +491,8 @@ export function installFooter(
 							const level = sanitizeExtensionStatusText(hooks.getThinkingLevel?.() ?? "");
 							return level.toLowerCase() === "off" ? "" : level;
 						}
+						case "fast_mode":
+							return sanitizeExtensionStatusText(hooks.getFastMode?.() ?? "");
 						case "session_duration":
 							return state.sessionStartEpoch
 								? renderStyleForSource(

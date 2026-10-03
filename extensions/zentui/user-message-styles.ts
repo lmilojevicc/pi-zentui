@@ -1,4 +1,5 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import {
 	Markdown,
 	type MarkdownTheme,
@@ -35,6 +36,8 @@ function themeFg(theme: Theme | undefined, color: ThemeColor, text: string): str
 
 export function makeMarkdownTheme(theme: Theme | undefined): MarkdownTheme {
 	return {
+		// OMP Markdown also requires its host symbol palette and additional native hooks.
+		...("describe" in Markdown.prototype ? PiCodingAgent.getMarkdownTheme() : {}),
 		heading: (text) => themeFg(theme, "mdHeading", text),
 		link: (text) => themeFg(theme, "mdLink", text),
 		linkUrl: (text) => themeFg(theme, "mdLinkUrl", text),
@@ -63,17 +66,21 @@ function renderMarkdown(input: UserMessageStyleRenderInput, width: number): stri
 		markdown?.defaultTextStyle ?? {
 			color: (content) => themeFg(theme, "userMessageText", content),
 		},
-		{
-			...markdown?.options,
-			preserveOrderedListMarkers: true,
-			preserveBackslashEscapes: true,
-			...(transform
-				? {
-						transform: (source: string, availableWidth: number) =>
-							sanitizeUserMessageSourceText(transform(source, availableWidth)),
-					}
-				: {}),
-		},
+		// OMP's native Markdown uses the sixth argument for numeric code-block
+		// indentation, not Pi's parser options. Leave its supported default intact.
+		"describe" in Markdown.prototype
+			? undefined
+			: {
+					...markdown?.options,
+					preserveOrderedListMarkers: true,
+					preserveBackslashEscapes: true,
+					...(transform
+						? {
+								transform: (source: string, availableWidth: number) =>
+									sanitizeUserMessageSourceText(transform(source, availableWidth)),
+							}
+						: {}),
+				},
 	);
 	const lines = renderer.render(Math.max(1, width));
 	return lines.length > 0 ? lines : [""];

@@ -1,6 +1,6 @@
 <h1 align="center">Zentui</h1>
 
-<p align="center">A modular terminal UI for <a href="https://pi.dev">Pi</a>.</p>
+<p align="center">A modular terminal UI for <a href="https://pi.dev">Pi</a> and <a href="https://omp.sh">Oh My Pi</a>.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pi-zentui"><img alt="npm version" src="https://shieldcn.dev/npm/pi-zentui.svg?variant=outline" /></a>
@@ -88,6 +88,27 @@ pi install npm:pi-zentui
 # From git
 pi install git:github.com/lmilojevicc/pi-zentui
 ```
+
+### Oh My Pi
+
+Requires OMP **18.4.10 or newer**. From this checkout:
+
+```bash
+# Try without changing installed plugins
+npm run omp:dev
+
+# Persistently link the development checkout
+npm run omp:install-local
+```
+
+OMP loads `omp.ts` through the package's `omp.extensions` manifest; Pi keeps its existing entrypoint. Configuration is separate: `~/.omp/agent/zentui.json` by default, or the active OMP profile's agent directory.
+
+The OMP port is deliberately a small skin: **Editor, User messages, and Statusline only**. `/zentui` has those three sections; Working, thinking, selectors, and summaries remain OMP-owned. Pi keeps the full Zentui component set. Saved choices for unsupported OMP surfaces are not rewritten.
+
+Opencode and Minimalist metadata include OMP's supported `fast`/`ultrafast` mode. Existing custom templates are unchanged; add `$fast_mode` explicitly where wanted. Statusline supports the same token independently.
+
+**Statusline → Starship** replaces OMP's native status content rather than adding another line. **Hidden** suppresses native main status content and shows only permitted extension statuses; **Native** restores OMP's own line. This works with Zentui Editor enabled or disabled. OMP's inert `setFooter()` API is adapted through guarded, session-scoped native renderer decoration; native settings and other sessions/previews are left alone. All built-in composer layouts are supported; unfamiliar frame/message shapes fail open. See [OMP compatibility](./docs/configuration.md#oh-my-pi-compatibility).
+
 
 ## Configure
 

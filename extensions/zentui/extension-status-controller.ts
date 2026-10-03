@@ -75,7 +75,8 @@ export function createExtensionStatusController(getPolicy: () => ExtensionStatus
 					// A failed publication (including deletion) must never resurrect an older value.
 					successful.delete(key);
 					suppressed.delete(key);
-					const suppress = this === ui && !releasing && text !== undefined && hidden(key);
+					const ownsReceiver = this === ui;
+					const suppress = ownsReceiver && !releasing && text !== undefined && hidden(key);
 					const forwarded = [...args];
 					if (suppress) forwarded[1] = undefined;
 					const token = Symbol();
@@ -83,7 +84,7 @@ export function createExtensionStatusController(getPolicy: () => ExtensionStatus
 					try {
 						const result = Reflect.apply(predecessor, this, forwarded);
 						// A reentrant publication supersedes this call's replay provenance.
-						if (eligible() && pending.get(key) === token && text !== undefined && this === ui) {
+						if (eligible() && pending.get(key) === token && text !== undefined && ownsReceiver) {
 							successful.set(key, { receiver: this, args });
 							if (suppress) suppressed.add(key);
 						}

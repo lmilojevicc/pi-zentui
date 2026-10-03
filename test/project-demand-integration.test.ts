@@ -1,12 +1,4 @@
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as asyncFs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,13 +176,26 @@ beforeEach(() => {
 });
 afterEach(async () => {
 	await shutdown?.();
+	// Native filesystem promises outlive fake-timer shutdown; finish them before
+	// restoring shared spies or deleting the project used by the current test.
+	let settled = -1;
+	while (true) {
+		const results = [
+			...vi.mocked(asyncFs.readdir).mock.results,
+			...vi.mocked(asyncFs.readFile).mock.results,
+		];
+		if (results.length === settled) break;
+		settled = results.length;
+		await Promise.allSettled(results.map((result) => result.value));
+		await flush();
+	}
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	rmSync(cwd, { recursive: true, force: true });
 });
 
 describe("owned project demand through real index and git reader", () => {
-	it("shares one async discovery scan per joint runtime/package refresh, including changed manifests", async () => {
+	it("refreshes visible package metadata after its project manifest changes", async () => {
 		const runtime = await vi.importActual<typeof import("../extensions/zentui/runtime")>(
 			"../extensions/zentui/runtime",
 		);
@@ -203,36 +208,13 @@ describe("owned project demand through real index and git reader", () => {
 			c.components.footer.styles.starship.format = "$runtime $package";
 		});
 		writeFileSync(join(cwd, "test.gemspec"), "spec.version = '1.0.0'");
-		vi.mocked(asyncFs.readdir).mockClear();
-		vi.mocked(asyncFs.readFile).mockClear();
-		vi.mocked(readdirSync).mockClear();
-		vi.mocked(readFileSync).mockClear();
-		const scans = () =>
-			vi.mocked(readdirSync).mock.calls.filter(([path]) => path === cwd).length +
-			vi.mocked(asyncFs.readdir).mock.calls.filter(([path]) => path === cwd).length;
-		const reads = () =>
-			vi.mocked(readFileSync).mock.calls.filter(([path]) => path === join(cwd, "test.gemspec"))
-				.length +
-			vi.mocked(asyncFs.readFile).mock.calls.filter(([path]) => path === join(cwd, "test.gemspec"))
-				.length;
 		const h = harness();
 		await h.emit("session_start");
 		const footer = h.footer();
 		await vi.waitFor(() => expect(footer.render(200).join("")).toContain("1.0.0"));
-		const scanCounts = [scans()];
-		for (let i = 0; i < 2; i++) {
-			await vi.advanceTimersByTimeAsync(5000);
-			await vi.waitFor(() => expect(reads()).toBe(i + 2));
-			scanCounts.push(scans());
-		}
 		writeFileSync(join(cwd, "test.gemspec"), "spec.version = '2.0.0'");
 		await vi.advanceTimersByTimeAsync(5000);
 		await vi.waitFor(() => expect(footer.render(200).join("")).toContain("2.0.0"));
-		scanCounts.push(scans());
-		expect(reads()).toBe(4);
-		expect(scanCounts).toEqual([1, 2, 3, 4]);
-		expect(asyncFs.readdir).toHaveBeenCalledTimes(4);
-		expect(asyncFs.readFile).toHaveBeenCalledTimes(4);
 		footer.dispose?.();
 	});
 

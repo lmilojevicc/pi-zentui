@@ -1337,7 +1337,7 @@ export class WorkingLineController {
 		return frames[frameIndex] ?? this.selectedMessage;
 	}
 
-	/** Whether this controller currently claims both required public Working-row surfaces. */
+	/** Whether this controller owns the host's available Working-row surfaces. */
 	isAvailable(): boolean {
 		return (
 			this.getConfig().components.workingLine.enabled &&
@@ -1593,7 +1593,8 @@ export class WorkingLineController {
 			// Capability probes, including predecessor editor getters, must fail open.
 		}
 		if (!canEmbed || !ui) {
-			this.stopAnimationTicks();
+			if (this.agentActive && ownsCurrentRow && !this.ownsIndicator) this.startAnimationTicks();
+			else this.stopAnimationTicks();
 			// A render/capability change can reveal the native row without applyIndicator.
 			// Clear its separate message before Pi constructs the visible Loader.
 			if (!messageRefreshed && this.hiddenWorkingVisible && ownsCurrentRow && ui) {
@@ -1642,7 +1643,11 @@ export class WorkingLineController {
 
 	private startAnimationTicks(): void {
 		const interval = this.installedPhase?.intervalMs;
-		if (!interval || interval <= 0) {
+		if (
+			!interval ||
+			interval <= 0 ||
+			(!this.ownsIndicator && (this.installedIndicatorOptions?.frames?.length ?? 0) <= 1)
+		) {
 			this.stopAnimationTicks();
 			return;
 		}
@@ -1651,6 +1656,20 @@ export class WorkingLineController {
 		this.animationIntervalMs = interval;
 		this.animationTimer = setInterval(() => {
 			const ctx = this.placementContext;
+			if (ctx && this.agentActive && !this.ownsIndicator && this.isAvailable()) {
+				const phase = this.installedPhase;
+				const frames = this.installedIndicatorOptions?.frames;
+				if (phase && frames?.length) {
+					const index =
+						Math.floor(Math.max(0, this.now() - phase.frameEpochMs) / interval) % frames.length;
+					try {
+						this.installedUi?.setWorkingMessage(frames[index]);
+					} catch {
+						if (this.installedUi) this.releaseAfterFailure(this.installedUi);
+					}
+				}
+				return;
+			}
 			if (!ctx || !this.reconcilePlacement(ctx)) {
 				this.stopAnimationTicks();
 				return;
@@ -1714,7 +1733,7 @@ export class WorkingLineController {
 	}
 
 	private recoverOrReleaseAfterFailure(ui: WorkingLineUi, snapshot: InstallationSnapshot): void {
-		if (!snapshot.installed || !snapshot.ownsIndicator || !snapshot.indicatorOptions) {
+		if (!snapshot.installed || !snapshot.ownsMessage || !snapshot.indicatorOptions) {
 			this.releaseAfterFailure(ui);
 			return;
 		}
@@ -1730,8 +1749,9 @@ export class WorkingLineController {
 		this.elapsedUpdatesGeneration = snapshot.elapsedUpdatesGeneration;
 		this.stopElapsedUpdates = snapshot.stopElapsedUpdates;
 		try {
-			ui.setWorkingIndicator(snapshot.indicatorOptions);
-			if (snapshot.ownsMessage) ui.setWorkingMessage("");
+			if (snapshot.ownsIndicator) ui.setWorkingIndicator?.(snapshot.indicatorOptions);
+			if (snapshot.ownsMessage)
+				ui.setWorkingMessage(snapshot.ownsIndicator ? "" : snapshot.indicatorOptions.frames?.[0]);
 			if (this.placementContext) this.reconcilePlacement(this.placementContext, true);
 		} catch {
 			// Recovery is deliberately direct rather than recursive. If either setter cannot
@@ -1756,7 +1776,7 @@ export class WorkingLineController {
 		this.releaseWorkingVisibility();
 		if (this.ownsIndicator) {
 			try {
-				ui.setWorkingIndicator();
+				ui.setWorkingIndicator?.();
 			} catch {
 				// Best-effort release after a partial public-API installation failure.
 			}
@@ -1787,7 +1807,7 @@ export class WorkingLineController {
 		const ui = this.installedUi ?? workingLineUi(ctx);
 		if (ui && this.ownsIndicator) {
 			try {
-				ui.setWorkingIndicator();
+				ui.setWorkingIndicator?.();
 			} catch {
 				// Cleanup is best effort and remains idempotent.
 			}

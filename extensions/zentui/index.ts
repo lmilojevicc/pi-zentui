@@ -102,6 +102,7 @@ import {
 	createInitialState,
 	type FooterState,
 	modelLabelFor,
+	syncModelState,
 	syncState,
 	syncUsageState,
 } from "./state";
@@ -203,14 +204,34 @@ function isTuiContext(ctx: ExtensionContext): boolean {
 	}
 }
 
-export default function (pi: ExtensionAPI) {
+export type ZentuiHost = {
+	wrapEditor?: boolean;
+	skinOnly?: boolean;
+	liveModel?: boolean;
+	getFastMode?: (ctx: ExtensionContext) => string | undefined;
+};
+
+export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const state: FooterState = createInitialState(emptyGitStatus());
 	const sessionLifecycle = new SessionLifecycle();
 	const editorOwnerToken = Symbol("zentui-editor-owner");
 
-	let currentConfig: PolishedTuiConfig = structuredClone(defaultConfig);
+	// Unsupported OMP surfaces stay native; this runtime view is never written back.
+	const scopeConfig = (config: PolishedTuiConfig): PolishedTuiConfig =>
+		host.skinOnly
+			? {
+					...config,
+					components: {
+						...config.components,
+						thinkingSteps: { ...config.components.thinkingSteps, enabled: false },
+						workingLine: { ...config.components.workingLine, enabled: false },
+						selectorBorders: { ...config.components.selectorBorders, enabled: false },
+					},
+				}
+			: config;
+	let currentConfig: PolishedTuiConfig = scopeConfig(structuredClone(defaultConfig));
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
-	if (typeof pi.registerEntryRenderer === "function") {
+	if (!host.skinOnly && typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
 			renderTurnSummaryEntry(
 				entry,
@@ -362,14 +383,15 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	);
-	workingLine.setRequestRender(() => {
-		if (sessionLifecycle.isCurrent()) {
-			requestEditorRender?.();
-		}
-	});
+	if (!host.skinOnly)
+		workingLine.setRequestRender(() => {
+			if (sessionLifecycle.isCurrent()) {
+				requestEditorRender?.();
+			}
+		});
 	let workingLineSessionReady = false;
 	const workingLineExtensions = new WorkingLineExtensionSegments(
-		pi.events,
+		host.skinOnly ? undefined : pi.events,
 		() =>
 			workingLineSessionReady &&
 			sessionLifecycle.isCurrent() &&
@@ -380,7 +402,7 @@ export default function (pi: ExtensionAPI) {
 			if (activeTuiContext && sessionLifecycle.isCurrent()) {
 				const applied = workingLine.updateExtensionSegments(segments, activeTuiContext);
 				if (!applied && !workingLine.isAvailable()) {
-					workingLine.invalidateExtensionSegments();
+					if (!host.skinOnly) workingLine.invalidateExtensionSegments();
 				}
 				return applied;
 			}
@@ -395,12 +417,14 @@ export default function (pi: ExtensionAPI) {
 		return { contextPercent: context?.percent, contextWindow: context?.contextWindow };
 	};
 	const getEditorMeta = (ctx: ExtensionContext) => {
+		if (host.liveModel) syncModelState(state, ctx.model);
 		return {
 			codexQuota: getEditorQuota(),
 			modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 			modelId: state.modelId,
 			modelName: state.modelName,
 			providerLabel: state.providerLabel,
+			fastMode: host.getFastMode?.(ctx),
 			sessionName: ctx.sessionManager.getSessionName() ?? "",
 			...getEditorContextMetadata(ctx),
 			inputTokens: state.usageTotals.input,
@@ -731,7 +755,7 @@ export default function (pi: ExtensionAPI) {
 		const before = activeFooterReferences(currentConfig);
 		const nextConfig = save();
 		const after = activeFooterReferences(nextConfig);
-		currentConfig = nextConfig;
+		currentConfig = scopeConfig(nextConfig);
 		syncFooterUsage(ctx);
 		syncFooterTelemetry(ctx);
 		codexQuota.reconcile();
@@ -812,7 +836,9 @@ export default function (pi: ExtensionAPI) {
 
 	const clearEditorOwnership = () => {
 		activeEditor = undefined;
-		if (activeTuiContext && workingLineSessionReady) workingLine.reconcile(activeTuiContext);
+		if (activeTuiContext && workingLineSessionReady) {
+			if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
+		}
 		setMinimalistDecorationActive(false);
 		requestEditorRender = undefined;
 		wrappedEditorFactory = undefined;
@@ -828,7 +854,7 @@ export default function (pi: ExtensionAPI) {
 		const baseFactory = getZentuiEditorBaseFactory(factory);
 		wrappedEditorFactory = baseFactory;
 		installedEditorFactory = factory;
-		editorInstallMode = baseFactory ? "wrapper" : "standalone";
+		editorInstallMode = baseFactory && host.wrapEditor !== false ? "wrapper" : "standalone";
 		editorInstalled = true;
 		return true;
 	};
@@ -847,7 +873,9 @@ export default function (pi: ExtensionAPI) {
 		const observed = observeEditorFactory(ctx);
 		if (!observed.known) {
 			activeEditor = undefined;
-			if (workingLineSessionReady) workingLine.reconcile(ctx);
+			if (workingLineSessionReady) {
+				if (!host.skinOnly) workingLine.reconcile(ctx);
+			}
 			return observed;
 		}
 		if (observed.factory && isOwnedEditorFactory(observed.factory)) {
@@ -868,7 +896,7 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		if (!isActiveEditor(editor, generation) || !activeTuiContext || !workingLineSessionReady)
 			return;
-		workingLine.reconcile(activeTuiContext);
+		if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
 		if (workingLine.isAvailable()) requestEditorRender?.();
 	};
 
@@ -882,9 +910,15 @@ export default function (pi: ExtensionAPI) {
 	const editorWorkingLineFrame = (
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
-	) => (isActiveEditor(editor, generation) ? workingLine.currentWorkingLineFrame() : undefined);
+	) =>
+		!host.skinOnly && isActiveEditor(editor, generation)
+			? workingLine.currentWorkingLineFrame()
+			: undefined;
 
-	const makeEditorFactory = (ctx: ExtensionContext): ZentuiEditorFactory => {
+	const makeEditorFactory = (
+		ctx: ExtensionContext,
+		baseFactory: EditorFactory | undefined,
+	): ZentuiEditorFactory => {
 		const sessionTheme = ctx.ui.theme;
 		const generation = sessionLifecycle.currentGeneration();
 		const factory = ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
@@ -897,6 +931,7 @@ export default function (pi: ExtensionAPI) {
 				() => getEditorMeta(activeTuiContext ?? ctx),
 				getThinkingLevel,
 				() => {
+					if (host.liveModel) syncModelState(state, (activeTuiContext ?? ctx).model);
 					const workingLineFrame = editorWorkingLineFrame(editor, generation);
 					if (currentConfig.components.editor.style !== "minimalist") {
 						return { cwd: "", workingLineFrame };
@@ -918,6 +953,7 @@ export default function (pi: ExtensionAPI) {
 						outputTokens: state.usageTotals.output,
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
+						fastMode: host.getFastMode?.(activeTuiContext ?? ctx),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
 						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
@@ -946,6 +982,8 @@ export default function (pi: ExtensionAPI) {
 		}) as ZentuiEditorFactory;
 		factory[ZENTUI_EDITOR_FACTORY] = true;
 		factory[ZENTUI_EDITOR_OWNER] = editorOwnerToken;
+		// Retain an observed predecessor for restoration without delegating input to it.
+		factory[ZENTUI_EDITOR_BASE_FACTORY] = baseFactory;
 		return factory;
 	};
 
@@ -963,6 +1001,7 @@ export default function (pi: ExtensionAPI) {
 				() => getEditorMeta(activeTuiContext ?? ctx),
 				getThinkingLevel,
 				() => {
+					if (host.liveModel) syncModelState(state, (activeTuiContext ?? ctx).model);
 					const workingLineFrame = editorWorkingLineFrame(editor, generation);
 					if (currentConfig.components.editor.style !== "minimalist") {
 						return { cwd: "", workingLineFrame };
@@ -984,6 +1023,7 @@ export default function (pi: ExtensionAPI) {
 						outputTokens: state.usageTotals.output,
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
+						fastMode: host.getFastMode?.(activeTuiContext ?? ctx),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
 						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
@@ -1035,9 +1075,10 @@ export default function (pi: ExtensionAPI) {
 		const baseFactory =
 			currentZentuiBaseFactory ??
 			(currentFactory && !isZentuiEditorFactory(currentFactory) ? currentFactory : undefined);
-		const nextFactory = baseFactory
-			? makeWrappedEditorFactory(ctx, baseFactory)
-			: makeEditorFactory(ctx);
+		const nextFactory =
+			baseFactory && host.wrapEditor !== false
+				? makeWrappedEditorFactory(ctx, baseFactory)
+				: makeEditorFactory(ctx, baseFactory);
 		const replacement = replaceEditor(ctx, nextFactory);
 		if (!replacement.ok) return replacement;
 
@@ -1159,6 +1200,8 @@ export default function (pi: ExtensionAPI) {
 					getActiveExtensionStatuses = fn ?? (() => new Map());
 				},
 				getThinkingLevel,
+				beforeRender: host.liveModel ? () => syncModelState(state, ctx.model) : undefined,
+				getFastMode: () => host.getFastMode?.(ctx),
 				getLiveContext: () => liveContext.get(),
 				getCodexQuota: () => codexQuota.get(),
 				getCustomVariables: () => customVariables.snapshot(),
@@ -1260,7 +1303,9 @@ export default function (pi: ExtensionAPI) {
 				reason: "the editor could not be reconciled safely; reload Pi to apply this change",
 			};
 		} finally {
-			if (workingLineSessionReady) workingLine.reconcile(ctx);
+			if (workingLineSessionReady) {
+				if (!host.skinOnly) workingLine.reconcile(ctx);
+			}
 		}
 	};
 
@@ -1304,10 +1349,12 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			// Startup alone may supersede a stale registration from an earlier reload.
 		}
-		try {
-			removeSelectorBorderStyle();
-		} catch {
-			// Startup alone may supersede a stale registration from an earlier reload.
+		if (!host.skinOnly) {
+			try {
+				removeSelectorBorderStyle();
+			} catch {
+				// Startup alone may supersede a stale registration from an earlier reload.
+			}
 		}
 		uninstallStatusLine(ctx);
 		if (effectiveEditorEnabled()) clearEditorOwnership();
@@ -1414,19 +1461,22 @@ export default function (pi: ExtensionAPI) {
 		// A new generation must not expose or route extension segments through the previous
 		// session while TUI startup is in progress.
 		workingLineSessionReady = false;
-		workingLineExtensions.invalidate();
-		if (activeTuiContext) workingLine.dispose(activeTuiContext);
-		else workingLine.invalidateExtensionSegments();
+		if (!host.skinOnly) workingLineExtensions.invalidate();
+		if (activeTuiContext) {
+			if (!host.skinOnly) workingLine.dispose(activeTuiContext);
+		} else {
+			if (!host.skinOnly) workingLine.invalidateExtensionSegments();
+		}
 		// Reload synchronously so private ownership uses this session's disk snapshot before
 		// any await or transcript restoration.
-		currentConfig = loadConfig();
+		currentConfig = scopeConfig(loadConfig());
 		extensionStatuses.dispose();
-		if (isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
-		thinkingExperimental.startSession(ctx);
+		if (!host.skinOnly && isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
+		if (!host.skinOnly) thinkingExperimental.startSession(ctx);
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
-		workingLineExtensions.invalidate();
+		if (!host.skinOnly) workingLineExtensions.invalidate();
 		state.sessionStartEpoch = Date.now();
 		resetAgentTimer();
 		lastProjectCwd = undefined;
@@ -1434,26 +1484,27 @@ export default function (pi: ExtensionAPI) {
 		repositoryRoots.reset();
 		installUi(ctx);
 		customVariableSessionReady = isTuiContext(ctx);
-		workingLine.startSession(ctx);
-		workingLineSessionReady = true;
+		if (!host.skinOnly) workingLine.startSession(ctx);
+		workingLineSessionReady = !host.skinOnly;
 		scheduleEditorReconciliation(ctx);
 	});
 
 	registerZentuiSettingsCommand(pi, {
 		sessionLifecycle,
+		skinOnly: host.skinOnly,
 		getConfig: getCurrentConfig,
 		applyPreset(id, ctx, options) {
 			const preset = getComponentPreset(id);
 			if (!preset) throw new Error(`Unknown Zentui preset: ${id}`);
 			const previousFooterStyle = effectiveFooterStyle();
-			currentConfig = saveComponentPreset(preset);
+			currentConfig = scopeConfig(saveComponentPreset(preset));
 			if (!isTuiContext(ctx)) return { applied: true };
 			activeTheme = ctx.ui.theme;
 			const result = options?.deferEditor ? undefined : reconcileEditor(ctx);
 			if (currentConfig.components.editor.style !== "minimalist") {
 				setMinimalistDecorationActive(false);
 			}
-			workingLine.reconcile(ctx);
+			if (!host.skinOnly) workingLine.reconcile(ctx);
 			reconcileUserMessages();
 			reconcileFooter(ctx);
 			reconcileProjectRefresh(ctx, effectiveFooterStyle() !== previousFooterStyle);
@@ -1467,15 +1518,15 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 		migrateSelections(ctx) {
-			currentConfig = migrateComponentSelections();
+			currentConfig = scopeConfig(migrateComponentSelections());
 			if (!isTuiContext(ctx)) return;
 			activeTheme = ctx.ui.theme;
 			reconcileEditor(ctx);
 			reconcileUserMessages();
 			reconcileSelectorBorders();
 			reconcileFooter(ctx);
-			workingLine.reconcile(ctx);
-			thinkingExperimental.reconcile();
+			if (!host.skinOnly) workingLine.reconcile(ctx);
+			if (!host.skinOnly) thinkingExperimental.reconcile();
 			syncFooterState(ctx);
 			reconcileProjectRefresh(ctx);
 			reconcileSessionTimer();
@@ -1483,8 +1534,10 @@ export default function (pi: ExtensionAPI) {
 			refresh();
 		},
 		setComponentColor(owner, key, value, ctx) {
-			currentConfig = saveComponentColor(owner, key, value);
-			if (owner === "workingLine") workingLine.reconcile(ctx);
+			currentConfig = scopeConfig(saveComponentColor(owner, key, value));
+			if (owner === "workingLine") {
+				if (!host.skinOnly) workingLine.reconcile(ctx);
+			}
 			refresh();
 		},
 		reconcilePresetEditor(ctx) {
@@ -1500,7 +1553,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext, options) {
-			currentConfig = saveEditorComponentPatch(patch);
+			currentConfig = scopeConfig(saveEditorComponentPatch(patch));
 			let result: EditorChangeResult | undefined;
 			if (patch.enabled !== undefined && isTuiContext(ctx) && !options?.deferEditor) {
 				result = reconcileEditor(ctx);
@@ -1508,7 +1561,7 @@ export default function (pi: ExtensionAPI) {
 			if (patch.style !== undefined && patch.style !== "minimalist") {
 				setMinimalistDecorationActive(false);
 			}
-			workingLine.reconcile(ctx);
+			if (!host.skinOnly) workingLine.reconcile(ctx);
 			syncFooterUsage(ctx);
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
 			reconcileProjectRefresh(ctx);
@@ -1520,7 +1573,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 		setPolished(patch: Partial<PolishedEditorStyleConfig>, ctx: ExtensionContext) {
-			currentConfig = savePolishedEditorStylePatch(patch);
+			currentConfig = scopeConfig(savePolishedEditorStylePatch(patch));
 			syncFooterUsage(ctx);
 			refresh();
 		},
@@ -1528,16 +1581,16 @@ export default function (pi: ExtensionAPI) {
 			patch: Partial<PolishedCopyFriendlyEditorStyleConfig>,
 			ctx: ExtensionContext,
 		) {
-			currentConfig = savePolishedCopyFriendlyEditorStylePatch(patch);
+			currentConfig = scopeConfig(savePolishedCopyFriendlyEditorStylePatch(patch));
 			syncFooterUsage(ctx);
 			refresh();
 		},
 		setAccentRail(patch: Partial<AccentRailEditorStyleConfig>, _ctx: ExtensionContext) {
-			currentConfig = saveAccentRailEditorStylePatch(patch);
+			currentConfig = scopeConfig(saveAccentRailEditorStylePatch(patch));
 			refresh();
 		},
 		setMinimalist(patch: MinimalistEditorStylePatch, ctx: ExtensionContext) {
-			currentConfig = saveMinimalistEditorStylePatch(patch);
+			currentConfig = scopeConfig(saveMinimalistEditorStylePatch(patch));
 			customVariables.reconcile();
 			syncFooterUsage(ctx);
 			reconcileAgentTimer();
@@ -1550,7 +1603,7 @@ export default function (pi: ExtensionAPI) {
 			refresh();
 		},
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
-			currentConfig = saveUserMessagesComponentPatch(patch);
+			currentConfig = scopeConfig(saveUserMessagesComponentPatch(patch));
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
 		},
@@ -1559,25 +1612,27 @@ export default function (pi: ExtensionAPI) {
 			patch: Partial<ThinkingStepsComponentConfig>,
 			_ctx: ExtensionContext,
 		) {
-			currentConfig = saveThinkingStepsComponentPatch(patch);
+			currentConfig = scopeConfig(saveThinkingStepsComponentPatch(patch));
 			return thinkingExperimental.reconcile();
 		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
-			currentConfig = saveWorkingLineComponentPatch(patch);
-			if (patch.enabled === false) workingLineExtensions.clear();
+			currentConfig = scopeConfig(saveWorkingLineComponentPatch(patch));
+			if (patch.enabled === false) {
+				if (!host.skinOnly) workingLineExtensions.clear();
+			}
 			return workingLine.reconcile(ctx);
 		},
 		setSelectorBordersComponent(
 			patch: Partial<SelectorBordersComponentConfig>,
 			_ctx: ExtensionContext,
 		) {
-			currentConfig = saveSelectorBordersComponentPatch(patch);
+			currentConfig = scopeConfig(saveSelectorBordersComponentPatch(patch));
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileSelectorBorders();
 			refresh();
 		},
 		setFooterComponent(patch: Partial<FooterComponentConfig>, ctx: ExtensionContext) {
 			const previousStyle = effectiveFooterStyle();
-			currentConfig = saveFooterComponentPatch(patch);
+			currentConfig = scopeConfig(saveFooterComponentPatch(patch));
 			const styleChanged = effectiveFooterStyle() !== previousStyle;
 			if (patch.style !== undefined) reconcileFooter(ctx);
 			if (patch.modelLabel !== undefined) syncFooterState(ctx);
@@ -1608,51 +1663,60 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 		setIconMode(mode: IconMode) {
-			currentConfig = saveIconsModePatch(mode);
+			currentConfig = scopeConfig(saveIconsModePatch(mode));
 		},
 		setContextStyle(style: ContextStyle) {
-			currentConfig = saveStarshipFooterStylePatch({ contextStyle: style });
+			currentConfig = scopeConfig(saveStarshipFooterStylePatch({ contextStyle: style }));
 		},
 		setSeparator(separator: SeparatorStyle) {
-			currentConfig = saveStarshipFooterStylePatch({ separator });
+			currentConfig = scopeConfig(saveStarshipFooterStylePatch({ separator }));
 		},
 		setPathDisplay(patch: Partial<PathDisplayConfig>) {
-			currentConfig = saveStarshipFooterStylePatch({ pathDisplay: patch as PathDisplayConfig });
+			currentConfig = scopeConfig(
+				saveStarshipFooterStylePatch({ pathDisplay: patch as PathDisplayConfig }),
+			);
 			if (activeTuiContext) reconcileProjectRefresh(activeTuiContext, true);
 		},
 		setGitBranch(patch: Partial<GitBranchConfig>) {
-			currentConfig = saveStarshipFooterStylePatch({ gitBranch: patch as GitBranchConfig });
+			currentConfig = scopeConfig(
+				saveStarshipFooterStylePatch({ gitBranch: patch as GitBranchConfig }),
+			);
 		},
 		setGitCommit(
 			patch: Partial<Pick<GitCommitConfig, "onlyDetached" | "showTag">>,
 			ctx: ExtensionContext,
 		) {
-			currentConfig = saveStarshipFooterStylePatch({ gitCommit: patch as GitCommitConfig });
+			currentConfig = scopeConfig(
+				saveStarshipFooterStylePatch({ gitCommit: patch as GitCommitConfig }),
+			);
 			if (patch.showTag !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		setGitMetrics(patch: Partial<GitMetricsConfig>, ctx: ExtensionContext) {
-			currentConfig = saveStarshipFooterStylePatch({ gitMetrics: patch as GitMetricsConfig });
+			currentConfig = scopeConfig(
+				saveStarshipFooterStylePatch({ gitMetrics: patch as GitMetricsConfig }),
+			);
 			if (patch.ignoreSubmodules !== undefined) reconcileProjectRefresh(ctx, true);
 		},
 		getActiveExtensionStatuses() {
 			return new Map([...getActiveExtensionStatuses(), ...extensionStatuses.snapshot()]);
 		},
 		setExtensionStatusDefaultChoice(placement: ExtensionStatusPlacement) {
-			currentConfig = saveExtensionStatusDefaultChoice(
-				placement,
-				currentConfig.components.footer.style,
+			currentConfig = scopeConfig(
+				saveExtensionStatusDefaultChoice(placement, currentConfig.components.footer.style),
 			);
 			extensionStatuses.reconcile();
 		},
 		setExtensionStatusChoice(key: string, choice: ExtensionStatusChoice) {
-			currentConfig = saveExtensionStatusChoice(key, choice, currentConfig.components.footer.style);
+			currentConfig = scopeConfig(
+				saveExtensionStatusChoice(key, choice, currentConfig.components.footer.style),
+			);
 			extensionStatuses.reconcile();
 		},
 		setHiddenExtensionStatusColorMode(key, colorMode) {
-			currentConfig = saveHiddenExtensionStatusColorMode(key, colorMode);
+			currentConfig = scopeConfig(saveHiddenExtensionStatusColorMode(key, colorMode));
 		},
 		setExtensionStatusColorMode(key: string, colorMode: ExtensionStatusColorMode) {
-			currentConfig = saveExtensionStatusColorMode(key, colorMode);
+			currentConfig = scopeConfig(saveExtensionStatusColorMode(key, colorMode));
 		},
 		requestRender() {
 			refresh();
@@ -1665,11 +1729,11 @@ export default function (pi: ExtensionAPI) {
 		usageTotals.invalidate();
 		footerTelemetry.reset();
 		workingLineSessionReady = false;
-		thinkingExperimental.shutdown();
+		if (!host.skinOnly) thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
-		workingLine.dispose(ctx);
-		workingLineExtensions.invalidate();
+		if (!host.skinOnly) workingLine.dispose(ctx);
+		if (!host.skinOnly) workingLineExtensions.invalidate();
 		cleanupUi(ctx);
 	});
 
@@ -1678,27 +1742,32 @@ export default function (pi: ExtensionAPI) {
 		refreshInteractiveState(ctx, true);
 	};
 
-	pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
+	if (!host.skinOnly) pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
 
 	pi.on("agent_start", (event, ctx) => {
 		liveContext.clear();
 		const { interactionStarted } = interactionMetrics.agentStart();
 		startAgentTurn(interactionStarted);
-		workingLine.startAgent(ctx);
+		if (!host.skinOnly) workingLine.startAgent(ctx);
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("turn_start", (_event, ctx) => {
 		interactionMetrics.turnStart();
-		workingLine.startTurn(ctx);
+		if (!host.skinOnly) workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
-		thinkingExperimental.endAgent();
+		if (!host.skinOnly) thinkingExperimental.endAgent();
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
 		pauseAgentRun();
-		workingLine.finishAgent(ctx);
-		workingLine.flushMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
+		if (host.skinOnly) {
+			const settled = interactionMetrics.settle(ctx.isIdle());
+			if (settled) settleAgentTurn(settled.nextStartedAt);
+		}
+		if (!host.skinOnly) workingLine.finishAgent(ctx);
+		if (!host.skinOnly)
+			workingLine.flushMetrics(displayTokens, interactionMetrics.currentThought(), ctx);
 		// Reconcile once more after Pi has persisted the assistant message.
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
@@ -1709,21 +1778,23 @@ export default function (pi: ExtensionAPI) {
 	pi.on("thinking_level_select", syncInteractiveState);
 	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event, ctx) => {
-		thinkingExperimental.updateMessage(event);
+		if (!host.skinOnly) thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
 			"assistantMessageEvent" in event ? event.assistantMessageEvent : undefined,
 		);
 		if (metrics.usageChanged || metrics.thoughtChanged) {
-			workingLine.updateMetrics(metrics.displayTokens, interactionMetrics.currentThought(), ctx);
+			if (!host.skinOnly)
+				workingLine.updateMetrics(metrics.displayTokens, interactionMetrics.currentThought(), ctx);
 		}
 	});
 	pi.on("message_end", (event, ctx) => {
-		thinkingExperimental.endMessage(event);
+		if (!host.skinOnly) thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
 		if (result.status === "accepted") {
-			workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
+			if (!host.skinOnly)
+				workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);
 		}
 		// Pi notifies extensions before persisting a successful message, so retain its live
 		// context until agent_end; accepted failed messages clear immediately instead of showing
@@ -1737,34 +1808,36 @@ export default function (pi: ExtensionAPI) {
 		}
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
-	pi.on("agent_settled", (_event, ctx) => {
-		// Includes usage persisted by later agent_end handlers and pre-settlement drafts.
-		usageTotals.invalidate();
-		refreshInteractiveState(ctx);
-		const settled = interactionMetrics.settle(ctx.isIdle());
-		if (!settled) return;
-		settleAgentTurn(settled.nextStartedAt);
-		workingLine.settle(settled.nextTokens, settled.nextThought, ctx);
-		const config = currentConfig.components.workingLine;
-		if (config.enabled && config.turnSummary) {
-			try {
-				pi.appendEntry(TURN_SUMMARY_ENTRY_TYPE, {
-					version: 3,
-					...settled.summary,
-					stylePrefix: snapshotWorkingLineHighStyle(ctx.ui.theme, config, currentConfig.colors),
-				});
-			} catch {
-				// A transcript persistence failure must not break settlement cleanup.
+	if (!host.skinOnly)
+		pi.on("agent_settled", (_event, ctx) => {
+			// Includes usage persisted by later agent_end handlers and pre-settlement drafts.
+			usageTotals.invalidate();
+			refreshInteractiveState(ctx);
+			const settled = interactionMetrics.settle(ctx.isIdle());
+			if (!settled) return;
+			settleAgentTurn(settled.nextStartedAt);
+			if (!host.skinOnly) workingLine.settle(settled.nextTokens, settled.nextThought, ctx);
+			const config = currentConfig.components.workingLine;
+			if (config.enabled && config.turnSummary) {
+				try {
+					const summary = {
+						version: 3 as const,
+						...settled.summary,
+						stylePrefix: snapshotWorkingLineHighStyle(ctx.ui.theme, config, currentConfig.colors),
+					};
+					pi.appendEntry(TURN_SUMMARY_ENTRY_TYPE, summary);
+				} catch {
+					// A transcript persistence failure must not break settlement cleanup.
+				}
 			}
-		}
-	});
+		});
 	pi.on("tool_execution_start", (event, ctx) => {
 		liveContext.clear();
-		workingLine.startTool(event.toolCallId, event.toolName, ctx);
+		if (!host.skinOnly) workingLine.startTool(event.toolCallId, event.toolName, ctx);
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("tool_execution_end", (event, ctx) => {
-		workingLine.finishTool(event.toolCallId, ctx);
+		if (!host.skinOnly) workingLine.finishTool(event.toolCallId, ctx);
 		syncInteractiveAndProjectState(event, ctx);
 	});
 	pi.on("session_compact", (event, ctx) => {

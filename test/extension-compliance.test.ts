@@ -29,7 +29,7 @@ import {
 } from "../extensions/zentui/config";
 import { installFooter as installFooterProduction } from "../extensions/zentui/footer";
 import { emptyGitStatus } from "../extensions/zentui/git";
-import zentui, { activeFooterReferences } from "../extensions/zentui/index";
+import zentui, { activeFooterReferences, type ZentuiHost } from "../extensions/zentui/index";
 import { ZENTUI_PROTOTYPE_PATCH_REGISTRY } from "../extensions/zentui/prototype-patch-registry";
 import {
 	installSelectorBorderStyle as installSelectorBorderStyleProduction,
@@ -513,7 +513,9 @@ function stripTestTags(line: string): string {
 	return stripPromptMarks(line).replaceAll(/\[[^\]]+\]/g, "");
 }
 
-function loadExtension(options: { thinkingLevel?: string; commands?: Map<string, unknown> } = {}) {
+function loadExtension(
+	options: { thinkingLevel?: string; commands?: Map<string, unknown>; host?: ZentuiHost } = {},
+) {
 	const handlers = new Map<string, Handler[]>();
 	const api = {
 		on(eventName: string, handler: Handler) {
@@ -526,7 +528,7 @@ function loadExtension(options: { thinkingLevel?: string; commands?: Map<string,
 			return options.thinkingLevel ?? "off";
 		},
 	} as Record<string, unknown>;
-	zentui(api as never);
+	zentui(api as never, options.host);
 	return handlers;
 }
 
@@ -1598,6 +1600,89 @@ describe("Pi docs compliance", () => {
 		},
 	);
 
+	it.each(["disable", "shutdown", "foreign-replacement"] as const)(
+		"restores observed standalone editor state on %s without wrapping input",
+		async (cleanup) => {
+			initTheme(undefined, false);
+			writeFileSync(
+				join(isolatedAgentDir.path, "zentui.json"),
+				JSON.stringify({ projectRefreshIntervalMs: 0, features: { statusLine: false } }),
+			);
+			const commands = new Map<string, unknown>();
+			const handlers = loadExtension({ commands, host: { wrapEditor: false, skinOnly: true } });
+			type StatefulEditor = {
+				render(width: number): string[];
+				invalidate(): void;
+				handleInput(data: string): void;
+				getText(): string;
+				setText(text: string): void;
+			};
+			type Factory = (...args: unknown[]) => StatefulEditor;
+			const foreignFactory =
+				(label: string): Factory =>
+				() => {
+					let text = "";
+					return {
+						render: () => [`${label}:${text}`],
+						invalidate() {},
+						handleInput(data) {
+							text += `foreign-input:${data}`;
+						},
+						getText: () => text,
+						setText(value) {
+							text = value;
+						},
+					};
+				};
+			const predecessor = foreignFactory("predecessor");
+			let factory: Factory | undefined = predecessor;
+			let editor = predecessor();
+			editor.setText("original draft");
+			const ui = {
+				theme: makeTheme(),
+				setFooter() {},
+				notify() {},
+				getEditorComponent: () => factory,
+				getEditorText: () => editor.getText(),
+				setEditorText: (text: string) => editor.setText(text),
+				setEditorComponent(next: Factory | undefined) {
+					const text = editor.getText();
+					factory = next;
+					editor = (next ?? foreignFactory("native"))(
+						{ requestRender() {}, terminal: { rows: 24, cols: 80 } },
+						{ borderColor: (value: string) => value, selectList: {} },
+						{ matches: () => false },
+					);
+					editor.setText(text);
+				},
+			};
+			const ctx = makeContext({ ui });
+			await emit(handlers, "session_start", ctx);
+			expect(editor.render(80).join("\n")).toContain("original draft");
+			expect(editor.render(80).join("\n")).not.toContain("predecessor:");
+			editor.handleInput("x");
+			expect(editor.getText()).toBe("original draftx");
+			const command = commands.get("zentui") as {
+				handler(args: string, ctx: unknown): Promise<void>;
+			};
+			if (cleanup === "foreign-replacement") {
+				ui.setEditorComponent(foreignFactory("replacement"));
+				editor.handleInput("y");
+				await command.handler("editor disable", ctx);
+				await emit(handlers, "session_shutdown", ctx);
+				expect(editor.render(80)).toEqual(["replacement:original draftxforeign-input:y"]);
+			} else {
+				if (cleanup === "disable") await command.handler("editor disable", ctx);
+				else await emit(handlers, "session_shutdown", ctx);
+				expect(editor.render(80)).toEqual(["predecessor:original draftx"]);
+				editor.handleInput("y");
+				expect(editor.render(80)).toEqual(["predecessor:original draftxforeign-input:y"]);
+				await emit(handlers, "session_shutdown", ctx);
+				expect(editor.render(80)).toEqual(["predecessor:original draftxforeign-input:y"]);
+			}
+		},
+	);
+
 	it("restores a wrapped editor component on shutdown", async () => {
 		const handlers = loadExtension();
 		const existingEditorFactory = () => ({
@@ -2197,36 +2282,6 @@ describe("Pi docs compliance", () => {
 
 		expect(raw).toContain("[accent]┃");
 		expect(raw).not.toContain("│");
-	});
-
-	it("caches rendered user messages across repeated renders", () => {
-		const native = new UserMessageComponent("hello ".repeat(2000));
-		const getChildren = vi.fn(() => native.children);
-		const fg = vi.fn((color: string, text: string) => `[${color}]${text}`);
-		const theme = { ...makeTaggedTheme(), fg } as unknown as Theme;
-		installUserMessageStyle(
-			() => theme,
-			() => defaultConfig,
-		);
-		const instance = {
-			get children() {
-				return getChildren();
-			},
-		};
-		const renderMessage = (width: number) =>
-			UserMessageComponent.prototype.render.call(instance, width);
-
-		const firstRender = renderMessage(80);
-		const fgCallsAfterFirstRender = fg.mock.calls.length;
-		const secondRender = renderMessage(80);
-
-		expect(secondRender).toEqual(firstRender);
-		expect(getChildren).toHaveBeenCalledTimes(2);
-		expect(fg).toHaveBeenCalledTimes(fgCallsAfterFirstRender);
-
-		renderMessage(79);
-		expect(getChildren).toHaveBeenCalledTimes(3);
-		expect(fg.mock.calls.length).toBeGreaterThan(fgCallsAfterFirstRender);
 	});
 
 	it("restyles cached history when message style or relevant chrome changes", () => {

@@ -104,6 +104,16 @@ describe("renderEditorMetadataFormat", () => {
 		expect(render("before((literal))after")).toBe("[border]before[border]literal[border]after");
 	});
 
+	it("shows host fast-mode metadata without leaving punctuation when off", () => {
+		expect(render("$model( · $fast_mode)", { fastMode: "fast" })).toBe(
+			"[accent]Model Label[border] · [accent]fast",
+		);
+		expect(render(`$model( · \${fast_mode})`, { fastMode: "ultrafast" })).toBe(
+			"[accent]Model Label[border] · [accent]ultrafast",
+		);
+		expect(render("$model( · $fast_mode)")).toBe("[accent]Model Label");
+	});
+
 	it("renders unknown variables and fill as empty", () => {
 		expect(render("a$unknown-b$fill-c($unknown)($fill)")).toBe("[border]a[border]-b[border]-c");
 	});

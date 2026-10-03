@@ -66,6 +66,7 @@ export type MinimalistEditorMetadata = {
 	outputTokens?: number;
 	customVariables?: ReadonlyMap<string, string>;
 	thinkingLevel?: string;
+	fastMode?: string;
 	contextPercent?: number;
 	contextWindow?: number;
 	cacheHitRate?: number;
@@ -254,6 +255,8 @@ function renderTopRight(
 	if (thinking && thinking.toLowerCase() !== "off") {
 		parts.push(renderThinking(thinking));
 	}
+	const fastMode = sanitizeEditorMetadataText(metadata.fastMode ?? "");
+	if (fastMode) parts.push(safeThemeFg(uiTheme, "accent", fastMode));
 	if (metadata.contextPercent !== undefined && Number.isFinite(metadata.contextPercent)) {
 		const percent = Math.round(Math.max(0, Math.min(999, metadata.contextPercent)));
 		const tier = contextColorTier(
@@ -453,6 +456,9 @@ function renderTemplateBuiltin(
 			break;
 		case "thinking":
 			isolated.thinkingLevel = metadata.thinkingLevel;
+			break;
+		case "fast_mode":
+			isolated.fastMode = metadata.fastMode;
 			break;
 		case "context":
 			isolated.contextPercent = metadata.contextPercent;

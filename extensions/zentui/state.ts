@@ -82,6 +82,14 @@ export function syncUsageState(
 	state.usageTotals = totals;
 }
 
+/** Refresh model identity without rescanning usage or project state. */
+export function syncModelState(state: FooterState, model: ExtensionContext["model"]): void {
+	state.modelId = model?.id ?? "";
+	state.modelName = model?.name ?? "";
+	state.modelLabel = modelLabelFor(state, "id");
+	state.providerLabel = formatProviderLabel(model?.provider);
+}
+
 export function syncState(
 	state: FooterState,
 	ctx: ExtensionContext,
@@ -90,12 +98,7 @@ export function syncState(
 	options: { includeContextLabel?: boolean; usageTotals?: UsageTotals } = {},
 ): void {
 	const totals = options.usageTotals ?? getUsageTotals(ctx);
-	const m = ctx.model;
-	state.modelId = m?.id ?? "";
-	state.modelName = m?.name ?? "";
-	// Retained as a compatibility snapshot only; production surfaces format from raw fields.
-	state.modelLabel = modelLabelFor(state, "id");
-	state.providerLabel = formatProviderLabel(ctx.model?.provider);
+	syncModelState(state, ctx.model);
 	// Production surfaces resolve fresh context on demand, not from this compatibility label.
 	state.contextLabel = options.includeContextLabel === false ? "--" : buildContextLabel(ctx);
 	syncUsageState(state, totals, cacheHitIcon);

@@ -985,7 +985,7 @@ export class ThinkingExperimentalController {
 		this.resourceToken += 1;
 		this.streamingUnavailableReason = undefined;
 		this.streamingListenerPoisoned = false;
-		if (ctx.mode === "tui" && ctx.hasUI) this.context = ctx;
+		if (ctx.hasUI && (ctx.mode === undefined || ctx.mode === "tui")) this.context = ctx;
 		this.startup = { ...this.getConfig() };
 		this.restartRequired = false;
 		this.activeMode = undefined;

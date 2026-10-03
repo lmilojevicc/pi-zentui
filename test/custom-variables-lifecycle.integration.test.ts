@@ -42,6 +42,7 @@ import {
 	ZENTUI_VARIABLE_EVENT,
 } from "../extensions/zentui/custom-variables";
 import zentui from "../extensions/zentui/index";
+import { createOmpUiAdapter } from "../extensions/zentui/omp-ui";
 
 type Editor = {
 	render(width: number): string[];
@@ -51,7 +52,7 @@ type Editor = {
 };
 type Factory = (...args: never[]) => Editor;
 type Handler = (event: unknown, ctx: unknown) => unknown;
-function harness(mode = "tui") {
+function harness(mode = "tui", omp = false) {
 	const handlers = new Map<string, Handler[]>();
 	const listeners = new Map<string, Set<(value: unknown) => void>>();
 	const events: EventBus = {
@@ -116,11 +117,12 @@ function harness(mode = "tui") {
 		},
 		setStatus: vi.fn(),
 	};
+	const adapter = omp ? createOmpUiAdapter(ui as never) : undefined;
 	const ctx = {
 		mode,
 		hasUI: mode === "tui",
 		cwd: "/tmp/zentui-variable-test",
-		ui,
+		ui: adapter?.ui ?? ui,
 		sessionManager: SessionManager.inMemory("/tmp/zentui-variable-test"),
 		model: { id: "test-model", provider: "test", contextWindow: 100_000 },
 		getContextUsage: () => ({ tokens: 1000, contextWindow: 100_000, percent: 1 }),
@@ -145,6 +147,7 @@ function harness(mode = "tui") {
 		renderFooter: () => footer?.render(100).join("\n") ?? "",
 		async emit(name: string) {
 			for (const handler of handlers.get(name) ?? []) await handler({}, ctx);
+			if (name === "session_shutdown") adapter?.dispose();
 		},
 		capability(key = "@scope/usage:quota") {
 			const probe = { supported: false, active: false, key };
@@ -207,6 +210,18 @@ describe("custom variable editor lifecycle", () => {
 		expect(h.editorText()).toBe("retained draft");
 		await h.emit("session_shutdown");
 		expect(h.capability().active).toBe(false);
+	});
+	it("keeps idle custom-variable demand after OMP constructs the editor synchronously", async () => {
+		const h = harness("tui", true);
+		try {
+			await h.emit("session_start");
+			h.render();
+			h.publish("OMP quota $459/1200");
+			expect(h.render()).toContain("OMP quota $459/1200");
+			expect(h.editorText()).toBe("retained draft");
+		} finally {
+			await h.emit("session_shutdown");
+		}
 	});
 	it("discards values on disable and requires republishing after re-enable", async () => {
 		const h = harness();

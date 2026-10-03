@@ -12,5 +12,5 @@
 		"allowImportingTsExtensions": true,
 		"types": ["node"]
 	},
-	"include": ["extensions/**/*.ts", "test/**/*.ts"]
+	"include": ["omp.ts", "extensions/**/*.ts", "test/**/*.ts"]
 }

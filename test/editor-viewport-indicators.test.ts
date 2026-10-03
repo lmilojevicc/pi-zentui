@@ -1,5 +1,6 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { stripVTControlCharacters } from "node:util";
+import { CustomEditor, type Theme } from "@earendil-works/pi-coding-agent";
+import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { type EditorStyle, mergeConfig, type PolishedTuiConfig } from "../extensions/zentui/config";
 import {
@@ -1355,4 +1356,157 @@ describe("minimalist editor integration", () => {
 		expect(empty[0]).toMatch(/^╭.*╮$/);
 		expect(empty[1]).toMatch(/^╰.*╯$/);
 	});
+});
+
+// OMP 18.4.10 composer/box.ts merges the last input row into the bottom.
+// With paddingX=0 that row has a two-cell prefix and a one-cell suffix;
+// editor.ts reserves a cursor cell while its rendered padding still uses
+// width-2. Capture that asymmetry rather than a Pi-shaped approximation.
+function ompBoxRows(width: number, content: string[], autocomplete: string[] = []): string[] {
+	const border = (text: string) => `\x1b[90m${text}\x1b[0m`;
+	const label = " agent ";
+	return [
+		border("╭") + label + border(`${"─".repeat(width - visibleWidth(label) - 2)}╮`),
+		...content.map((text, index) => {
+			const last = index === content.length - 1;
+			const pad = " ".repeat(
+				Math.max(0, width - 2 - visibleWidth(text.replaceAll(CURSOR_MARKER, ""))),
+			);
+			return border(last ? "╰─" : "│") + text + pad + border(last ? "╯" : "█");
+		}),
+		...autocomplete,
+	];
+}
+
+describe("OMP native box compatibility", () => {
+	const styles = ["opencode", "opencode-copy-friendly", "accent-rail", "minimalist"] as const;
+
+	it.each(styles)("retains shell, multiline, caret and private autocomplete in %s", (style) => {
+		const input = ["! echo 中👩‍💻", "  second line", `last ${CURSOR_MARKER}\x1b[7m \x1b[27m`];
+		const completions = ["→ /help", "  /model"];
+		const nativeRender = vi
+			.spyOn(CustomEditor.prototype, "render")
+			.mockImplementation((width) => ompBoxRows(width, input, completions));
+		try {
+			const editor = standalone(style);
+			editor.setText("! echo 中👩‍💻\n  second line\nlast ");
+			// OMP has private autocomplete storage and exposes its border style.
+			Object.assign(editor, { getBorderStyle: () => "box", isAutocompleteActive: () => true });
+			const rows = editor.render(48);
+			const plain = rows.map(stripVTControlCharacters).join("\n");
+			expect(plain).toContain("! echo 中👩‍💻");
+			expect(plain).toContain("  second line");
+			expect(plain).toContain("last ");
+			expect(plain).toContain("/help");
+			expect(plain).toContain("/model");
+			expect(rows.join("\n").split(CURSOR_MARKER)).toHaveLength(2);
+			expect(rows.every((row) => visibleWidth(row.replaceAll(CURSOR_MARKER, "")) <= 48)).toBe(true);
+			expect(plain).toContain(" agent ");
+		} finally {
+			nativeRender.mockRestore();
+		}
+	});
+
+	it.each(styles)("preserves a caret at the content boundary in %s", (style) => {
+		const nativeRender = vi
+			.spyOn(CustomEditor.prototype, "render")
+			.mockImplementation((width) =>
+				ompBoxRows(width, [`${"x".repeat(width - 3)}${CURSOR_MARKER}\x1b[7m \x1b[27m`]),
+			);
+		try {
+			const rows = standalone(style).render(18);
+			const text = rows.join("\n");
+			expect(text.split(CURSOR_MARKER)).toHaveLength(2);
+			expect(text).toContain(`${CURSOR_MARKER}\x1b[7m `);
+			expect(rows.every((row) => visibleWidth(row.replaceAll(CURSOR_MARKER, "")) <= 18)).toBe(true);
+		} finally {
+			nativeRender.mockRestore();
+		}
+	});
+
+	it.each(styles)("fails open for ambiguous native %s rows without dropping input", (style) => {
+		const input = `preserve ${CURSOR_MARKER}\x1b[7m \x1b[27m`;
+		let emitted: string[] = [];
+		const nativeRender = vi.spyOn(CustomEditor.prototype, "render").mockImplementation((width) => {
+			emitted = [
+				`\x1b[90m╭${"─".repeat(width - 2)}╮\x1b[0m`,
+				`│${input}`, // IME-safe tail or unknown rail: no proven right boundary.
+				`╰${"─".repeat(width - 2)}╯`,
+				"→ suggestion",
+			];
+			return emitted;
+		});
+		try {
+			const rows = standalone(style).render(48);
+			expect(rows).toEqual(emitted);
+			expect(rows.join("\n")).toContain(input);
+		} finally {
+			nativeRender.mockRestore();
+		}
+	});
+
+	it("does not route Pi mouse coordinates into an OMP merged-bottom predecessor", () => {
+		const handleMouse = vi.fn(() => ({ handled: true }));
+		const base = {
+			render: (width: number) => ompBoxRows(width, [`draft${CURSOR_MARKER} `], ["→ completion"]),
+			getPaddingX: () => 0,
+			getBorderStyle: () => "box",
+			getText: () => "draft",
+			setText() {},
+			invalidate() {},
+			handleInput() {},
+			handleMouse,
+		};
+		const editor = new WrappedPolishedEditor(
+			base as never,
+			theme(),
+			() => config(),
+			() => ({ modelLabel: "model", providerLabel: "provider" }),
+			() => "off",
+		);
+		const rows = editor.render(48);
+		const y = rows.findIndex((row) => row.includes("draft"));
+		editor.handleMouse?.({ type: "click", x: 4, y, width: 48, height: rows.length } as never);
+		expect(handleMouse).not.toHaveBeenCalled();
+		expect(rows.join("\n")).toContain("draft");
+	});
+});
+
+describe("OMP default band compatibility", () => {
+	it.each(["opencode", "opencode-copy-friendly", "accent-rail", "minimalist"] as const)(
+		"preserves the native status line, prompt, cursor and public autocomplete in %s",
+		(style) => {
+			const list = { render: (_width: number) => ["→ /help", "  /model"] };
+			const status = "\x1b[36mnative model status\x1b[0m";
+			const text = `!echo 中${CURSOR_MARKER} `;
+			const nativeRender = vi
+				.spyOn(CustomEditor.prototype, "render")
+				.mockImplementation((width) => [
+					status,
+					`╰─ ${text}${" ".repeat(Math.max(0, width - 3 - visibleWidth(text.replaceAll(CURSOR_MARKER, ""))))}`,
+					...list.render(width),
+				]);
+			try {
+				const editor = standalone(style);
+				editor.setText("!echo 中");
+				Object.assign(editor, {
+					getBorderStyle: () => "band",
+					isShowingAutocomplete: () => true,
+					debugChildren: [list],
+				});
+				const rows = editor.render(48);
+				expect(rows[0]).toBe(status);
+				const prompt = rows.find((row) => row.includes("!echo 中")) ?? "";
+				expect(stripVTControlCharacters(prompt)).not.toMatch(/^╰─ /);
+				expect(rows.join("\n")).toContain("/help");
+				expect(rows.join("\n")).toContain("/model");
+				expect(rows.join("\n").split(CURSOR_MARKER)).toHaveLength(2);
+				expect(rows.every((row) => visibleWidth(row.replaceAll(CURSOR_MARKER, "")) <= 48)).toBe(
+					true,
+				);
+			} finally {
+				nativeRender.mockRestore();
+			}
+		},
+	);
 });
