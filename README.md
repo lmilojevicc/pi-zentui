@@ -107,6 +107,8 @@ The OMP port is deliberately a small skin: **Editor, User messages, and Statusli
 
 Opencode and Minimalist metadata include OMP's supported `fast`/`ultrafast` mode. Existing custom templates are unchanged; add `$fast_mode` explicitly where wanted. Statusline supports the same token independently.
 
+OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-data) for session ID, PR number/URL, subagent count, token rate, active processing time, hostname, provider quota, Vim/OMP modes, and collaboration/stream state. Use the same named variables in Opencode metadata, Minimalist slots, or Starship wide/compact formats. Defaults are unchanged; `$usage_quota` explicitly opts into OMP's usage-report API, which may refresh authenticated reports.
+
 **Statusline → Starship** replaces OMP's native status content rather than adding another line. **Hidden** suppresses native main status content and shows only permitted extension statuses; **Native** restores OMP's own line. This works with Zentui Editor enabled or disabled. OMP's inert `setFooter()` API is adapted through guarded, session-scoped native renderer decoration; native settings and other sessions/previews are left alone. All built-in composer layouts are supported; unfamiliar frame/message shapes fail open. See [OMP compatibility](./docs/configuration.md#oh-my-pi-compatibility).
 
 

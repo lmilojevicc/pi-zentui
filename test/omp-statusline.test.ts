@@ -4,6 +4,7 @@ import {
 	type OmpHookStatusObserver,
 	observeOmpHookStatuses,
 } from "../extensions/zentui/omp-statusline";
+import { readOmpTemplateMetrics } from "../extensions/zentui/omp-template-metrics";
 import { createOmpUiAdapter, type OmpUiAdapter } from "../extensions/zentui/omp-ui";
 
 function fixture(
@@ -309,6 +310,36 @@ describe("OMP native statusline replacement", () => {
 			expect(h.surface()).toEqual(["editor", "zentui:model-a:80"]);
 			Reflect.deleteProperty(h.status, "session");
 			expect(h.surface()).toEqual(["native:model-a:80", "editor"]);
+		} finally {
+			h.adapter.dispose();
+		}
+	});
+
+	it("reads native metrics with Footer native, but rejects forged facts and other sessions", () => {
+		const h = fixture();
+		const names = new Set(["session_id", "subagent_count"]);
+		try {
+			Object.defineProperty(h.status, "subagentCount", { value: 2 });
+			h.adapter.useUi(h.native, {
+				...h.options,
+				getHostTemplateValues(receiver, session, requested) {
+					return readOmpTemplateMetrics(
+						{ sessionManager: { getSessionId: () => h.options.getSessionId() } },
+						requested,
+						{ receiver, session },
+					);
+				},
+			});
+			expect(h.adapter.getHostTemplateValues(names)).toEqual({
+				session_id: "own",
+				subagent_count: "2",
+			});
+			expect(h.surface()).toEqual(["native:model-a:80", "editor"]);
+			Reflect.set(h.editor, "composerFacts", { session: h.status.session, subagentCount: 99 });
+			expect(h.adapter.getHostTemplateValues(names)).toBeUndefined();
+			Reflect.set(h.editor, "composerFacts", h.status);
+			h.status.session.sessionManager.getSessionId = () => "other";
+			expect(h.adapter.getHostTemplateValues(names)).toBeUndefined();
 		} finally {
 			h.adapter.dispose();
 		}

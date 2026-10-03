@@ -29,6 +29,7 @@ import {
 } from "./editor-mouse";
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
 import { bashModeLabel } from "./format";
+import type { HostTemplateValues } from "./host-template-values";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import { minimalistTemplateReferences } from "./minimalist-template";
 import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame";
@@ -118,6 +119,7 @@ export type EditorMeta = {
 	outputTokens?: number;
 	cacheHitRate?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 };
 
 export type PolishedEditorFrameOptions = {
@@ -1047,6 +1049,7 @@ export function renderPolishedEditorFrame({
 				outputTokens: modelMeta.outputTokens,
 				cacheHitRate: modelMeta.cacheHitRate,
 				customVariables: includeCustom ? modelMeta.customVariables : undefined,
+				hostTemplateValues: modelMeta.hostTemplateValues,
 			},
 			uiTheme,
 			config,

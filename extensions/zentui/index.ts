@@ -75,6 +75,7 @@ import {
 	resolveContextUsage,
 } from "./format";
 import { emptyGitStatus, readGitStatus } from "./git";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
 	InteractionMetricsTracker,
 	renderTurnSummaryEntry,
@@ -209,6 +210,10 @@ export type ZentuiHost = {
 	skinOnly?: boolean;
 	liveModel?: boolean;
 	getFastMode?: (ctx: ExtensionContext) => string | undefined;
+	getHostTemplateValues?: (
+		ctx: ExtensionContext,
+		names: ReadonlySet<string>,
+	) => HostTemplateValues | undefined;
 };
 
 export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
@@ -416,6 +421,13 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			: undefined;
 		return { contextPercent: context?.percent, contextWindow: context?.contextWindow };
 	};
+	const getEditorHostTemplateValues = (ctx: ExtensionContext) => {
+		if (!host.getHostTemplateValues) return undefined;
+		const names = editorMetadataReferences(currentConfig);
+		for (const name of names)
+			if (isHostTemplateVariable(name)) return host.getHostTemplateValues(ctx, names);
+		return undefined;
+	};
 	const getEditorMeta = (ctx: ExtensionContext) => {
 		if (host.liveModel) syncModelState(state, ctx.model);
 		return {
@@ -425,6 +437,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			modelName: state.modelName,
 			providerLabel: state.providerLabel,
 			fastMode: host.getFastMode?.(ctx),
+			hostTemplateValues: getEditorHostTemplateValues(ctx),
 			sessionName: ctx.sessionManager.getSessionName() ?? "",
 			...getEditorContextMetadata(ctx),
 			inputTokens: state.usageTotals.input,
@@ -954,6 +967,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
 						fastMode: host.getFastMode?.(activeTuiContext ?? ctx),
+						hostTemplateValues: getEditorHostTemplateValues(activeTuiContext ?? ctx),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
 						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
@@ -1024,6 +1038,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 						modelLabel: modelLabelFor(state, currentConfig.components.editor.modelLabel),
 						thinkingLevel: getThinkingLevel(),
 						fastMode: host.getFastMode?.(activeTuiContext ?? ctx),
+						hostTemplateValues: getEditorHostTemplateValues(activeTuiContext ?? ctx),
 						...getEditorContextMetadata(activeTuiContext ?? ctx),
 						cacheHitRate: state.usageTotals.latestCacheHitRate,
 						sessionName: (activeTuiContext ?? ctx).sessionManager.getSessionName() ?? "",
@@ -1202,6 +1217,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				getThinkingLevel,
 				beforeRender: host.liveModel ? () => syncModelState(state, ctx.model) : undefined,
 				getFastMode: () => host.getFastMode?.(ctx),
+				getHostTemplateValues: (names) => host.getHostTemplateValues?.(ctx, names),
 				getLiveContext: () => liveContext.get(),
 				getCodexQuota: () => codexQuota.get(),
 				getCustomVariables: () => customVariables.snapshot(),

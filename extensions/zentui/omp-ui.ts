@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ExtensionUIContext as PiUI } from "@earendil-works/pi-coding-agent";
 import type { ExtensionUIContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { TUI } from "@oh-my-pi/pi-tui";
+import type { HostTemplateValues } from "./host-template-values";
 import { createOmpStatusline, type OmpStatuslineOptions } from "./omp-statusline";
 
 export type OmpUiAdapterOptions = OmpStatuslineOptions;
@@ -11,6 +12,8 @@ export type OmpUiAdapter = {
 	useUi(ui: ExtensionUIContext, options?: OmpUiAdapterOptions): void;
 	runWithUi<T>(ui: ExtensionUIContext, callback: () => T): T;
 	projectChanged(): void;
+	getHostTemplateValues(names: ReadonlySet<string>): HostTemplateValues | undefined;
+	requestRender(): void;
 	dispose(): void;
 };
 
@@ -173,6 +176,8 @@ export function createOmpUiAdapter(
 		projectChanged() {
 			if (active) for (const listener of branchListeners) listener();
 		},
+		getHostTemplateValues: (names) => statusline.getHostTemplateValues(names),
+		requestRender: () => statusline.requestRender(),
 		dispose() {
 			try {
 				statusline.dispose();

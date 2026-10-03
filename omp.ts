@@ -11,12 +11,19 @@ import {
 import type { ExtensionContext, ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
 import zentui from "./extensions/zentui/index";
 import { observeOmpHookStatuses } from "./extensions/zentui/omp-statusline";
+import { OmpTemplateLookups } from "./extensions/zentui/omp-template-lookups";
+import { readOmpTemplateMetrics } from "./extensions/zentui/omp-template-metrics";
+import { observeOmpTemplateModes } from "./extensions/zentui/omp-template-modes";
 import { createOmpUiAdapter, type OmpUiAdapter } from "./extensions/zentui/omp-ui";
 
 /** Focused OMP skin: editors, user messages, and the native status-line slot. */
 const extension: ExtensionFactory = (pi) => {
 	const adapters = new Set<OmpUiAdapter>();
 	const statusObserver = observeOmpHookStatuses(pi.pi.StatusLineComponent.prototype);
+	const modeObserver = observeOmpTemplateModes(pi.pi.StatusLineComponent.prototype);
+	const lookups = new OmpTemplateLookups(pi.exec, () => {
+		for (const adapter of adapters) adapter.requestRender();
+	});
 	const withContext = <T>(ctx: ExtensionContext, callback: (ctx: PiContext) => T): T => {
 		if (!ctx.hasUI || (ctx.mode !== undefined && ctx.mode !== "tui"))
 			return callback(ctx as unknown as PiContext);
@@ -24,6 +31,31 @@ const extension: ExtensionFactory = (pi) => {
 			statusLinePrototype: pi.pi.StatusLineComponent.prototype,
 			getSessionId: () => ctx.sessionManager.getSessionId(),
 			getHookStatusSnapshot: statusObserver?.getSnapshot,
+			onProjectChanged: () => lookups.invalidateProject(ctx.cwd),
+			getHostTemplateValues(receiver, session, names, editor) {
+				const values = readOmpTemplateMetrics(ctx, names, {
+					receiver,
+					session,
+					workerTokenRate: names.has("token_rate")
+						? modeObserver.workerTokenRate(receiver, session)
+						: undefined,
+				});
+				const model = ctx.model;
+				return Object.assign(
+					values,
+					modeObserver.read(receiver, session, editor, names),
+					lookups.read(
+						{
+							session,
+							sessionId: ctx.sessionManager.getSessionId(),
+							cwd: ctx.cwd,
+							provider: model?.provider,
+							modelId: model?.id,
+						},
+						names,
+					),
+				);
+			},
 		});
 		adapters.add(adapter);
 		const ui = adapter.ui;
@@ -92,6 +124,14 @@ const extension: ExtensionFactory = (pi) => {
 		wrapEditor: false,
 		skinOnly: true,
 		liveModel: true,
+		getHostTemplateValues(ctx, names) {
+			for (const adapter of adapters) {
+				if (adapter.ui !== ctx.ui) continue;
+				const values = adapter.getHostTemplateValues(names);
+				if (values) return values;
+			}
+			return readOmpTemplateMetrics(ctx, names);
+		},
 		getFastMode(ctx) {
 			const model = ctx.model as unknown as ExtensionContext["model"];
 			if (!model) return undefined;
@@ -102,9 +142,11 @@ const extension: ExtensionFactory = (pi) => {
 	});
 	// Register after Zentui so its owned surfaces are released before observation stops.
 	pi.on("session_shutdown", () => {
+		lookups.dispose();
 		for (const adapter of adapters.values()) adapter.dispose();
 		adapters.clear();
 		statusObserver?.dispose();
+		modeObserver.dispose();
 	});
 };
 

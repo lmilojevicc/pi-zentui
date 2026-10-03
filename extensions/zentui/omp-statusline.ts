@@ -2,11 +2,19 @@ import { stripVTControlCharacters } from "node:util";
 import type { ExtensionUIContext as PiUI } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { TUI } from "@oh-my-pi/pi-tui";
+import type { HostTemplateValues } from "./host-template-values";
 
 export type OmpStatuslineOptions = {
 	statusLinePrototype?: object;
 	getSessionId?: () => string | undefined;
 	getHookStatusSnapshot?: (receiver: object) => OmpHookStatusSnapshot | undefined;
+	onProjectChanged?: () => void;
+	getHostTemplateValues?: (
+		receiver: object,
+		session: object,
+		names: ReadonlySet<string>,
+		editor: object,
+	) => HostTemplateValues | undefined;
 };
 
 export type OmpHookStatusSnapshot = {
@@ -335,6 +343,11 @@ export function createOmpStatusline(
 		matches(receiver) {
 			if (disposed || !object(receiver)) return undefined;
 			try {
+				if (
+					!options.statusLinePrototype ||
+					!Object.prototype.isPrototypeOf.call(options.statusLinePrototype, receiver)
+				)
+					return undefined;
 				const expected = options.getSessionId?.();
 				if (!expected) {
 					association = undefined;
@@ -438,6 +451,7 @@ export function createOmpStatusline(
 		},
 		branchChanged() {
 			for (const listener of branchListeners) listener();
+			options.onProjectChanged?.();
 		},
 	};
 	return {
@@ -473,6 +487,33 @@ export function createOmpStatusline(
 				}
 			}
 			options = next;
+		},
+		getHostTemplateValues(names: ReadonlySet<string>): HostTemplateValues | undefined {
+			if (disposed || !options.getHostTemplateValues) return undefined;
+			try {
+				let receiver: unknown = association?.receiver;
+				if (!receiver || !owner.matches(receiver)) {
+					receiver = mountedEditor(getEnvironment()?.tui)?.editor.composerFacts;
+					if (!object(receiver) || !owner.matches(receiver)) return undefined;
+				}
+				if (!object(receiver) || !association) return undefined;
+				return options.getHostTemplateValues(
+					receiver,
+					association.session,
+					names,
+					association.editor,
+				);
+			} catch {
+				return undefined;
+			}
+		},
+		requestRender() {
+			if (disposed) return;
+			try {
+				getEnvironment()?.tui.requestRender();
+			} catch {
+				// An unavailable render environment must not break async metadata updates.
+			}
 		},
 		editorChanged() {
 			association = undefined;

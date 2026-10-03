@@ -24,6 +24,7 @@ import {
 } from "./component-colors";
 import { normalizeTemplateVariables } from "./custom-variable-format";
 import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
+import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
 import {
 	ICON_GLYPH_KEYS,
 	type IconEnvironment,
@@ -144,6 +145,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"codex_quota",
 	"sep",
 	"separator",
+	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 
 export type PolishedEditorStyleConfig = TemplateVariableConfig & {
@@ -479,6 +481,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"git_added",
 	"git_deleted",
 	"sep",
+	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 
 /**

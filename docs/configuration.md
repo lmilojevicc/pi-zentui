@@ -591,6 +591,10 @@ preferences still apply. `$sep` (alias `$separator`) uses the configured
 Minimalist dash/dot separator. Prefer optional groups such as
 `$model($sep$thinking)` to avoid separators around empty values.
 
+OMP additionally supports the [host template data](#omp-template-data) built-ins
+in all six slots and both Opencode metadata formats. These are separate from
+publisher aliases and are not included in `$extensions`.
+
 `$extensions` aggregates published custom values in deterministic key order.
 The generated top-right layout includes it after cost; setting an explicit
 slot lets you move or omit it. Values referenced through an alias anywhere in
@@ -955,6 +959,82 @@ OMP 18.4.10+ uses `omp.ts` as a deliberately focused skin for **Editor, User mes
 OMP's `setFooter()` is inert, so the adapter decorates exported native status renderers and restores only its own methods. Scope is established by matching session identity and mounted public `editor.composerFacts` identity. Verified ownership survives temporary dialog unmounting, but editor replacement, detached containers, session changes, and foreign method displacement release it; native startup/preview and other sessions remain untouched. The guarded runtime `session` field is the private compatibility boundary—changed/uninspectable shapes fail open to native. Native preferences/status maps are not rewritten. Extension statuses are recorded from successful public publications starting at extension initialization, including earlier `session_start` handlers; publications predating observation cannot be recovered. In TSP terminals, custom status is plain semantic composer text rather than ANSI frame/color parity; host-owned model-picker action/icon chrome remains native.
 
 OMP has no public editor-factory getter. Zentui observes public setter descriptors across handler scopes and preserves expanded drafts for its observed editors. Initial replacement is OMP's normal last-writer-wins behavior: an opaque pre-existing editor factory cannot be recovered or wrapped. Once a later setter is observed, cleanup restores only Zentui-owned state. Handler-local dialog cancellation remains scoped to the invoking command.
+
+### OMP template data
+
+The following explicit Zentui names are available in Opencode/copy-friendly
+`metadataFormat`, all Minimalist slots, and Starship `format`/`compactFormat`.
+OMP segment IDs are not automatically template variables. These names are
+reserved built-ins, not custom publisher aliases; `$extensions` is unchanged.
+Pi and unavailable OMP capabilities render these host values empty.
+
+| Variable | Data and distinctions |
+| --- | --- |
+| `$session_id` | Current session's full ID, not its human-readable `$session_name`. |
+| `$pr_number`, `$pr_url` | Current non-default branch's GitHub PR number and safe plain HTTPS URL. |
+| `$subagent_count` | Native active subagent badge count; background Bash/Eval jobs are not subagents. A known zero renders `0`. |
+| `$token_rate` | Output tokens/second, for example `42.5 tok/s`. Uses OMP's last-assistant average; observed live Vibe workers add the current streaming main rate, not an idle previous reply. Unknown timings remain empty. |
+| `$active_time` | Native accumulated active-processing time, including the open interval and excluding idle time, for example `1m 5s`. Not wall-clock `$session_duration` or current/completed `$turn_duration`; a known zero renders `0s`. |
+| `$hostname` | Machine hostname without the username. |
+| `$usage_quota` | Proven current-provider/model/account quota windows, for example `5 Hour: 80% left`. Distinct from independently consented `$codex_quota`. |
+| `$collaboration` | Native role and participant count, for example `host · 3 participants`; participants include the host. |
+| `$stream_state` | Native publisher state and remote viewer count. `live · 0 viewers` is active; no publisher renders empty. |
+| `$vim_mode` | Current native editor `insert`, `normal`, `visual`, or `visual-line` state. Disabled Vim renders empty. |
+| `$plan_mode`, `$goal_mode` | `Plan`/`Goal`, or `Plan paused`/`Goal paused` when the native paused state is known. |
+| `$prewalk_mode` | `Prewalk` while the attached session has a Prewalk target. |
+| `$vibe_mode` | `Vibe` while enabled. |
+| `$loop_mode` | `Loop waiting`, `Loop running`, or `Loop paused`; no loop renders empty. |
+
+Defaults and saved templates are never augmented. Add only the desired variables,
+with optional groups around labels:
+
+```json
+{
+  "components": {
+    "editor": {
+      "styles": {
+        "opencode": {
+          "metadataFormat": "$model( · $session_id)( · PR #$pr_number)( · $subagent_count agents)( · $active_time)( · $token_rate)( · $vim_mode)"
+        }
+      }
+    },
+    "footer": {
+      "styles": {
+        "starship": {
+          "format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $goal_mode)( · $loop_mode)$fill$context",
+          "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
+        }
+      }
+    }
+  }
+}
+```
+
+PR data requires a matching GitHub remote, `gh`, and read access. Read-only lookups
+capture and recheck repository/branch identity, cache for up to 30 seconds, and
+invalidate on native project/branch changes. No PR, default/detached branches,
+unavailable tooling, or lookup failure renders empty rather than a placeholder.
+
+**`$usage_quota` is opt-in by explicit template reference.** It uses the current
+native session's public usage-report API and declared public account-routing
+capability, never credentials/keys or private native quota caches. OMP may refresh
+authenticated reports from its configured providers on a cache miss. Successful
+snapshots are cached for up to five minutes, shortened by window resets; there
+is no additional polling timer or default request. Missing identity, ambiguous
+accounts, mismatched provider/model scopes, failures, and expired windows omit
+the affected data. A real zero remaining quota stays visible. The Editor and
+Footer's `$codex_quota` toggles remain separate and are not changed.
+
+Session ID/hostname use public context/OS data. Other fields require a verified
+native component/session/editor association even when Footer is Native or Hidden.
+Current public Vim/session getters take precedence where supported; native
+Plan/Goal/Vibe pause flags, Loop, collaboration, stream state, and worker-rate
+callbacks are observed only after successful public publications. Publications
+predating observation cannot be recovered from private fields. Plan/Goal/Vibe
+snapshots reset with session identity; native UI-global states stay local to
+their component across focus changes. Locked or displaced setters disable
+observation, and disposal restores only still-owned descriptors. All rendered
+text follows the consuming component's sanitization and local colors.
 
 ## Compatibility and migration
 

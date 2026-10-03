@@ -17,6 +17,7 @@ import {
 	formatCwdLabel,
 	formatElapsedDuration,
 } from "./format";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
 	type MinimalistFormatSlot,
 	minimalistExplicitCustomKeys,
@@ -65,6 +66,7 @@ export type MinimalistEditorMetadata = {
 	inputTokens?: number;
 	outputTokens?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 	thinkingLevel?: string;
 	fastMode?: string;
 	contextPercent?: number;
@@ -399,6 +401,18 @@ function renderTemplateBuiltin(
 	renderBorder: (text: string) => string,
 	renderThinking: (text: string) => string,
 ): string {
+	if (isHostTemplateVariable(name)) {
+		const text = sanitizeEditorMetadataText(metadata.hostTemplateValues?.[name] ?? "");
+		return text
+			? renderStyleForSourceOrFallback(
+					uiTheme,
+					config.components.editor.colorSource,
+					componentColor(config, "editor", "border"),
+					"border",
+					text,
+				)
+			: "";
+	}
 	const style = config.components.editor.styles.minimalist;
 	const explicitConfig: ZentuiConfig = {
 		...config,

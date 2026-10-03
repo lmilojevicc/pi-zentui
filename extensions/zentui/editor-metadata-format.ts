@@ -7,6 +7,7 @@ import { normalizeTemplateVariables } from "./custom-variable-format";
 import { sanitizeCustomVariableText } from "./custom-variables";
 import { type FormatToken, parseFooterFormat } from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	renderStyleForSource,
@@ -29,6 +30,7 @@ export type EditorMetadataValues = {
 	outputTokens?: number;
 	cacheHitRate?: number;
 	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 };
 
 type RenderedTokens = {
@@ -196,6 +198,21 @@ function renderVariable(
 			? editor.styles[editor.style]
 			: editor.styles.opencode;
 	const aliases = normalizeTemplateVariables(style.variables, OPENCODE_FORMAT_VARIABLES);
+	if (isHostTemplateVariable(name)) {
+		const plain = sanitizeEditorMetadataText(values.hostTemplateValues?.[name] ?? "");
+		return {
+			plain,
+			styled: plain
+				? renderStyleForSourceOrFallback(
+						uiTheme,
+						editor.colorSource,
+						componentColor(config, "editor", "border"),
+						"border",
+						plain,
+					)
+				: "",
+		};
+	}
 	if (Object.hasOwn(aliases, name)) {
 		const raw = values.customVariables?.get(aliases[name]) ?? "";
 		const text = sanitizeCustomVariableText(raw, style.extensionColorMode ?? "original");
