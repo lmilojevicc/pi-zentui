@@ -625,6 +625,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
+		...(editor.style === "accent-rail" ? buildAccentRailEditorStyleItems(config) : []),
 		{
 			id: "editorColorSource",
 			label: "Editor colors",
@@ -685,8 +686,9 @@ function buildAccentRailEditorStyleItems(config: PolishedTuiConfig): SettingItem
 	return [
 		{
 			id: "accentRailSurface",
-			label: "Accent Rail surface",
-			description: "Fill input and autocomplete surfaces or keep them transparent.",
+			label: "Editor background",
+			description:
+				"Filled adds the rail's background; transparent lets the terminal background show through. Native selection highlights are preserved.",
 			currentValue: accentRail.transparent ? "transparent" : "filled",
 			values: accentRailSurfaceValues,
 		},
@@ -1244,9 +1246,6 @@ function buildSectionItems(
 				...(config.components.editor.style === "opencode" ||
 				config.components.editor.style === "opencode-copy-friendly"
 					? buildPolishedEditorStyleItems(config)
-					: []),
-				...(config.components.editor.style === "accent-rail"
-					? buildAccentRailEditorStyleItems(config)
 					: []),
 				...(config.components.editor.style === "minimalist"
 					? buildMinimalistEditorStyleItems(config)
@@ -1841,7 +1840,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 										) {
 											deps.setAccentRail({ transparent: newValue === "transparent" }, ctx);
 											settingsList.updateValue(id, newValue);
-											notifyChange("Accent Rail surface", newValue);
+											notifyChange("Editor background", newValue);
 											return;
 										}
 										if (id.startsWith("minimalist")) {

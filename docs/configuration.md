@@ -524,7 +524,7 @@ Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/ze
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
-`transparent` defaults to `false`. Set it to `true` or select **Transparent** in `/zentui` to remove only Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native autocomplete backgrounds. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
+`transparent` defaults to `false`. In `/zentui editor`, select **Editor style → Accent Rail**, then **Editor background → transparent** directly below it. Choose **filled** to restore Zentui's background. The control changes only `components.editor.styles.accent-rail.transparent`, removing Zentui-owned input and autocomplete backgrounds while preserving geometry, rail/text colors, and native selection backgrounds. It is also available as a saved preference while Editor is disabled. The rail and gap are rendered decoration, not underlying prompt text; terminal drag or rectangular selection can still include them.
 
 ### Minimalist
 
