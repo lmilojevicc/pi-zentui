@@ -81,6 +81,7 @@ import {
 	renderTurnSummaryEntry,
 	TURN_SUMMARY_ENTRY_TYPE,
 } from "./interaction-summary";
+import { LayeredEditorConsumer } from "./layered-editor";
 import { LiveContextController } from "./live-context";
 import { readPackageVersionResult } from "./package-version";
 import { getComponentPreset } from "./presets";
@@ -324,6 +325,24 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		}
 	};
 
+	const layeredEditor = new LayeredEditorConsumer<EditorFactory>((generation) =>
+		sessionLifecycle.isCurrent(generation),
+	);
+	const currentEditorFactory = (): EditorFactory | undefined => {
+		try {
+			return activeTuiContext?.ui.getEditorComponent();
+		} catch {
+			return undefined;
+		}
+	};
+	// Layered visibility is read-only recognition; installation ownership above stays exclusive.
+	const editorUsageConsumerActive = () =>
+		ownsInstalledEditorFactory() || layeredEditor.isVisibleThrough(currentEditorFactory());
+	const requestEditorRepaint = () => {
+		requestEditorRender?.();
+		layeredEditor.requestRender(currentEditorFactory());
+	};
+
 	const customVariables = new CustomVariables(
 		pi.events,
 		(key) => {
@@ -340,7 +359,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		},
 		() => {
 			if (!customVariableSessionReady || !sessionLifecycle.isCurrent()) return;
-			requestEditorRender?.();
+			requestEditorRepaint();
 			requestFooterRender?.();
 		},
 	);
@@ -349,7 +368,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		customVariables.reconcile();
 		codexQuota.reconcile();
 		requestFooterRender?.();
-		requestEditorRender?.();
+		requestEditorRepaint();
 	};
 	const thinkingExperimental = new ThinkingExperimentalController(
 		() => currentConfig.components.thinkingSteps,
@@ -391,7 +410,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	if (!host.skinOnly)
 		workingLine.setRequestRender(() => {
 			if (sessionLifecycle.isCurrent()) {
-				requestEditorRender?.();
+				requestEditorRepaint();
 			}
 		});
 	let workingLineSessionReady = false;
@@ -468,7 +487,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		return usageTotals.resolve(
 			ctx,
 			(effectiveEditorEnabled() &&
-				ownsInstalledEditorFactory() &&
+				editorUsageConsumerActive() &&
 				["tokens", "input_tokens", "output_tokens", "cost", "cache_hit"].some((name) =>
 					editorMetadataReferences(currentConfig).has(name),
 				)) ||
@@ -516,7 +535,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		() => {
 			if (!sessionLifecycle.isCurrent()) return;
 			requestFooterRender?.();
-			requestEditorRender?.();
+			requestEditorRepaint();
 		},
 	);
 	const getEditorQuota = () =>
@@ -910,7 +929,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!isActiveEditor(editor, generation) || !activeTuiContext || !workingLineSessionReady)
 			return;
 		if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
-		if (workingLine.isAvailable()) requestEditorRender?.();
+		if (workingLine.isAvailable()) requestEditorRepaint();
 	};
 
 	const editorMetadataDecorationChanged = (
@@ -991,6 +1010,15 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			) {
 				activeEditor = { editor, factory, generation };
 				requestEditorRender = () => tui.requestRender();
+			} else if (
+				sessionLifecycle.isCurrent(generation) &&
+				activeTuiContext?.ui === ctx.ui &&
+				observed.known &&
+				observed.factory &&
+				!isZentuiEditorFactory(observed.factory)
+			) {
+				// A foreign wrapper built this editor beneath its own outer factory.
+				layeredEditor.attach(observed.factory, generation, () => tui.requestRender());
 			}
 			return editor;
 		}) as ZentuiEditorFactory;
@@ -1062,6 +1090,15 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			) {
 				activeEditor = { editor, factory, generation };
 				requestEditorRender = () => tui.requestRender();
+			} else if (
+				sessionLifecycle.isCurrent(generation) &&
+				activeTuiContext?.ui === ctx.ui &&
+				observed.known &&
+				observed.factory &&
+				!isZentuiEditorFactory(observed.factory)
+			) {
+				// A foreign wrapper built this editor beneath its own outer factory.
+				layeredEditor.attach(observed.factory, generation, () => tui.requestRender());
 			}
 			return editor;
 		}) as ZentuiEditorFactory;
@@ -1415,6 +1452,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!ctx || !sessionLifecycle.isCurrent()) return;
 		sessionLifecycle.shutdown();
 		activeEditor = undefined;
+		layeredEditor.detach();
 		extensionStatuses.dispose();
 		codexQuota.stop();
 		stopSessionTimer();
