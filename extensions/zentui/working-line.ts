@@ -434,20 +434,26 @@ export function normalizeWorkingLineStyleSpec(value: ColorSpec | undefined): Col
 	return tokens.join(" ");
 }
 
-function renderTier(
+function workingLineTierRenderer(
 	theme: ThemeLike,
 	config: WorkingLineComponentConfig,
 	colors: PolishedTuiColors,
-	tier: Tier,
-	text: string,
-): string {
-	return renderStyleForSourceOrFallback(
-		theme,
-		config.colorSource,
-		normalizeWorkingLineStyleSpec(workingLineColor(config, colors, tier)),
-		WORKING_LINE_FALLBACKS[tier],
-		text,
-	);
+): (tier: Tier, text: string) => string {
+	// Palette validation is invariant within this build, but must not survive a
+	// metric/config/theme rebuild. Resolve lazily so unused tiers remain untouched.
+	const tierStyles = new Map<Tier, ColorSpec | undefined>();
+	return (tier, text) => {
+		if (!tierStyles.has(tier)) {
+			tierStyles.set(tier, normalizeWorkingLineStyleSpec(workingLineColor(config, colors, tier)));
+		}
+		return renderStyleForSourceOrFallback(
+			theme,
+			config.colorSource,
+			tierStyles.get(tier),
+			WORKING_LINE_FALLBACKS[tier],
+			text,
+		);
+	};
 }
 
 /** Resolve the fixed, nonanimated high-tier style used by persisted Turn summaries. */
@@ -484,9 +490,7 @@ export function snapshotWorkingLineHighStyle(
 }
 
 function renderAnimatedText(
-	theme: ThemeLike,
-	config: WorkingLineComponentConfig,
-	colors: PolishedTuiColors,
+	render: (tier: Tier, text: string) => string,
 	cells: GraphemeCell[],
 	width: number,
 	tick: number,
@@ -504,7 +508,7 @@ function renderAnimatedText(
 		if (previous?.tier === tier) previous.text += cell.text;
 		else runs.push({ tier, text: cell.text });
 	}
-	return runs.map((run) => renderTier(theme, config, colors, run.tier, run.text)).join("");
+	return runs.map((run) => render(run.tier, run.text)).join("");
 }
 
 export type WorkingLineRuntimeSegments = {
@@ -813,8 +817,7 @@ function spinnerRowCells(
 function renderWorkingLineSchedule(
 	definition: ScheduleDefinition,
 	config: WorkingLineComponentConfig,
-	colors: PolishedTuiColors,
-	theme: ThemeLike,
+	render: (tier: Tier, text: string) => string,
 	rowCells: GraphemeCell[],
 	spinnerCells: Map<string, GraphemeCell[]> | undefined,
 	width: number,
@@ -834,15 +837,7 @@ function renderWorkingLineSchedule(
 	const renderTextForTick = (tick: number): string => {
 		let cachedText = textRenderCache.get(tick);
 		if (cachedText === undefined) {
-			cachedText = renderAnimatedText(
-				theme,
-				config,
-				colors,
-				rowCells,
-				width,
-				tick,
-				config.textAnimation,
-			);
+			cachedText = renderAnimatedText(render, rowCells, width, tick, config.textAnimation);
 			textRenderCache.set(tick, cachedText);
 		}
 		return cachedText;
@@ -856,7 +851,7 @@ function renderWorkingLineSchedule(
 		let cachedSpinner = spinnerRenderCache.get(index);
 		if (cachedSpinner === undefined) {
 			const glyph = spinner.frames[index] ?? spinner.frames[0];
-			cachedSpinner = renderTier(theme, config, colors, "high", glyph);
+			cachedSpinner = render("high", glyph);
 			spinnerRenderCache.set(index, cachedSpinner);
 		}
 		return cachedSpinner;
@@ -874,9 +869,7 @@ function renderWorkingLineSchedule(
 			spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
 		const frame = config.animateSpinnerColor
 			? `${renderAnimatedText(
-					theme,
-					config,
-					colors,
+					render,
 					spinnerCells?.get(spinnerGlyph) ?? rowCells,
 					width,
 					state.textTick,
@@ -934,6 +927,7 @@ function buildPreparedWorkingLineFrames(
 	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + 1;
 	const textCycle = textPeriod(config.textAnimation, animatedTextWidth);
 	const textPhase = normalizedPhaseTick(textStartTick, textCycle);
+	const render = workingLineTierRenderer(theme, config, colors);
 
 	if (config.textAnimation === "disabled") {
 		const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
@@ -943,7 +937,7 @@ function buildPreparedWorkingLineFrames(
 		let codeUnits = 0;
 		const frames = frameStates.map((state) => {
 			const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-			const frame = `${renderTier(theme, config, colors, "mid", `${glyph} ${composed.row}`)}${SGR_RESET}`;
+			const frame = `${render("mid", `${glyph} ${composed.row}`)}${SGR_RESET}`;
 			codeUnits += frame.length;
 			if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS)
 				throw new Error("Working-line animation exceeds its memory cap");
@@ -985,8 +979,7 @@ function buildPreparedWorkingLineFrames(
 		const rendered = renderWorkingLineSchedule(
 			exact,
 			config,
-			colors,
-			theme,
+			render,
 			rowCells,
 			spinnerCells,
 			animatedTextWidth,
@@ -1029,8 +1022,7 @@ function buildPreparedWorkingLineFrames(
 		const rendered = renderWorkingLineSchedule(
 			fallback,
 			config,
-			colors,
-			theme,
+			render,
 			rowCells,
 			spinnerCells,
 			animatedTextWidth,
@@ -1064,6 +1056,7 @@ export function buildWorkingLineSpinnerFrames(
 ): { frames: string[]; frameStates: WorkingLineFrameState[]; intervalMs: number } {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
 	workingLineSpinnerWidth(config.spinner);
+	const render = workingLineTierRenderer(theme, config, colors);
 	const phase = Number.isFinite(startTick) ? Math.max(0, Math.floor(startTick)) : 0;
 	const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
 		spinnerTick: phase + index,
@@ -1071,7 +1064,7 @@ export function buildWorkingLineSpinnerFrames(
 	}));
 	const frames = frameStates.map((state) => {
 		const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-		return `${renderTier(theme, config, colors, "high", glyph)}${SGR_RESET}`;
+		return `${render("high", glyph)}${SGR_RESET}`;
 	});
 	return { frames, frameStates, intervalMs: config.spinnerIntervalMs };
 }
