@@ -154,7 +154,16 @@ function harness() {
 				| ((patch: object, ctx: unknown) => void)
 				| undefined;
 			if (!hook) throw new Error("settings hooks were not registered");
+			runtime.editorEnabled = false;
 			hook({ enabled: false }, ctx);
+		},
+		enableEditor() {
+			const hook = runtime.hooks?.setEditorComponent as
+				| ((patch: object, ctx: unknown) => void)
+				| undefined;
+			if (!hook) throw new Error("settings hooks were not registered");
+			runtime.editorEnabled = true;
+			hook({ enabled: true }, ctx);
 		},
 		render: () => editor?.render(140).join("\n") ?? "",
 		async emit(name: string, event: unknown = {}) {
@@ -215,7 +224,7 @@ describe("minimalist editor wrapped by a predecessor-preserving foreign wrapper 
 		}
 	});
 
-	it("drops layered usage demand when the editor is disabled", async () => {
+	it("drops layered usage demand when the editor is disabled and restores it on re-enable", async () => {
 		const h = harness();
 		await h.emit("session_start");
 		h.installForeignWrapper();
@@ -226,10 +235,42 @@ describe("minimalist editor wrapped by a predecessor-preserving foreign wrapper 
 			expect(entries).toHaveBeenCalled();
 
 			entries.mockClear();
-			runtime.editorEnabled = false;
 			h.disableEditor();
 			await h.emit("agent_end", { messages: [] });
 			expect(entries).not.toHaveBeenCalled();
+
+			entries.mockClear();
+			h.enableEditor();
+			await h.emit("agent_end", { messages: [] });
+			expect(entries).toHaveBeenCalled();
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
+	it("issues no layered repaint after the editor is disabled and resumes after re-enable", async () => {
+		const h = harness();
+		await h.emit("session_start");
+		const wrapper = h.installForeignWrapper();
+		try {
+			// Baseline: the layered editor is live and repaints through the foreign wrapper.
+			h.requestRender.mockClear();
+			await h.emit("model_select");
+			expect(h.ctx.ui.getEditorComponent()).toBe(wrapper);
+			expect(h.requestRender).toHaveBeenCalled();
+
+			// Disabling clears layered ownership; no later event may reach the stale callback.
+			h.disableEditor();
+			expect(h.ctx.ui.getEditorComponent()).toBe(wrapper);
+			h.requestRender.mockClear();
+			await h.emit("model_select");
+			expect(h.requestRender).not.toHaveBeenCalled();
+
+			// Re-enabling reinstalls a repaint path even though the wrapper chain changed.
+			h.enableEditor();
+			h.requestRender.mockClear();
+			await h.emit("model_select");
+			expect(h.requestRender).toHaveBeenCalled();
 		} finally {
 			await h.emit("session_shutdown");
 		}

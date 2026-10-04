@@ -348,7 +348,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		ownsInstalledEditorFactory() ? activeEditor?.editor : layeredVisibleEditor();
 	const requestEditorRepaint = () => {
 		requestEditorRender?.();
-		layeredEditor.requestRender(currentEditorFactory());
+		// The layered record intentionally outlives ownership clearing, so disabling the editor is
+		// gated here; a live wrapper keeps repainting while the editor remains enabled.
+		if (effectiveEditorEnabled()) layeredEditor.requestRender(currentEditorFactory());
 	};
 
 	const customVariables = new CustomVariables(
