@@ -12,6 +12,7 @@ import {
 	hasThinkingExperimentalMarkdownIdentity,
 	THINKING_EXPERIMENTAL_MAX_TRACKED_COMPONENTS,
 	ThinkingExperimentalController,
+	ThinkingStepsRows,
 } from "../extensions/zentui/thinking-experimental";
 import * as ThinkingStepsParser from "../extensions/zentui/thinking-steps";
 
@@ -238,6 +239,52 @@ function controller(
 }
 
 describe("Thinking (Experimental) private assistant decorator", () => {
+	it("replaces cached rows on streamed source changes and completion, even for in-place message updates", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		const fixture = message("# First\nbody");
+		const decorated = () =>
+			visibleNativeChild(
+				(assistant as unknown as { contentContainer: { children: object[] } }).contentContainer
+					.children[1],
+			);
+		assistant.updateContent(fixture, true);
+		const initial = decorated();
+		expect(initial).toBeInstanceOf(ThinkingStepsRows);
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ • First");
+		fixture.content = [{ type: "thinking", thinking: "# Replacement\nbody" }];
+		assistant.updateContent(fixture, true);
+		expect(decorated()).not.toBe(initial);
+		const updated = plain(assistant.render(80)).join("\n");
+		expect(updated).toContain("└─ • Replacement");
+		expect(updated).not.toContain("First");
+		const streaming = decorated();
+		assistant.updateContent(fixture, false);
+		expect(decorated()).not.toBe(streaming);
+		expect(plain(assistant.render(80)).join("\n")).toContain("└─ · Replacement");
+	});
+
+	it("drops cached row trees from live children and controller snapshots on shutdown", () => {
+		bridgeSourceLoadedMarkdownIdentity();
+		const value = controller({ enabled: true, mode: "tree" });
+		value.startSession(context().ctx);
+		const assistant = component();
+		assistant.updateContent(message("# Historical label\nbody"), false);
+		assistant.render(80);
+		const children = () =>
+			(
+				assistant as unknown as { contentContainer: { children: object[] } }
+			).contentContainer.children.map(visibleNativeChild);
+		expect(children().some((child) => child instanceof ThinkingStepsRows)).toBe(true);
+		value.shutdown();
+		expect(children().some((child) => child instanceof ThinkingStepsRows)).toBe(false);
+		expect(value.diagnostics.trackedComponents).toBe(0);
+		expect(value.diagnostics.activeComponents).toBe(0);
+		expect(plain(assistant.render(80)).join("\n")).not.toContain("┆ Thinking");
+	});
+
 	it.each(
 		(["tree", "rail"] as const).flatMap((mode) =>
 			["```ts", "~~~", "$$", "\\["].map((opening) => ({ mode, opening })),

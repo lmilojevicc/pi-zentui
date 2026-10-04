@@ -218,6 +218,8 @@ function croppedMarkdownRow(markdown: Markdown, source: string, width: number): 
 /** A width-bounded private replacement for one native contiguous thinking run. */
 export class ThinkingStepsRows implements Component {
 	private readonly title: Markdown;
+	// Content and presentation are constructor-fixed; retain only the last successful layout.
+	private renderedCache: { width: number; theme: AccentTheme; rows: string[] } | undefined;
 	private readonly labels: Array<{ source: string; markdown: Markdown }>;
 
 	constructor(
@@ -246,12 +248,23 @@ export class ThinkingStepsRows implements Component {
 	}
 
 	private renderNative(width: number): string[] {
+		this.renderedCache = undefined;
 		this.onPresentation?.(false);
 		return this.native.render(width);
 	}
 
 	render(width: number): string[] {
 		try {
+			let theme: AccentTheme | undefined;
+			const cached = this.renderedCache;
+			if (cached?.width === width) {
+				// The host theme getter is a read-only lookup, including on cache hits.
+				theme = this.getTheme();
+				if (cached.theme === theme) {
+					this.onPresentation?.(true);
+					return [...cached.rows];
+				}
+			}
 			const outer = this.shape.paddingX;
 			const innerWidth = Math.floor(width) - outer * 2;
 			const titleConnector = this.mode === "rail" ? "│ " : "┆ ";
@@ -276,7 +289,7 @@ export class ThinkingStepsRows implements Component {
 				if (!label) return this.renderNative(width);
 				renderedLabels.push({ connector, label });
 			}
-			const theme = this.getTheme();
+			theme ??= this.getTheme();
 			const left = " ".repeat(outer);
 			const right = " ".repeat(outer);
 			const rows = [
@@ -286,14 +299,17 @@ export class ThinkingStepsRows implements Component {
 				),
 			];
 			if (!rows.every((row) => visibleWidth(row) <= width)) return this.renderNative(width);
+			this.renderedCache = { width, theme, rows };
 			this.onPresentation?.(true);
-			return rows;
+			// Containers and decorators may mutate their returned array.
+			return [...rows];
 		} catch {
 			return this.renderNative(width);
 		}
 	}
 
 	invalidate(): void {
+		this.renderedCache = undefined;
 		this.onInvalidate?.();
 		this.native.invalidate();
 		this.title.invalidate();
