@@ -179,18 +179,20 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	}
 	const children = direct;
 	if (!Array.isArray(children) || children.length !== 1) return undefined;
-	const box = children[0];
-	if (!isRecord(box) || !Array.isArray(box.children) || box.children.length !== 1) return undefined;
-	const renderer = box.children[0];
+	// Pi >=1.0 holds the Markdown directly (it pads/colors itself); older Pi
+	// wrapped it in a Box. Accept both shapes.
+	let renderer = children[0];
+	const direct1 = isNativeMarkdown(renderer);
+	if (isRecord(renderer) && !direct1) {
+		const box = renderer;
+		if (!Array.isArray(box.children) || box.children.length !== 1) return undefined;
+		renderer = box.children[0];
+	}
 	if (!isNativeMarkdown(renderer)) return undefined;
 	const child = renderer as unknown as Record<string, unknown>;
-	if (
-		typeof child.text !== "string" ||
-		child.paddingX !== 0 ||
-		child.paddingY !== 0 ||
-		!isRecord(child.theme)
-	)
-		return undefined;
+	if (typeof child.text !== "string" || !isRecord(child.theme)) return undefined;
+	// Box-wrapped (older Pi) Markdown must be unpadded; Pi >=1.0 pads it itself.
+	if (!direct1 && (child.paddingX !== 0 || child.paddingY !== 0)) return undefined;
 	for (const key of [
 		"heading",
 		"link",
@@ -217,6 +219,8 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	)
 		return undefined;
 	if (child.defaultTextStyle !== undefined && !isRecord(child.defaultTextStyle)) return undefined;
+	// Pi >=1.0 puts the message background in defaultTextStyle; Zentui frames draw their own.
+	const { bgColor: _bg, ...textStyle } = (child.defaultTextStyle ?? {}) as Record<string, unknown>;
 	return {
 		renderer: renderer as unknown as Markdown,
 		text: child.text,
@@ -224,9 +228,9 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 			theme: child.theme as unknown as NonNullable<
 				UserMessageStyleRenderInput["markdown"]
 			>["theme"],
-			defaultTextStyle: child.defaultTextStyle as NonNullable<
-				UserMessageStyleRenderInput["markdown"]
-			>["defaultTextStyle"],
+			defaultTextStyle: (child.defaultTextStyle === undefined
+				? undefined
+				: textStyle) as NonNullable<UserMessageStyleRenderInput["markdown"]>["defaultTextStyle"],
 			options: child.options as NonNullable<UserMessageStyleRenderInput["markdown"]>["options"],
 		},
 	};

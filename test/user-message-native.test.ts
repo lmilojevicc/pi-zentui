@@ -421,3 +421,19 @@ describe("source boundary fallback ownership", () => {
 		}
 	});
 });
+
+describe("Pi >=1.0 direct-Markdown user message shape", () => {
+	it("applies Zentui styling when Markdown is a direct, padded child without Box", () => {
+		const result = message("hello world");
+		const box = result.children[0] as Box;
+		const markdown = box.children[0] as Markdown;
+		Reflect.set(markdown, "paddingX", 1);
+		Reflect.set(markdown, "paddingY", 1);
+		result.clear();
+		result.addChild(markdown);
+		install("labeled");
+		const rows = plain(result.render(40));
+		expect(rows).toContain("hello world");
+		expect(rows).toContain("User");
+	});
+});
