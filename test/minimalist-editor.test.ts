@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
@@ -934,6 +935,53 @@ it("fits long minimalist metadata without context rather than clearing both labe
 });
 
 describe("minimalist working line placement", () => {
+	it.each([
+		["theme", "static", "\x1b[35m"],
+		["theme", "adaptive", "\x1b[36m"],
+		["terminal", "static", "\x1b[34m"],
+		["terminal", "adaptive", "\x1b[32m"],
+	] as const)(
+		"uses the %s %s border color between working line and session",
+		(source, mode, ansi) => {
+			const current = config();
+			current.components.editor.colorSource = source;
+			current.components.editor.borderColorMode = mode;
+			current.components.editor.colors = {
+				border: source === "theme" ? "error" : "blue",
+				thinkingHigh: "green",
+			};
+			current.components.editor.styles.minimalist.showTimer = false;
+			const workingLineFrame = "✢ Nucleating… · 56s · thinking 47s · ↑18k ↓1.5k";
+			for (const formats of [undefined, { topLeft: "$session_name" }]) {
+				current.components.editor.styles.minimalist.formats = formats;
+				const top = renderMinimalistFrame({
+					width: 140,
+					editorLines: [""],
+					inputText: "",
+					uiTheme: {
+						...theme(),
+						fg: (color: string, text: string) =>
+							color === "error" ? `\x1b[35m${text}\x1b[0m` : text,
+					} as Theme,
+					config: current,
+					borderColor: (text) => `\x1b[36m${text}\x1b[0m`,
+					metadata: {
+						cwd: "",
+						thinkingLevel: "high",
+						sessionName: "workingline-border-test",
+						workingLineFrame,
+					},
+				})[0];
+				expect(top).toContain(`${ansi}╭\x1b[0m`);
+				expect(top).toContain(`${workingLineFrame}${ansi} ─ \x1b[0m`);
+				expect(stripVTControlCharacters(top)).toContain(
+					`${workingLineFrame} ─ workingline-border-test`,
+				);
+				expect(visibleWidth(top)).toBe(140);
+			}
+		},
+	);
+
 	it("renders working line in the top border when placement is border", () => {
 		const current = config();
 		current.components.workingLine.enabled = true;

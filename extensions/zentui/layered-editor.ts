@@ -8,9 +8,9 @@
  * and redraw requests. The record is valid only while the outer factory observed at construction is
  * still the current editor factory, so any replacement of the chain invalidates it.
  *
- * Visibility is only evidence that a wrapper constructed the editor, not that its rows reach the
- * screen, so surfaces that mutate host UI (for example hiding the native Working row) must keep
- * requiring exclusive installation ownership instead of consulting this record.
+ * Construction alone cannot authorize hiding the Working row: its controller additionally requires
+ * a focused editor that has rendered safe border geometry. A wrapper that renders then discards those
+ * rows remains undetectable; supporting such wrappers requires an explicit host visibility contract.
  */
 export class LayeredEditorConsumer<Factory, Editor = unknown> {
 	private record?: {

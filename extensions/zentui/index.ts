@@ -336,9 +336,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			return undefined;
 		}
 	};
-	// Layered visibility is read-only recognition; installation ownership above stays exclusive.
-	// Data, demand, and timer consumers read the visible editor through these two helpers; anything
-	// that installs, restores, or mutates host UI must keep using ownsInstalledEditorFactory().
+	// Layered visibility does not grant installation ownership: editor install/restore stays exclusive.
+	// Data, demand, and timer consumers use these helpers; Working-line placement additionally
+	// requires focused, rendered border capability before its controller hides its own host row.
 	// Ownership counts before Pi constructs its editor; layered visibility requires the recorded
 	// instance to remain reachable through the current factory.
 	const layeredVisibleEditor = () => layeredEditor.editorVisibleThrough(currentEditorFactory());
@@ -402,17 +402,13 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		undefined,
 		(ctx) => {
 			if (!activeTuiContext || ctx.ui !== activeTuiContext.ui) return false;
-			if (!ownsInstalledEditorFactory()) {
-				activeEditor = undefined;
-				return false;
-			}
+			// Factory visibility alone is insufficient: the current focused editor must have
+			// rendered safe border geometry before the separately owned Working row can hide.
 			return Boolean(
-				activeEditor &&
-					sessionLifecycle.isCurrent(activeEditor.generation) &&
-					activeEditor.factory === installedEditorFactory &&
+				sessionLifecycle.isCurrent() &&
 					effectiveEditorEnabled() &&
 					currentConfig.components.editor.style !== "accent-rail" &&
-					activeEditor.editor.canEmbedWorkingLineBorder(),
+					visibleEditor()?.canEmbedWorkingLineBorder(),
 			);
 		},
 	);
@@ -939,10 +935,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		return observed;
 	};
 
-	// Exclusive: gates mutation of host UI such as the Working row.
-	const isActiveEditor = (editor: PolishedEditor | WrappedPolishedEditor, generation: number) =>
-		sessionLifecycle.isCurrent(generation) && activeEditor?.editor === editor;
-	// Read-only: also true for an editor still visible beneath a foreign wrapper.
+	// Also true for an editor still visible beneath a foreign wrapper; installation stays exclusive.
 	const isVisibleEditor = (editor: PolishedEditor | WrappedPolishedEditor, generation: number) =>
 		sessionLifecycle.isCurrent(generation) && visibleEditor() === editor;
 
@@ -950,7 +943,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
 	) => {
-		if (!isActiveEditor(editor, generation) || !activeTuiContext || !workingLineSessionReady)
+		if (!isVisibleEditor(editor, generation) || !activeTuiContext || !workingLineSessionReady)
 			return;
 		if (!host.skinOnly) workingLine.reconcile(activeTuiContext);
 		if (workingLine.isAvailable()) requestEditorRepaint();
@@ -966,10 +959,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const editorWorkingLineFrame = (
 		editor: PolishedEditor | WrappedPolishedEditor,
 		generation: number,
-	) =>
-		!host.skinOnly && isActiveEditor(editor, generation)
-			? workingLine.currentWorkingLineFrame()
-			: undefined;
+	) => {
+		if (host.skinOnly || !sessionLifecycle.isCurrent(generation)) return undefined;
+		// Even a stale instance render must release a row whose current border disappeared.
+		const frame = workingLine.currentWorkingLineFrame();
+		return isVisibleEditor(editor, generation) ? frame : undefined;
+	};
 
 	/** Records a freshly constructed editor as owned (exclusive) or visible beneath a foreign wrapper. */
 	const registerConstructedEditor = (
