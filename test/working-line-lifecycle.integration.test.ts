@@ -1331,9 +1331,11 @@ describe("working-line owned editor border integration", () => {
 			const calls = h.visible.mock.calls.length;
 			oldEditor.render(12);
 			expect(oldEditor.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
-			expect(
-				h.invokeFactory(oldFactory).render(100).map(stripTerminalSequences).join("\n"),
-			).not.toContain("Stable");
+			const detached = h.invokeFactory(oldFactory);
+			// A foreign factory rendering this new instance is indistinguishable from delegation.
+			// Construction alone must not claim the row; native/unknown factories stay definitive.
+			if (replacement !== "foreign")
+				expect(detached.render(100).map(stripTerminalSequences).join("\n")).not.toContain("Stable");
 			vi.advanceTimersByTime(300);
 			expect(h.visible).toHaveBeenCalledTimes(calls);
 			expect(required(settings.actions).getConfig().components.workingLine.placement).toBe(

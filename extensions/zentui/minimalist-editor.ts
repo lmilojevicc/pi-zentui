@@ -172,9 +172,11 @@ function renderTopLeft(
 	metadata: MinimalistEditorMetadata,
 	uiTheme: Theme,
 	config: ZentuiConfig,
+	renderBorder: (text: string) => string,
 	includeSessionName = true,
 ): string {
 	const source = config.components.editor.colorSource;
+	const separator = safeThemeFg(uiTheme, "muted", " · ");
 	const bashMode = bashModeLabel(inputText);
 	const parts: string[] = [];
 	if (bashMode) {
@@ -206,16 +208,20 @@ function renderTopLeft(
 		? sanitizeEditorMetadataText(metadata.sessionName ?? "")
 		: "";
 	if (config.components.editor.styles.minimalist.showSessionName && sessionName) {
-		parts.push(
-			renderStyleForSource(
-				uiTheme,
-				source,
-				componentColor(config, "editor", "sessionName"),
-				sessionName,
-			),
+		return joinStyled(
+			[
+				joinStyled(parts, separator),
+				renderStyleForSource(
+					uiTheme,
+					source,
+					componentColor(config, "editor", "sessionName"),
+					sessionName,
+				),
+			],
+			metadata.workingLineFrame ? renderBorder(" ─ ") : separator,
 		);
 	}
-	return joinStyled(parts, safeThemeFg(uiTheme, "muted", " · "));
+	return joinStyled(parts, separator);
 }
 
 function renderTopRight(
@@ -448,6 +454,7 @@ function renderTemplateBuiltin(
 				{ cwd: "", sessionName: metadata.sessionName },
 				uiTheme,
 				explicitConfig,
+				renderBorder,
 			);
 		case "turn_duration":
 			return renderTopLeft(
@@ -455,6 +462,7 @@ function renderTemplateBuiltin(
 				{ cwd: "", agentDurationMs: metadata.agentDurationMs, agentActive: metadata.agentActive },
 				uiTheme,
 				explicitConfig,
+				renderBorder,
 			);
 		case "model":
 			isolated.modelLabel = metadata.modelLabel;
@@ -693,8 +701,8 @@ export function renderMinimalistFrame({
 		if (!count || !/^[1-9]\d*$/.test(count)) return "";
 		return safeThemeFg(uiTheme, "muted", `${direction === "above" ? "↑" : "↓"} ${count} more`);
 	};
-	const topMetadata = renderTopLeft(inputText, metadata, uiTheme, config);
-	const topOperational = renderTopLeft(inputText, metadata, uiTheme, config, false);
+	const topMetadata = renderTopLeft(inputText, metadata, uiTheme, config, renderBorder);
+	const topOperational = renderTopLeft(inputText, metadata, uiTheme, config, renderBorder, false);
 	const topViewport = viewportLabel("above", viewport?.above);
 	const topLeft = joinStyled([topViewport, topMetadata], separator);
 	const topRightBudget = Math.max(0, width - 8 - visibleWidth(topLeft));
@@ -775,6 +783,7 @@ export function renderMinimalistFrame({
 									{ cwd: "", workingLineFrame: metadata.workingLineFrame },
 									uiTheme,
 									config,
+									renderBorder,
 									false,
 								)
 							: "";
@@ -784,13 +793,18 @@ export function renderMinimalistFrame({
 					if (visibleWidth(prefix) > budget) prefix = operational;
 					if (visibleWidth(prefix) > budget)
 						prefix = truncateToWidth(prefix, Math.max(0, budget), "…");
+					const metadataSeparator =
+						operational && metadata.workingLineFrame ? renderBorder(" ─ ") : separator;
 					rendered = renderMinimalistTemplate(
 						format,
 						resolve,
 						customNames,
-						Math.max(0, budget - visibleWidth(prefix) - (prefix ? visibleWidth(separator) : 0)),
+						Math.max(
+							0,
+							budget - visibleWidth(prefix) - (prefix ? visibleWidth(metadataSeparator) : 0),
+						),
 					);
-					return joinStyled([prefix, rendered], separator);
+					return joinStyled([prefix, rendered], metadataSeparator);
 				}
 				switch (slot) {
 					case "topLeft": {

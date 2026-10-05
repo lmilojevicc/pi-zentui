@@ -1,4 +1,9 @@
-import { type EventBus, SessionManager, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+	CustomEditor,
+	type EventBus,
+	SessionManager,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtime = vi.hoisted(() => ({
@@ -211,9 +216,9 @@ function harness(options: { model?: object; modelRegistry?: object } = {}) {
 			hook({ enabled: true }, ctx);
 		},
 		/** Pi focus, which the editor must render once before it reports border capability. */
-		focusEditor() {
+		focusEditor(focused = true) {
 			if (!editor) throw new Error("no editor was constructed");
-			editor.focused = true;
+			editor.focused = focused;
 		},
 		render: (width = 140) => editor?.render(width).join("\n") ?? "",
 		probe(key = "@scope/usage:quota") {
@@ -505,7 +510,7 @@ describe("project/git refresh stops eagerly when layered visibility drops (#163 
 	});
 });
 
-describe("host working-row exclusivity for a layered editor (#163 follow-up)", () => {
+describe("working-line border placement through a layered editor", () => {
 	const withBorderWorkingLine = (config: import("../extensions/zentui/config").ZentuiConfig) => {
 		config.components.workingLine.enabled = true;
 		config.components.workingLine.placement = "border";
@@ -513,35 +518,62 @@ describe("host working-row exclusivity for a layered editor (#163 follow-up)", (
 		config.components.editor.styles.minimalist.showGit = false;
 	};
 
-	it("never claims or repaints the host working row through the layered editor", async () => {
-		runtime.configure = withBorderWorkingLine;
-		const h = harness();
-		await h.emit("session_start");
-		await flush();
-
-		// The owned, border-capable editor legitimately hides the native row and embeds the frame.
-		h.focusEditor();
-		h.render();
-		await h.emit("agent_start", {});
-		expect(h.render()).toContain("WORKING-PROBE");
-		expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(false);
-
-		const wrapper = h.installForeignWrapper();
-		await h.emit("model_select");
-		expect(h.ctx.ui.getEditorComponent()).toBe(wrapper);
-		// Layering releases the host row instead of leaving it claimed by the owned editor.
-		expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
-
-		h.ctx.ui.setWorkingMessage.mockClear();
-		h.ctx.ui.setWorkingIndicator.mockClear();
-		h.ctx.ui.setWorkingVisible.mockClear();
-
-		// The layered editor reports its own border capability, but exclusive ownership gates must
-		// keep the controller from mutating host UI or embedding its frame through it.
-		h.focusEditor();
-		expect(h.render()).not.toContain("WORKING-PROBE");
-		expect(h.ctx.ui.setWorkingMessage).not.toHaveBeenCalled();
-		expect(h.ctx.ui.setWorkingIndicator).not.toHaveBeenCalled();
-		expect(h.ctx.ui.setWorkingVisible).not.toHaveBeenCalled();
-	});
+	it.each(
+		(["minimalist", "opencode", "opencode-copy-friendly"] as const).flatMap((style) =>
+			(["replacement", "shutdown"] as const).map((ending) => ({ style, ending })),
+		),
+	)(
+		"embeds $style only through a focused safe border, releasing on $ending",
+		async ({ style, ending }) => {
+			runtime.configure = (config) => {
+				withBorderWorkingLine(config);
+				config.components.editor.style = style;
+			};
+			const h = harness();
+			await h.emit("session_start");
+			await flush();
+			await h.emit("agent_start");
+			const wrapper = h.installForeignWrapper();
+			await h.emit("model_select");
+			h.focusEditor();
+			// Construction and focus alone cannot hide the native row.
+			expect(h.ctx.ui.setWorkingVisible).not.toHaveBeenCalled();
+			expect(h.render()).toContain("WORKING-PROBE");
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(false);
+			h.focusEditor(false);
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			h.focusEditor();
+			expect(h.render(12)).not.toContain("WORKING-PROBE");
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			expect(h.render()).toContain("WORKING-PROBE");
+			const render = vi.spyOn(CustomEditor.prototype, "render").mockReturnValue(["unsafe"]);
+			expect(h.render()).not.toContain("WORKING-PROBE");
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			render.mockRestore();
+			expect(h.render()).toContain("WORKING-PROBE");
+			if (!runtime.config) throw new Error("config not loaded");
+			runtime.config.components.editor.style = "accent-rail";
+			expect(h.render()).not.toContain("WORKING-PROBE");
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			runtime.config.components.editor.style = style;
+			expect(h.render()).toContain("WORKING-PROBE");
+			h.disableEditor();
+			expect(h.ctx.ui.getEditorComponent()).toBe(wrapper);
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			expect(h.render()).not.toContain("WORKING-PROBE");
+			h.enableEditor();
+			const finalWrapper = h.installForeignWrapper();
+			h.focusEditor();
+			expect(h.render()).toContain("WORKING-PROBE");
+			if (ending === "replacement") {
+				h.replaceChain();
+				await vi.advanceTimersByTimeAsync(300);
+				expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			}
+			await h.emit("session_shutdown");
+			expect(h.ctx.ui.setWorkingVisible).toHaveBeenLastCalledWith(true);
+			if (ending === "shutdown") expect(h.ctx.ui.getEditorComponent()).toBe(finalWrapper);
+			expect(h.render()).not.toContain("WORKING-PROBE");
+		},
+	);
 });
