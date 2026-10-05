@@ -45,17 +45,18 @@ Native releases Zentui's ownership; Hidden hides Footer metrics, path, and model
 
 ## `/zentui` settings
 
-The interactive `/zentui` menu is split into seven component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
+The interactive `/zentui` menu is split into eight component-oriented sections. Use `Tab` and `Shift+Tab` to switch sections. Selection/Change/Back/Close hints follow injected host keybindings (with older-host defaults when unavailable). Narrow help retains Change, Sections, and Back (on child pages) or Close guidance:
 
 1. **Appearance** — component Preset; selector-border enablement, informational fixed style, and colors; icon mode.
 2. **Editor** — enablement, style, colors, Codex quota, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
 5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
-6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
+6. **Tool display** — a config bridge to [pi-tool-display](https://github.com/MasuRii/pi-tool-display): enablement, a Preset (Opencode/Balanced/Verbose), per-tool output modes, preview/collapse line counts, and diff layout. Selections are saved here and mirrored into pi-tool-display's config; changes apply after a restart or `/reload`.
+7. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
-7. **Extension statuses** — one Default placement and each observed/saved extension's placement and color. Off controls visibility; positions are saved per Footer mode.
+8. **Extension statuses** — one Default placement and each observed/saved extension's placement and color. Off controls visibility; positions are saved per Footer mode.
 
 The two Footer child entries appear only with Starship selected. Child headings show their scope (for example, **Footer > Git**). The configured cancel key returns to Footer focused on the originating child entry; at the top level it still closes settings. `Tab` / `Shift+Tab` remain available on child pages to move to the next / previous top-level section relative to Footer. Visiting or backing out of a page does not save settings or change component ownership.
 
@@ -71,6 +72,7 @@ Every section and Footer child page has a direct route and completion:
 /zentui user-messages
 /zentui thinking
 /zentui working-line
+/zentui tool-display
 /zentui footer
 /zentui segments
 /zentui git
@@ -844,6 +846,39 @@ pi.events.emit("zentui:working-line-segment", {
 All publishers share one global key namespace. Collisions are last-update-wins, and removal by either publisher removes the value for that key. Publishers must therefore use stable, package-qualified keys such as `@scope/package:segment`; each publisher owns removal and lifecycle cleanup for its keys. `text: ""` also removes a segment. Published state is scoped to the current session and Working-row ownership: Zentui discards it on a new session, disable, shutdown, or ownership release. Positive updates while capability is inactive are ignored rather than retained, so publishers must probe again and republish their current value after capability becomes active.
 
 Zentui accepts at most 16 unique keys, keys up to 64 code units, and values up to 256 code units. Extra segments are omitted or truncated when the complete row reaches its fixed width. `supported` reports whether this Zentui version understands the protocol. Zentui also adds `version: 1` to the mutable capability response; probes that initialize only `supported` and `active`, as above, remain compatible. `active` additionally requires an enabled Working line in an active TUI session where Zentui successfully installed and still claims both required Pi working-row surfaces. Pi's unkeyed, last-writer-wins APIs provide no way to prove that another extension has not overwritten a surface after installation, so publishers should probe at each interaction and retain their normal fallback.
+
+## Tool display
+
+The `toolDisplay` component is a config bridge to [pi-tool-display](https://github.com/MasuRii/pi-tool-display), so compact tool-call rendering can be managed from the same `/zentui` entry point as every other component. Zentui owns the selections (saved under `components.toolDisplay`); rendering stays owned by pi-tool-display. When pi-tool-display is not installed, the section explains the missing dependency and saved choices stay dormant; installing it (`pi install npm:pi-tool-display`) makes them effective after a restart or `/reload`.
+
+Selections are mirrored into pi-tool-display's documented runtime config (`extensions/pi-tool-display/config.json` under the Pi agent dir) whenever a setting changes and once at session start for hand-edited `zentui.json` files. Fields pi-tool-display owns that Zentui does not expose — tool-ownership toggles, custom-tool overrides, RTK hints — are never touched in that file. Because pi-tool-display reads its config at startup, mirrored changes apply after a restart or `/reload`, mirroring how its own tool-ownership changes already behave.
+
+The **Preset** action applies one of pi-tool-display's three presets (Opencode keeps results collapsed; Balanced shows summaries and counts; Verbose shows larger previews), including its line counts. Remaining rows: Read/Search/MCP/Bash output modes, Preview lines (1–80), Bash collapsed lines (0–80), Diff layout (`auto`/`split`/`unified`), Diff indicators (`bars`/`classic`/`none`), Diff word wrap, and pi-tool-display's Native user message box. The Native user message box is forced off while Zentui User messages are enabled, so prompt rendering keeps a single owner; the row explains the dormant state.
+
+```json
+{
+  "components": {
+    "toolDisplay": {
+      "enabled": true,
+      "style": "balanced",
+      "readOutputMode": "summary",
+      "searchOutputMode": "count",
+      "mcpOutputMode": "summary",
+      "bashOutputMode": "summary",
+      "previewLines": 8,
+      "bashCollapsedLines": 10,
+      "diffViewMode": "auto",
+      "diffIndicatorMode": "bars",
+      "diffSplitMinWidth": 120,
+      "diffCollapsedLines": 24,
+      "diffWordWrap": true,
+      "enableNativeUserMessageBox": false
+    }
+  }
+}
+```
+
+`expandedPreviewMaxLines` has no `/zentui` row; set it directly in `zentui.json` if needed.
 
 ## Git status icons
 

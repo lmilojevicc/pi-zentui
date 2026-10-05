@@ -56,6 +56,14 @@ import {
 	type SeparatorStyle,
 	type ThinkingStepsComponentConfig,
 	type ThinkingStepsMode,
+	type ToolDisplayBashOutputMode,
+	type ToolDisplayComponentConfig,
+	type ToolDisplayDiffIndicatorMode,
+	type ToolDisplayDiffViewMode,
+	type ToolDisplayMcpOutputMode,
+	type ToolDisplayReadOutputMode,
+	type ToolDisplaySearchOutputMode,
+	type ToolDisplayStyle,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
@@ -89,6 +97,7 @@ import {
 } from "./settings-previews";
 import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
+import { isPiToolDisplayInstalled, toolDisplayPresetPatch } from "./tool-display-bridge";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
@@ -162,6 +171,20 @@ const workingLinePlacementLabels: Record<WorkingLinePlacement, string> = {
 };
 const workingLinePlacementValues = Object.values(workingLinePlacementLabels);
 const workingLineTextAnimationValues: WorkingLineTextAnimation[] = ["classic", "kitt", "disabled"];
+const toolDisplayStyleLabels: Record<ToolDisplayStyle, string> = {
+	opencode: "Opencode",
+	balanced: "Balanced",
+	verbose: "Verbose",
+};
+const toolDisplayStyleValues = Object.values(toolDisplayStyleLabels);
+const toolDisplayReadModeValues: ToolDisplayReadOutputMode[] = ["hidden", "summary", "preview"];
+const toolDisplaySearchModeValues: ToolDisplaySearchOutputMode[] = ["hidden", "count", "preview"];
+const toolDisplayMcpModeValues: ToolDisplayMcpOutputMode[] = ["hidden", "summary", "preview"];
+const toolDisplayBashModeValues: ToolDisplayBashOutputMode[] = ["opencode", "summary", "preview"];
+const toolDisplayDiffViewValues: ToolDisplayDiffViewMode[] = ["auto", "split", "unified"];
+const toolDisplayDiffIndicatorValues: ToolDisplayDiffIndicatorMode[] = ["bars", "classic", "none"];
+const toolDisplayPreviewLineValues = ["4", "8", "12", "16", "24", "32"];
+const toolDisplayBashLineValues = ["5", "10", "15", "20", "30"];
 const thinkingStepsModeLabels: Record<ThinkingStepsMode, string> = {
 	rail: "Rail",
 	tree: "Tree",
@@ -179,6 +202,7 @@ const settingsSections = [
 	"userMessages",
 	"thinkingSteps",
 	"workingLine",
+	"toolDisplay",
 	"footer",
 	"extensions",
 ] as const;
@@ -214,6 +238,7 @@ type EditorPatch = Partial<
 type UserMessagesPatch = Partial<
 	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
 >;
+type ToolDisplayPatch = Partial<ToolDisplayComponentConfig>;
 type FooterPatch = Partial<
 	Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
 >;
@@ -282,6 +307,7 @@ type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 	setAccentRail: (patch: Partial<AccentRailEditorStyleConfig>, ctx: ExtensionContext) => void;
 	setMinimalist: (patch: MinimalistEditorStylePatch, ctx: ExtensionContext) => void;
 	setUserMessagesComponent: (patch: UserMessagesPatch, ctx: ExtensionContext) => void;
+	setToolDisplayComponent: (patch: ToolDisplayPatch, ctx: ExtensionContext) => ApplyResult;
 	thinkingStepsCapability: ThinkingStepsSettingsCapability;
 	setThinkingStepsComponent: (
 		patch: Partial<ThinkingStepsComponentConfig>,
@@ -324,6 +350,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	userMessages: "User messages",
 	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
+	toolDisplay: "Tool display",
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
@@ -384,6 +411,7 @@ const sectionRoutes: Record<string, SettingsSection> = {
 	thinking: "thinkingSteps",
 	"thinking-steps": "thinkingSteps",
 	"working-line": "workingLine",
+	"tool-display": "toolDisplay",
 	footer: "footer",
 	statusline: "footer",
 	status: "footer",
@@ -559,7 +587,7 @@ function argumentCompletions(prefix: string, skinOnly = false): AutocompleteItem
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|tool-display|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -965,6 +993,110 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 	];
 }
 
+function buildToolDisplayItems(config: PolishedTuiConfig, installed: boolean): SettingItem[] {
+	const toolDisplay = config.components.toolDisplay;
+	const requiresNote = installed ? "" : " Requires pi-tool-display, which is not installed.";
+	const nearest = (value: number, values: string[]): string =>
+		String(
+			values
+				.map(Number)
+				.reduce((best, current) =>
+					Math.abs(current - value) < Math.abs(best - value) ? current : best,
+				),
+		);
+	return [
+		{
+			id: "toolDisplayEnabled",
+			label: "Enabled",
+			description:
+				"Bridge compact tool-call rendering to pi-tool-display. Selections here are saved to zentui.json and mirrored to pi-tool-display's config; changes apply after a restart or /reload." +
+				requiresNote,
+			currentValue: featureValue(toolDisplay.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "toolDisplayStyle",
+			label: "Preset",
+			description:
+				"Opencode keeps results collapsed; Balanced shows summaries and counts; Verbose shows larger previews. Applying a preset also selects its line counts.",
+			currentValue: toolDisplayStyleLabels[toolDisplay.style],
+			values: toolDisplayStyleValues,
+		},
+		{
+			id: "toolDisplayReadOutputMode",
+			label: "Read output",
+			description: "How read results render: hidden, one-line summary, or preview lines.",
+			currentValue: toolDisplay.readOutputMode,
+			values: toolDisplayReadModeValues,
+		},
+		{
+			id: "toolDisplaySearchOutputMode",
+			label: "Search output",
+			description: "How grep/find/ls results render: hidden, match/entry counts, or preview lines.",
+			currentValue: toolDisplay.searchOutputMode,
+			values: toolDisplaySearchModeValues,
+		},
+		{
+			id: "toolDisplayMcpOutputMode",
+			label: "MCP output",
+			description: "How MCP tool results render: hidden, summary, or preview lines.",
+			currentValue: toolDisplay.mcpOutputMode,
+			values: toolDisplayMcpModeValues,
+		},
+		{
+			id: "toolDisplayBashOutputMode",
+			label: "Bash output",
+			description:
+				"Opencode collapses with an expansion hint; summary shows only the line count; preview shows lines.",
+			currentValue: toolDisplay.bashOutputMode,
+			values: toolDisplayBashModeValues,
+		},
+		{
+			id: "toolDisplayPreviewLines",
+			label: "Preview lines",
+			description: "Lines shown in preview mode (1-80).",
+			currentValue: nearest(toolDisplay.previewLines, toolDisplayPreviewLineValues),
+			values: toolDisplayPreviewLineValues,
+		},
+		{
+			id: "toolDisplayBashLines",
+			label: "Bash collapsed lines",
+			description: "Lines shown for collapsed bash output in Opencode mode (0-80).",
+			currentValue: nearest(toolDisplay.bashCollapsedLines, toolDisplayBashLineValues),
+			values: toolDisplayBashLineValues,
+		},
+		{
+			id: "toolDisplayDiffViewMode",
+			label: "Diff layout",
+			description: "Auto chooses split or unified by width; otherwise force a layout.",
+			currentValue: toolDisplay.diffViewMode,
+			values: toolDisplayDiffViewValues,
+		},
+		{
+			id: "toolDisplayDiffIndicator",
+			label: "Diff indicators",
+			description: "Vertical bars, classic +/- markers, or none.",
+			currentValue: toolDisplay.diffIndicatorMode,
+			values: toolDisplayDiffIndicatorValues,
+		},
+		{
+			id: "toolDisplayDiffWordWrap",
+			label: "Diff word wrap",
+			description: "Wrap long diff lines when needed.",
+			currentValue: featureValue(toolDisplay.diffWordWrap),
+			values: featureStateValues,
+		},
+		{
+			id: "toolDisplayUserMessageBox",
+			label: "Native user message box",
+			description:
+				"pi-tool-display's bordered user prompt rendering. Forced off while Zentui User messages are enabled, so prompt rendering has a single owner.",
+			currentValue: featureValue(toolDisplay.enableNativeUserMessageBox),
+			values: featureStateValues,
+		},
+	];
+}
+
 function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer;
 	const items: SettingItem[] = [
@@ -1236,6 +1368,7 @@ function buildSectionItems(
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
 	thinkingStepsCapability: ThinkingStepsSettingsCapability,
+	toolDisplayInstalled = isPiToolDisplayInstalled(),
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -1257,6 +1390,8 @@ function buildSectionItems(
 			return buildThinkingStepsItems(config, thinkingStepsCapability);
 		case "workingLine":
 			return buildWorkingLineItems(config);
+		case "toolDisplay":
+			return buildToolDisplayItems(config, toolDisplayInstalled);
 		case "footer":
 			return [
 				...buildFooterItems(config),
@@ -1296,6 +1431,9 @@ function previousSection(
 	section: SettingsSection,
 	sections: readonly TopLevelSection[] = settingsSections,
 ): SettingsSection {
+	try {
+		require("node:fs").appendFileSync("/tmp/prev.log", JSON.stringify(["prev", section]) + "\n");
+	} catch {}
 	return (
 		sections[
 			(sections.indexOf(topLevelSection(section)) - 1 + sections.length) % sections.length
@@ -1371,6 +1509,25 @@ function markDormantItems(
 			!config.components.selectorBorders.enabled
 		)
 			reason = "selector borders disabled";
+		else if (
+			section === "toolDisplay" &&
+			item.id !== "toolDisplayEnabled" &&
+			!config.components.toolDisplay.enabled
+		)
+			reason = "Tool display disabled";
+		else if (
+			section === "toolDisplay" &&
+			item.id === "toolDisplayEnabled" &&
+			!isPiToolDisplayInstalled()
+		)
+			reason = "pi-tool-display is not installed";
+		else if (
+			section === "toolDisplay" &&
+			item.id === "toolDisplayUserMessageBox" &&
+			config.components.userMessages.enabled &&
+			config.components.toolDisplay.enableNativeUserMessageBox
+		)
+			reason = "Zentui User messages own prompt rendering";
 		if (reason) item.description = `Saved for ${reason}. Inactive now. ${item.description ?? ""}`;
 	}
 }
@@ -1963,6 +2120,79 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 												return;
 											}
 										}
+										if (id.startsWith("toolDisplay")) {
+											const patch: ToolDisplayPatch = {};
+											let label = "Tool display";
+											if (id === "toolDisplayEnabled" && enabled !== undefined) {
+												patch.enabled = enabled;
+											} else if (id === "toolDisplayStyle") {
+												const style = (
+													Object.entries(toolDisplayStyleLabels) as [ToolDisplayStyle, string][]
+												).find(([, text]) => text === newValue)?.[0];
+												if (!style) return;
+												Object.assign(patch, toolDisplayPresetPatch(style));
+												label = `Tool display preset (${newValue})`;
+											} else if (id === "toolDisplayReadOutputMode") {
+												if (
+													!toolDisplayReadModeValues.includes(newValue as ToolDisplayReadOutputMode)
+												)
+													return;
+												patch.readOutputMode = newValue as ToolDisplayReadOutputMode;
+											} else if (id === "toolDisplaySearchOutputMode") {
+												if (
+													!toolDisplaySearchModeValues.includes(
+														newValue as ToolDisplaySearchOutputMode,
+													)
+												)
+													return;
+												patch.searchOutputMode = newValue as ToolDisplaySearchOutputMode;
+											} else if (id === "toolDisplayMcpOutputMode") {
+												if (
+													!toolDisplayMcpModeValues.includes(newValue as ToolDisplayMcpOutputMode)
+												)
+													return;
+												patch.mcpOutputMode = newValue as ToolDisplayMcpOutputMode;
+											} else if (id === "toolDisplayBashOutputMode") {
+												if (
+													!toolDisplayBashModeValues.includes(newValue as ToolDisplayBashOutputMode)
+												)
+													return;
+												patch.bashOutputMode = newValue as ToolDisplayBashOutputMode;
+											} else if (id === "toolDisplayDiffViewMode") {
+												if (
+													!toolDisplayDiffViewValues.includes(newValue as ToolDisplayDiffViewMode)
+												)
+													return;
+												patch.diffViewMode = newValue as ToolDisplayDiffViewMode;
+											} else if (id === "toolDisplayDiffIndicator") {
+												if (
+													!toolDisplayDiffIndicatorValues.includes(
+														newValue as ToolDisplayDiffIndicatorMode,
+													)
+												)
+													return;
+												patch.diffIndicatorMode = newValue as ToolDisplayDiffIndicatorMode;
+											} else if (id === "toolDisplayDiffWordWrap" && enabled !== undefined) {
+												patch.diffWordWrap = enabled;
+											} else if (id === "toolDisplayUserMessageBox" && enabled !== undefined) {
+												patch.enableNativeUserMessageBox = enabled;
+											} else if (
+												(id === "toolDisplayPreviewLines" || id === "toolDisplayBashLines") &&
+												Number.isSafeInteger(Number(newValue))
+											) {
+												if (id === "toolDisplayPreviewLines") patch.previewLines = Number(newValue);
+												else patch.bashCollapsedLines = Number(newValue);
+											} else {
+												return;
+											}
+											const result = deps.setToolDisplayComponent(patch, ctx);
+											if (patch.style !== undefined)
+												settingsList = makeSettingsList("toolDisplayStyle");
+											else settingsList.updateValue(id, newValue);
+											notifyChange(label, newValue, result);
+											return;
+										}
+
 										const selectedWorkingLineSpinner =
 											id === "workingLineSpinner" ? workingLineSpinnerId(newValue) : undefined;
 										if (selectedWorkingLineSpinner) {

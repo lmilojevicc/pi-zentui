@@ -49,9 +49,11 @@ import {
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
 	saveThinkingStepsComponentPatch,
+	saveToolDisplayComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
 	type ThinkingStepsComponentConfig,
+	type ToolDisplayComponentConfig,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
@@ -110,6 +112,7 @@ import {
 } from "./state";
 import { FooterTelemetryController } from "./telemetry";
 import { ThinkingExperimentalController } from "./thinking-experimental";
+import { syncPiToolDisplayConfig } from "./tool-display-bridge";
 import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
 import {
@@ -1551,6 +1554,13 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!host.skinOnly) workingLine.startSession(ctx);
 		workingLineSessionReady = !host.skinOnly;
 		scheduleEditorReconciliation(ctx);
+		if (!host.skinOnly && currentConfig.components.toolDisplay.enabled) {
+			// Mirror hand-edited zentui.json selections into pi-tool-display's config
+			// so they are ready when the extension reloads. Best effort only.
+			syncPiToolDisplayConfig(currentConfig.components.toolDisplay, {
+				userMessagesEnabled: currentConfig.components.userMessages.enabled,
+			});
+		}
 	});
 
 	registerZentuiSettingsCommand(pi, {
@@ -1670,6 +1680,24 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			currentConfig = scopeConfig(saveUserMessagesComponentPatch(patch));
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
+		},
+		setToolDisplayComponent(patch: Partial<ToolDisplayComponentConfig>, ctx: ExtensionContext) {
+			currentConfig = scopeConfig(saveToolDisplayComponentPatch(patch));
+			const sync = syncPiToolDisplayConfig(currentConfig.components.toolDisplay, {
+				userMessagesEnabled: currentConfig.components.userMessages.enabled,
+			});
+			if (ctx.hasUI) {
+				if (sync.error)
+					ctx.ui.notify(`Could not update pi-tool-display config: ${sync.error}`, "error");
+				else if (sync.skipped === "missing-target")
+					ctx.ui.notify(
+						"pi-tool-display is not installed; selections saved but not applied.",
+						"warning",
+					);
+				else ctx.ui.notify("Tool display saved; restart Pi or /reload to apply.", "info");
+			}
+			refresh();
+			return { applied: sync.written || sync.skipped === "unchanged" };
 		},
 		thinkingStepsCapability,
 		setThinkingStepsComponent(

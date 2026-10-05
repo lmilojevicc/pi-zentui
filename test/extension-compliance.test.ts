@@ -111,6 +111,7 @@ const settingsCommandDefaults: SettingsCommandDeps = {
 	setAccentRail() {},
 	setMinimalist() {},
 	setUserMessagesComponent() {},
+	setToolDisplayComponent: () => ({ applied: true }),
 	thinkingStepsCapability: { available: false },
 	setThinkingStepsComponent: () => ({ applied: true }),
 	setWorkingLineComponent: () => ({ applied: true }),
@@ -194,6 +195,7 @@ function canonicalizeTestConfig(config: PolishedTuiConfig): PolishedTuiConfig {
 					? config.colorSources.editor
 					: selectors.colorSource,
 			},
+			toolDisplay: { ...config.components.toolDisplay },
 			footer: {
 				...footer,
 				style: flatChanged("features")
@@ -5791,7 +5793,7 @@ describe("Pi docs compliance", () => {
 		const themeLines = await renderSettings(defaultConfig);
 		expect(themeLines[0]).toContain("[borderMuted]────");
 		expect(themeLines.join("\n")).toContain("Appearance");
-		expect(themeLines.join("\n")).toContain("(1/7)");
+		expect(themeLines.join("\n")).toContain("(1/8)");
 		expect(themeLines.join("\n")).toContain("Tab/Shift+Tab Sections");
 		expect(themeLines.at(-1)).toContain("[borderMuted]────");
 		expect(themeLines.every((line) => visibleWidth(stripTestTags(line)) <= settingsWidth)).toBe(
@@ -5909,7 +5911,7 @@ describe("Pi docs compliance", () => {
 					const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 						handleInput?: (data: string) => void;
 					};
-					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 4; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.("\x1b[B");
@@ -5981,7 +5983,7 @@ describe("Pi docs compliance", () => {
 						{},
 						() => {},
 					) as { handleInput?: (data: string) => void };
-					for (let index = 0; index < 5; index += 1) component.handleInput?.("\t");
+					for (let index = 0; index < 6; index += 1) component.handleInput?.("\t");
 					for (let index = 0; index < 7; index += 1) component.handleInput?.("\x1b[B");
 					component.handleInput?.(" ");
 					component.handleInput?.(" ");
@@ -6206,7 +6208,7 @@ describe("Pi docs compliance", () => {
 		render?: (width: number) => string[];
 		handleInput?: (data: string) => void;
 	}) {
-		for (let index = 0; index < 6; index++) component.handleInput?.("\t");
+		for (let index = 0; index < 7; index++) component.handleInput?.("\t");
 	}
 
 	it("leaves Extension statuses for the previous top-level section with shift+tab", async () => {
@@ -7122,7 +7124,7 @@ describe("three-state Footer lifecycle", () => {
 			const settings = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput(data: string): void;
 			};
-			for (let index = 0; index < 5; index++) settings.handleInput("\t");
+			for (let index = 0; index < 6; index++) settings.handleInput("\t");
 			settings.handleInput(" ");
 		};
 		const ctx = makeContext({ ui: harness.ui });

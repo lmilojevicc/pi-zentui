@@ -140,6 +140,7 @@ describe("canonical config resolution", () => {
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
 			thinkingSteps: { enabled: false, mode: "tree" },
+			toolDisplay: defaultConfig.components.toolDisplay,
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
