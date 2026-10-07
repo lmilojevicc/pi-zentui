@@ -10,6 +10,7 @@ import {
 	renderFormatTokens,
 	stripOrphanSeparators,
 } from "../extensions/zentui/footer-format";
+import { packCompactChunks } from "../extensions/zentui/footer-layout";
 
 describe("parseFooterFormat", () => {
 	it("returns empty array for empty string", () => {
@@ -481,5 +482,100 @@ describe("compact fill zones", () => {
 		const split = compileCompactFormatSplit(parseFooterFormat("$fill$wrap_sep$extensions"));
 		expect(split.left).toEqual([]);
 		expect(split.right).toEqual([{ kind: "extensions", boundary: "separator" }]);
+	});
+});
+
+describe("conditional join separator", () => {
+	const sep = "\x1b[90m | \x1b[0m";
+	const render = (format: string, values: Record<string, string | undefined> = {}) =>
+		renderFormatTokens(parseFooterFormat(format), (name) => {
+			if (name === "join_sep") throw new Error("marker must not resolve data");
+			return name === "sep" ? sep : (values[name] ?? "");
+		});
+
+	it.each(["$join_sep", "$" + "{join_sep}"])(
+		"parses %s as an ordinary variable and joins all presence combinations",
+		(marker) => {
+			expect(parseFooterFormat(marker)).toEqual([{ kind: "var", name: "join_sep" }]);
+			for (let mask = 0; mask < 8; mask++) {
+				const values = Object.fromEntries(
+					["a", "b", "c"].map((name, index) => [
+						name,
+						mask & (1 << index) ? name.toUpperCase() : "",
+					]),
+				);
+				expect(render(`$a${marker}$b${marker}$c`, values)).toBe(
+					Object.values(values).filter(Boolean).join(sep),
+				);
+			}
+			for (const values of [{}, { a: "A" }, { b: "B" }, { a: "A", b: "B" }])
+				expect(render(`$a${marker}$b`, values)).toBe(Object.values(values).join(sep));
+		},
+	);
+
+	it("drops edge, consecutive, unknown, whitespace and control-only fields without changing retained output", () => {
+		const linked = "\x1b[31m\x1b]8;;https://example.com\x1b\\界\ue0a0\x1b]8;;\x1b\\\x1b[0m";
+		for (const empty of [
+			"",
+			" \t ",
+			"\x1b[31m \x1b[0m",
+			"\x1b[0m",
+			"\x1b]8;;https://example.com\x07\x1b]8;;\x07",
+		])
+			expect(
+				render("$join_sep$missing$join_sep$a$join_sep$join_sep$b$join_sep$c$join_sep", {
+					a: linked,
+					b: empty,
+					c: " C ",
+				}),
+			).toBe(`${linked}${sep} C `);
+		expect(render("literal $join_sep$a", { a: " A " })).toBe(`literal ${sep} A `);
+		expect(render("$join_sep$missing$join_sep")).toBe("");
+	});
+
+	it("keeps optional-group liveness and nested sibling scopes local", () => {
+		expect(render("$a$join_sep($b$join_sep($c$join_sep$d))", { a: "A", c: "C", d: "D" })).toBe(
+			`A${sep}C${sep}D`,
+		);
+		expect(render("$a($join_sep$b)", { a: "A", b: "B" })).toBe("AB");
+		expect(render("$a$join_sep(prefix $missing$join_sep suffix)", { a: "A" })).toBe("A");
+		expect(render("$a$join_sep( $join_sep )", { a: "A" })).toBe("A");
+		expect(render("(prefix ($a$join_sep$b))", { a: "\x1b[0m", b: " " })).toBe("");
+		expect(render("(literal$join_sep other)")).toBe(`literal${sep} other`);
+		expect(render("($a$fill$join_sep$b)", { a: "A", b: "B" })).toBe(`A${sep}B`);
+	});
+
+	it("cannot join across fill zones or compact chunks; wrap_sep stays packer-owned", () => {
+		const resolve = (name: string) => ({ a: "A", b: "B", c: "C", sep })[name] ?? "";
+		expect(
+			renderFormatSplit(parseFooterFormat("$a$join_sep$fill$join_sep$b$fill$join_sep$c"), resolve),
+		).toEqual({ left: "A", middle: "B", right: "C" });
+		const chunks = compileCompactFormat(
+			parseFooterFormat("$a$join_sep$wrap$join_sep$b$wrap_sep$join_sep$c"),
+		);
+		expect(
+			chunks.map((chunk) =>
+				chunk.kind === "tokens" ? renderFormatTokens(chunk.tokens, resolve) : "",
+			),
+		).toEqual(["A", "B", "C"]);
+		expect(chunks.map((chunk) => chunk.boundary)).toEqual(["space", "space", "separator"]);
+		const packed = chunks.flatMap((chunk) =>
+			chunk.kind === "tokens"
+				? [{ text: renderFormatTokens(chunk.tokens, resolve), boundary: chunk.boundary }]
+				: [],
+		);
+		expect(packCompactChunks(packed, 10, 3, " | ")).toEqual(["A B | C"]);
+		expect(packCompactChunks(packed, 5, 3, " | ")).toEqual(["A B", "C"]);
+	});
+
+	it("does not change legacy sep, whitespace or resolver behavior when no marker is present", () => {
+		expect(render(" $a $sep $missing ", { a: "A" })).toBe(` A ${sep}  `);
+		expect(render("$a", { a: "\x1b[31m \x1b[0m" })).toBe("\x1b[31m \x1b[0m");
+		expect(
+			renderFormatTokens(parseFooterFormat("$a$join_sep$b"), (name) => {
+				if (name === "sep") throw new Error("unneeded separator");
+				return name === "a" ? "A" : "";
+			}),
+		).toBe("A");
 	});
 });

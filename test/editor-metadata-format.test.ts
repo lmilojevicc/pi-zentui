@@ -413,3 +413,114 @@ describe("sanitizeEditorMetadataText", () => {
 		expect(sanitizeEditorMetadataText("a\u0085\u2028\u2029b  c")).toBe("a b  c");
 	});
 });
+
+describe("Opencode conditional join separator", () => {
+	it.each(["opencode", "opencode-copy-friendly"] as const)(
+		"joins both entry paths and the %s frame without legacy sep output",
+		(style) => {
+			const config = structuredClone(defaultConfig);
+			config.components.editor.style = style;
+			config.components.editor.styles[style].metadataFormat = "$session_name$join_sep$model_name";
+			for (const [sessionName, modelName, expected] of [
+				["Session", "", "Session"],
+				["", "Model", "Model"],
+				["Session", "Model", "Session · Model"],
+				["", "", ""],
+			]) {
+				const inputs = { ...values, sessionName, modelName };
+				const output = renderEditorMetadataFormat(
+					config.components.editor.styles[style].metadataFormat,
+					inputs,
+					makeAnsiTheme(),
+					config,
+				);
+				expect(stripVTControlCharacters(output)).toBe(expected);
+				expect(
+					renderEditorMetadataFormatSplit(
+						config.components.editor.styles[style].metadataFormat,
+						inputs,
+						makeAnsiTheme(),
+						config,
+					),
+				).toEqual({ left: output, middle: "", right: "" });
+				const frame = renderPolishedEditorFrame({
+					width: 100,
+					editorLines: ["draft"],
+					uiTheme: makeAnsiTheme(),
+					config,
+					modelMeta: { modelLabel: "", modelName, providerLabel: "", sessionName },
+				});
+				if (expected) expect(stripVTControlCharacters(frame.join("\n"))).toContain(expected);
+				else expect(stripVTControlCharacters(frame.join("\n"))).not.toContain("·");
+			}
+			expect(
+				renderEditorMetadataFormat(
+					"$session_name$sep$separator$model_name",
+					{ ...values, modelName: "Model" },
+					makeTheme(),
+					config,
+				),
+			).toBe("[border]Session[accent]Model");
+			expect(
+				renderEditorMetadataFormat(
+					"$session_name$join_sep$model_name",
+					{ ...values, modelName: "Model" },
+					makeTheme(),
+					config,
+				),
+			).toBe("[border]Session[border] · [accent]Model");
+		},
+	);
+
+	it("preserves custom SGR/hyperlinks and drops styled whitespace in nested local joins", () => {
+		const config = structuredClone(defaultConfig);
+		config.components.editor.styles.opencode.variables = { build: "pkg.build", blank: "pkg.blank" };
+		const custom = "\x1b[32m\x1b]8;;https://example.com/\x07界\x1b]8;;\x07\x1b[0m";
+		const inputs = {
+			...values,
+			customVariables: new Map([
+				["pkg.build", custom],
+				["pkg.blank", "\x1b[31m \x1b[0m"],
+			]),
+			provider: "",
+			thinking: "off",
+		};
+		const output = renderEditorMetadataFormat(
+			"$session_name$join_sep($provider$join_sep($blank$join_sep$build))$join_sep$thinking",
+			inputs,
+			makeAnsiTheme(),
+			config,
+		);
+		expect(stripVTControlCharacters(output)).toBe("Session · 界");
+		expect(output).toContain(custom);
+		expect(
+			renderEditorMetadataFormat("before( $join_sep )after", inputs, makeAnsiTheme(), config),
+		).toBe("\x1b[31mbefore\x1b[39m\x1b[31mafter\x1b[39m");
+		expect(
+			stripVTControlCharacters(
+				renderEditorMetadataFormat("(literal$join_sep other)", inputs, makeAnsiTheme(), config),
+			),
+		).toBe("literal ·  other");
+		expect(
+			stripVTControlCharacters(
+				renderEditorMetadataFormat(
+					"$session_name($join_sep$build)",
+					inputs,
+					makeAnsiTheme(),
+					config,
+				),
+			),
+		).toBe("Session界");
+		const zones = renderEditorMetadataFormatSplit(
+			"$session_name$join_sep$fill$join_sep$build$fill$blank$join_sep",
+			inputs,
+			makeAnsiTheme(),
+			config,
+		);
+		expect(
+			Object.fromEntries(
+				Object.entries(zones).map(([name, text]) => [name, stripVTControlCharacters(text)]),
+			),
+		).toEqual({ left: "Session", middle: "界", right: "" });
+	});
+});

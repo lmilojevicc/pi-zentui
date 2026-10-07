@@ -7,6 +7,7 @@ Set `components.footer.styles.starship.format` for complete control over the Sta
 - `$variable` and `${variable}` tokens
 - literal text and spaces
 - conditional groups `( ... )` that disappear when every nested variable is empty
+- `$join_sep` conditional field joining
 - `$fill` layout boundaries
 
 A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template. `$codex_quota` is an exception to segment-toggle bypass: it always requires the independent Footer quota consent toggle and active `openai-codex` provider.
@@ -112,6 +113,7 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 | `$subscription` | | `(sub)` in subscription mode; otherwise empty |
 | `$auto_compaction` | | `(auto)` when automatic compaction is enabled |
 | `$sep` | `$separator` | themed `|` using `colors.separator` |
+| `$join_sep` | — | join populated sibling fields with the styled surface separator |
 | `$fill` | — | wide or compact layout boundary |
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
@@ -270,6 +272,51 @@ $cwd( on $git_branch)($git_status)$fill($context)
 
 If every variable inside a group is empty, the group and its literal text are dropped. `$session_name` is available whenever a custom format is set, independently of segment visibility; use a group such as `($sep$session_name)` so unnamed sessions leave no separator.
 
+## Conditional joining
+
+Use `$join_sep` (or `${join_sep}`) between fields to insert a separator only
+between populated fields:
+
+```text
+$session_name$join_sep($git_branch $git_status)
+$a$join_sep$b$join_sep$c
+```
+
+The first example shows just the session, just the Git field, both with one
+separator, or nothing. Git status can populate its field even without a branch.
+The chain renders `a SEP c` when the middle field is missing, never two gaps.
+Leading, trailing, or consecutive markers cannot create orphan separators.
+Literal-only visible fields count; unknown/unsupported variables are empty.
+Whitespace-only fields, SGR resets, and OSC hyperlink wrappers do not count as
+content. Retained fields keep their ANSI styles, hyperlinks, Unicode and icons.
+
+**Do not pad the marker with spaces:** the surface's already styled separator
+owns its spacing. Retained field output is not implicitly trimmed; any literal
+padding inside a populated field remains template-owned. Footer uses its existing
+styled ` | `, Minimalist its configured ` – ` or ` · `, and both Opencode variants
+use neutral border-styled ` · ` for this marker only.
+
+Each parenthesized group is a local sibling scope. For example,
+`$a$join_sep($b$join_sep$c)` joins the group as a whole to `a`, while
+`$a($join_sep$b)` cannot borrow `a` to insert a separator inside the group.
+Existing optional-group liveness rules still apply: the marker is not content,
+and join-only or whitespace-only marker groups disappear. Top-level `$fill`
+zones and compact `$wrap`/`$wrap_sep` chunks are hard boundaries: joins cannot
+cross zones, chunks, or rows. Nested fills remain nonstructural. For example,
+`$a$join_sep$fill$join_sep$b` renders separate `a` and `b` zones, and
+`$a$join_sep$wrap_sep$join_sep$b` leaves any same-row separator to the compact
+packer. `$wrap_sep` is not an alias for `$join_sep`.
+
+This is additive: templates without the marker keep their old behavior,
+including whitespace-only values, `$sep`/`$separator`, and Footer's existing
+pipe-orphan cleanup. No defaults or saved templates are migrated. Joining happens
+before width fitting; narrow displays still may truncate or omit fields.
+`join_sep` is now reserved and cannot be a custom alias on any template owner;
+rename a previously configured alias with that name. The marker does not resolve
+publisher data or create host/Git/quota demand; the joined fields still do.
+Older installed versions treat it as unknown/empty and cannot conditionally join;
+load or upgrade to a version supporting the marker before using it.
+
 ## Formatting rules
 
 - Literal text, pipes, and spaces render verbatim; the template owns spacing.
@@ -279,4 +326,4 @@ If every variable inside a group is empty, the group and its literal text are dr
 - `DEFAULT_COMPACT_FOOTER_FORMAT` omits model/provider, thinking level, and atomic telemetry. Add variables to `components.footer.styles.starship.compactFormat` to opt in at narrow widths. The flat `compactFooterFormat` key remains migration-only input.
 - Auto-compaction settings refresh at the next normal Footer synchronization. Unsupported Pi capabilities or read errors omit optional markers.
 - Unknown variables render empty.
-- `$fill`, `$wrap`, and `$wrap_sep` are structural and never render visible text.
+- `$fill`, `$wrap`, and `$wrap_sep` are structural and never render visible text. `$join_sep` emits a separator only between populated sibling fields.

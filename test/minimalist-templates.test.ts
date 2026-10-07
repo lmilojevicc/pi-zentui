@@ -415,3 +415,75 @@ describe("Minimalist effective template demand", () => {
 		expect(minimalistDemandsCustomVariable(style, "pkg.unused")).toBe(false);
 	});
 });
+
+describe("Minimalist conditional joins", () => {
+	it.each(["dash", "dot"] as const)(
+		"joins actual bottomLeft fields with %s only when populated",
+		(separator) => {
+			const style = {
+				separator,
+				showSessionName: false,
+				showGit: false,
+				formats: { ...emptySlots, bottomLeft: "$session_name$join_sep($git_branch $git_status)" },
+			};
+			for (const [sessionName, branch, expected] of [
+				["Session", "", "Session"],
+				["", "branch", "branch"],
+				["Session", "branch", `Session ${separator === "dash" ? "–" : "·"} branch`],
+				["", "", ""],
+			]) {
+				const rows = render(style, { sessionName, branch });
+				if (expected) expect(plain(rows[2])).toMatch(new RegExp(`^╰─ ${expected} ─+╯$`));
+				else expect(rows).toEqual(render({ ...style, formats: { ...emptySlots } }));
+			}
+			expect(render(style, { sessionName: "Session", branch: "branch", dirty: true })[2]).toContain(
+				`Session ${separator === "dash" ? "–" : "·"} branch *`,
+			);
+			expect(render(style, { sessionName: "Session", dirty: true })[2]).toContain(
+				`Session ${separator === "dash" ? "–" : "·"}  *`,
+			);
+		},
+	);
+
+	it("preserves colored values and regenerates joins when custom values or quota yield", () => {
+		const style = {
+			formats: { ...emptySlots, bottomLeft: "$session_name$join_sep$value$join_sep$git_branch" },
+			variables: { value: "pkg.value" },
+		};
+		const metadata = {
+			sessionName: "S",
+			branch: "B",
+			customVariables: new Map([["pkg.value", "\x1b[31mCUSTOM\x1b[0m"]]),
+		};
+		const wide = render(style, metadata, 100, "terminal")[2];
+		expect(wide).toContain("\x1b[31mCUSTOM\x1b[0m");
+		expect(plain(wide)).toContain("S – CUSTOM – B");
+		for (const width of [15, 18, 22]) {
+			const rows = render(
+				style,
+				{ ...metadata, customVariables: new Map([["pkg.value", "CUSTOM".repeat(30)]]) },
+				width,
+				"terminal",
+			);
+			expect(plain(rows[2])).toContain("S – B");
+			expect(plain(rows[2])).not.toContain("– –");
+			expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+		}
+		const quotaStyle = {
+			formats: {
+				...emptySlots,
+				bottomLeft: "$session_name$join_sep$codex_quota$join_sep$git_branch",
+			},
+		};
+		const rows = renderMinimalistFrame({
+			width: 18,
+			editorLines: ["draft"],
+			inputText: "draft",
+			metadata: { cwd: "", sessionName: "S", branch: "B", codexQuota: { fiveHour: 80, week: 60 } },
+			uiTheme: theme,
+			config: config(quotaStyle, "terminal", true),
+		});
+		expect(plain(rows[2])).toContain("S – B");
+		expect(plain(rows[2])).not.toContain("5h");
+	});
+});

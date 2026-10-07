@@ -15,6 +15,7 @@ export function normalizeTemplateVariables(
 		"fill",
 		"wrap",
 		"wrap_sep",
+		"join_sep",
 		"extensions",
 	]);
 	return Object.fromEntries(

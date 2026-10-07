@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { CodexQuota } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
@@ -5,7 +6,11 @@ import { componentColor, editorShellColor } from "./component-colors";
 import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config";
 import { normalizeTemplateVariables } from "./custom-variable-format";
 import { sanitizeCustomVariableText } from "./custom-variables";
-import { type FormatToken, parseFooterFormat } from "./footer-format";
+import {
+	parseFooterFormat,
+	type ReadonlyFormatToken,
+	renderJoinedTokenFields,
+} from "./footer-format";
 import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
 import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import {
@@ -311,7 +316,33 @@ function renderVariable(
 }
 
 function renderTokens(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
+	values: EditorMetadataValues,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+	shellMode = false,
+): RenderedTokens {
+	const hasJoin = tokens.some((token) => token.kind === "var" && token.name === "join_sep");
+	let hasDynamic = false;
+	let hasNonEmptyDynamic = false;
+	const styled = renderJoinedTokenFields(
+		tokens,
+		(field) => {
+			const rendered = renderTokenField(field, values, uiTheme, config, shellMode);
+			hasDynamic ||= rendered.hasDynamic;
+			if (!hasJoin || stripVTControlCharacters(rendered.styled).trim())
+				hasNonEmptyDynamic ||= rendered.hasNonEmptyDynamic;
+			return rendered.styled;
+		},
+		() => safeThemeFg(uiTheme, "border", " · "),
+	);
+	// An empty join cannot keep an enclosing optional group alive.
+	if (hasJoin && !stripVTControlCharacters(styled).trim()) hasDynamic = true;
+	return { styled, hasDynamic, hasNonEmptyDynamic };
+}
+
+function renderTokenField(
+	tokens: readonly ReadonlyFormatToken[],
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,

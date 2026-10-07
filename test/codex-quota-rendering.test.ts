@@ -222,6 +222,16 @@ describe.each(["theme", "terminal"] as const)("quota with %s colors", (colorSour
 			starship.format = "$cwd";
 			starship.compactFormat = "$cwd";
 			expect(plain(footer?.render(140).join("\n") ?? "")).not.toContain("5h");
+			// Recomposition must regenerate joins when an atomic quota cannot fit.
+			const joined = "A$" + "{join_sep}$codex_quota$" + "{join_sep}B";
+			quota = { fiveHour: 80, week: 60 };
+			for (const responsive of [false, true]) {
+				starship.responsive = responsive;
+				starship.format = responsive ? "wide".repeat(60) : joined;
+				starship.compactFormat = joined;
+				for (const width of [8, 12, 20])
+					expect(plain(footer?.render(width).join("\n") ?? "").trim()).toBe("A | B");
+			}
 		} finally {
 			footer?.dispose?.();
 		}

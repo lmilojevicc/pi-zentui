@@ -106,7 +106,7 @@ describe("Minimalist template configuration", () => {
 			saveMinimalistEditorStylePatch(
 				{
 					formats: { topRight: "", bottomMiddle: "$build" },
-					variables: { build: "pkg.build" },
+					variables: { build: "pkg.build", join_sep: "pkg.reserved" },
 					extensionColorMode: "zentui",
 				},
 				path,

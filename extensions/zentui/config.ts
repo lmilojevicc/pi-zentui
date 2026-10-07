@@ -144,6 +144,7 @@ export const OPENCODE_FORMAT_VARIABLES = [
 	"cache_hit",
 	"codex_quota",
 	"sep",
+	"join_sep",
 	"separator",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
@@ -481,6 +482,7 @@ export const FOOTER_FORMAT_VARIABLES = [
 	"git_added",
 	"git_deleted",
 	"sep",
+	"join_sep",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 

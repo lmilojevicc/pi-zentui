@@ -164,3 +164,23 @@ it("keeps live theme, statuses, widths and in-place format edits outside cached 
 		footer.dispose?.();
 	}
 });
+
+it("caches only immutable join syntax and excludes the raw marker even with hostile aliases", () => {
+	const format = "$a$join_sep($b$" + "{join_sep}$c)$wrap$join_sep$d";
+	const aliases = { a: "cwd", join_sep: "usage_quota" };
+	const first = compiledFooterFormat(format, aliases);
+	expect(first.references).toEqual(["cwd", "b", "c", "d"]);
+	expect(first.compact.left.map((chunk) => chunk.references)).toEqual([["cwd", "b", "c"], ["d"]]);
+	expect(Object.isFrozen(first.tokens)).toBe(true);
+	expect(compiledFooterFormat(format, aliases)).toBe(first);
+	aliases.a = "git_branch";
+	expect(compiledFooterFormat(format, aliases).references).toEqual(["git_branch", "b", "c", "d"]);
+	expect(compiledFooterFormat(format, aliases).tokens).toBe(first.tokens);
+	for (const [a, expected] of [
+		["A", "A | C"],
+		["", "C"],
+	])
+		expect(
+			renderFormatTokens(first.tokens, (name) => ({ a, c: "C", sep: " | " })[name] ?? ""),
+		).toBe(expected);
+});

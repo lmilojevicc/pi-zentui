@@ -242,3 +242,40 @@ describe("explicit host template builtins", () => {
 		expect(plain(demandFree().join("\n")).trim()).toBe("LITERAL");
 	});
 });
+
+it("joins missing/supplied OMP host fields on every shared surface and regenerates Footer probes", () => {
+	const format = "$session_id$join_sep$plan_mode$join_sep$pr_number";
+	for (const hostValues of [
+		undefined,
+		{ session_id: "S" },
+		{ pr_number: "42" },
+		{ session_id: "S", pr_number: "42" },
+		{ session_id: "S", plan_mode: "PLAN", pr_number: "42" },
+	]) {
+		const fields = [hostValues?.session_id, hostValues?.plan_mode, hostValues?.pr_number].filter(
+			Boolean,
+		);
+		for (const style of editorStyles) {
+			const output = plain(editorRows(style, format, hostValues).join("\n"));
+			if (fields.length)
+				expect(output).toContain(fields.join(style === "minimalist" ? " – " : " · "));
+			else expect(output).not.toMatch(/[·–]/);
+		}
+		const config = footerConfig(format, format);
+		const render = footerHarness(config, () => hostValues);
+		expect(plain(render().join("\n")).trim()).toBe(fields.join(" | "));
+		config.components.footer.styles.starship.format = "wide".repeat(60);
+		expect(plain(render(32).join("\n")).trim()).toBe(fields.join(" | "));
+	}
+	const joinedCustom = "$session_id$join_sep$build$join_sep$pr_number";
+	const config = footerConfig(joinedCustom, joinedCustom);
+	config.components.footer.styles.starship.variables = { build: "pkg.build" };
+	const render = footerHarness(
+		config,
+		() => ({ session_id: "S", pr_number: "42" }),
+		new Map([["pkg.build", "X".repeat(80)]]),
+	);
+	expect(plain(render(20).join("\n")).trim()).toBe("S | 42");
+	config.components.footer.styles.starship.format = "wide".repeat(60);
+	expect(plain(render(20).join("\n")).trim()).toBe("S | 42");
+});

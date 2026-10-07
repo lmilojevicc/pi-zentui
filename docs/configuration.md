@@ -543,8 +543,8 @@ Zentui's generated layout; an empty string hides that slot's configurable
 metadata. No extra rows are added. Use **Editor → Metadata templates** in
 `/zentui` to edit a slot or **Reset / inherit** to delete its override.
 
-Templates use the existing `$variable`, `${variable}`, literal text, and
-conditional `( ... )` grammar. Layout is selected by the six slot names, not
+Templates use `$variable`, `${variable}`, literal text, conditional `( ... )`
+groups, and the additive `$join_sep` marker. Layout is selected by the six slot names, not
 `$fill`. Viewport counts, Bash mode, and an embedded Working line remain
 operational indicators outside the templates. Explicit templates may show
 metadata whose ordinary visibility toggle is off, but can never bypass Editor
@@ -588,8 +588,13 @@ Built-ins are `$model`, `$model_id`, `$model_name`, `$provider`, `$thinking`,
 and `$output_tokens`. `$turn_duration` is current/completed interaction time,
 not total session duration. Existing path, context, separator and color
 preferences still apply. `$sep` (alias `$separator`) uses the configured
-Minimalist dash/dot separator. Prefer optional groups such as
-`$model($sep$thinking)` to avoid separators around empty values.
+Minimalist dash/dot separator. `$join_sep` (or `${join_sep}`) joins only populated
+fields with that same styled separator. For example, set `bottomLeft` to
+`"$session_name$join_sep($git_branch $git_status)"` for a session-only, Git-only,
+combined, or empty label; explicit references work even with `showSessionName`
+off. Do not add padding around the marker. Legacy `$sep` and optional-group
+formatting remain unchanged; see [conditional joining](./footer-format.md#conditional-joining)
+for chains, nested scopes, preserved ANSI/link styling, and boundaries.
 
 OMP additionally supports the [host template data](#omp-template-data) built-ins
 in all six slots and both Opencode metadata formats. These are separate from
@@ -674,6 +679,15 @@ Tip: with `opencode-copy-friendly`, set Pi's `editorPaddingX` to `1` for a small
 
 Each Opencode variant owns an independent `metadataFormat`:
 
+Both support `$join_sep` / `${join_sep}` to join populated fields with neutral
+border-styled ` · `, for example `$model$join_sep$provider$join_sep$thinking`.
+Missing middle fields leave exactly one separator; single fields have none.
+Do not pad the marker: it owns its spaces. Joins are local to groups and never
+cross `$fill` zones. Legacy `$sep` / `$separator` still render empty in Opencode.
+See [shared conditional-joining semantics](./footer-format.md#conditional-joining).
+The marker is reserved (not a custom alias or data demand), requires a supporting
+version, and does not rewrite defaults, saved templates, or other components.
+
 ```json
 {
   "components": {
@@ -712,6 +726,7 @@ The configured right zone and Pi's operational right status are right-aligned to
 | `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
 | `$cache_hit` | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable |
 | `$codex_quota` | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` |
+| `$join_sep` | conditional join with neutral border-styled ` · ` |
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
 

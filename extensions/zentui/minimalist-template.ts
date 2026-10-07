@@ -45,6 +45,7 @@ export const MINIMALIST_BUILTIN_VARIABLES = [
 	"fill",
 	"wrap",
 	"wrap_sep",
+	"join_sep",
 	...HOST_TEMPLATE_VARIABLES,
 ] as const;
 const reserved = new Set<string>(MINIMALIST_BUILTIN_VARIABLES);
@@ -120,7 +121,7 @@ export function minimalistTemplateReferences(
 	const visit = (tokens: readonly ReadonlyFormatToken[]) => {
 		for (const token of tokens) {
 			if (token.kind === "group") visit(token.tokens);
-			else if (token.kind === "var") names.add(token.name);
+			else if (token.kind === "var" && token.name !== "join_sep") names.add(token.name);
 		}
 	};
 	for (const format of Object.values(effectiveMinimalistFormats(style)))

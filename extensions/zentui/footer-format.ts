@@ -7,6 +7,8 @@
  * variable (and nested group) renders empty.
  */
 
+import { stripVTControlCharacters } from "node:util";
+
 export type FormatToken =
 	| { kind: "text"; value: string }
 	| { kind: "var"; name: string }
@@ -250,7 +252,7 @@ function parseTokenSlice(
  *
  * Text tokens contribute their `value` verbatim (unstyled/plain); var tokens
  * contribute `renderVariable(name)` (already styled by caller). No automatic
- * spaces are inserted — the user controls all spacing.
+ * spaces are inserted except the styled separator between `$join_sep` fields.
  */
 export function renderFormatSplit(
 	tokens: readonly ReadonlyFormatToken[],
@@ -376,7 +378,7 @@ export function collectFooterFormatReferences(
 				visit(token.tokens);
 				continue;
 			}
-			if (token.kind !== "var") continue;
+			if (token.kind !== "var" || token.name === "join_sep") continue;
 			const canonical = canonicalVariableName(token.name, aliases);
 			if (canonical !== "wrap" && canonical !== "wrap_sep" && canonical !== "extensions") {
 				references.add(canonical);
@@ -395,19 +397,39 @@ function findTopLevelFillIndices(tokens: readonly ReadonlyFormatToken[]): number
 	return fillIndices;
 }
 
+/** Join sibling fields only when a marker occurs; legacy output stays verbatim.
+ * VT controls are ignored for detection, never removed from retained output.
+ */
+export function renderJoinedTokenFields(
+	tokens: readonly ReadonlyFormatToken[],
+	renderField: (field: readonly ReadonlyFormatToken[]) => string,
+	renderSeparator: () => string,
+): string {
+	if (!tokens.some((token) => token.kind === "var" && token.name === "join_sep"))
+		return renderField(tokens);
+	const fields: string[] = [];
+	let start = 0;
+	for (let index = 0; index <= tokens.length; index++) {
+		const token = tokens[index];
+		if (index !== tokens.length && !(token?.kind === "var" && token.name === "join_sep")) continue;
+		const rendered = renderField(tokens.slice(start, index));
+		if (stripVTControlCharacters(rendered).trim()) fields.push(rendered);
+		start = index + 1;
+	}
+	return fields.join(fields.length > 1 ? renderSeparator() : "");
+}
+
 function renderTokenSlice(
 	tokens: readonly ReadonlyFormatToken[],
 	start: number,
 	end: number,
 	renderVariable: (name: string) => string,
 ): string {
-	let result = "";
-	for (let i = start; i < end; i++) {
-		const token = tokens[i];
-		if (!token) continue;
-		result += renderToken(token, renderVariable);
-	}
-	return result;
+	return renderJoinedTokenFields(
+		tokens.slice(start, end),
+		(field) => field.map((token) => renderToken(token, renderVariable)).join(""),
+		() => renderVariable("sep"),
+	);
 }
 
 function renderToken(token: ReadonlyFormatToken, renderVariable: (name: string) => string): string {
@@ -415,7 +437,7 @@ function renderToken(token: ReadonlyFormatToken, renderVariable: (name: string) 
 	if (token.kind === "var") return renderVariable(token.name);
 	if (token.kind === "fill") return "";
 	// group
-	const rendered = token.tokens.map((child) => renderToken(child, renderVariable)).join("");
+	const rendered = renderTokenSlice(token.tokens, 0, token.tokens.length, renderVariable);
 	if (isGroupEmpty(token, renderVariable)) return "";
 	return rendered;
 }
@@ -425,17 +447,24 @@ function renderToken(token: ReadonlyFormatToken, renderVariable: (name: string) 
  * alive when every real content var is empty (e.g. `($sep$tokens)` drops if
  * tokens is empty).
  */
-const NON_CONTENT_VARS = new Set(["sep", "separator"]);
+const NON_CONTENT_VARS = new Set(["sep", "separator", "join_sep"]);
 
 /**
  * A group is empty iff every content var leaf is empty and every nested group
- * is empty. Text-only groups (no vars) always show. `$sep` / `$separator` are
- * ignored for emptiness so orphan themed pipes do not force a group to render.
+ * is empty. Text-only groups (no vars) always show. `$sep` / `$separator` and
+ * `$join_sep` are not content; an empty joined scope is also empty to its parent.
  */
 function isGroupEmpty(
 	group: ReadonlyFormatToken & { kind: "group" },
 	renderVariable: (name: string) => string,
 ): boolean {
+	if (
+		group.tokens.some((token) => token.kind === "var" && token.name === "join_sep") &&
+		!stripVTControlCharacters(
+			renderTokenSlice(group.tokens, 0, group.tokens.length, renderVariable),
+		).trim()
+	)
+		return true;
 	let sawContentVarOrGroup = false;
 	for (const child of group.tokens) {
 		if (child.kind === "var") {
