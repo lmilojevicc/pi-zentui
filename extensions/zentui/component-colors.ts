@@ -36,6 +36,7 @@ export const componentColorKeys = {
 		"contextNormal",
 		"contextWarning",
 		"contextError",
+		"cacheHit",
 		"cost",
 		"sessionDuration",
 		"accent",
@@ -103,7 +104,7 @@ export function componentColor(
 export function componentColor(
 	config: ZentuiConfig,
 	owner: "editor",
-	key: Exclude<ComponentColorKey<"editor">, keyof typeof editorLegacyKeys>,
+	key: Exclude<ComponentColorKey<"editor">, keyof typeof editorLegacyKeys | "cacheHit">,
 ): string;
 export function componentColor<O extends ColorOwner>(
 	config: ZentuiConfig,

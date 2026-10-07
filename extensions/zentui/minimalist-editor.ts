@@ -317,7 +317,13 @@ function renderTopRight(
 		config.components.editor.styles.minimalist.showCacheHit &&
 		metadata.cacheHitRate !== undefined &&
 		Number.isFinite(metadata.cacheHitRate)
-			? safeThemeFg(uiTheme, "muted", `Cache ${formatCacheHitRate(metadata.cacheHitRate)}`)
+			? renderStyleForSource(
+					uiTheme,
+					source,
+					componentColor(config, "editor", "cacheHit") ??
+						componentColor(config, "editor", "contextNormal"),
+					`Cache ${formatCacheHitRate(metadata.cacheHitRate)}`,
+				)
 			: "";
 	if (cacheHit && (!fit || visibleWidth(joinParts([...parts, cacheHit])) <= availableWidth)) {
 		parts.push(cacheHit);

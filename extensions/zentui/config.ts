@@ -388,6 +388,7 @@ export type PolishedTuiColors = {
 	contextWarning: ColorSpec;
 	contextError: ColorSpec;
 	tokens: ColorSpec;
+	cacheHit?: ColorSpec;
 	cost: ColorSpec;
 	separator: ColorSpec;
 	runtimePrefix: ColorSpec;
@@ -826,6 +827,7 @@ function normalizeColors(record: Record<string, unknown>): Partial<PolishedTuiCo
 		contextWarning: colorValue(record, "contextWarning"),
 		contextError: colorValue(record, "contextError"),
 		tokens: colorValue(record, "tokens"),
+		cacheHit: colorValue(record, "cacheHit"),
 		cost: colorValue(record, "cost"),
 		separator: colorValue(record, "separator"),
 		runtimePrefix: colorValue(record, "runtimePrefix"),

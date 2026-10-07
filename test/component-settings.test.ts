@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { componentColor } from "../extensions/zentui/component-colors";
 import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
@@ -121,6 +122,56 @@ describe("confirmed component migration dialogs", () => {
 });
 
 describe("component color override dialogs", () => {
+	it("exposes cacheHit for Editor and saves/resets only its sparse override", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "zentui-cache-hit-dialog-"));
+		const path = join(dir, "zentui.json");
+		const original = {
+			colors: { cacheHit: "green", contextNormal: "blue" },
+			components: {
+				editor: { colors: { contextNormal: "cyan", future: true } },
+				footer: { colors: { contextNormal: "red" }, future: true },
+				userMessages: { enabled: false },
+				selectorBorders: { colorSource: "terminal" },
+				workingLine: { enabled: false },
+			},
+		};
+		try {
+			writeFileSync(path, JSON.stringify(original));
+			const h = harness();
+			h.deps.getConfig = () => mergeConfig(JSON.parse(readFileSync(path, "utf8")));
+			h.deps.setComponentColor = (owner, key, value) => {
+				saveComponentColor(owner, key, value, path);
+			};
+			h.ui.select.mockResolvedValueOnce("cacheHit").mockResolvedValueOnce("Edit override");
+			h.ui.editor.mockResolvedValueOnce("fg:202");
+			await editComponentColors(h.ctx, h.deps, "editor");
+			expect(h.ui.select).toHaveBeenCalledWith(
+				"editor color overrides",
+				expect.arrayContaining(["cacheHit"]),
+			);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.components.editor.colors).toEqual({
+				contextNormal: "cyan",
+				cacheHit: "fg:202",
+				future: true,
+			});
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBe("fg:202");
+			h.ui.select.mockResolvedValueOnce("cacheHit").mockResolvedValueOnce("Reset / inherit");
+			await editComponentColors(h.ctx, h.deps, "editor");
+			const reset = JSON.parse(readFileSync(path, "utf8"));
+			expect(reset.components.editor.colors).toEqual(original.components.editor.colors);
+			expect(reset.colors).toEqual(original.colors);
+			for (const owner of ["footer", "userMessages", "selectorBorders", "workingLine"] as const)
+				expect(reset.components[owner]).toEqual(original.components[owner]);
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBe("green");
+			delete reset.colors.cacheHit;
+			writeFileSync(path, JSON.stringify(reset));
+			expect(componentColor(h.deps.getConfig(), "editor", "cacheHit")).toBeUndefined();
+			expect(componentColor(h.deps.getConfig(), "editor", "contextNormal")).toBe("cyan");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 	it.each(["", "   ", "fg:202", "bold purple"])(
 		"saves supported explicit value %j, not inherited defaults",
 		async (value) => {

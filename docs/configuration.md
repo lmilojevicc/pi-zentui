@@ -499,6 +499,7 @@ Empty strings and whitespace-only strings mean deliberately **unstyled**, not mi
 | --- | --- | --- |
 | `footer` | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key |
 | `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; used by Minimalist metadata and quota |
+| `editor` | `cacheHit` | Optional shared `cacheHit`, then Editor `contextNormal`; used only by Minimalist cache-hit metadata |
 | `editor` | `gitBranch` | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default |
 | `editor` | `accent`, `border`, `prompt`, `rail`, `shellRail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorShellRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
 | `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
@@ -513,6 +514,7 @@ Role-specific defaults and chains remain intact:
 - In shell-command mode (`!` or `!!`), Opencode's left rail and model label share `shellRail` → configured `accent` → theme `bashMode` / terminal `bright-cyan`. Normal model coloring is unchanged.
 - Accent Rail uses only `rail` / `editorRail`, then warm theme `syntaxNumber` / terminal `215`; it does not inherit `accent`.
 - Minimalist branch defaults to theme `bold syntaxKeyword` / terminal `bold blue` when no local or explicit shared branch style exists.
+- Minimalist's built-in `Cache NN%` label and `$cache_hit` use Editor `cacheHit` → optional shared `colors.cacheHit` → Editor `contextNormal` (local, then shared/default). The normal tier stays stable even at warning/error context usage. Configure it through `/zentui` → Editor → **Color overrides** → `cacheHit`; **Reset / inherit** resumes the chain. The selected Editor color source applies throughout; no cache-hit palette is generated or saved, and other owners are unchanged.
 - Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.
 - Working-line defaults remain theme `dim`, `muted`, `bold accent`, or terminal `bright-black`, `cyan`, `bold cyan`. Both animated rows and summaries consume local overrides. New persisted Turn summaries snapshot the effective high style; when no safe SGR prefix exists (including an unstyled high override), they retain the safe bold-cyan substitute. Existing persisted summaries keep their recorded style; legacy version-1 summaries use current high styling.
 
