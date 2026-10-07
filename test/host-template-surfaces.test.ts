@@ -166,7 +166,7 @@ describe("explicit host template builtins", () => {
 		}
 	});
 
-	it("rejects reserved aliases during normalization and preserves builtin precedence at rendering", () => {
+	it("reserves host aliases except for backward-compatible ci precedence", () => {
 		const reserved = Object.fromEntries(
 			HOST_TEMPLATE_VARIABLES.map((name) => [name, "pkg.shadow"]),
 		);
@@ -184,13 +184,19 @@ describe("explicit host template builtins", () => {
 			},
 		});
 		for (const style of editorStyles)
-			expect(config.components.editor.styles[style].variables).toEqual({ build: "pkg.build" });
-		expect(config.components.footer.styles.starship.variables).toEqual({ build: "pkg.build" });
+			expect(config.components.editor.styles[style].variables).toEqual({
+				ci: "pkg.shadow",
+				build: "pkg.build",
+			});
+		expect(config.components.footer.styles.starship.variables).toEqual({
+			ci: "pkg.shadow",
+			build: "pkg.build",
+		});
 		for (const name of HOST_TEMPLATE_VARIABLES) {
 			for (const style of editorStyles) {
 				const rows = editorRows(style, `$${name}`, { [name]: "HOST" }, reserved);
-				expect(plain(rows.join("\n"))).toContain("HOST");
-				expect(plain(rows.join("\n"))).not.toContain("SHADOW");
+				expect(plain(rows.join("\n"))).toContain(name === "ci" ? "SHADOW" : "HOST");
+				expect(plain(rows.join("\n"))).not.toContain(name === "ci" ? "HOST" : "SHADOW");
 			}
 		}
 		const footer = footerConfig("$session_id( / $plan_mode)");

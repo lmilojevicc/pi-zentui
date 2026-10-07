@@ -5,7 +5,7 @@ import type { CodexQuota } from "./codex-quota";
 import { renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
-import { sanitizeCustomVariableText } from "./custom-variables";
+import { renderCustomValue } from "./custom-value-colors";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	bashModeLabel,
@@ -18,6 +18,7 @@ import {
 	formatElapsedDuration,
 } from "./format";
 import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
+import { liveMetadataColor } from "./live-metadata-display";
 import {
 	type MinimalistFormatSlot,
 	minimalistExplicitCustomKeys,
@@ -419,7 +420,7 @@ function renderTemplateBuiltin(
 			? renderStyleForSourceOrFallback(
 					uiTheme,
 					config.components.editor.colorSource,
-					componentColor(config, "editor", "border"),
+					liveMetadataColor(config, "editor", name) ?? componentColor(config, "editor", "border"),
 					"border",
 					text,
 				)
@@ -689,11 +690,17 @@ export function renderMinimalistFrame({
 	const customValue = (key: string) => {
 		const raw = metadata.customVariables?.get(key);
 		if (!raw) return "";
-		const text = sanitizeCustomVariableText(raw, minimalist.extensionColorMode ?? "original");
+		const text = renderCustomValue({
+			key,
+			raw,
+			colors: config.components.editor.customValueColors,
+			mode: minimalist.extensionColorMode ?? "original",
+			theme: uiTheme,
+			source,
+			fallbackStyle: config.colors.extensionStatus,
+		});
 		if (!visibleWidth(text.trim())) return "";
-		return minimalist.extensionColorMode === "zentui"
-			? renderStyleForSource(uiTheme, source, config.colors.extensionStatus, text)
-			: text;
+		return text;
 	};
 	const extensionValues = [...(metadata.customVariables?.keys() ?? [])]
 		.sort()

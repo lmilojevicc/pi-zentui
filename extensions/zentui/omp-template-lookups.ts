@@ -9,7 +9,6 @@ export type OmpLookupContext = {
 	modelId?: string;
 };
 
-const PR_CACHE_MS = 30_000;
 const QUOTA_CACHE_MS = 5 * 60_000;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 const IDENTITY_FIELDS = ["accountId", "email", "projectId", "orgId"] as const;
@@ -47,9 +46,7 @@ type Snapshot<T> = {
 	expiresAt: number;
 	value?: T;
 };
-type PullRequest = { number: string; url: string };
 type QuotaSnapshot = Snapshot<string> & { identity: string };
-type RepoIdentity = { root: string; gitDir: string; branch: string; remotes: string };
 
 function record(value: unknown): RecordValue | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -95,59 +92,6 @@ function identityKey(identity: AccountIdentity | undefined): string {
 		identity?.projectId ?? null,
 		identity?.orgId ?? null,
 	]);
-}
-
-function httpsUrl(value: unknown): URL | undefined {
-	if (
-		typeof value !== "string" ||
-		value !== value.trim() ||
-		CONTROL_CHARACTERS.test(value) ||
-		!/^https:\/\//i.test(value) ||
-		/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value)
-	)
-		return undefined;
-	try {
-		const url = new URL(value);
-		return url.protocol === "https:" && url.hostname && !url.username && !url.password
-			? url
-			: undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function repositoryMatchesRemote(repoUrl: URL, remotes: string): boolean {
-	const repositoryPath = repoUrl.pathname.replace(/\/$/, "").toLowerCase();
-	for (const line of remotes.split("\n")) {
-		const remote = /^\S+\s+(\S+)\s+\(fetch\)$/.exec(line)?.[1];
-		if (!remote || CONTROL_CHARACTERS.test(remote)) continue;
-		let hostname: string;
-		let path: string;
-		const ssh = /^(?:[^@/:]+@)?([^/:]+):(.+)$/.exec(remote);
-		if (ssh && !remote.includes("://")) {
-			hostname = ssh[1].toLowerCase();
-			path = `/${ssh[2]}`;
-		} else {
-			try {
-				const url = new URL(remote);
-				if (!["https:", "http:", "ssh:"].includes(url.protocol)) continue;
-				hostname = url.hostname;
-				path = url.pathname;
-				if (url.protocol !== "ssh:" && url.port !== repoUrl.port) continue;
-			} catch {
-				continue;
-			}
-		}
-		if (
-			hostname === repoUrl.hostname &&
-			path
-				.replace(/\/$/, "")
-				.replace(/\.git$/, "")
-				.toLowerCase() === repositoryPath
-		)
-			return true;
-	}
-	return false;
 }
 
 /** Mirrors the native account matcher, but rejects conflicting scope evidence and ambiguous siblings. */
@@ -308,12 +252,11 @@ function quotaValue(
 /** Demand-driven public OMP lookups. No timers, private state, or direct credential handling. */
 export class OmpTemplateLookups {
 	private context: OmpLookupContext | undefined;
-	private pr: Snapshot<PullRequest> | undefined;
 	private quota: QuotaSnapshot | undefined;
 	private disposed = false;
 
 	constructor(
-		private readonly exec: ExtensionAPI["exec"],
+		_exec: ExtensionAPI["exec"],
 		private readonly requestRender: () => void,
 	) {}
 
@@ -327,29 +270,12 @@ export class OmpTemplateLookups {
 			this.context.provider !== context.provider ||
 			this.context.modelId !== context.modelId
 		) {
-			this.pr?.controller.abort();
 			this.quota?.controller.abort();
-			this.pr = undefined;
 			this.quota = undefined;
 			this.context = { ...context };
 		}
-		const values: { pr_number?: string; pr_url?: string; usage_quota?: string } = {};
+		const values: { usage_quota?: string } = {};
 		const now = Date.now();
-		if (names.has("pr_number") || names.has("pr_url")) {
-			if (!this.pr || (!this.pr.pending && now >= this.pr.expiresAt)) {
-				this.pr = {
-					context: { ...context },
-					controller: new AbortController(),
-					pending: true,
-					expiresAt: 0,
-				};
-				void this.loadPullRequest(this.pr);
-			}
-			if (this.pr.value && now < this.pr.expiresAt) {
-				if (names.has("pr_number")) values.pr_number = this.pr.value.number;
-				if (names.has("pr_url")) values.pr_url = this.pr.value.url;
-			}
-		}
 		if (names.has("usage_quota") && context.provider && context.modelId) {
 			const identity = activeIdentity(context);
 			const key = identityKey(identity);
@@ -372,19 +298,9 @@ export class OmpTemplateLookups {
 		return values;
 	}
 
-	invalidateProject(cwd?: string): void {
-		if (this.disposed || (cwd !== undefined && this.pr?.context.cwd !== cwd)) return;
-		const hadValue = this.pr?.value !== undefined;
-		this.pr?.controller.abort();
-		this.pr = undefined;
-		if (hadValue) this.repaint();
-	}
-
 	dispose(): void {
 		this.disposed = true;
-		this.pr?.controller.abort();
 		this.quota?.controller.abort();
-		this.pr = undefined;
 		this.quota = undefined;
 		this.context = undefined;
 	}
@@ -395,111 +311,6 @@ export class OmpTemplateLookups {
 		} catch {
 			// A disposed or unavailable render surface must not reject a completed lookup.
 		}
-	}
-
-	private async command(
-		command: string,
-		args: string[],
-		snapshot: Snapshot<unknown>,
-	): Promise<string | undefined> {
-		if (snapshot.controller.signal.aborted) return undefined;
-		const result = await this.exec(command, args, {
-			cwd: snapshot.context.cwd,
-			timeout: command === "git" ? 2_000 : 10_000,
-			signal: snapshot.controller.signal,
-		});
-		return !snapshot.controller.signal.aborted &&
-			result.code === 0 &&
-			!result.killed &&
-			typeof result.stdout === "string"
-			? result.stdout
-			: undefined;
-	}
-
-	private async repository(snapshot: Snapshot<unknown>): Promise<RepoIdentity | undefined> {
-		const paths = await this.command(
-			"git",
-			["rev-parse", "--show-toplevel", "--absolute-git-dir"],
-			snapshot,
-		);
-		if (paths === undefined) return undefined;
-		const roots = paths.trim().split("\n");
-		if (roots.length !== 2 || !text(roots[0]) || !text(roots[1])) return undefined;
-		const branchOutput = await this.command(
-			"git",
-			["symbolic-ref", "--quiet", "--short", "HEAD"],
-			snapshot,
-		);
-		const branch = text(branchOutput?.trim());
-		if (!branch || branch.startsWith("-")) return undefined;
-		const remotes = await this.command("git", ["remote", "-v"], snapshot);
-		if (!remotes?.trim()) return undefined;
-		return { root: roots[0], gitDir: roots[1], branch, remotes };
-	}
-
-	private async loadPullRequest(snapshot: Snapshot<PullRequest>): Promise<void> {
-		let value: PullRequest | undefined;
-		try {
-			const before = await this.repository(snapshot);
-			if (before) {
-				const repoOutput = await this.command(
-					"gh",
-					["repo", "view", "--json", "nameWithOwner,defaultBranchRef,url"],
-					snapshot,
-				);
-				const repo = repoOutput === undefined ? undefined : record(JSON.parse(repoOutput));
-				const repoName = text(repo?.nameWithOwner);
-				const defaultBranch = text(record(repo?.defaultBranchRef)?.name);
-				const repoUrl = httpsUrl(repo?.url);
-				if (
-					repoName &&
-					/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repoName) &&
-					!repoName.startsWith("-") &&
-					defaultBranch &&
-					repoUrl &&
-					repoUrl.pathname.replace(/\/$/, "") === `/${repoName}` &&
-					before.branch !== defaultBranch &&
-					repositoryMatchesRemote(repoUrl, before.remotes)
-				) {
-					// Freeze both selectors: a branch/repository change cannot redirect gh mid-request.
-					const output = await this.command(
-						"gh",
-						["pr", "view", before.branch, "--repo", repoName, "--json", "number,url"],
-						snapshot,
-					);
-					const pr = output === undefined ? undefined : record(JSON.parse(output));
-					const url = httpsUrl(pr?.url);
-					if (
-						pr &&
-						typeof pr.number === "number" &&
-						Number.isSafeInteger(pr.number) &&
-						pr.number > 0 &&
-						url &&
-						url.origin === repoUrl.origin &&
-						url.pathname === `${repoUrl.pathname.replace(/\/$/, "")}/pull/${pr.number}` &&
-						!url.search &&
-						!url.hash
-					) {
-						const after = await this.repository(snapshot);
-						if (
-							after &&
-							before.root === after.root &&
-							before.gitDir === after.gitDir &&
-							before.branch === after.branch &&
-							before.remotes === after.remotes
-						)
-							value = { number: String(pr.number), url: url.href };
-					}
-				}
-			}
-		} catch {
-			// Missing git/gh, no PR, and malformed output are negative cached results.
-		}
-		if (this.disposed || this.pr !== snapshot || snapshot.controller.signal.aborted) return;
-		snapshot.value = value;
-		snapshot.pending = false;
-		snapshot.expiresAt = Date.now() + PR_CACHE_MS;
-		this.repaint();
 	}
 
 	private async loadQuota(

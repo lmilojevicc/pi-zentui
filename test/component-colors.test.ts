@@ -177,7 +177,9 @@ describe("typed component color inheritance", () => {
 				expect(config.components[owner].colors).toEqual({ [key]: "" });
 				delete (config.components[owner].colors as Record<string, string>)[key];
 				expect(componentColor(config, owner, key)).toBe(
-					owner === "selectorBorders" ? undefined : "red",
+					owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key)
+						? undefined
+						: "red",
 				);
 				expect(
 					componentColor(
@@ -188,7 +190,11 @@ describe("typed component color inheritance", () => {
 						owner,
 						key,
 					),
-				).toBe(owner === "selectorBorders" ? undefined : "green");
+				).toBe(
+					owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key)
+						? undefined
+						: "green",
+				);
 			}
 		},
 	);

@@ -22,6 +22,11 @@ import {
 	componentColorKeys,
 	normalizeComponentColors,
 } from "./component-colors";
+import {
+	type CustomValueColors,
+	customValueColor,
+	normalizeCustomValueColors,
+} from "./custom-value-colors";
 import { normalizeTemplateVariables } from "./custom-variable-format";
 import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
 import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
@@ -192,6 +197,7 @@ export type EditorStylesConfig = {
 export type EditorComponentConfig = {
 	codexQuota: boolean;
 	colors?: ComponentColors<"editor">;
+	customValueColors?: CustomValueColors;
 	enabled: boolean;
 	style: EditorStyle;
 	colorSource: ColorSource;
@@ -250,6 +256,7 @@ export type StarshipFooterStyleConfig = TemplateVariableConfig & {
 export type FooterComponentConfig = {
 	codexQuota: boolean;
 	colors?: ComponentColors<"footer">;
+	customValueColors?: CustomValueColors;
 	style: FooterStyle;
 	colorSource: ColorSource;
 	modelLabel: ModelLabelSource;
@@ -268,6 +275,7 @@ export type WorkingLineSegmentsConfig = {
 	elapsed: boolean;
 	thought: boolean;
 	tokens: boolean;
+	tokenRate?: boolean;
 };
 
 export const DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS = 100;
@@ -601,7 +609,7 @@ const defaultComponents: ComponentsConfig = {
 		textAnimation: "classic",
 		colorSource: "theme",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
-		segments: { tool: true, elapsed: true, thought: true, tokens: true },
+		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
@@ -1405,6 +1413,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		extensionStatuses: resolveExtensionStatusComponent(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
+			...(isRecord(editor.customValueColors)
+				? { customValueColors: normalizeCustomValueColors(editor.customValueColors) }
+				: {}),
 			...(isRecord(editor.colors)
 				? { colors: normalizeComponentColors("editor", editor.colors) }
 				: {}),
@@ -1552,6 +1563,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			messages: resolveWorkingLineMessages(workingLineMessages),
 			segments: {
+				tokenRate: parseBoolean(workingLineSegments.tokenRate, false),
 				tool: parseBoolean(workingLineSegments.tool, defaultComponents.workingLine.segments.tool),
 				elapsed: parseBoolean(
 					workingLineSegments.elapsed,
@@ -1583,6 +1595,9 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 		},
 		footer: {
 			codexQuota: parseBoolean(footer.codexQuota, false),
+			...(isRecord(footer.customValueColors)
+				? { customValueColors: normalizeCustomValueColors(footer.customValueColors) }
+				: {}),
 			...(isRecord(footer.colors)
 				? { colors: normalizeComponentColors("footer", footer.colors) }
 				: {}),
@@ -1826,9 +1841,14 @@ function saveComponentsMutation(
 		const normalized = resolveComponents({ components });
 		const rawComponents = { ...recordValue(record.components) };
 		for (const owner of owners) {
-			const { colors: _colors, ...selection } = normalized[
-				owner
-			] as (typeof normalized)[typeof owner] & { colors?: unknown };
+			const {
+				colors: _colors,
+				customValueColors: _customValueColors,
+				...selection
+			} = normalized[owner] as (typeof normalized)[typeof owner] & {
+				colors?: unknown;
+				customValueColors?: unknown;
+			};
 			rawComponents[owner] = overlayKnown(rawComponents[owner], selection);
 		}
 		record.components = rawComponents;
@@ -2192,6 +2212,8 @@ export function saveWorkingLineComponentPatch(
 			if (patch.segments?.thought !== undefined)
 				component.segments.thought = patch.segments.thought;
 			if (patch.segments?.tokens !== undefined) component.segments.tokens = patch.segments.tokens;
+			if (patch.segments?.tokenRate !== undefined)
+				component.segments.tokenRate = patch.segments.tokenRate;
 		},
 		path,
 		(record) => {
@@ -2802,6 +2824,35 @@ export function saveComponentColor<O extends ColorOwner>(
 					writable: true,
 				});
 			component.colors = colors;
+		},
+	);
+}
+
+/** One sparse publisher leaf; selection snapshots exclude the entire map. */
+export function saveCustomValueColor(
+	owner: "editor" | "footer",
+	key: string,
+	value: string | undefined,
+	path = configPath,
+): PolishedTuiConfig {
+	if (customValueColor({ [key]: value ?? "" }, key) === undefined)
+		throw new Error("Unsupported publisher key or color style");
+	return saveComponentsMutation(
+		[owner],
+		() => {},
+		path,
+		(record) => {
+			const component = recordValue(recordValue(record.components)[owner]);
+			const colors = { ...recordValue(component.customValueColors) };
+			if (value === undefined) delete colors[key];
+			else
+				Object.defineProperty(colors, key, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				});
+			component.customValueColors = colors;
 		},
 	);
 }

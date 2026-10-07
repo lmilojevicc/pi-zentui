@@ -7,6 +7,10 @@ import {
 
 export const componentColorKeys = {
 	footer: [
+		"prNumber",
+		"prUrl",
+		"ci",
+		"tokenRate",
 		"cwd",
 		"sessionName",
 		"gitBranch",
@@ -29,6 +33,10 @@ export const componentColorKeys = {
 		"os",
 	],
 	editor: [
+		"prNumber",
+		"prUrl",
+		"ci",
+		"tokenRate",
 		"cwd",
 		"sessionName",
 		"gitBranch",
@@ -56,7 +64,7 @@ export const componentColorKeys = {
 	],
 	userMessages: ["accent", "border"],
 	selectorBorders: ["border"],
-	workingLine: ["low", "mid", "high"],
+	workingLine: ["low", "mid", "high", "tokenRate"],
 } as const;
 export type ColorOwner = keyof typeof componentColorKeys;
 export type ComponentColorKey<O extends ColorOwner> = (typeof componentColorKeys)[O][number];
@@ -120,7 +128,8 @@ export function componentColor<O extends ColorOwner>(
 		key
 	];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
-	if (owner === "selectorBorders") return undefined;
+	if (owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key))
+		return undefined;
 	const legacy =
 		owner === "editor"
 			? (editorLegacyKeys[key as keyof typeof editorLegacyKeys] ?? key)
@@ -141,6 +150,7 @@ export function workingLineColor(
 ): string | undefined {
 	const local = config.colors?.[tier];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
+	if (tier === "tokenRate") return undefined;
 	return colors[
 		tier === "low" ? "workingLineLow" : tier === "mid" ? "workingLineMid" : "workingLineHigh"
 	];

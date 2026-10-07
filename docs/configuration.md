@@ -51,7 +51,7 @@ The interactive `/zentui` menu is split into seven component-oriented sections. 
 2. **Editor** — enablement, style, colors, Codex quota, model label, border behavior, viewport indicators, settings for the selected editor style, and a static synthetic preview.
 3. **User messages** — enablement, style, colors, and a static synthetic Markdown preview.
 4. **Thinking (Experimental)** — private Rail, Tree, or Streaming rendering; active Streaming can switch live to Rail or Tree, Rail and Tree can switch live between each other, and the private renderer may break after Pi updates.
-5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens segments, and animated preview.
+5. **Working line** — ownership, settled Turn summary, spinner and text speeds, optional spinner-color motion, text animation, color source, custom messages, Tool/Elapsed/Thinking time/Tokens/Token rate segments, and animated preview.
 6. **Footer** — Native, Starship, or Hidden. Starship additionally exposes colors, Codex quota, model label, responsive layout, separator, context style, and path display.
    - **Segments →** — visibility toggles for non-Git Starship segments.
    - **Git →** — Starship Footer Git segment and probe controls, not Editor Git controls.
@@ -61,7 +61,7 @@ The two Footer child entries appear only with Starship selected. Child headings 
 
 Editor, User messages, Thinking (Experimental), and Working line retain independent configuration. Editor, User-message, and Thinking previews remain visible while their component is disabled. Only the Working-line preview owns an animation timer. Footer’s Starship-specific rows are shown only while Starship is selected; Extension statuses offers the same unprefixed placement/color rows in every Footer style. Native saves dormant Starship position/color preferences without changing Pi's layout. Footer Color overrides remain available for preconfiguration under every Footer style and say **Saved for Starship** when inactive. Native and Hidden hide the two child entries without changing their saved preferences. Other dormant choices explain their scope without rewriting values. Auto icons assume a Nerd Font without detecting one; ASCII replaces icons only, not all borders or UI glyphs.
 
-Free-form values such as custom formats, Opencode metadata formats, and previously unseen, unsaved extension keys remain JSON-only. Component raw colors are editable through each component’s **Color overrides** action, with explicit **Reset / inherit**. Working-line speed accepts validated custom milliseconds in `/zentui`.
+Free-form values such as custom formats, Opencode metadata formats, and previously unseen, unsaved extension keys remain JSON-only. Component raw colors are editable through each component’s **Color overrides** action, with explicit **Reset / inherit**. Editor and Starship Footer also offer **Individual custom value colors**, listing current publishers, valid alias targets, and saved publisher overrides. Working-line speed accepts validated custom milliseconds in `/zentui`.
 
 Every section and Footer child page has a direct route and completion:
 
@@ -505,6 +505,8 @@ Empty strings and whitespace-only strings mean deliberately **unstyled**, not mi
 | `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
 | `selectorBorders` | `border` | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder` |
 | `workingLine` | `low`, `mid`, `high` | `workingLineLow`, `workingLineMid`, `workingLineHigh` |
+| `editor`, `footer` | `prNumber`, `prUrl`, `ci`, `tokenRate` | No shared raw keys; existing neutral border/extension-status fallback |
+| `workingLine` | `tokenRate` | No shared raw key; fixed mid-style default independent of animated tiers |
 
 Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer model/provider are plain text and the detected runtime label uses its runtime module's style, not invented Footer color keys.
 
@@ -578,7 +580,7 @@ with `variables`, then reference those names in any slot:
 **Editor → Custom variable aliases** edits the name-to-publisher-key JSON or
 resets the aliases. Names use letters, digits, and underscores, start with a
 letter or underscore, and cannot replace built-in/structural variables or
-prototype names. At most 16 aliases are accepted; keys are nonempty, at most
+prototype names, except that a valid explicit `ci` alias retains precedence over the new GitHub builtin. At most 16 aliases are accepted; keys are nonempty, at most
 64 UTF-16 code units, and contain no whitespace or terminal controls. Reset
 removes only the edited overrides. Unrelated owners/styles and unknown raw
 configuration remain untouched. These settings never enable Footer or Working
@@ -598,7 +600,7 @@ off. Do not add padding around the marker. Legacy `$sep` and optional-group
 formatting remain unchanged; see [conditional joining](./footer-format.md#conditional-joining)
 for chains, nested scopes, preserved ANSI/link styling, and boundaries.
 
-OMP additionally supports the [host template data](#omp-template-data) built-ins
+Pi and OMP support `$pr_number`, `$pr_url`, `$ci`, and `$token_rate` (see [live metadata](#live-metadata)). OMP additionally supports the [host template data](#omp-template-data) built-ins
 in all six slots and both Opencode metadata formats. These are separate from
 publisher aliases and are not included in `$extensions`.
 
@@ -808,17 +810,110 @@ Streaming keeps the reviewed host-rendered behavior: while open it shows the lat
 
 The exact all-mode private matrix covers Pi 0.85.0 and 0.87.1 under dark, light, and current themes, narrow/wide widths and resize; both versions also have fullscreen live-transition PTY coverage. Thinking (Experimental) never owns or writes the Working line, including its unchanged **Thinking time** option, and does not own Footer, Editor, widgets, statuses, or model behavior.
 
+## Individual custom value colors
+
+Sparse `components.editor.customValueColors` and `components.footer.customValueColors`
+are keyed by **publisher ID**, not template alias. All aliases for that publisher
+and Minimalist's supported `$extensions` aggregate share the override within the
+owner, across its styles. Footer's `$extensions` remains the existing status
+protocol and is not affected. Working-line publisher segments are a separate
+protocol and do not consume these maps.
+
+```json
+{
+  "components": {
+    "editor": { "customValueColors": { "vendor.package/value": "bold fg:202" } },
+    "footer": { "customValueColors": { "vendor.package/value": "" } }
+  }
+}
+```
+
+Missing overrides retain the style's Original/Zentui behavior exactly. Explicit
+styles strip publisher SGR and hyperlinks before styling through the selected
+owner color source; empty/whitespace deliberately means unstyled. Reset deletes
+one leaf and restores inheritance. Theme tokens, hex/256-color values and
+Starship-style modifiers are supported. Normalization accepts up to 1024 own
+properties and styles up to 4096 UTF-16 units; invalid keys/styles inherit.
+Saves preserve unrelated raw JSON, invalid/future leaves and the other owner;
+ordinary selection saves and `/zentui migrate` never snapshot these maps or
+rewrite templates.
+
+## Live metadata
+
+Minimalist's six slots, both Opencode metadata formats, and Starship wide and
+responsive compact templates support these explicit opt-in references:
+
+| Variable | Pi | OMP |
+| --- | --- | --- |
+| `$pr_number`, `$pr_url` | Open PR number and safe plain HTTPS URL for a non-default branch | Same shared collector |
+| `$ci` | `CI passing`, `CI running`, `CI failed`, `CI no checks`, or `CI stale` | Same shared collector |
+| `$token_rate` | Recent response-only generated output, e.g. `~48 tok/s` (estimated) or `48 tok/s` (live provider usage) | Existing native last-assistant / streaming worker rate unchanged |
+
+No default or saved template is rewritten. For example:
+
+```json
+{
+  "components": {
+    "editor": {
+      "colors": { "ci": "bold blue", "tokenRate": "fg:202" },
+      "styles": { "opencode": { "metadataFormat": "$model( · PR #$pr_number)( · $ci)( · $token_rate)" } }
+    },
+    "footer": {
+      "styles": { "starship": {
+        "format": "$cwd( · PR #$pr_number)( · $ci)$fill$context",
+        "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($ci)$wrap($token_rate)"
+      } }
+    }
+  }
+}
+```
+
+A valid owner/style-local `variables.ci` mapping **wins over the builtin** and
+creates only publisher demand. Remove that mapping to opt into GitHub CI. Other
+builtin reservations are unchanged. Builtin colors use independent owner-local
+`prNumber`, `prUrl`, `ci`, and `tokenRate` roles, not publisher color maps; CI has
+one role, not an automatic severity palette.
+
+GitHub collection is read-only via `gh`, asynchronous and outside render. It
+runs immediately, then refreshes at the completed result's 30-second cache
+expiry, only while an owned, enabled, supported consumer references PR/CI.
+Expiry repaints CI as stale before awaiting the next fetch; failures without a
+cache deadline retry after 30 seconds. Editor and Footer share one neutral snapshot but keep
+independent settings/appearance. Each refresh verifies repository, branch,
+remotes and local HEAD identity, including cache hits; observed project/tool and
+host branch changes invalidate immediately. External changes are discovered on
+the next demanded refresh, not instantaneously. Valid repo metadata lasts five
+minutes; PR successes and negative results last 30 seconds. Identity/context
+changes, demand loss and shutdown abort outstanding work. No auth commands,
+credential reads, forge mutations or other forges are supported.
+
+CI is qualified by the PR head: a local commit different from the remote PR head
+is **stale**, never green. Dirty files alone do not change commit identity.
+Expired CI is stale while refreshing; errors clear earlier results. Zero checks
+or only skipped/neutral checks are **no checks**, not passing. Unknown/malformed
+checks are never proof of success. No PR, closed/default/detached branches,
+missing `gh`/read access or lookup errors are empty; optional groups hide labels.
+
+Pi rate uses a bounded three-second observation window, needs advancing output
+observations spanning at least 500 ms, and expires after two seconds without
+advancing output. It excludes pre-output silence, earlier replies, tool execution
+and session/interaction wall-clock averages. Supported text, thinking and tool-call
+argument deltas use the existing Unicode estimator; source/usage corrections
+rebaseline rather than producing spikes. Rate hides at response end, tools,
+idle, compaction and session/model changes. Repaint polling is active only while
+streaming and demanded. There is no settled-rate summary or history scan.
+
 ## Working line
 
 When enabled, Zentui owns Pi's complete working-row message and indicator. Five fixed-width spinner presets are available: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse.
 
-`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens.
+`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It uses the same Pi metric as `$token_rate` and hides during tools/idle/compaction; see [live metadata](#live-metadata).
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 
 When Pi settles, the default-on **Turn summary** appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. Summaries always include both token totals, even when live Tokens or **Thinking time** is hidden or zero, and can be disabled without changing historical rows. They use the fixed high style and are inactive while Working line is disabled.
 
-Classic and KITT move color across message and segments. **Animate spinner color** optionally includes spinner cells and separator. Static colors the full row uniformly and ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
+Classic and KITT move color across message and segments. **Animate spinner color** optionally includes spinner cells and separator. Static colors the row uniformly except for the independently styled Token rate, and ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
 
 | Setting | Default | Presets | Applies to |
 | --- | ---: | --- | --- |
@@ -827,7 +922,7 @@ Classic and KITT move color across message and segments. **Animate spinner color
 
 Both speeds accept `30..1000` ms. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule with at most half a spinner-cycle and half a text-step rounding. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
-Content reserves the complete Tokens label and active extension segments first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens · Extensions** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase.
+Content reserves the complete Tokens and optional Token rate labels and active extension segments first, then Message, Thought, Elapsed, and Tool allocation, while preserving visual order **Message · Tool · Elapsed · Thought · Tokens · Token rate · Extensions** within the 80-column Loader-row contract. Active thought starts as `thinking 0s`; completed positive thought becomes `thought for Ns`. Rebuilds preserve spinner and visible color phase.
 
 Pi's working-row APIs are global and unkeyed. While owning the row, Zentui reasserts its blank message on owned refreshes/reconciles (even with unchanged frames) and before a Border fallback reveals the Above row. A later external message write or reset can still win until the next such boundary; native spinner ticks alone do not repair it, and there is no added polling. Separate multiline widgets are unaffected; extensions sharing the working-message slot should use keyed segments below instead.
 
@@ -982,13 +1077,14 @@ OMP has no public editor-factory getter. Zentui observes public setter descripto
 The following explicit Zentui names are available in Opencode/copy-friendly
 `metadataFormat`, all Minimalist slots, and Starship `format`/`compactFormat`.
 OMP segment IDs are not automatically template variables. These names are
-reserved built-ins, not custom publisher aliases; `$extensions` is unchanged.
-Pi and unavailable OMP capabilities render these host values empty.
+reserved built-ins, except the explicit `ci` alias compatibility rule; `$extensions` is unchanged.
+Pi supplies the [shared PR/CI and live rate variables](#live-metadata); other host-only or unavailable capabilities render empty.
 
 | Variable | Data and distinctions |
 | --- | --- |
 | `$session_id` | Current session's full ID, not its human-readable `$session_name`. |
 | `$pr_number`, `$pr_url` | Current non-default branch's GitHub PR number and safe plain HTTPS URL. |
+| `$ci` | Shared GitHub PR-head CI state; see [live metadata](#live-metadata). |
 | `$subagent_count` | Native active subagent badge count; background Bash/Eval jobs are not subagents. A known zero renders `0`. |
 | `$token_rate` | Output tokens/second, for example `42.5 tok/s`. Uses OMP's last-assistant average; observed live Vibe workers add the current streaming main rate, not an idle previous reply. Unknown timings remain empty. |
 | `$active_time` | Native accumulated active-processing time, including the open interval and excluding idle time, for example `1m 5s`. Not wall-clock `$session_duration` or current/completed `$turn_duration`; a known zero renders `0s`. |
@@ -1027,9 +1123,7 @@ with optional groups around labels:
 }
 ```
 
-PR data requires a matching GitHub remote, `gh`, and read access. Read-only lookups
-capture and recheck repository/branch identity, cache for up to 30 seconds, and
-invalidate on native project/branch changes. No PR, default/detached branches,
+PR/CI data uses the [shared demand-controlled collector](#live-metadata), requiring a matching GitHub remote, `gh`, and read access. It captures and rechecks full repository/branch/remote/HEAD identity, caches PR results for 30 seconds and successful repo metadata for five minutes, and invalidates on observed project/branch changes. No PR, default/detached branches,
 unavailable tooling, or lookup failure renders empty rather than a placeholder.
 
 **`$usage_quota` is opt-in by explicit template reference.** It uses the current

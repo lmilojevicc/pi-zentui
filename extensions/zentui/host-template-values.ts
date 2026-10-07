@@ -3,6 +3,7 @@ export const HOST_TEMPLATE_VARIABLES = [
 	"session_id",
 	"pr_number",
 	"pr_url",
+	"ci",
 	"subagent_count",
 	"token_rate",
 	"active_time",

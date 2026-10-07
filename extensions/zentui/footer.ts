@@ -6,8 +6,8 @@ import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
 import { FOOTER_FORMAT_ALIASES, FOOTER_FORMAT_VARIABLES } from "./config";
+import { renderCustomValue } from "./custom-value-colors";
 import { AtomicTemplateValues, normalizeTemplateVariables } from "./custom-variable-format";
-import { sanitizeCustomVariableText } from "./custom-variables";
 import { sanitizeEditorMetadataText } from "./editor-metadata-format";
 import {
 	collectExtensionStatusSegments,
@@ -50,6 +50,7 @@ import {
 import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
 import { resolveRuntimeSymbol } from "./icons";
 import type { LiveContextOverride } from "./live-context";
+import { liveMetadataColor } from "./live-metadata-display";
 import { type FooterState, modelLabelFor } from "./state";
 import { renderStyleForSource } from "./style";
 
@@ -206,6 +207,7 @@ export function installFooter(
 		getHostTemplateValues?: (names: ReadonlySet<string>) => HostTemplateValues | undefined;
 		getRepositoryRoot?: (cwd: string) => string | undefined;
 		onDispose?: () => void;
+		onProjectChanged?: () => void;
 		beforeRender?: () => void;
 	},
 ): void {
@@ -213,6 +215,7 @@ export function installFooter(
 		hooks.setRequestRender(() => tui.requestRender());
 		hooks.setExtensionStatusesGetter?.(() => footerData.getExtensionStatuses());
 		const unsubscribeBranch = footerData.onBranchChange(() => {
+			hooks.onProjectChanged?.();
 			hooks.scheduleProjectRefresh(ctx);
 			tui.requestRender();
 		});
@@ -246,22 +249,16 @@ export function installFooter(
 					if (excludedCustom.has(key)) continue;
 					const raw = published.get(key);
 					if (!raw) continue;
-					const text = sanitizeCustomVariableText(
+					const text = renderCustomValue({
+						key,
 						raw,
-						footer.styles.starship.extensionColorMode ?? "original",
-					);
-					if (visibleWidth(text))
-						customTexts.set(
-							key,
-							footer.styles.starship.extensionColorMode === "zentui"
-								? renderStyleForSource(
-										theme,
-										footer.colorSource,
-										componentColor(config, "footer", "extensionStatus"),
-										text,
-									)
-								: text,
-						);
+						colors: footer.customValueColors,
+						mode: footer.styles.starship.extensionColorMode ?? "original",
+						theme,
+						source: footer.colorSource,
+						fallbackStyle: componentColor(config, "footer", "extensionStatus"),
+					});
+					if (visibleWidth(text)) customTexts.set(key, text);
 				}
 				const statusSnapshot = footerData.getExtensionStatuses();
 				const quota =
@@ -286,7 +283,10 @@ export function installFooter(
 				const colorSource = config.components.footer.colorSource;
 				const requestedHostNames = new Set(
 					[...wideReferences, ...compactReferences].filter(
-						(name) => isHostTemplateVariable(name) && !builtinSnapshots.has(name),
+						(name) =>
+							isHostTemplateVariable(name) &&
+							!Object.hasOwn(aliases, name) &&
+							!builtinSnapshots.has(name),
 					),
 				);
 				if (requestedHostNames.size) {
@@ -300,7 +300,8 @@ export function installFooter(
 								? renderStyleForSource(
 										theme,
 										colorSource,
-										componentColor(config, "footer", "extensionStatus"),
+										liveMetadataColor(config, "footer", name) ??
+											componentColor(config, "footer", "extensionStatus"),
 										text,
 									)
 								: "",
@@ -663,10 +664,9 @@ export function installFooter(
 				const renderVariable = (name: string): string => {
 					const canonical = FOOTER_FORMAT_ALIASES[name] ?? name;
 					if (canonical === "codex_quota") return quotaLabel;
+					if (Object.hasOwn(aliases, name)) return atomicCustom.resolve(aliases[name]);
 					if (builtinSnapshots.has(canonical)) return builtinSnapshots.get(canonical) ?? "";
-					return Object.hasOwn(aliases, name)
-						? atomicCustom.resolve(aliases[name])
-						: renderBuiltInVariable(name);
+					return renderBuiltInVariable(name);
 				};
 				const branchParts: string[] = [];
 				if (config.components.footer.styles.starship.segments.gitBranch) {

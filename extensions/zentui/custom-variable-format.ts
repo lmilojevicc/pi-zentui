@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS, MAX_CUSTOM_VARIABLES } from "./custom-variables";
 
-/** Owner-local aliases never replace built-in or structural variables. */
+/** Owner-local aliases reserve builtins, except the backward-compatible ci alias. */
 export function normalizeTemplateVariables(
 	value: unknown,
 	reserved: readonly string[],
@@ -23,7 +23,7 @@ export function normalizeTemplateVariables(
 			.filter(
 				([name, key]) =>
 					/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) &&
-					!excluded.has(name) &&
+					(!excluded.has(name) || name === "ci") &&
 					typeof key === "string" &&
 					key.length > 0 &&
 					key.length <= MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS &&

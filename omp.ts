@@ -9,6 +9,7 @@ import {
 	shouldSendServiceTier,
 } from "@oh-my-pi/pi-ai";
 import type { ExtensionContext, ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
+import { HostProjectChanges } from "./extensions/zentui/host-project-changes";
 import zentui from "./extensions/zentui/index";
 import { observeOmpHookStatuses } from "./extensions/zentui/omp-statusline";
 import { OmpTemplateLookups } from "./extensions/zentui/omp-template-lookups";
@@ -19,6 +20,7 @@ import { createOmpUiAdapter, type OmpUiAdapter } from "./extensions/zentui/omp-u
 /** Focused OMP skin: editors, user messages, and the native status-line slot. */
 const extension: ExtensionFactory = (pi) => {
 	const adapters = new Set<OmpUiAdapter>();
+	const projectChanges = new HostProjectChanges();
 	const statusObserver = observeOmpHookStatuses(pi.pi.StatusLineComponent.prototype);
 	const modeObserver = observeOmpTemplateModes(pi.pi.StatusLineComponent.prototype);
 	const lookups = new OmpTemplateLookups(pi.exec, () => {
@@ -31,7 +33,7 @@ const extension: ExtensionFactory = (pi) => {
 			statusLinePrototype: pi.pi.StatusLineComponent.prototype,
 			getSessionId: () => ctx.sessionManager.getSessionId(),
 			getHookStatusSnapshot: statusObserver?.getSnapshot,
-			onProjectChanged: () => lookups.invalidateProject(ctx.cwd),
+			onProjectChanged: () => projectChanges.notify(),
 			getHostTemplateValues(receiver, session, names, editor) {
 				const values = readOmpTemplateMetrics(ctx, names, {
 					receiver,
@@ -122,6 +124,7 @@ const extension: ExtensionFactory = (pi) => {
 	});
 	zentui(api as unknown as PiAPI, {
 		wrapEditor: false,
+		subscribeProjectChanges: (invalidate) => projectChanges.subscribe(invalidate),
 		skinOnly: true,
 		liveModel: true,
 		getHostTemplateValues(ctx, names) {
@@ -142,6 +145,7 @@ const extension: ExtensionFactory = (pi) => {
 	});
 	// Register after Zentui so its owned surfaces are released before observation stops.
 	pi.on("session_shutdown", () => {
+		projectChanges.dispose();
 		lookups.dispose();
 		for (const adapter of adapters.values()) adapter.dispose();
 		adapters.clear();

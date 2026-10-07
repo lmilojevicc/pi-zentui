@@ -138,16 +138,14 @@ it("loads asynchronously, publishes only demanded values, and reuses synchronous
 	expect(f.fetch).toHaveBeenCalledOnce();
 	await settle();
 	expect(f.lookup.read(f.context, allNames)).toEqual({
-		pr_number: "42",
-		pr_url: "https://github.com/owner/project/pull/42",
 		usage_quota: "5 Hour: 80% left",
 	});
 	const calls = f.exec.mock.calls.length;
-	expect(f.lookup.read(f.context, new Set(["pr_number"]))).toEqual({ pr_number: "42" });
+	expect(f.lookup.read(f.context, new Set(["pr_number"]))).toEqual({});
 	expect(f.lookup.read(f.context, quotaNames)).toEqual({ usage_quota: "5 Hour: 80% left" });
 	expect(f.exec).toHaveBeenCalledTimes(calls);
 	expect(f.fetch).toHaveBeenCalledOnce();
-	expect(f.repaint).toHaveBeenCalledTimes(2);
+	expect(f.repaint).toHaveBeenCalledOnce();
 });
 
 it("keeps quota-only reads independent from project commands and PR-only reads from account APIs", async () => {
@@ -160,189 +158,16 @@ it("keeps quota-only reads independent from project commands and PR-only reads f
 	await settle();
 	expect(f.fetch).toHaveBeenCalledOnce();
 	expect(f.oauth.identity).toHaveBeenCalledTimes(accountCalls);
-	expect(f.lookup.read(f.context, prNames)).toEqual({
-		pr_number: "42",
-		pr_url: "https://github.com/owner/project/pull/42",
-	});
+	expect(f.lookup.read(f.context, prNames)).toEqual({});
 });
 
-describe("pull requests", () => {
-	it.each([
-		"https://github.com/owner/project.git",
-		"ssh://git@github.com/owner/project.git",
-		"git@github.com:owner/project.git",
-	])("proves the gh repository against its git remote %s", async (remote) => {
-		const f = fixture();
-		f.state.remotes = `origin\t${remote} (fetch)\n`;
-		f.lookup.read(f.context, prNames);
-		await settle();
-		expect(f.lookup.read(f.context, prNames).pr_number).toBe("42");
-	});
-
-	it("does not attribute gh's overridden repository to an unrelated local repository", async () => {
-		const f = fixture();
-		f.state.repoOutput = JSON.stringify({
-			nameWithOwner: "another/project",
-			url: "https://github.com/another/project",
-			defaultBranchRef: { name: "main" },
-		});
-		f.state.prOutput = JSON.stringify({
-			number: 42,
-			url: "https://github.com/another/project/pull/42",
-		});
-		f.lookup.read(f.context, prNames);
-		await settle();
-		expect(f.lookup.read(f.context, prNames)).toEqual({});
-	});
-
-	it.each(["default", "detached", "no-repo", "no-remote", "no-pr"])(
-		"renders %s empty without repaint request loops",
-		async (kind) => {
-			const f = fixture();
-			if (kind === "default") f.state.branch = "main";
-			if (kind === "detached") f.state.detached = true;
-			if (kind === "no-repo") f.state.noRepo = true;
-			if (kind === "no-remote") f.state.remotes = "";
-			if (kind === "no-pr") f.state.noPr = true;
-			f.lookup.read(f.context, prNames);
-			await settle();
-			const calls = f.exec.mock.calls.length;
-			for (let render = 0; render < 10; render++)
-				expect(f.lookup.read(f.context, prNames)).toEqual({});
-			await settle();
-			expect(f.exec).toHaveBeenCalledTimes(calls);
-			expect(f.repaint).toHaveBeenCalledOnce();
-			if (kind !== "no-pr")
-				expect(
-					f.exec.mock.calls.some(([command, args]) => command === "gh" && args[0] === "pr"),
-				).toBe(false);
-		},
-	);
-
-	it.each([
-		"not json",
-		"null",
-		"[]",
-		JSON.stringify({ number: "42", url: "https://github.com/owner/project/pull/42" }),
-		JSON.stringify({ number: 0, url: "https://github.com/owner/project/pull/0" }),
-		JSON.stringify({ number: 1.5, url: "https://github.com/owner/project/pull/1.5" }),
-		JSON.stringify({
-			number: Number.MAX_SAFE_INTEGER + 1,
-			url: "https://github.com/owner/project/pull/42",
-		}),
-		...[
-			"javascript:alert(1)",
-			"http://github.com/owner/project/pull/42",
-			"https://user:secret@github.com/owner/project/pull/42",
-			"https://github.com/owner/project/pull/42\n",
-			"https://github.com/owner/project/pull/42%0a",
-			"https://elsewhere.test/owner/project/pull/42",
-			"https://github.com/another/project/pull/42",
-			"https://github.com/owner/project/pull/41",
-			"https://github.com/owner/project/pull/42?redirect=evil",
-			"https:\\github.com\\owner\\project\\pull\\42",
-		].map((url) => JSON.stringify({ number: 42, url })),
-	])("rejects malformed or unsafe PR data %s", async (output) => {
-		const f = fixture();
-		f.state.prOutput = output;
-		f.lookup.read(f.context, prNames);
-		await settle();
-		expect(f.lookup.read(f.context, prNames)).toEqual({});
-	});
-
-	it("expires both successful and failed PR entries after thirty seconds, only on demand", async () => {
-		const f = fixture();
-		f.lookup.read(f.context, prNames);
-		await settle();
-		const calls = f.exec.mock.calls.length;
-		vi.setSystemTime(1_029_999);
-		expect(f.lookup.read(f.context, prNames).pr_number).toBe("42");
-		expect(f.exec).toHaveBeenCalledTimes(calls);
-		vi.setSystemTime(1_030_000);
-		f.state.noPr = true;
-		expect(f.lookup.read(f.context, new Set())).toEqual({});
-		expect(f.exec).toHaveBeenCalledTimes(calls);
-		expect(f.lookup.read(f.context, prNames)).toEqual({});
-		await settle();
-		const failureCalls = f.exec.mock.calls.length;
-		f.state.noPr = false;
-		f.state.prOutput = JSON.stringify({
-			number: 43,
-			url: "https://github.com/owner/project/pull/43",
-		});
-		vi.setSystemTime(1_059_999);
-		expect(f.lookup.read(f.context, prNames)).toEqual({});
-		expect(f.exec).toHaveBeenCalledTimes(failureCalls);
-		vi.setSystemTime(1_060_000);
-		f.lookup.read(f.context, prNames);
-		await settle();
-		expect(f.lookup.read(f.context, prNames).pr_number).toBe("43");
-	});
-
-	it.each(["branch", "root", "gitDir", "remotes"] as const)(
-		"does not publish a PR when %s identity changes during gh",
-		async (field) => {
-			const f = fixture();
-			const pending = deferred<ExecResult>();
-			f.state.pendingPr = pending.promise;
-			f.lookup.read(f.context, prNames);
-			await settle();
-			f.state[field] += "-changed";
-			pending.resolve(commandResult(f.state.prOutput));
-			await settle();
-			expect(f.lookup.read(f.context, prNames)).toEqual({});
-		},
-	);
-
-	it("invalidates branch snapshots and ignores an older gh completion even after a fresh PR publishes", async () => {
-		const f = fixture();
-		const pending = deferred<ExecResult>();
-		f.state.pendingPr = pending.promise;
-		f.lookup.read(f.context, prNames);
-		await settle();
-		const oldSignal = f.exec.mock.calls[0][2]?.signal;
-		f.state.branch = "new-branch";
-		f.state.pendingPr = undefined;
-		f.state.prOutput = JSON.stringify({
-			number: 43,
-			url: "https://github.com/owner/project/pull/43",
-		});
-		f.lookup.invalidateProject(f.context.cwd);
-		expect(oldSignal?.aborted).toBe(true);
-		f.lookup.read(f.context, prNames);
-		await settle();
-		pending.resolve(
-			commandResult(
-				JSON.stringify({ number: 42, url: "https://github.com/owner/project/pull/42" }),
-			),
-		);
-		await settle();
-		expect(f.lookup.read(f.context, prNames).pr_number).toBe("43");
-		expect(f.repaint).toHaveBeenCalledOnce();
-	});
-
-	it("invalidates only the matching project, without discarding the quota snapshot", async () => {
-		const f = fixture();
-		f.lookup.read(f.context, allNames);
-		await settle();
-		const calls = f.exec.mock.calls.length;
-		f.lookup.invalidateProject("/unrelated");
-		expect(f.lookup.read(f.context, prNames).pr_number).toBe("42");
-		expect(f.exec).toHaveBeenCalledTimes(calls);
-		f.lookup.invalidateProject();
-		expect(f.lookup.read(f.context, allNames)).toEqual({ usage_quota: "5 Hour: 80% left" });
-		await settle();
-		expect(f.fetch).toHaveBeenCalledOnce();
-	});
-
-	it("negative-caches throwing exec capabilities", async () => {
-		const f = fixture();
-		f.exec.mockRejectedValue(new Error("gh is unavailable"));
-		f.lookup.read(f.context, prNames);
-		await settle();
-		expect(f.lookup.read(f.context, prNames)).toEqual({});
-		expect(f.exec).toHaveBeenCalledOnce();
-	});
+it("leaves PR/CI collection to the demand-controlled shared collector", async () => {
+	const f = fixture();
+	expect(f.lookup.read(f.context, new Set(["pr_number", "pr_url", "ci"]))).toEqual({});
+	await settle();
+	expect(f.exec).not.toHaveBeenCalled();
+	expect(f.fetch).not.toHaveBeenCalled();
+	expect(f.oauth.identity).not.toHaveBeenCalled();
 });
 
 describe("usage quota", () => {
@@ -739,7 +564,7 @@ describe("usage quota", () => {
 });
 
 it.each(["session", "sessionId", "modelId", "provider", "cwd"] as const)(
-	"ignores older PR and quota completion after %s context changes",
+	"ignores older quota completion after %s context changes",
 	async (field) => {
 		const f = fixture();
 		const oldReports = deferred<unknown>();
@@ -780,11 +605,9 @@ it.each(["session", "sessionId", "modelId", "provider", "cwd"] as const)(
 		await settle();
 		expect(oldSignal?.aborted).toBe(true);
 		expect(f.lookup.read(next, allNames)).toEqual({
-			pr_number: "43",
-			pr_url: "https://github.com/owner/project/pull/43",
 			usage_quota: "5 Hour: 40% left",
 		});
-		expect(f.repaint).toHaveBeenCalledTimes(2);
+		expect(f.repaint).toHaveBeenCalledOnce();
 	},
 );
 

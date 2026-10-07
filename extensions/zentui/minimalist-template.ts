@@ -53,7 +53,7 @@ const reserved = new Set<string>(MINIMALIST_BUILTIN_VARIABLES);
 export function isMinimalistVariableAlias(name: string): boolean {
 	return (
 		/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) &&
-		!reserved.has(name) &&
+		(!reserved.has(name) || name === "ci") &&
 		name !== "__proto__" &&
 		name !== "constructor" &&
 		name !== "prototype"

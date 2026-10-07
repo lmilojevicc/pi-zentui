@@ -524,6 +524,7 @@ describe("component-oriented /zentui settings", () => {
 			"Completion menu",
 
 			"Color overrides",
+			"Individual custom value colors",
 		]);
 
 		component.handleInput("\t");
@@ -550,6 +551,7 @@ describe("component-oriented /zentui settings", () => {
 			"Tool",
 			"Elapsed",
 			"Thinking time",
+			"Token rate",
 			"Tokens",
 			"Message list",
 
@@ -570,6 +572,7 @@ describe("component-oriented /zentui settings", () => {
 			"Segments",
 			"Git",
 			"Color overrides",
+			"Individual custom value colors",
 		]);
 		openFooterPage(component, "Segments");
 		expectFocusOrder(component, [
@@ -692,6 +695,7 @@ describe("component-oriented /zentui settings", () => {
 			"Metadata templates",
 			"Custom variable aliases",
 			"Color overrides",
+			"Individual custom value colors",
 		]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
@@ -1381,6 +1385,7 @@ describe("component-oriented /zentui settings", () => {
 			"Tool",
 			"Elapsed",
 			"Thinking time",
+			"Token rate",
 			"Tokens",
 			"Message list",
 

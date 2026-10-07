@@ -118,14 +118,16 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
 
-### OMP host data
+### Shared live metadata and OMP host data
 
-OMP also supplies `$session_id`, `$pr_number`, `$pr_url`, `$subagent_count`,
+Pi and OMP supply `$pr_number`, `$pr_url`, and `$ci` through one passive, demand-controlled GitHub snapshot. Pi also supplies the response-only `$token_rate`, with `~` for estimates; OMP retains its native rate semantics. See [live metadata](./configuration.md#live-metadata) for identity/head qualification, TTLs, empty/stale/no-checks behavior and lifecycle limits. Templates opt in without rewriting defaults; disabled/native/unowned surfaces do not poll.
+
+OMP additionally supplies `$session_id`, `$subagent_count`,
 `$token_rate`, `$active_time`, `$hostname`, `$usage_quota`, `$collaboration`,
 `$stream_state`, `$vim_mode`, `$plan_mode`, `$prewalk_mode`, `$goal_mode`,
 `$vibe_mode`, and `$loop_mode`. These explicit built-ins also work in Opencode
 metadata and Minimalist slots; they are not aliases for OMP's segment IDs or
-third-party `$extensions`. Pi and unsupported/inactive capabilities render empty.
+third-party `$extensions`. Other Pi host-only and unsupported/inactive capabilities render empty.
 See the [data/source reference](./configuration.md#omp-template-data).
 
 For example:
@@ -219,7 +221,7 @@ template:
 ```
 
 These JSON-only aliases cannot replace built-in variables, aliases such as
-`branch`, structural tokens, or prototype names. Missing values are empty;
+`branch`, structural tokens, or prototype names, except a valid explicit `ci` alias takes precedence over GitHub CI and does not demand GitHub. Missing values are empty;
 conditional groups remove associated optional text. No custom value is appended
 outside an explicit template. A compact-only reference creates demand only
 while responsive mode is enabled. Native and Hidden never acquire this registry
@@ -229,7 +231,7 @@ Editor.
 Original is the default color mode and preserves permitted publisher SGR and
 HTTP(S) hyperlinks. Zentui strips incoming styling and uses Footer's own
 `colors.extensionStatus` role and color source. These choices are independent of
-Editor and of the existing `extensionStatuses.colorModes` preferences.
+Editor and of the existing `extensionStatuses.colorModes` preferences. Sparse `components.footer.customValueColors` overrides style individual publisher IDs across aliases in both templates. Explicit styles replace publisher styling; empty is unstyled, Reset deletes one leaf. `/zentui` → Footer → **Individual custom value colors** offers current, aliased and saved keys. See [individual custom value colors](./configuration.md#individual-custom-value-colors).
 
 Values are kept whole through wide alignment, reflow, and compact packing.
 When a value would be partially cropped or split, Footer recomposes without it

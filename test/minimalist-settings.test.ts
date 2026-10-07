@@ -86,3 +86,18 @@ it.each(["\u00a0", "\u009b"])(
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("unchanged"), "warning");
 	},
 );
+
+it("accepts and resets an explicit ci publisher alias without renaming it", async () => {
+	const h = harness(["Edit aliases"], ['{"ci":"vendor.package/build"}']);
+	await editMinimalistVariables(h.ctx, h.deps);
+	expect(h.setMinimalist).toHaveBeenCalledExactlyOnceWith(
+		{ variables: { quota: null, ci: "vendor.package/build" } },
+		h.ctx,
+	);
+	const config = h.deps.getConfig();
+	config.components.editor.styles.minimalist.variables = { ci: "vendor.package/build" };
+	h.select.mockResolvedValueOnce("Reset aliases");
+	h.setMinimalist.mockClear();
+	await editMinimalistVariables(h.ctx, h.deps);
+	expect(h.setMinimalist).toHaveBeenCalledExactlyOnceWith({ variables: { ci: null } }, h.ctx);
+});

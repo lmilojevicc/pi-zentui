@@ -153,7 +153,7 @@ describe("canonical config resolution", () => {
 					custom: true,
 					values: [...defaultConfig.components.workingLine.messages.values],
 				},
-				segments: { tool: true, elapsed: true, thought: true, tokens: true },
+				segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 				placement: "above",
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
@@ -845,7 +845,7 @@ describe("working-line config", () => {
 						mode: "replace",
 						values: [" One ", "One", "\x1b[31mTwo\x1b[0m", "\n"],
 					},
-					segments: { tool: false, elapsed: true, thought: true, tokens: false },
+					segments: { tool: false, elapsed: true, thought: true, tokens: false, tokenRate: false },
 				},
 			},
 			colors: {
@@ -865,7 +865,7 @@ describe("working-line config", () => {
 			textAnimation: "kitt",
 			colorSource: "terminal",
 			messages: { custom: true, values: ["One", "Two"] },
-			segments: { tool: false, elapsed: true, thought: true, tokens: false },
+			segments: { tool: false, elapsed: true, thought: true, tokens: false, tokenRate: false },
 			placement: "above",
 		});
 		expect(config.colors).toMatchObject({
@@ -901,7 +901,7 @@ describe("working-line config", () => {
 			textAnimation: "classic",
 			colorSource: "theme",
 			messages: { custom: true },
-			segments: { tool: true, elapsed: true, thought: true, tokens: true },
+			segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 		});
 		expect(component.messages.values).toHaveLength(40);
 		expect(component.messages.values.every((value) => value.length > 0)).toBe(true);
