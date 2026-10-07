@@ -120,7 +120,7 @@ Each variable renders its core value without prose prefixes such as `on` or `via
 
 ### Shared live metadata and OMP host data
 
-Pi and OMP supply `$pr_number`, `$pr_url`, and `$ci` through one passive, demand-controlled GitHub snapshot. Pi also supplies `$token_rate`: the last observed response-window rate (retained until the next response), with `~` for estimates and `— tok/s` before a usable measurement; OMP retains its native rate semantics. See [live metadata](./configuration.md#live-metadata) for identity/head qualification, TTLs, empty/stale/no-checks behavior and lifecycle limits. Templates opt in without rewriting defaults; disabled/native/unowned surfaces do not poll.
+Pi and OMP supply `$pr_number`, `$pr_url`, and `$ci` through one passive, demand-controlled GitHub snapshot. Pi also supplies `$token_rate`: the current interaction’s completed model-work average (`48 tok/s avg`, or `— tok/s avg` when unknown), retained until a new interaction. It uses final output divided by summed observed call durations, including initial wait and client preparation but excluding tools/gaps; an in-flight call keeps the completed-calls-so-far aggregate, never a live estimate. Working line retains its separate recent live rate. OMP retains its native rate semantics. See [live metadata](./configuration.md#live-metadata) for identity/head qualification, TTLs, empty/stale/no-checks behavior and lifecycle limits. Templates opt in without rewriting defaults; disabled/native/unowned surfaces do not poll.
 
 OMP additionally supplies `$session_id`, `$subagent_count`,
 `$token_rate`, `$active_time`, `$hostname`, `$usage_quota`, `$collaboration`,

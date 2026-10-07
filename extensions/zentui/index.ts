@@ -1888,9 +1888,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	if (!host.skinOnly) pi.on("message_start", (event) => thinkingExperimental.beginMessage(event));
 
 	pi.on("agent_start", (event, ctx) => {
-		liveMetadata.rate.agentStart();
 		liveContext.clear();
 		const { interactionStarted } = interactionMetrics.agentStart();
+		liveMetadata.startAgent(interactionStarted);
 		startAgentTurn(interactionStarted);
 		if (!host.skinOnly) workingLine.startAgent(ctx);
 		syncInteractiveState(event, ctx);
@@ -1927,14 +1927,11 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("message_update", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
-		if (
-			!host.skinOnly &&
-			liveMetadata.rate.messageUpdate(
+		if (!host.skinOnly)
+			liveMetadata.updateResponse(
 				event.message,
 				"assistantMessageEvent" in event ? event.assistantMessageEvent : undefined,
-			)
-		)
-			liveMetadata.rateChanged();
+			);
 		const metrics = interactionMetrics.messageUpdate(
 			event.message,
 			"assistantMessageEvent" in event ? event.assistantMessageEvent : undefined,
@@ -1946,11 +1943,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	});
 	pi.on("message_end", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.endMessage(event);
-		liveMetadata.rate.messageEnd(event.message);
-		liveMetadata.rateChanged();
 		const result = interactionMetrics.messageEnd(event.message);
-		if (result.status === "accepted" && event.message.role === "assistant")
-			liveMetadata.setStreaming(false);
+		if (!host.skinOnly) liveMetadata.endResponse(event.message, result);
 		if (result.status === "accepted") {
 			if (!host.skinOnly)
 				workingLine.flushMetrics(result.displayTokens, interactionMetrics.currentThought(), ctx);

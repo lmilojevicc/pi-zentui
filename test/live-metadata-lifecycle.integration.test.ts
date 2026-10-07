@@ -286,8 +286,16 @@ describe("live metadata event wiring and owned consumers", () => {
 			await h.emit("session_start");
 			h.render();
 			await streaming(h);
-			expect(h.render()).toContain("50 tok/s");
-			expect(h.renderFooter()).toContain("50 tok/s");
+			await h.emit("message_end", {
+				message: {
+					role: "assistant",
+					responseId: "one",
+					usage: { input: 10, output: 120 },
+					stopReason: "stop",
+				},
+			});
+			expect(h.render()).toContain("200 tok/s avg");
+			expect(h.renderFooter()).toContain("200 tok/s avg");
 			await h.emit(event, { toolCallId: "tool", toolName: "bash" });
 			expect(h.render()).not.toContain("tok/s");
 			expect(h.renderFooter()).not.toContain("tok/s");
@@ -295,49 +303,55 @@ describe("live metadata event wiring and owned consumers", () => {
 			await h.emit("session_shutdown");
 		}
 	});
-	it("retains through gaps/finals/tools/idle but resets the next response to a placeholder", async () => {
+	it("averages completed calls including initial wait, excludes tools, and resets only new interactions", async () => {
 		const h = harness();
 		try {
 			await h.emit("session_start");
 			h.render();
-			await streaming(h);
-			await vi.advanceTimersByTimeAsync(4250);
-			expect(h.render()).toContain("50 tok/s");
-			expect(h.renderFooter()).toContain("50 tok/s");
+			await h.emit("agent_start");
+			await h.emit("turn_start");
+			expect(h.render()).toContain("— tok/s avg");
+			await vi.advanceTimersByTimeAsync(2000);
+			await h.emit("message_update", {
+				message: { role: "assistant", responseId: "one", usage: { input: 10, output: 10 } },
+			});
+			await vi.advanceTimersByTimeAsync(2000);
+			await h.emit("message_update", {
+				message: { role: "assistant", responseId: "one", usage: { input: 10, output: 40 } },
+			});
+			expect(h.renderFooter()).toContain("— tok/s avg");
 			await h.emit("message_end", {
 				message: {
 					role: "assistant",
 					responseId: "one",
-					usage: { input: 10, output: 9000 },
+					usage: { input: 10, output: 120 },
 					stopReason: "toolUse",
 				},
 			});
-			expect(h.render()).toContain("50 tok/s");
+			expect(h.render()).toContain("30 tok/s avg");
 			await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
-			expect(h.renderFooter()).toContain("50 tok/s");
+			await vi.advanceTimersByTimeAsync(10000);
+			expect(h.renderFooter()).toContain("30 tok/s avg");
 			await h.emit("tool_execution_end", { toolCallId: "tool" });
+			await h.emit("agent_end");
+			await h.emit("agent_start"); // continuation, not settled
 			await h.emit("turn_start");
-			expect(h.render()).toContain("— tok/s");
-			expect(h.renderFooter()).toContain("— tok/s");
-			await h.emit("message_update", {
-				message: { role: "assistant", responseId: "two", usage: { input: 10, output: 10 } },
-			});
-			await vi.advanceTimersByTimeAsync(600);
-			await h.emit("message_update", {
-				message: { role: "assistant", responseId: "two", usage: { input: 10, output: 40 } },
-			});
-			expect(h.render()).toContain("50 tok/s");
+			expect(h.render()).toContain("30 tok/s avg");
+			await vi.advanceTimersByTimeAsync(2000);
 			await h.emit("message_end", {
 				message: {
 					role: "assistant",
 					responseId: "two",
-					usage: { input: 10, output: 40 },
+					usage: { input: 10, output: 180 },
 					stopReason: "stop",
 				},
 			});
-			expect(h.render()).toContain("50 tok/s");
+			expect(h.render()).toContain("50 tok/s avg");
 			await h.emit("agent_end");
-			expect(h.renderFooter()).toContain("50 tok/s");
+			await h.emit("agent_settled");
+			expect(h.renderFooter()).toContain("50 tok/s avg");
+			await h.emit("agent_start");
+			expect(h.render()).toContain("— tok/s avg");
 		} finally {
 			await h.emit("session_shutdown");
 		}
@@ -349,7 +363,7 @@ describe("live metadata event wiring and owned consumers", () => {
 			h.render();
 			await h.emit("agent_start");
 			await h.emit("turn_start");
-			expect(h.render()).toContain("— tok/s");
+			expect(h.render()).toContain("— tok/s avg");
 			await h.emit("message_end", {
 				message: {
 					role: "assistant",
@@ -359,13 +373,13 @@ describe("live metadata event wiring and owned consumers", () => {
 				},
 			});
 			await h.emit("agent_end");
-			expect(h.renderFooter()).toContain("— tok/s");
+			expect(h.renderFooter()).toContain("— tok/s avg");
 			await h.emit("session_start");
 			expect(h.renderFooter()).not.toContain("tok/s");
 			h.render();
 			await streaming(h);
 			h.hook("setEditorComponent", { enabled: false });
-			expect(h.renderFooter()).toContain("50 tok/s");
+			expect(h.renderFooter()).toContain("— tok/s avg");
 			h.hook("setFooterComponent", { style: "native" });
 			await h.emit("agent_end");
 			h.hook("setFooterComponent", { style: "starship" });
@@ -374,6 +388,35 @@ describe("live metadata event wiring and owned consumers", () => {
 			await h.emit("session_shutdown");
 		}
 	});
+	it.each(["editor", "footer"] as const)(
+		"measures for the sole %s owner and clears completed averages on demand loss",
+		async (owner) => {
+			if (!runtime.config) throw new Error("missing config");
+			runtime.config.components.editor.enabled = owner === "editor";
+			runtime.config.components.footer.style = owner === "footer" ? "starship" : "native";
+			const h = harness();
+			const rendered = () => (owner === "editor" ? h.render() : h.renderFooter());
+			try {
+				await h.emit("session_start");
+				h.render();
+				await h.emit("agent_start");
+				await h.emit("turn_start");
+				await vi.advanceTimersByTimeAsync(4000);
+				await h.emit("message_end", {
+					message: { role: "assistant", usage: { input: 10, output: 120 }, stopReason: "stop" },
+				});
+				expect(rendered()).toContain("30 tok/s avg");
+				if (owner === "editor") h.hook("setEditorComponent", { enabled: false });
+				else h.hook("setFooterComponent", { style: "native" });
+				await h.emit("agent_end");
+				if (owner === "editor") h.hook("setEditorComponent", { enabled: true });
+				else h.hook("setFooterComponent", { style: "starship" });
+				expect(rendered()).not.toContain("tok/s");
+			} finally {
+				await h.emit("session_shutdown");
+			}
+		},
+	);
 	it("honors alias-only ci without GitHub I/O on either owner", async () => {
 		if (!runtime.config) throw new Error("missing config");
 		Object.assign(runtime.config.components.editor.styles.minimalist, {
@@ -488,8 +531,8 @@ it("uses the existing live output estimator with a visible approximate marker", 
 		await h.emit("message_update", update("a".repeat(40), "a".repeat(40)));
 		await vi.advanceTimersByTimeAsync(600);
 		await h.emit("message_update", update("a".repeat(120), "a".repeat(80)));
-		expect(h.render()).toContain("~33 tok/s");
-		expect(h.renderFooter()).toContain("~33 tok/s");
+		expect(h.render()).toContain("— tok/s avg");
+		expect(h.renderFooter()).toContain("— tok/s avg");
 		await h.emit("message_end", {
 			message: {
 				role: "assistant",
@@ -499,8 +542,8 @@ it("uses the existing live output estimator with a visible approximate marker", 
 			},
 		});
 		await h.emit("agent_end");
-		expect(h.render()).toContain("~33 tok/s");
-		expect(h.renderFooter()).toContain("~33 tok/s");
+		expect(h.render()).toContain("1665 tok/s avg");
+		expect(h.renderFooter()).toContain("1665 tok/s avg");
 	} finally {
 		await h.emit("session_shutdown");
 	}
@@ -589,12 +632,15 @@ it.each([false, true])(
 );
 
 it("recovers rate after a mid-run model change and tool loop without another agent_start", async () => {
+	if (!runtime.config) throw new Error("missing config");
+	runtime.config.components.workingLine.enabled = true;
+	runtime.config.components.workingLine.segments.tokenRate = true;
 	const h = harness();
 	try {
 		await h.emit("session_start");
 		h.render();
 		await streaming(h);
-		expect(h.render()).toContain("50 tok/s");
+		expect(h.render()).toContain("— tok/s avg");
 		await h.emit("model_select");
 		expect(h.render()).not.toContain("tok/s");
 		await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
@@ -603,13 +649,27 @@ it("recovers rate after a mid-run model change and tool loop without another age
 		await h.emit("message_update", {
 			message: { role: "assistant", responseId: "new-model", usage: { input: 10, output: 10 } },
 		});
-		expect(h.render()).toContain("— tok/s");
+		expect(h.render()).toContain("— tok/s avg");
 		await vi.advanceTimersByTimeAsync(600);
 		await h.emit("message_update", {
 			message: { role: "assistant", responseId: "new-model", usage: { input: 10, output: 40 } },
 		});
-		expect(h.render()).toContain("50 tok/s");
-		expect(h.renderFooter()).toContain("50 tok/s");
+		expect(h.render()).toContain("— tok/s avg");
+		expect(h.renderFooter()).toContain("— tok/s avg");
+		await vi.advanceTimersByTimeAsync(100);
+		const live = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
+			| { frames?: string[] }
+			| undefined;
+		expect(live?.frames?.some((frame) => frame.includes("50 tok/s"))).toBe(true);
+		await h.emit("message_end", {
+			message: {
+				role: "assistant",
+				responseId: "new-model",
+				usage: { input: 10, output: 120 },
+				stopReason: "stop",
+			},
+		});
+		expect(h.renderFooter()).toContain("171 tok/s avg");
 	} finally {
 		await h.emit("session_shutdown");
 	}

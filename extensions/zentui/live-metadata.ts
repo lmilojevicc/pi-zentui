@@ -1,3 +1,5 @@
+import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
+import { AverageTokenRateTracker, formatAverageTokenRate } from "./average-token-rate";
 import {
 	type GithubContext,
 	type GithubExec,
@@ -5,12 +7,14 @@ import {
 	githubTemplateValues,
 } from "./github-status";
 import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
+import type { MessageEndResult } from "./interaction-summary";
 import type { LiveMetadataDemand } from "./live-metadata-demand";
-import { formatTokenRate, TokenRateTracker } from "./token-rate";
+import { formatTokenRate, type TokenRateMessage, TokenRateTracker } from "./token-rate";
 
 /** Session resources and demand live outside render; reads are entirely passive. */
 export class LiveMetadataController {
 	readonly rate: TokenRateTracker;
+	private readonly averageRate: AverageTokenRateTracker;
 	private readonly github: GithubStatusCollector;
 	private context: GithubContext | undefined;
 	private demand: LiveMetadataDemand = { github: false, tokenRate: false };
@@ -19,6 +23,7 @@ export class LiveMetadataController {
 	private streaming = false;
 	private rateLabel = "";
 	private workingRateLabel = "";
+	private averageLabel = "";
 	private generation = 0;
 	private disposed = false;
 	private scheduledRefresh: number | undefined;
@@ -31,6 +36,7 @@ export class LiveMetadataController {
 		private readonly githubNow: () => number = Date.now,
 	) {
 		this.rate = new TokenRateTracker(rateNow);
+		this.averageRate = new AverageTokenRateTracker(rateNow);
 		this.github = new GithubStatusCollector(
 			exec,
 			() => {
@@ -57,20 +63,55 @@ export class LiveMetadataController {
 		this.reconcileRateTimer();
 		this.rateChanged();
 	}
+	startAgent(interactionStarted: boolean): void {
+		if (this.disposed) return;
+		this.rate.agentStart();
+		this.averageRate.agentStart(interactionStarted);
+		if (this.demand.tokenRate)
+			this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
+		else this.averageRate.reset();
+		this.rateChanged();
+	}
+	updateResponse(message: TokenRateMessage, event?: AssistantMessageEvent): void {
+		if (this.disposed || !this.demand.tokenRate) return;
+		this.averageRate.observeTime();
+		if (this.rate.messageUpdate(message, event)) this.rateChanged();
+	}
+	endResponse(
+		message: TokenRateMessage & { stopReason?: unknown },
+		result: MessageEndResult,
+	): void {
+		if (this.disposed || !this.demand.tokenRate || result.status !== "accepted") return;
+		this.rate.messageEnd(message);
+		this.averageRate.messageEnd(message, result);
+		const previous = this.averageLabel;
+		if (this.averageLabel) this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
+		this.setStreaming(false);
+		if (previous !== this.averageLabel) this.repaint();
+	}
 	/** A new authorized response must not inherit another response's observed speed. */
 	startResponse(): void {
 		if (this.disposed) return;
 		this.rate.turnStart();
 		this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
-		if (!this.demand.tokenRate) this.rate.suspend();
+		if (this.demand.tokenRate) {
+			this.averageRate.turnStart();
+			this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
+		} else this.rate.suspend();
 		this.setStreaming(true);
 	}
 	/** Tools/end retain metadata; identity/boundary changes explicitly clear it. */
 	suspendRate(clearDisplay = false): void {
 		this.rate.suspend();
-		const cleared = clearDisplay && this.rateLabel !== "";
+		this.averageRate.suspend();
+		const cleared = clearDisplay && (this.rateLabel !== "" || this.averageLabel !== "");
 		const workingWasVisible = this.workingRateLabel !== "";
-		if (clearDisplay) this.rateLabel = "";
+		if (clearDisplay) {
+			this.rateLabel = "";
+			this.averageLabel = "";
+			this.averageRate.reset();
+		} else if (this.averageLabel)
+			this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
 		this.setStreaming(false);
 		if (cleared && !workingWasVisible && !this.disposed) this.repaint();
 	}
@@ -154,7 +195,8 @@ export class LiveMetadataController {
 		delete values.pr_url;
 		delete values.ci;
 		Object.assign(values, githubTemplateValues(this.github.snapshot()));
-		if (!native && this.demand.tokenRate && this.rateLabel) values.token_rate = this.rateLabel;
+		if (!native && this.demand.tokenRate && this.averageLabel)
+			values.token_rate = this.averageLabel;
 		return Object.fromEntries(
 			Object.entries(values).filter(([name]) => names.has(name) && isHostTemplateVariable(name)),
 		);

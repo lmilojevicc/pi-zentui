@@ -847,7 +847,7 @@ responsive compact templates support these explicit opt-in references:
 | --- | --- | --- |
 | `$pr_number`, `$pr_url` | Open PR number and safe plain HTTPS URL for a non-default branch | Same shared collector |
 | `$ci` | `CI passing`, `CI running`, `CI failed`, `CI no checks`, or `CI stale` | Same shared collector |
-| `$token_rate` | Recent response-only generated output, e.g. `~48 tok/s` (estimated) or `48 tok/s` (live provider usage) | Existing native last-assistant / streaming worker rate unchanged |
+| `$token_rate` | Completed model-work average for the current interaction, e.g. `48 tok/s avg`; unknown is `— tok/s avg` | Existing native last-assistant / streaming worker rate unchanged |
 
 No default or saved template is rewritten. For example:
 
@@ -894,29 +894,52 @@ or only skipped/neutral checks are **no checks**, not passing. Unknown/malformed
 checks are never proof of success. No PR, closed/default/detached branches,
 missing `gh`/read access or lookup errors are empty; optional groups hide labels.
 
-Pi rate uses a bounded three-second observation window and needs advancing output
-observations spanning at least 500 ms. The measurement expires after two seconds
-without advancing output, but the display keeps the last observed window rate
-between chunks. Editor and Footer retain it at response end, through tools and
-idle, until the next response resets the slot to `— tok/s`. A response without a
-usable measurement keeps that honest placeholder; final usage never creates an
-instantaneous sample. Retained estimates keep their `~` marker. This is not a
-completed-response average or evidence of continuing output.
+Pi Editor/Footer `$token_rate` is a **completed model-work average**: sum of
+provider-reported final output tokens divided by the sum of observed model-call
+durations in the current interaction. Each interval starts when Zentui observes
+public `turn_start` and ends at its matching accepted assistant `message_end`,
+using a monotonic clock. This includes initial wait **and client preparation
+before the provider call**; it is not pure backend decode speed. Tool execution,
+between-call gaps and idle are excluded. For example, 120 output tokens over 4s
+(including 2s initial wait), then 180 over 2s after a 10s tool gap, gives
+`300 / 6 = 50 tok/s avg`, not an average of call rates or `300 / 16`.
 
-The measurement excludes pre-output silence, earlier replies, tool execution and
-session/interaction wall-clock averages. Supported text, thinking and tool-call
-argument deltas use the existing Unicode estimator; source/usage corrections
-rebaseline rather than producing spikes. Working rate remains independently
-opt-in and hides at response end, tools and idle. Compaction, session/model/tree
-changes and loss of all rate demand clear retained state. Repaint polling is
-active only while streaming and demanded; retaining a value needs no idle timer.
-There is no settled-rate summary or history scan.
+The slot shows `— tok/s avg` before a trustworthy completed sample, never a
+live-rate substitute. After each completed call it shows **completed calls so
+far**, retaining the previous aggregate while another call in the same interaction
+is in flight, through tools, `agent_end` and settlement. Continuation/retry
+`agent_start` does not reset it; a genuinely new interaction does. Only accepted,
+deduplicated finals contribute per-message output, never cumulative interaction
+totals, last streaming usage or character estimates. Successful reported zero
+output is included with its duration. Positive provider-reported partial/error
+usage is included with a matching interval; all-zero error/abort placeholders
+are unknown. Missing/invalid final usage or timing for any included call makes
+the aggregate unknown until reset rather than silently showing a partial exact
+average. This reflects final usage visible to Zentui's event handler, not a
+history scan or independent verification of provider accounting.
+
+Working line keeps its separate **recent live rate**, with `~` for estimates
+and `— tok/s` before a usable measurement. It uses a bounded three-second
+observation window and needs advancing output spanning at least 500ms, excluding
+pre-output silence. The measurement expires after two seconds without advancing
+output, but its display holds the last observed window rate between chunks.
+Text, thinking and tool-call argument deltas use the existing Unicode estimator;
+source/usage corrections rebaseline rather than producing spikes. Final usage
+never creates an instantaneous live sample. Working rate is independently opt-in,
+resets each response and hides at response end, tools and idle.
+
+Compaction, session/model/tree changes and loss of all rate demand clear both
+metrics. After a mid-run model change, the next properly observed turn can
+establish a new current-model aggregate without another `agent_start`. Repaint
+polling is active only while streaming and demanded; retained averages need no
+idle timer. There is no new variable, latency measurement or transcript schema.
+OMP's native `$token_rate` semantics are unchanged.
 
 ## Working line
 
 When enabled, Zentui owns Pi's complete working-row message and indicator. Five fixed-width spinner presets are available: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse.
 
-`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It uses the same Pi metric as `$token_rate` and hides during tools/idle/compaction; see [live metadata](#live-metadata).
+`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It uses the recent live Pi rate, not the completed average in Editor/Footer `$token_rate`, and hides during tools/idle/compaction; see [live metadata](#live-metadata).
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 

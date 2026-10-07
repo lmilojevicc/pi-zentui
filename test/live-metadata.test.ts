@@ -80,7 +80,7 @@ function fixture(githubNow?: () => number) {
 	);
 	controllers.push(controller);
 	const rate = () => {
-		controller.rate.agentStart();
+		controller.startAgent(true);
 		controller.startResponse();
 		now = 100;
 		controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 10 } });
@@ -262,42 +262,85 @@ describe("live metadata passive snapshot and scheduler", () => {
 			}
 		}
 	});
-	it("retains the last observed rate across stale gaps and idle without an idle timer", async () => {
+	it("keeps Working live rate stable across chunk gaps, separate from the completed average", async () => {
 		const f = fixture();
 		f.controller.reconcile(context, { github: false, tokenRate: true });
 		expect(vi.getTimerCount()).toBe(0);
 		f.rate();
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "40 tok/s" });
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		const calls = f.repaint.mock.calls.length;
 		f.controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 30 } });
 		f.controller.rateChanged();
 		expect(f.repaint).toHaveBeenCalledTimes(calls);
 		f.time(2601);
 		expect(f.controller.rate.snapshot()).toBeUndefined();
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "40 tok/s" });
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		await vi.advanceTimersByTimeAsync(250);
 		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		expect(f.repaint).toHaveBeenCalledTimes(calls);
 		f.controller.suspendRate();
 		expect(f.onRate).toHaveBeenLastCalledWith("");
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "40 tok/s" });
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		expect(vi.getTimerCount()).toBe(0);
 	});
-	it("resets a second response to an honest placeholder and ignores its final usage", () => {
+	it("separates completed average from Working live rate and never spikes live on final correction", () => {
+		const f = fixture();
+		f.controller.reconcile(context, { github: false, tokenRate: true });
+		f.rate();
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
+		f.time(4000);
+		const final = { role: "assistant", usage: { input: 10, output: 120 } };
+		const accepted = {
+			status: "accepted" as const,
+			source: "final" as const,
+			tokens: { input: 10, output: 120 },
+			displayTokens: { input: 10, output: 120, outputApproximate: false },
+		};
+		const calls = f.onRate.mock.calls.length;
+		f.controller.endResponse(final, accepted);
+		expect(f.onRate.mock.calls.slice(calls)).toEqual([[""]]);
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "30 tok/s avg" });
+		expect(vi.getTimerCount()).toBe(0);
+		f.time(14000);
+		f.controller.startResponse();
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "30 tok/s avg" });
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		f.time(14500);
+		f.controller.endResponse(final, { status: "duplicate" });
+		f.controller.endResponse(final, { status: "rejected" });
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		f.time(16000);
+		f.controller.endResponse(
+			{ ...final, usage: { input: 10, output: 180 } },
+			{
+				...accepted,
+				tokens: { input: 20, output: 300 },
+			},
+		);
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "50 tok/s avg" });
+		expect(vi.getTimerCount()).toBe(0);
+	});
+	it("never substitutes live rate for the average and an unclosed call leaves it unknown", () => {
 		const f = fixture();
 		f.controller.reconcile(context, { github: false, tokenRate: true });
 		f.rate();
 		f.controller.suspendRate();
 		f.time(1000);
 		f.controller.startResponse();
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
 		f.controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 1 } });
 		f.controller.rateChanged();
 		f.time(1100);
-		f.controller.rate.messageEnd({ role: "assistant", usage: { input: 10, output: 1000 } });
-		f.controller.setStreaming(false);
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+		const final = { role: "assistant", usage: { input: 10, output: 1000 } };
+		f.controller.endResponse(final, {
+			status: "accepted",
+			source: "final",
+			tokens: { input: 20, output: 1030 },
+			displayTokens: { input: 20, output: 1030, outputApproximate: false },
+		});
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		expect(f.onRate).toHaveBeenLastCalledWith("");
 		expect(vi.getTimerCount()).toBe(0);
 	});
@@ -324,7 +367,7 @@ describe("live metadata passive snapshot and scheduler", () => {
 				expect(f.controller.read(new Set(["token_rate"]))).toEqual({});
 				f.time(1000);
 				f.controller.startResponse();
-				expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+				expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 			}
 		},
 	);
