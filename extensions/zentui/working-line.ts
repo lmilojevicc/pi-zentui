@@ -495,9 +495,8 @@ function renderAnimatedText(
 	width: number,
 	tick: number,
 	animation: WorkingLineTextAnimation,
-	rate?: { start: number; end: number; render: (text: string) => string },
 ): string {
-	const runs: Array<{ tier: Tier; text: string; fixed: boolean }> = [];
+	const runs: Array<{ tier: Tier; text: string }> = [];
 	for (const cell of cells) {
 		const tier =
 			animation === "disabled"
@@ -505,14 +504,11 @@ function renderAnimatedText(
 				: animation === "classic"
 					? classicTier(cell, tick)
 					: kittTier(cell, tick, width);
-		const fixed = Boolean(rate && cell.start >= rate.start && cell.start < rate.end);
 		const previous = runs.at(-1);
-		if (previous?.tier === tier && previous.fixed === fixed) previous.text += cell.text;
-		else runs.push({ tier, text: cell.text, fixed });
+		if (previous?.tier === tier) previous.text += cell.text;
+		else runs.push({ tier, text: cell.text });
 	}
-	return runs
-		.map((run) => (run.fixed && rate ? rate.render(run.text) : render(run.tier, run.text)))
-		.join("");
+	return runs.map((run) => render(run.tier, run.text)).join("");
 }
 
 export type WorkingLineRuntimeSegments = {
@@ -626,7 +622,7 @@ export type ComposedWorkingLine = { message: string; row: string };
 type PreparedWorkingLine = ComposedWorkingLine & {
 	spinnerWidth: number;
 	rowWidth: number;
-	rate?: { text: string; codeStart: number; start: number; end: number };
+	rate?: { text: string; codeStart: number };
 };
 
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
@@ -710,7 +706,6 @@ function prepareWorkingLineRow(
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
 	const beforeRate = segments.filter(Boolean).join(delimiter);
-	const rateStart = visibleWidth(beforeRate) + visibleWidth(delimiter);
 	if (tokenRate) segments.push(tokenRate);
 	segments.push(...extensions);
 	const row = segments.filter(Boolean).join(delimiter);
@@ -723,8 +718,6 @@ function prepareWorkingLineRow(
 			? {
 					text: tokenRate,
 					codeStart: beforeRate.length + delimiter.length,
-					start: rateStart,
-					end: rateStart + visibleWidth(tokenRate),
 				}
 			: undefined,
 	};
@@ -821,24 +814,10 @@ function bestFallbackFrameCount(
 	return best;
 }
 
-/** Without a segmenter, only split at the known ASCII rate boundaries. */
-function workingRowCells(row: string, rate?: PreparedWorkingLine["rate"]): GraphemeCell[] {
-	if (getSharedGraphemeSegmenter() || !rate) return graphemeCells(row).cells;
-	const parts = [
-		{ text: row.slice(0, rate.codeStart), start: 0 },
-		{ text: rate.text, start: rate.start },
-		{ text: row.slice(rate.codeStart + rate.text.length), start: rate.end },
-	];
-	return parts.flatMap((part) =>
-		graphemeCells(part.text).cells.map((cell) => ({ ...cell, start: cell.start + part.start })),
-	);
-}
-
 function spinnerRowCells(
 	frames: readonly string[],
 	row: string,
 	spinnerWidth: number,
-	rate?: PreparedWorkingLine["rate"],
 ): Map<string, GraphemeCell[]> {
 	const byGlyph = new Map<string, GraphemeCell[]>();
 	// Keep the separator attached to the row: a leading combining mark can join that space.
@@ -853,19 +832,7 @@ function spinnerRowCells(
 		if (byGlyph.has(glyph)) continue;
 		byGlyph.set(
 			glyph,
-			suffix
-				? [...graphemeCells(glyph).cells, ...suffix]
-				: workingRowCells(
-						`${glyph} ${row}`,
-						rate
-							? {
-									...rate,
-									codeStart: rate.codeStart + glyph.length + 1,
-									start: rate.start + spinnerWidth + 1,
-									end: rate.end + spinnerWidth + 1,
-								}
-							: undefined,
-					),
+			suffix ? [...graphemeCells(glyph).cells, ...suffix] : graphemeCells(`${glyph} ${row}`).cells,
 		);
 	}
 	return byGlyph;
@@ -882,7 +849,6 @@ function renderWorkingLineSchedule(
 	spinnerStartTick: number,
 	textStartTick: number,
 	scheduleStartFrame: number,
-	rate?: { start: number; end: number; render: (text: string) => string },
 ): { frames: string[]; frameStates: WorkingLineFrameState[] } | undefined {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
 	const frames: string[] = [];
@@ -895,7 +861,7 @@ function renderWorkingLineSchedule(
 	const renderTextForTick = (tick: number): string => {
 		let cachedText = textRenderCache.get(tick);
 		if (cachedText === undefined) {
-			cachedText = renderAnimatedText(render, rowCells, width, tick, config.textAnimation, rate);
+			cachedText = renderAnimatedText(render, rowCells, width, tick, config.textAnimation);
 			textRenderCache.set(tick, cachedText);
 		}
 		return cachedText;
@@ -932,7 +898,6 @@ function renderWorkingLineSchedule(
 					width,
 					state.textTick,
 					config.textAnimation,
-					rate,
 				)}${SGR_RESET}`
 			: `${renderSpinnerForTick(state.spinnerTick)} ${renderTextForTick(state.textTick)}${SGR_RESET}`;
 		codeUnits += frame.length;
@@ -987,20 +952,19 @@ function buildPreparedWorkingLineFrames(
 	const textCycle = textPeriod(config.textAnimation, animatedTextWidth);
 	const textPhase = normalizedPhaseTick(textStartTick, textCycle);
 	const render = workingLineTierRenderer(theme, config, colors);
-	const renderRate = (text: string) =>
-		renderStyleForSourceOrFallback(
-			theme,
-			config.colorSource,
-			normalizeWorkingLineStyleSpec(workingLineColor(config, colors, "tokenRate")),
-			WORKING_LINE_FALLBACKS.mid,
-			text,
-		);
-	const offset = config.animateSpinnerColor ? spinnerWidth + 1 : 0;
-	const rate = composed.rate
-		? { start: composed.rate.start + offset, end: composed.rate.end + offset, render: renderRate }
-		: undefined;
 
 	if (config.textAnimation === "disabled") {
+		const rateStyle = normalizeWorkingLineStyleSpec(workingLineColor(config, colors, "tokenRate"));
+		const renderRate = (text: string) =>
+			rateStyle === undefined
+				? render("mid", text)
+				: renderStyleForSourceOrFallback(
+						theme,
+						config.colorSource,
+						rateStyle,
+						WORKING_LINE_FALLBACKS.mid,
+						text,
+					);
 		const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
 			spinnerTick: spinnerPhase + index,
 			textTick: 0,
@@ -1046,9 +1010,9 @@ function buildPreparedWorkingLineFrames(
 	}
 
 	// These cells are invariant even if the memory cap requires retrying a shorter schedule.
-	const rowCells = config.animateSpinnerColor ? [] : workingRowCells(composed.row, composed.rate);
+	const rowCells = config.animateSpinnerColor ? [] : graphemeCells(composed.row).cells;
 	const spinnerCells = config.animateSpinnerColor
-		? spinnerRowCells(spinner.frames, composed.row, spinnerWidth, composed.rate)
+		? spinnerRowCells(spinner.frames, composed.row, spinnerWidth)
 		: undefined;
 	const exact = exactSchedule(
 		config.spinnerIntervalMs,
@@ -1068,7 +1032,6 @@ function buildPreparedWorkingLineFrames(
 			spinnerPhase,
 			textPhase,
 			scheduleStartFrame,
-			rate,
 		);
 		if (rendered) {
 			return {
@@ -1112,7 +1075,6 @@ function buildPreparedWorkingLineFrames(
 			spinnerPhase,
 			textPhase,
 			scheduleStartFrame,
-			rate,
 		);
 		if (rendered) {
 			return {

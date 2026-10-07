@@ -45,6 +45,7 @@ Zentui is a set of independently selectable TUI components, not a bundled UI mod
 - Disabled or native must leave that surface alone. Shared infrastructure must remain behavior-neutral.
 - Prefer public Pi APIs. Safely decorate, aggregate, or delegate where possible; clean up only owned state; and fail open to native or predecessor UI.
 - Treat the unkeyed Working line as controlled exclusivity with best-effort release, not true aggregation.
+- Every Working line segment, including new telemetry, participates in the shared Classic/KITT text animation. Per-segment color overrides apply only in Static mode; do not create fixed-color islands in animated rows.
 - Keep `index.ts` orchestration-only.
 
 ## Important files

@@ -182,7 +182,7 @@ describe("owner-local publisher color consumers", () => {
 		expect(plain(footer(config, "VALUE")()).trim()).toBe("");
 	});
 	it.each(["disabled", "classic", "kitt"] as const)(
-		"styles Working rate independently from animated tiers (%s), default-off and safe",
+		"uses the independent Working rate style only in Static (%s), default-off and safe",
 		(textAnimation) => {
 			const config = mergeConfig({
 				components: {
@@ -203,7 +203,10 @@ describe("owner-local publisher color consumers", () => {
 					{ tokenRate: "~48 tok/s" },
 				);
 				expect(plain(frames.frames[0])).toContain("~48 tok/s");
-				for (const frame of frames.frames) expect(frame).toContain("\x1b[38;5;202m");
+				for (const frame of frames.frames) {
+					if (textAnimation === "disabled") expect(frame).toContain("\x1b[38;5;202m");
+					else expect(frame).not.toContain("\x1b[38;5;202m");
+				}
 			}
 			config.components.workingLine.segments.tokenRate = false;
 			expect(
@@ -409,7 +412,7 @@ it.each(MINIMALIST_FORMAT_SLOTS)(
 	},
 );
 
-it("keeps the rate styled once, within width, when grapheme segmentation is unavailable", async () => {
+it("keeps the rate present once and uses its override only in Static without segmentation", async () => {
 	vi.resetModules();
 	const fresh = await import("../extensions/zentui/working-line");
 	// biome-ignore lint/complexity/useArrowFunction: Intl.Segmenter is a constructor.
@@ -437,7 +440,8 @@ it("keeps the rate styled once, within width, when grapheme segmentation is unav
 				{ tokenRate: "~48 tok/s" },
 			);
 			for (const frame of generated.frames) {
-				expect(frame).toContain("\x1b[38;5;202m~48 tok/s");
+				if (textAnimation === "disabled") expect(frame).toContain("\x1b[38;5;202m~48 tok/s");
+				else expect(frame).not.toContain("\x1b[38;5;202m");
 				expect(plain(frame).match(/~48 tok\/s/g)).toHaveLength(1);
 				expect(plain(frame).length).toBeLessThan(80);
 			}

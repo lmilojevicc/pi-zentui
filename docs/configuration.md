@@ -506,7 +506,7 @@ Empty strings and whitespace-only strings mean deliberately **unstyled**, not mi
 | `selectorBorders` | `border` | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder` |
 | `workingLine` | `low`, `mid`, `high` | `workingLineLow`, `workingLineMid`, `workingLineHigh` |
 | `editor`, `footer` | `prNumber`, `prUrl`, `ci`, `tokenRate` | No shared raw keys; existing neutral border/extension-status fallback |
-| `workingLine` | `tokenRate` | No shared raw key; fixed mid-style default independent of animated tiers |
+| `workingLine` | `tokenRate` | No shared raw key; Static-only override, otherwise inherits mid; Classic/KITT use whole-row tiers |
 
 Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer model/provider are plain text and the detected runtime label uses its runtime module's style, not invented Footer color keys.
 
@@ -945,7 +945,7 @@ Committed totals stay provider-reported across tool loops, retries, compaction r
 
 When Pi settles, the default-on **Turn summary** appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. Summaries always include both token totals, even when live Tokens or **Thinking time** is hidden or zero, and can be disabled without changing historical rows. They use the fixed high style and are inactive while Working line is disabled.
 
-Classic and KITT move color across message and segments. **Animate spinner color** optionally includes spinner cells and separator. Static colors the row uniformly except for the independently styled Token rate, and ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
+Classic and KITT sweep across the entire row: Message, Tool, Elapsed, Thought, Tokens, Token rate (including `— tok/s`), and extension segments. A saved `colors.tokenRate` override never creates a fixed-color segment in animated modes; it applies only in Static (`textAnimation: "disabled"`). **Animate spinner color** optionally includes spinner cells and separator. Static uses the mid tier except for an explicit Token rate override; an omitted or invalid override inherits mid, while an empty style deliberately leaves Token rate unstyled. Static ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
 
 | Setting | Default | Presets | Applies to |
 | --- | ---: | --- | --- |

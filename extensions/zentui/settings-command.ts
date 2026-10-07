@@ -901,7 +901,8 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 		{
 			id: "workingLineTextAnimation",
 			label: "Text animation",
-			description: "Animate the owned row or keep it uniformly static.",
+			description:
+				"Classic/KITT animate every segment, including Token rate; Static uses mid with optional Token rate override.",
 			currentValue: workingLine.textAnimation,
 			values: workingLineTextAnimationValues,
 		},
@@ -1699,7 +1700,7 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 									id: `edit-colors:${colorOwner}`,
 									label: "Color overrides",
 									description:
-										"Edit only this component's raw styles. Roles unused by the selected style stay saved for other styles; Static Working line uses mid; Turn summaries use high. Reset resumes inheritance; empty means unstyled.",
+										"Edit only this component's raw styles. Roles unused by the selected style stay saved for other styles; Static Working line uses mid with optional Token rate override; Classic/KITT animate every segment; Turn summaries use high. Reset resumes inheritance; empty means unstyled.",
 									currentValue: "Edit…",
 									values: ["Edit…"],
 								});

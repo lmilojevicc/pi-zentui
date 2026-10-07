@@ -2276,7 +2276,8 @@ describe("settings clarity and navigation", () => {
 		await h.command().handler("working-line", h.ctx);
 		selectLabel(h.component(), "Color overrides");
 		const colors = h.component().render(200).join(" ").replace(/\s+/g, " ");
-		expect(colors).toContain("Static Working line uses mid; Turn summaries use high.");
+		expect(colors).toContain("Static Working line uses mid with optional Token rate override");
+		expect(colors).toContain("Classic/KITT animate every segment; Turn summaries use high.");
 		expect(colors).not.toContain("uses high only");
 		await h.command().handler("footer", h.ctx);
 		selectLabel(h.component(), "Separator");
