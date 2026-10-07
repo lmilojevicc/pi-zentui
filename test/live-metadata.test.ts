@@ -81,8 +81,7 @@ function fixture(githubNow?: () => number) {
 	controllers.push(controller);
 	const rate = () => {
 		controller.rate.agentStart();
-		controller.rate.turnStart();
-		controller.setStreaming(true);
+		controller.startResponse();
 		now = 100;
 		controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 10 } });
 		now = 600;
@@ -263,7 +262,7 @@ describe("live metadata passive snapshot and scheduler", () => {
 			}
 		}
 	});
-	it("only repaints rate while demanded and streaming, avoids replay work and expires idle samples", async () => {
+	it("retains the last observed rate across stale gaps and idle without an idle timer", async () => {
 		const f = fixture();
 		f.controller.reconcile(context, { github: false, tokenRate: true });
 		expect(vi.getTimerCount()).toBe(0);
@@ -274,13 +273,61 @@ describe("live metadata passive snapshot and scheduler", () => {
 		f.controller.rateChanged();
 		expect(f.repaint).toHaveBeenCalledTimes(calls);
 		f.time(2601);
-		expect(f.controller.read(new Set(["token_rate"]))).toEqual({});
+		expect(f.controller.rate.snapshot()).toBeUndefined();
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "40 tok/s" });
 		await vi.advanceTimersByTimeAsync(250);
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
+		expect(f.repaint).toHaveBeenCalledTimes(calls);
+		f.controller.suspendRate();
 		expect(f.onRate).toHaveBeenLastCalledWith("");
-		f.controller.rate.suspend();
-		f.controller.setStreaming(false);
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "40 tok/s" });
 		expect(vi.getTimerCount()).toBe(0);
 	});
+	it("resets a second response to an honest placeholder and ignores its final usage", () => {
+		const f = fixture();
+		f.controller.reconcile(context, { github: false, tokenRate: true });
+		f.rate();
+		f.controller.suspendRate();
+		f.time(1000);
+		f.controller.startResponse();
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		f.controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 1 } });
+		f.controller.rateChanged();
+		f.time(1100);
+		f.controller.rate.messageEnd({ role: "assistant", usage: { input: 10, output: 1000 } });
+		f.controller.setStreaming(false);
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+		expect(f.onRate).toHaveBeenLastCalledWith("");
+		expect(vi.getTimerCount()).toBe(0);
+	});
+	it.each(["scope", "cwd", "demand", "reset", "dispose"] as const)(
+		"clears retained state and timers on %s without resurrecting disabled samples",
+		(action) => {
+			const f = fixture();
+			f.controller.reconcile(context, { github: false, tokenRate: true });
+			f.rate();
+			if (action === "scope" || action === "cwd")
+				f.controller.reconcile(
+					{ ...context, [action === "scope" ? "scopeKey" : "cwd"]: "other" },
+					{ github: false, tokenRate: true },
+				);
+			else if (action === "demand")
+				f.controller.reconcile(context, { github: false, tokenRate: false });
+			else f.controller[action]();
+			expect(f.controller.read(new Set(["token_rate"]))).toEqual({});
+			expect(f.onRate).toHaveBeenLastCalledWith(action === "dispose" ? "40 tok/s" : "");
+			expect(vi.getTimerCount()).toBe(0);
+			if (action === "demand") {
+				f.controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 200 } });
+				f.controller.reconcile(context, { github: false, tokenRate: true });
+				expect(f.controller.read(new Set(["token_rate"]))).toEqual({});
+				f.time(1000);
+				f.controller.startResponse();
+				expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s" });
+			}
+		},
+	);
 	it("preserves native OMP token rate, quota, modes and unrelated host values", async () => {
 		const f = fixture();
 		f.controller.reconcile(context, { github: true, tokenRate: true });

@@ -275,14 +275,12 @@ describe("live metadata event wiring and owned consumers", () => {
 		}
 	});
 	it.each([
-		"tool_execution_start",
-		"agent_end",
 		"model_select",
 		"session_before_compact",
 		"session_compact",
 		"session_before_switch",
 		"session_tree",
-	])("clears Pi rate on %s without retained summaries", async (event) => {
+	])("clears Pi retained rate on %s", async (event) => {
 		const h = harness();
 		try {
 			await h.emit("session_start");
@@ -297,17 +295,30 @@ describe("live metadata event wiring and owned consumers", () => {
 			await h.emit("session_shutdown");
 		}
 	});
-	it("clears matching finals, hides staleness, and accepts a fresh authorized response after tools", async () => {
+	it("retains through gaps/finals/tools/idle but resets the next response to a placeholder", async () => {
 		const h = harness();
 		try {
 			await h.emit("session_start");
 			h.render();
 			await streaming(h);
-			await vi.advanceTimersByTimeAsync(2250);
-			expect(h.render()).not.toContain("tok/s");
+			await vi.advanceTimersByTimeAsync(4250);
+			expect(h.render()).toContain("50 tok/s");
+			expect(h.renderFooter()).toContain("50 tok/s");
+			await h.emit("message_end", {
+				message: {
+					role: "assistant",
+					responseId: "one",
+					usage: { input: 10, output: 9000 },
+					stopReason: "toolUse",
+				},
+			});
+			expect(h.render()).toContain("50 tok/s");
 			await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
+			expect(h.renderFooter()).toContain("50 tok/s");
 			await h.emit("tool_execution_end", { toolCallId: "tool" });
 			await h.emit("turn_start");
+			expect(h.render()).toContain("— tok/s");
+			expect(h.renderFooter()).toContain("— tok/s");
 			await h.emit("message_update", {
 				message: { role: "assistant", responseId: "two", usage: { input: 10, output: 10 } },
 			});
@@ -324,7 +335,41 @@ describe("live metadata event wiring and owned consumers", () => {
 					stopReason: "stop",
 				},
 			});
-			expect(h.render()).not.toContain("tok/s");
+			expect(h.render()).toContain("50 tok/s");
+			await h.emit("agent_end");
+			expect(h.renderFooter()).toContain("50 tok/s");
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+	it("keeps a short response as a placeholder, clears on session replacement, and does not retain disabled demand", async () => {
+		const h = harness();
+		try {
+			await h.emit("session_start");
+			h.render();
+			await h.emit("agent_start");
+			await h.emit("turn_start");
+			expect(h.render()).toContain("— tok/s");
+			await h.emit("message_end", {
+				message: {
+					role: "assistant",
+					responseId: "short",
+					usage: { input: 10, output: 999 },
+					stopReason: "stop",
+				},
+			});
+			await h.emit("agent_end");
+			expect(h.renderFooter()).toContain("— tok/s");
+			await h.emit("session_start");
+			expect(h.renderFooter()).not.toContain("tok/s");
+			h.render();
+			await streaming(h);
+			h.hook("setEditorComponent", { enabled: false });
+			expect(h.renderFooter()).toContain("50 tok/s");
+			h.hook("setFooterComponent", { style: "native" });
+			await h.emit("agent_end");
+			h.hook("setFooterComponent", { style: "starship" });
+			expect(h.renderFooter()).not.toContain("tok/s");
 		} finally {
 			await h.emit("session_shutdown");
 		}
@@ -388,6 +433,13 @@ describe("live metadata event wiring and owned consumers", () => {
 		const h = harness();
 		try {
 			await h.emit("session_start");
+			await h.emit("agent_start");
+			await h.emit("turn_start");
+			await vi.advanceTimersByTimeAsync(100);
+			const placeholder = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
+				| { frames?: string[] }
+				| undefined;
+			expect(placeholder?.frames?.some((frame) => frame.includes("— tok/s"))).toBe(true);
 			await streaming(h);
 			await vi.advanceTimersByTimeAsync(100);
 			const frames = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
@@ -395,11 +447,22 @@ describe("live metadata event wiring and owned consumers", () => {
 				| undefined;
 			expect(frames?.frames?.some((frame) => frame.includes("50 tok/s"))).toBe(true);
 			expect(h.exec).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(4250);
+			const gap = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
+				| { frames?: string[] }
+				| undefined;
+			expect(gap?.frames?.some((frame) => frame.includes("50 tok/s"))).toBe(true);
 			await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
 			const duringTool = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
 				| { frames?: string[] }
 				| undefined;
 			expect(duringTool?.frames?.some((frame) => frame.includes("tok/s"))).not.toBe(true);
+			await h.emit("tool_execution_end", { toolCallId: "tool" });
+			await h.emit("agent_end");
+			const idle = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
+				| { frames?: string[] }
+				| undefined;
+			expect(idle?.frames?.some((frame) => frame.includes("tok/s"))).not.toBe(true);
 		} finally {
 			await h.emit("session_shutdown");
 		}
@@ -425,6 +488,17 @@ it("uses the existing live output estimator with a visible approximate marker", 
 		await h.emit("message_update", update("a".repeat(40), "a".repeat(40)));
 		await vi.advanceTimersByTimeAsync(600);
 		await h.emit("message_update", update("a".repeat(120), "a".repeat(80)));
+		expect(h.render()).toContain("~33 tok/s");
+		expect(h.renderFooter()).toContain("~33 tok/s");
+		await h.emit("message_end", {
+			message: {
+				role: "assistant",
+				responseId: "estimate",
+				usage: { input: 10, output: 999 },
+				stopReason: "stop",
+			},
+		});
+		await h.emit("agent_end");
 		expect(h.render()).toContain("~33 tok/s");
 		expect(h.renderFooter()).toContain("~33 tok/s");
 	} finally {
@@ -529,7 +603,7 @@ it("recovers rate after a mid-run model change and tool loop without another age
 		await h.emit("message_update", {
 			message: { role: "assistant", responseId: "new-model", usage: { input: 10, output: 10 } },
 		});
-		expect(h.render()).not.toContain("tok/s");
+		expect(h.render()).toContain("— tok/s");
 		await vi.advanceTimersByTimeAsync(600);
 		await h.emit("message_update", {
 			message: { role: "assistant", responseId: "new-model", usage: { input: 10, output: 40 } },

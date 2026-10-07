@@ -564,10 +564,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			),
 		);
 	};
-	const suspendTokenRate = () => {
-		liveMetadata.rate.suspend();
-		liveMetadata.setStreaming(false);
-	};
+	const suspendTokenRate = () => liveMetadata.suspendRate();
+	const clearTokenRate = () => liveMetadata.suspendRate(true);
 
 	const codexQuota = new CodexQuotaCollector(
 		() => {
@@ -1898,8 +1896,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		syncInteractiveState(event, ctx);
 	});
 	pi.on("turn_start", (_event, ctx) => {
-		liveMetadata.rate.turnStart();
-		liveMetadata.setStreaming(true);
+		liveMetadata.startResponse();
 		interactionMetrics.turnStart();
 		if (!host.skinOnly) workingLine.startTurn(ctx);
 	});
@@ -1921,7 +1918,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("model_select", (event, ctx) => {
-		suspendTokenRate();
+		clearTokenRate();
 		liveContext.clear();
 		syncInteractiveState(event, ctx);
 	});
@@ -2006,17 +2003,16 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	});
 	// Hook presence changes OMP maintenance/transition behavior, even for no-op handlers.
 	if (!host.skinOnly) {
-		pi.on("session_before_compact", suspendTokenRate);
-		pi.on("session_before_switch", suspendTokenRate);
+		pi.on("session_before_compact", clearTokenRate);
+		pi.on("session_before_switch", clearTokenRate);
 	}
 	pi.on("session_compact", (event, ctx) => {
-		suspendTokenRate();
+		clearTokenRate();
 		liveContext.clear();
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("session_tree", (event, ctx) => {
-		liveMetadata.rate.reset();
-		liveMetadata.setStreaming(false);
+		liveMetadata.resetRate();
 		liveMetadata.invalidateProject();
 		liveContext.clear();
 		syncInteractiveAndProjectStateWithUsage(event, ctx);

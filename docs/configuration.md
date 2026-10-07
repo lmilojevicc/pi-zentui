@@ -894,14 +894,23 @@ or only skipped/neutral checks are **no checks**, not passing. Unknown/malformed
 checks are never proof of success. No PR, closed/default/detached branches,
 missing `gh`/read access or lookup errors are empty; optional groups hide labels.
 
-Pi rate uses a bounded three-second observation window, needs advancing output
-observations spanning at least 500 ms, and expires after two seconds without
-advancing output. It excludes pre-output silence, earlier replies, tool execution
-and session/interaction wall-clock averages. Supported text, thinking and tool-call
+Pi rate uses a bounded three-second observation window and needs advancing output
+observations spanning at least 500 ms. The measurement expires after two seconds
+without advancing output, but the display keeps the last observed window rate
+between chunks. Editor and Footer retain it at response end, through tools and
+idle, until the next response resets the slot to `— tok/s`. A response without a
+usable measurement keeps that honest placeholder; final usage never creates an
+instantaneous sample. Retained estimates keep their `~` marker. This is not a
+completed-response average or evidence of continuing output.
+
+The measurement excludes pre-output silence, earlier replies, tool execution and
+session/interaction wall-clock averages. Supported text, thinking and tool-call
 argument deltas use the existing Unicode estimator; source/usage corrections
-rebaseline rather than producing spikes. Rate hides at response end, tools,
-idle, compaction and session/model changes. Repaint polling is active only while
-streaming and demanded. There is no settled-rate summary or history scan.
+rebaseline rather than producing spikes. Working rate remains independently
+opt-in and hides at response end, tools and idle. Compaction, session/model/tree
+changes and loss of all rate demand clear retained state. Repaint polling is
+active only while streaming and demanded; retaining a value needs no idle timer.
+There is no settled-rate summary or history scan.
 
 ## Working line
 

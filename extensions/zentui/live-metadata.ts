@@ -18,6 +18,7 @@ export class LiveMetadataController {
 	private rateTimer: ReturnType<typeof setInterval> | undefined;
 	private streaming = false;
 	private rateLabel = "";
+	private workingRateLabel = "";
 	private generation = 0;
 	private disposed = false;
 	private scheduledRefresh: number | undefined;
@@ -52,8 +53,30 @@ export class LiveMetadataController {
 			this.stopGithubTimer();
 		}
 		if (start && context) this.scheduleRefresh();
+		if (changed || !this.demand.tokenRate) this.suspendRate(true);
 		this.reconcileRateTimer();
 		this.rateChanged();
+	}
+	/** A new authorized response must not inherit another response's observed speed. */
+	startResponse(): void {
+		if (this.disposed) return;
+		this.rate.turnStart();
+		this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
+		if (!this.demand.tokenRate) this.rate.suspend();
+		this.setStreaming(true);
+	}
+	/** Tools/end retain metadata; identity/boundary changes explicitly clear it. */
+	suspendRate(clearDisplay = false): void {
+		this.rate.suspend();
+		const cleared = clearDisplay && this.rateLabel !== "";
+		const workingWasVisible = this.workingRateLabel !== "";
+		if (clearDisplay) this.rateLabel = "";
+		this.setStreaming(false);
+		if (cleared && !workingWasVisible && !this.disposed) this.repaint();
+	}
+	resetRate(): void {
+		this.rate.reset();
+		this.suspendRate(true);
 	}
 	setStreaming(active: boolean): void {
 		this.streaming = !this.disposed && active;
@@ -61,14 +84,20 @@ export class LiveMetadataController {
 		this.rateChanged();
 	}
 	rateChanged(): void {
-		const text =
-			this.streaming && this.demand.tokenRate ? formatTokenRate(this.rate.snapshot()) : "";
-		if (text === this.rateLabel) return;
-		this.rateLabel = text;
-		if (!this.disposed) {
-			this.onRate(text);
-			this.repaint();
+		if (this.disposed) return;
+		const previous = this.rateLabel;
+		if (this.streaming && this.demand.tokenRate) {
+			// Retain only an observed window rate, never turn final usage into a live sample.
+			const measured = formatTokenRate(this.rate.snapshot());
+			if (measured) this.rateLabel = measured;
 		}
+		const workingText = this.streaming && this.demand.tokenRate ? this.rateLabel : "";
+		const workingChanged = workingText !== this.workingRateLabel;
+		if (workingChanged) {
+			this.workingRateLabel = workingText;
+			this.onRate(workingText);
+		}
+		if (previous !== this.rateLabel || workingChanged) this.repaint();
 	}
 	invalidateProject(): void {
 		if (this.disposed || !this.demand.github) return;
@@ -125,10 +154,7 @@ export class LiveMetadataController {
 		delete values.pr_url;
 		delete values.ci;
 		Object.assign(values, githubTemplateValues(this.github.snapshot()));
-		if (!native && this.streaming && this.demand.tokenRate) {
-			const text = formatTokenRate(this.rate.snapshot());
-			if (text) values.token_rate = text;
-		}
+		if (!native && this.demand.tokenRate && this.rateLabel) values.token_rate = this.rateLabel;
 		return Object.fromEntries(
 			Object.entries(values).filter(([name]) => names.has(name) && isHostTemplateVariable(name)),
 		);
@@ -139,8 +165,7 @@ export class LiveMetadataController {
 		this.demand = { github: false, tokenRate: false };
 		this.github.reconcile({ cwd: "", scopeKey: "" }, false);
 		this.stopGithubTimer();
-		this.rate.reset();
-		this.setStreaming(false);
+		this.resetRate();
 	}
 	dispose(): void {
 		this.disposed = true;

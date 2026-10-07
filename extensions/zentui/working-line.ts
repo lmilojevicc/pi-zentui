@@ -660,7 +660,7 @@ function prepareWorkingLineRow(
 	const delimiter = " · ";
 	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
 	const tokenRate =
-		config.segments.tokenRate && /^(?:~)?[1-9]\d* tok\/s$/.test(runtime.tokenRate ?? "")
+		config.segments.tokenRate && /^(?:(?:~)?[1-9]\d*|—) tok\/s$/.test(runtime.tokenRate ?? "")
 			? runtime.tokenRate
 			: undefined;
 	const tokenWidth =
