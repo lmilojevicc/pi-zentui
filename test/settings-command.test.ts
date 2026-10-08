@@ -36,6 +36,7 @@ const sectionNames = [
 	"User messages",
 	"Thinking",
 	"Working line",
+	"Tool display",
 	"Footer",
 	"Extension statuses",
 ] as const;
@@ -444,7 +445,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/7)`);
+			expect(lines[1]).toContain(`(${index + 1}/8)`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -475,7 +476,7 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.calls.editor).toEqual([{ codexQuota: true }]);
 		expect(config.components.editor.enabled).toBe(false);
 		expect(config.components.footer.codexQuota).toBe(false);
-		for (let index = 0; index < 4; index++) component.handleInput("\t");
+		for (let index = 0; index < 5; index++) component.handleInput("\t");
 		selectLabel(component, "Codex quota");
 		component.handleInput(" ");
 		expect(harness.calls.footer).toEqual([{ codexQuota: true }]);
@@ -554,6 +555,21 @@ describe("component-oriented /zentui settings", () => {
 			"Message list",
 
 			"Color overrides",
+		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, [
+			"Enabled",
+			"Preset",
+			"Read output",
+			"Search output",
+			"MCP output",
+			"Bash output",
+			"Preview lines",
+			"Bash collapsed lines",
+			"Diff layout",
+			"Diff indicators",
+			"Diff word wrap",
+			"Native user message box",
 		]);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
@@ -738,7 +754,7 @@ describe("component-oriented /zentui settings", () => {
 			{ separator: "dot" },
 		]);
 
-		for (let index = 0; index < 4; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
 		openFooterPage(component, "Git");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
@@ -908,6 +924,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
 		component.handleInput(" ");
 		selectLabel(component, "Footer model label");
@@ -992,6 +1009,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		openFooterPage(component, "Git");
 		selectLabel(component, "Ignore submodules");
 		component.handleInput(" ");
@@ -1008,6 +1026,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -1042,6 +1061,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor border color");
 		expect(focusedRow(component)).toContain("static");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -1691,6 +1711,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		const workingRows = component.render(100);
 		expectStackedPreview(workingRows, "Sautéing…");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		expect(harness.config.components.footer.style).toBe("starship");
 		for (const width of [40, 60, 80, 120, 160]) {
@@ -2656,7 +2677,7 @@ describe("nested Starship Footer settings navigation", () => {
 			await h.command().handler(route, h.ctx);
 			expect(h.component().render(40)[1]).toContain(`Footer > ${label}`);
 			h.component().handleInput("\x1b[Z");
-			expect(h.component().render(40)[1]).toContain("Working line");
+			expect(h.component().render(40)[1]).toContain("Tool display");
 			h.sessionLifecycle.shutdown();
 			expect(h.config).toEqual(before);
 			for (const effect of effects) expect(effect).not.toHaveBeenCalled();
@@ -2681,7 +2702,7 @@ describe("nested Starship Footer settings navigation", () => {
 			for (const [route, label, firstRow] of pages) {
 				await h.command().handler(route, h.ctx);
 				const panel = h.component();
-				expect(panel.render(40)[1]).toContain("[Footer] (6/7)");
+				expect(panel.render(40)[1]).toContain("[Footer] (7/8)");
 				expectFocusOrder(panel, ["Footer style", "Color overrides"]);
 				expect(panel.render(200).join("\n")).not.toContain(firstRow);
 				expect(h.notifications.at(-1)).toBe(

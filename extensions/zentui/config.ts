@@ -231,6 +231,41 @@ export type SelectorBordersComponentConfig = {
 	colorSource: ColorSource;
 };
 
+export type ToolDisplayStyle = "opencode" | "balanced" | "verbose";
+export type ToolDisplayReadOutputMode = "hidden" | "summary" | "preview";
+export type ToolDisplaySearchOutputMode = "hidden" | "count" | "preview";
+export type ToolDisplayMcpOutputMode = "hidden" | "summary" | "preview";
+export type ToolDisplayBashOutputMode = "opencode" | "summary" | "preview";
+export type ToolDisplayDiffViewMode = "auto" | "split" | "unified";
+export type ToolDisplayDiffIndicatorMode = "bars" | "classic" | "none";
+
+/**
+ * Bridge selections for pi-tool-display's documented runtime config.
+ * Zentui owns the `/zentui` UI and persists these here; rendering itself
+ * stays owned by pi-tool-display, which reads its own config at startup.
+ */
+export type ToolDisplayComponentConfig = {
+	enabled: boolean;
+	style: ToolDisplayStyle;
+	readOutputMode: ToolDisplayReadOutputMode;
+	searchOutputMode: ToolDisplaySearchOutputMode;
+	mcpOutputMode: ToolDisplayMcpOutputMode;
+	bashOutputMode: ToolDisplayBashOutputMode;
+	previewLines: number;
+	expandedPreviewMaxLines: number;
+	bashCollapsedLines: number;
+	diffViewMode: ToolDisplayDiffViewMode;
+	diffIndicatorMode: ToolDisplayDiffIndicatorMode;
+	diffSplitMinWidth: number;
+	diffCollapsedLines: number;
+	diffWordWrap: boolean;
+	enableNativeUserMessageBox: boolean;
+};
+
+export type ToolDisplayComponentPatch = Partial<
+	Omit<ToolDisplayComponentConfig, "expandedPreviewMaxLines" | "diffSplitMinWidth">
+>;
+
 export type StarshipFooterStyleConfig = TemplateVariableConfig & {
 	format: string;
 	responsive: boolean;
@@ -333,6 +368,7 @@ export type ComponentsConfig = {
 	thinkingSteps: ThinkingStepsComponentConfig;
 	workingLine: WorkingLineComponentConfig;
 	selectorBorders: SelectorBordersComponentConfig;
+	toolDisplay: ToolDisplayComponentConfig;
 	footer: FooterComponentConfig;
 };
 
@@ -605,6 +641,23 @@ const defaultComponents: ComponentsConfig = {
 		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
+	toolDisplay: {
+		enabled: false,
+		style: "opencode",
+		readOutputMode: "hidden",
+		searchOutputMode: "hidden",
+		mcpOutputMode: "hidden",
+		bashOutputMode: "opencode",
+		previewLines: 8,
+		expandedPreviewMaxLines: 4000,
+		bashCollapsedLines: 10,
+		diffViewMode: "auto",
+		diffIndicatorMode: "bars",
+		diffSplitMinWidth: 120,
+		diffCollapsedLines: 24,
+		diffWordWrap: true,
+		enableNativeUserMessageBox: true,
+	},
 	footer: {
 		codexQuota: false,
 		style: "starship",
@@ -1356,6 +1409,85 @@ function resolveExtensionStatusComponent(raw: unknown): ExtensionStatusComponent
 	};
 }
 
+/** Values must match pi-tool-display's config ranges so saved settings normalize identically. */
+function parseToolDisplayNumber(
+	value: unknown,
+	min: number,
+	max: number,
+	fallback: number,
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	const rounded = Math.floor(value);
+	if (rounded < min) return min;
+	if (rounded > max) return max;
+	return rounded;
+}
+
+function resolveToolDisplayComponent(toolDisplay: ConfigRecord): ToolDisplayComponentConfig {
+	const defaults = defaultComponents.toolDisplay;
+	return {
+		enabled: parseBoolean(toolDisplay.enabled, defaults.enabled),
+		style:
+			toolDisplay.style === "balanced" || toolDisplay.style === "verbose"
+				? toolDisplay.style
+				: defaults.style,
+		readOutputMode:
+			toolDisplay.readOutputMode === "summary" || toolDisplay.readOutputMode === "preview"
+				? toolDisplay.readOutputMode
+				: defaults.readOutputMode,
+		searchOutputMode:
+			toolDisplay.searchOutputMode === "count" || toolDisplay.searchOutputMode === "preview"
+				? toolDisplay.searchOutputMode
+				: defaults.searchOutputMode,
+		mcpOutputMode:
+			toolDisplay.mcpOutputMode === "summary" || toolDisplay.mcpOutputMode === "preview"
+				? toolDisplay.mcpOutputMode
+				: defaults.mcpOutputMode,
+		bashOutputMode:
+			toolDisplay.bashOutputMode === "summary" || toolDisplay.bashOutputMode === "preview"
+				? toolDisplay.bashOutputMode
+				: defaults.bashOutputMode,
+		previewLines: parseToolDisplayNumber(toolDisplay.previewLines, 1, 80, defaults.previewLines),
+		expandedPreviewMaxLines: parseToolDisplayNumber(
+			toolDisplay.expandedPreviewMaxLines,
+			0,
+			20_000,
+			defaults.expandedPreviewMaxLines,
+		),
+		bashCollapsedLines: parseToolDisplayNumber(
+			toolDisplay.bashCollapsedLines,
+			0,
+			80,
+			defaults.bashCollapsedLines,
+		),
+		diffViewMode:
+			toolDisplay.diffViewMode === "split" || toolDisplay.diffViewMode === "unified"
+				? toolDisplay.diffViewMode
+				: defaults.diffViewMode,
+		diffIndicatorMode:
+			toolDisplay.diffIndicatorMode === "classic" || toolDisplay.diffIndicatorMode === "none"
+				? toolDisplay.diffIndicatorMode
+				: defaults.diffIndicatorMode,
+		diffSplitMinWidth: parseToolDisplayNumber(
+			toolDisplay.diffSplitMinWidth,
+			70,
+			240,
+			defaults.diffSplitMinWidth,
+		),
+		diffCollapsedLines: parseToolDisplayNumber(
+			toolDisplay.diffCollapsedLines,
+			4,
+			240,
+			defaults.diffCollapsedLines,
+		),
+		diffWordWrap: parseBoolean(toolDisplay.diffWordWrap, defaults.diffWordWrap),
+		enableNativeUserMessageBox: parseBoolean(
+			toolDisplay.enableNativeUserMessageBox,
+			defaults.enableNativeUserMessageBox,
+		),
+	};
+}
+
 function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const components = recordValue(config.components);
 	const editor = recordValue(components.editor);
@@ -1373,6 +1505,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const workingLine = recordValue(components.workingLine);
 	const workingLineMessages = recordValue(workingLine.messages);
 	const workingLineSegments = recordValue(workingLine.segments);
+	const toolDisplay = recordValue(components.toolDisplay);
 	const selectorBorders = recordValue(components.selectorBorders);
 	const footer = recordValue(components.footer);
 	const footerStyles = recordValue(footer.styles);
@@ -1567,6 +1700,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				),
 			},
 		},
+		toolDisplay: resolveToolDisplayComponent(toolDisplay),
 		selectorBorders: {
 			...(isRecord(selectorBorders.colors)
 				? { colors: normalizeComponentColors("selectorBorders", selectorBorders.colors) }
@@ -2218,6 +2352,37 @@ export function saveSelectorBordersComponentPatch(
 		path,
 		undefined,
 		patch.style !== undefined ? "selectorBorders" : undefined,
+	);
+}
+
+/** Sync selections into pi-tool-display's documented runtime config (best effort). */
+export function saveToolDisplayComponentPatch(
+	patch: ToolDisplayComponentPatch,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["toolDisplay"],
+		(components) => {
+			const component = components.toolDisplay;
+			if (patch.enabled !== undefined) component.enabled = patch.enabled;
+			if (patch.style !== undefined) component.style = patch.style;
+			if (patch.readOutputMode !== undefined) component.readOutputMode = patch.readOutputMode;
+			if (patch.searchOutputMode !== undefined) component.searchOutputMode = patch.searchOutputMode;
+			if (patch.mcpOutputMode !== undefined) component.mcpOutputMode = patch.mcpOutputMode;
+			if (patch.bashOutputMode !== undefined) component.bashOutputMode = patch.bashOutputMode;
+			if (patch.previewLines !== undefined) component.previewLines = patch.previewLines;
+			if (patch.bashCollapsedLines !== undefined)
+				component.bashCollapsedLines = patch.bashCollapsedLines;
+			if (patch.diffViewMode !== undefined) component.diffViewMode = patch.diffViewMode;
+			if (patch.diffIndicatorMode !== undefined)
+				component.diffIndicatorMode = patch.diffIndicatorMode;
+			if (patch.diffCollapsedLines !== undefined)
+				component.diffCollapsedLines = patch.diffCollapsedLines;
+			if (patch.diffWordWrap !== undefined) component.diffWordWrap = patch.diffWordWrap;
+			if (patch.enableNativeUserMessageBox !== undefined)
+				component.enableNativeUserMessageBox = patch.enableNativeUserMessageBox;
+		},
+		path,
 	);
 }
 
