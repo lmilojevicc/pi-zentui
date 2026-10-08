@@ -47,6 +47,7 @@ import {
 } from "./minimalist-template";
 import type { ComponentPreset } from "./presets";
 import { isSupportedColorSpec } from "./style";
+import { DEFAULT_TURN_SUMMARY_FORMAT, normalizeTurnSummaryFormat } from "./turn-summary-format";
 import { normalizeWorkingLineMessages } from "./working-line";
 import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
 
@@ -296,6 +297,7 @@ export type WorkingLineComponentConfig = {
 	colors?: ComponentColors<"workingLine">;
 	enabled: boolean;
 	turnSummary: boolean;
+	turnSummaryFormat: string;
 	spinner: WorkingLineSpinner;
 	spinnerIntervalMs: number;
 	animateSpinnerColor: boolean;
@@ -602,6 +604,7 @@ const defaultComponents: ComponentsConfig = {
 	workingLine: {
 		enabled: false,
 		turnSummary: true,
+		turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 		spinner: "star-bloom",
 		spinnerIntervalMs: DEFAULT_WORKING_LINE_SPINNER_INTERVAL_MS,
 		animateSpinnerColor: false,
@@ -1527,6 +1530,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				: {}),
 			enabled: parseBoolean(workingLine.enabled, defaultComponents.workingLine.enabled),
 			turnSummary: parseBoolean(workingLine.turnSummary, defaultComponents.workingLine.turnSummary),
+			turnSummaryFormat: normalizeTurnSummaryFormat(workingLine.turnSummaryFormat),
 			spinner:
 				workingLine.spinner === "braille" ||
 				workingLine.spinner === "star-bloom" ||
@@ -2193,6 +2197,8 @@ export function saveWorkingLineComponentPatch(
 			const component = components.workingLine;
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
 			if (patch.turnSummary !== undefined) component.turnSummary = patch.turnSummary;
+			if (patch.turnSummaryFormat !== undefined)
+				component.turnSummaryFormat = normalizeTurnSummaryFormat(patch.turnSummaryFormat);
 			if (patch.spinner !== undefined) component.spinner = patch.spinner;
 			if (patch.spinnerIntervalMs !== undefined)
 				component.spinnerIntervalMs = patch.spinnerIntervalMs;
@@ -2219,6 +2225,8 @@ export function saveWorkingLineComponentPatch(
 		(record) => {
 			const workingLine = recordValue(recordValue(record.components).workingLine);
 			delete workingLine.intervalMs;
+			if (typeof patch.turnSummaryFormat === "string" && !patch.turnSummaryFormat.trim())
+				delete workingLine.turnSummaryFormat;
 			const messages = recordValue(workingLine.messages);
 			delete messages.mode;
 		},

@@ -3,6 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TURN_SUMMARY_ENTRY_TYPE } from "../extensions/zentui/interaction-summary";
+import { DEFAULT_TURN_SUMMARY_FORMAT } from "../extensions/zentui/turn-summary-format";
 
 const stripTerminalSequences = stripVTControlCharacters;
 
@@ -115,6 +116,7 @@ function harness(options: { renderer?: boolean; appendError?: boolean } = {}) {
 }
 
 beforeEach(() => {
+	vi.restoreAllMocks();
 	runtime.enabled = true;
 	runtime.turnSummary = true;
 	runtime.tokens = true;
@@ -139,12 +141,13 @@ describe("turn summary lifecycle integration", () => {
 			[
 				TURN_SUMMARY_ENTRY_TYPE,
 				{
-					version: 3,
+					version: 4,
 					durationMs: 42_000,
 					thoughtDurationMs: 0,
 					input: 1000,
 					output: 10,
 					stylePrefix: "\x1b[1;36m",
+					format: DEFAULT_TURN_SUMMARY_FORMAT,
 				},
 			],
 		]);
@@ -154,7 +157,7 @@ describe("turn summary lifecycle integration", () => {
 		expect(current.renderers.has(TURN_SUMMARY_ENTRY_TYPE)).toBe(true);
 	});
 
-	it("persists thought in v3 even when the live Thinking segment is disabled", async () => {
+	it("persists thought in v4 even when the live Thinking segment is disabled", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000);
 		runtime.thought = false;
@@ -189,7 +192,7 @@ describe("turn summary lifecycle integration", () => {
 		vi.setSystemTime(57_999);
 		await current.emit("agent_settled");
 		expect(current.appended[0]?.[1]).toEqual(
-			expect.objectContaining({ version: 3, thoughtDurationMs: 10_999, input: 7_100, output: 779 }),
+			expect.objectContaining({ version: 4, thoughtDurationMs: 10_999, input: 7_100, output: 779 }),
 		);
 		const renderer = current.renderers.get(TURN_SUMMARY_ENTRY_TYPE) as
 			| ((entry: { data: unknown }, options: unknown, theme: Theme) => Text | undefined)
@@ -263,7 +266,7 @@ describe("turn summary lifecycle integration", () => {
 			[
 				TURN_SUMMARY_ENTRY_TYPE,
 				expect.objectContaining({
-					version: 3,
+					version: 4,
 					durationMs: 5_000,
 					thoughtDurationMs: 0,
 					input: 10,
@@ -280,7 +283,7 @@ describe("turn summary lifecycle integration", () => {
 		expect(current.appended[1]).toEqual([
 			TURN_SUMMARY_ENTRY_TYPE,
 			expect.objectContaining({
-				version: 3,
+				version: 4,
 				durationMs: 4_000,
 				thoughtDurationMs: 0,
 				input: 9,
@@ -323,5 +326,69 @@ describe("turn summary lifecycle integration", () => {
 		await current.emit("agent_start");
 		await current.emit("session_shutdown");
 		expect(current.appended).toEqual([]);
+	});
+});
+
+describe("summary-only lifecycle timing", () => {
+	it.each([true, false])(
+		"collects whole-model-selection interaction with hasUI=%s and no live rate sampling",
+		async (hasUI) => {
+			vi.useFakeTimers();
+			let time = 0;
+			vi.spyOn(performance, "now").mockImplementation(() => time);
+			const intervals = vi.spyOn(globalThis, "setInterval");
+			const current = harness();
+			current.ctx.hasUI = hasUI;
+			await current.emit("session_start");
+			await current.emit("agent_start");
+			await current.emit("turn_start");
+			time = 4000;
+			await current.emit("message_end", { message: assistant(10, 120, 1) });
+			await current.emit("model_select");
+			time = 14000;
+			await current.emit("turn_start");
+			time = 16000;
+			await current.emit("message_end", { message: assistant(10, 180, 2) });
+			await current.emit("agent_end");
+			await current.emit("agent_settled");
+			expect(current.appended[0]?.[1]).toMatchObject({ version: 4, averageTokenRate: 50 });
+			expect(intervals.mock.calls.some((call) => call[1] === 250)).toBe(false);
+			for (const indicator of current.workingIndicators)
+				for (const frame of indicator.frames ?? []) expect(frame).not.toContain("tok/s");
+			await current.emit("session_shutdown");
+		},
+	);
+	it("persists settled A30 and subsequent B90 at non-idle settlement with in-flight B", async () => {
+		vi.useFakeTimers();
+		let time = 0;
+		vi.spyOn(performance, "now").mockImplementation(() => time);
+		const current = harness();
+		await current.emit("session_start");
+		await current.emit("agent_start");
+		await current.emit("turn_start");
+		time = 4000;
+		await current.emit("message_end", { message: assistant(10, 120, 1) });
+		await current.emit("agent_end");
+		time = 14000;
+		await current.emit("agent_start");
+		await current.emit("turn_start");
+		current.setIdle(false);
+		await current.emit("agent_settled");
+		expect(current.appended[0]?.[1]).toMatchObject({
+			input: 10,
+			output: 120,
+			averageTokenRate: 30,
+		});
+		time = 16000;
+		await current.emit("message_end", { message: assistant(10, 180, 2) });
+		await current.emit("agent_end");
+		current.setIdle(true);
+		await current.emit("agent_settled");
+		expect(current.appended[1]?.[1]).toMatchObject({
+			input: 10,
+			output: 180,
+			averageTokenRate: 90,
+		});
+		await current.emit("session_shutdown");
 	});
 });

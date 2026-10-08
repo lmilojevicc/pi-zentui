@@ -20,6 +20,12 @@ function combineCompletedWork(prior: CompletedWork, current: CompletedWork): Com
 	return { output, elapsedMs, unknown: prior.unknown || current.unknown };
 }
 
+function averageCompletedWork(completed: CompletedWork): number | undefined {
+	return !completed.unknown && completed.elapsedMs > 0
+		? (completed.output * 1000) / completed.elapsedMs
+		: undefined;
+}
+
 /** Provider final output / summed turn_start -> accepted message_end observations.
  * Includes initial wait and client preparation, not just backend decoding. No tool/gap time.
  * Acceptance and response identity belong to InteractionMetricsTracker, not this accumulator.
@@ -107,6 +113,19 @@ export class AverageTokenRateTracker {
 		this.priorClock = undefined;
 	}
 
+	/** Summary settlement reads the removed side before dropping it, never combined or surviving work. */
+	settle(idle: boolean): number | undefined {
+		if (idle) this.suspend();
+		const rate = idle ? this.snapshot() : averageCompletedWork(this.priorRuns);
+		if (idle) this.reset();
+		else this.partition();
+		return rate;
+	}
+
+	markIncomplete(): void {
+		this.currentRun.unknown = true;
+	}
+
 	reset(): void {
 		this.priorRuns = emptyCompletedWork();
 		this.currentRun = emptyCompletedWork();
@@ -118,9 +137,7 @@ export class AverageTokenRateTracker {
 
 	snapshot(): number | undefined {
 		const completed = combineCompletedWork(this.priorRuns, this.currentRun);
-		return !completed.unknown && completed.elapsedMs > 0
-			? (completed.output * 1000) / completed.elapsedMs
-			: undefined;
+		return averageCompletedWork(completed);
 	}
 }
 

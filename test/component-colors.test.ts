@@ -144,6 +144,7 @@ const renderers = {
 };
 
 function legacyKey(owner: ColorOwner, key: string) {
+	if (owner === "workingLine" && key === "turnSummary") return "workingLineHigh";
 	if (
 		owner === "footer" ||
 		(owner === "editor" &&

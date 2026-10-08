@@ -66,6 +66,7 @@ import {
 	renderStyleForSource,
 	renderTerminalStyle,
 } from "../extensions/zentui/style";
+import { DEFAULT_TURN_SUMMARY_FORMAT } from "../extensions/zentui/turn-summary-format";
 
 function configTempFiles(dir: string, filename = "zentui.json"): string[] {
 	return readdirSync(dir).filter(
@@ -143,6 +144,7 @@ describe("canonical config resolution", () => {
 			workingLine: {
 				enabled: false,
 				turnSummary: true,
+				turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 				spinner: "star-bloom",
 				spinnerIntervalMs: 100,
 				animateSpinnerColor: false,
@@ -858,6 +860,7 @@ describe("working-line config", () => {
 		expect(config.components.workingLine).toEqual({
 			enabled: true,
 			turnSummary: true,
+			turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 			spinner: "pinwheel",
 			spinnerIntervalMs: 160,
 			animateSpinnerColor: true,

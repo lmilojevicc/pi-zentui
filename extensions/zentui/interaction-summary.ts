@@ -1,13 +1,20 @@
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { ColorSource, ColorSpec } from "./config";
+import { workingLineColor } from "./component-colors";
+import type {
+	ColorSource,
+	ColorSpec,
+	PolishedTuiColors,
+	WorkingLineComponentConfig,
+} from "./config";
 import { formatCount, formatElapsedDuration } from "./format";
 import { isSafeSgrStylePrefix } from "./style";
+import { normalizeTurnSummaryFormat, renderTurnSummaryFormat } from "./turn-summary-format";
 import { renderWorkingLineHigh } from "./working-line";
 
 export const TURN_SUMMARY_ENTRY_TYPE = "zentui-turn-summary";
-const TURN_SUMMARY_VERSION = 3;
+const TURN_SUMMARY_VERSION = 4;
 const SGR_RESET = "\x1b[0m";
 
 export type InteractionTokens = Readonly<{ input: number; output: number }>;
@@ -31,7 +38,18 @@ export type TurnSummaryDataV3 = SummaryBase & {
 	thoughtDurationMs: number;
 	stylePrefix: string;
 };
-export type TurnSummaryData = TurnSummaryDataV1 | TurnSummaryDataV2 | TurnSummaryDataV3;
+export type TurnSummaryDataV4 = SummaryBase & {
+	version: 4;
+	thoughtDurationMs: number;
+	stylePrefix: string;
+	format: string;
+	averageTokenRate?: number;
+};
+export type TurnSummaryData =
+	| TurnSummaryDataV1
+	| TurnSummaryDataV2
+	| TurnSummaryDataV3
+	| TurnSummaryDataV4;
 export type TurnSummaryMetrics = SummaryBase & { thoughtDurationMs: number };
 
 type Interval = { start: number; end: number };
@@ -999,8 +1017,30 @@ export function isTurnSummaryData(value: unknown): value is TurnSummaryData {
 			isSafeSgrStylePrefix(record.stylePrefix)
 		);
 	}
+	if (record.version === TURN_SUMMARY_VERSION) {
+		return (
+			hasExactKeys(record, [
+				"version",
+				"durationMs",
+				"thoughtDurationMs",
+				"input",
+				"output",
+				"stylePrefix",
+				"format",
+				...(Object.hasOwn(record, "averageTokenRate") ? ["averageTokenRate"] : []),
+			]) &&
+			isNonnegativeSafeInteger(record.thoughtDurationMs) &&
+			(record.stylePrefix === "" || isSafeSgrStylePrefix(record.stylePrefix)) &&
+			typeof record.format === "string" &&
+			record.format === normalizeTurnSummaryFormat(record.format) &&
+			(!Object.hasOwn(record, "averageTokenRate") ||
+				(typeof record.averageTokenRate === "number" &&
+					Number.isFinite(record.averageTokenRate) &&
+					record.averageTokenRate >= 0))
+		);
+	}
 	return (
-		record.version === TURN_SUMMARY_VERSION &&
+		record.version === 3 &&
 		hasExactKeys(record, [
 			"version",
 			"durationMs",
@@ -1015,6 +1055,7 @@ export function isTurnSummaryData(value: unknown): value is TurnSummaryData {
 }
 
 export function formatTurnSummary(data: TurnSummaryData | TurnSummaryMetrics): string {
+	if ("version" in data && data.version === 4) return renderTurnSummaryFormat(data.format, data);
 	const thought =
 		"thoughtDurationMs" in data && data.thoughtDurationMs > 0
 			? ` · thought for ${formatElapsedDuration(data.thoughtDurationMs)}`
@@ -1029,7 +1070,7 @@ export function renderTurnSummaryEntry(
 ): Text | undefined {
 	if (!isTurnSummaryData(entry.data)) return undefined;
 	const text = formatTurnSummary(entry.data);
-	if (entry.data.version === 2 || entry.data.version === 3) {
+	if (entry.data.version === 2 || entry.data.version === 3 || entry.data.version === 4) {
 		return new Text(`${entry.data.stylePrefix}${text}${SGR_RESET}`, 0, 0);
 	}
 	const options = (themeOptions ?? {}) as {
@@ -1046,4 +1087,28 @@ export function renderTurnSummaryEntry(
 		0,
 		0,
 	);
+}
+
+/** Snapshot only the persisted summary's style; never mutate the live Working palette. */
+export function createTurnSummaryData(
+	metrics: TurnSummaryMetrics,
+	averageTokenRate: number | undefined,
+	theme: Pick<Theme, "fg">,
+	config: WorkingLineComponentConfig,
+	colors: PolishedTuiColors,
+): TurnSummaryDataV4 {
+	const sentinel = "\u{f0000}";
+	const style = workingLineColor(config, colors, "turnSummary");
+	const rendered = renderWorkingLineHigh(theme, config.colorSource, style, sentinel);
+	const position = rendered.indexOf(sentinel);
+	const prefix = position >= 0 ? rendered.slice(0, position) : "";
+	return {
+		version: 4,
+		...metrics,
+		format: normalizeTurnSummaryFormat(config.turnSummaryFormat),
+		stylePrefix: style?.trim() === "" ? "" : isSafeSgrStylePrefix(prefix) ? prefix : "\x1b[1;36m",
+		...(averageTokenRate !== undefined && Number.isFinite(averageTokenRate) && averageTokenRate >= 0
+			? { averageTokenRate }
+			: {}),
+	};
 }

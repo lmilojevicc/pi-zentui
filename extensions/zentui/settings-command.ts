@@ -16,6 +16,7 @@ import {
 	confirmComponentMigration,
 	editComponentColors,
 	editCustomValueColors,
+	editTurnSummaryFormat,
 } from "./component-settings";
 import {
 	type AccentRailEditorStyleConfig,
@@ -227,6 +228,7 @@ type SettingsOutcome =
 	| "edit-minimalist-templates"
 	| "edit-minimalist-variables"
 	| "edit-working-line-messages"
+	| "edit-turn-summary-format"
 	| "edit-working-line-spinner-speed"
 	| "edit-working-line-text-speed";
 
@@ -873,6 +875,13 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 				: "Append `Turn took …` after each fully settled interaction; inactive while Working line disabled.",
 			currentValue: featureValue(workingLine.turnSummary),
 			values: featureStateValues,
+		},
+		{
+			id: "workingLineTurnSummaryFormat",
+			label: "Turn summary format",
+			description: "Edit/reset the template for new summaries only.",
+			currentValue: "Edit / Reset…",
+			values: ["Edit / Reset…"],
 		},
 		{
 			id: "workingLineSpinner",
@@ -2093,6 +2102,10 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											notifyWorkingLineChange(id.slice("workingLine".length), newValue, result);
 											return;
 										}
+										if (id === "workingLineTurnSummaryFormat") {
+											finishSettings("edit-turn-summary-format");
+											return;
+										}
 										if (id === "workingLineMessageList") {
 											finishSettings("edit-working-line-messages");
 											return;
@@ -2440,6 +2453,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 						deps,
 						outcome.slice("edit-custom-value-colors:".length) as "editor" | "footer",
 					);
+					if (!deps.sessionLifecycle.isCurrent(generation)) return;
+					continue;
+				}
+				if (outcome === "edit-turn-summary-format") {
+					await editTurnSummaryFormat(ctx, deps);
 					if (!deps.sessionLifecycle.isCurrent(generation)) return;
 					continue;
 				}

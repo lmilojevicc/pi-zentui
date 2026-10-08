@@ -78,6 +78,7 @@ import {
 import { emptyGitStatus, readGitStatus } from "./git";
 import type { HostTemplateValues } from "./host-template-values";
 import {
+	createTurnSummaryData,
 	InteractionMetricsTracker,
 	renderTurnSummaryEntry,
 	TURN_SUMMARY_ENTRY_TYPE,
@@ -113,13 +114,10 @@ import {
 } from "./state";
 import { FooterTelemetryController } from "./telemetry";
 import { ThinkingExperimentalController } from "./thinking-experimental";
+import { TurnSummaryRateTracker } from "./turn-summary-rate";
 import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
-import {
-	AgentDurationClock,
-	snapshotWorkingLineHighStyle,
-	WorkingLineController,
-} from "./working-line";
+import { AgentDurationClock, WorkingLineController } from "./working-line";
 import { WorkingLineExtensionSegments } from "./working-line-extension-segments";
 
 const ZENTUI_EDITOR_FACTORY = Symbol.for("pi-zentui.editor-factory");
@@ -289,6 +287,11 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	let lastProjectCwd: string | undefined;
 	const agentDurationClock = new AgentDurationClock();
 	const interactionMetrics = new InteractionMetricsTracker();
+	const summaryRate = new TurnSummaryRateTracker();
+	const summaryEnabled = () =>
+		!host.skinOnly &&
+		currentConfig.components.workingLine.enabled &&
+		currentConfig.components.workingLine.turnSummary;
 	let agentRunActive = false;
 	let minimalistProjectRoot: string | undefined;
 	const repositoryRoots = new RepositoryRootController();
@@ -379,6 +382,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const refresh = () => {
 		if (!sessionLifecycle.isCurrent()) return;
 		customVariables.reconcile();
+		summaryRate.reconcile(summaryEnabled());
 		codexQuota.reconcile();
 		reconcileLiveMetadata();
 		requestFooterRender?.();
@@ -1611,6 +1615,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!sessionLifecycle.isCurrent(lifecycleGeneration)) return;
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		summaryRate.reset();
 		if (!host.skinOnly) workingLineExtensions.invalidate();
 		state.sessionStartEpoch = Date.now();
 		resetAgentTimer();
@@ -1761,6 +1766,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			if (patch.enabled === false) {
 				if (!host.skinOnly) workingLineExtensions.clear();
 			}
+			summaryRate.reconcile(summaryEnabled());
 			const result = workingLine.reconcile(ctx);
 			reconcileLiveMetadata();
 			return result;
@@ -1877,6 +1883,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		if (!host.skinOnly) thinkingExperimental.shutdown();
 		liveContext.clear();
 		interactionMetrics.shutdown();
+		summaryRate.reset();
 		if (!host.skinOnly) workingLine.dispose(ctx);
 		if (!host.skinOnly) workingLineExtensions.invalidate();
 		cleanupUi(ctx);
@@ -1893,6 +1900,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		liveContext.clear();
 		const { interactionStarted } = interactionMetrics.agentStart();
 		liveMetadata.startAgent(interactionStarted);
+		summaryRate.agentStart(interactionStarted, summaryEnabled());
 		startAgentTurn(interactionStarted);
 		if (!host.skinOnly) workingLine.startAgent(ctx);
 		syncInteractiveState(event, ctx);
@@ -1900,6 +1908,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("turn_start", (_event, ctx) => {
 		liveMetadata.startResponse();
 		interactionMetrics.turnStart();
+		summaryRate.turnStart();
 		if (!host.skinOnly) workingLine.startTurn(ctx);
 	});
 	pi.on("agent_end", (event, ctx) => {
@@ -1908,6 +1917,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		liveContext.clear();
 		const displayTokens = interactionMetrics.currentDisplayTokens();
 		interactionMetrics.agentEnd();
+		summaryRate.agentEnd();
 		pauseAgentRun();
 		if (host.skinOnly) {
 			const settled = interactionMetrics.settle(ctx.isIdle());
@@ -1929,6 +1939,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("message_update", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
+		summaryRate.observeTime();
 		if (!host.skinOnly)
 			liveMetadata.updateResponse(
 				event.message,
@@ -1946,6 +1957,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("message_end", (event, ctx) => {
 		if (!host.skinOnly) thinkingExperimental.endMessage(event);
 		const result = interactionMetrics.messageEnd(event.message);
+		summaryRate.messageEnd(event.message, result);
 		if (!host.skinOnly) liveMetadata.endResponse(event.message, result);
 		if (result.status === "accepted") {
 			if (!host.skinOnly)
@@ -1970,17 +1982,20 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			refreshInteractiveState(ctx);
 			const settled = interactionMetrics.settle(ctx.isIdle());
 			if (!settled) return;
+			const averageTokenRate = summaryRate.settle(settled.nextStartedAt === undefined);
 			if (settled.nextStartedAt !== undefined) liveMetadata.partitionRates();
 			settleAgentTurn(settled.nextStartedAt);
 			if (!host.skinOnly) workingLine.settle(settled.nextTokens, settled.nextThought, ctx);
 			const config = currentConfig.components.workingLine;
 			if (config.enabled && config.turnSummary) {
 				try {
-					const summary = {
-						version: 3 as const,
-						...settled.summary,
-						stylePrefix: snapshotWorkingLineHighStyle(ctx.ui.theme, config, currentConfig.colors),
-					};
+					const summary = createTurnSummaryData(
+						settled.summary,
+						averageTokenRate,
+						ctx.ui.theme,
+						config,
+						currentConfig.colors,
+					);
 					pi.appendEntry(TURN_SUMMARY_ENTRY_TYPE, summary);
 				} catch {
 					// A transcript persistence failure must not break settlement cleanup.

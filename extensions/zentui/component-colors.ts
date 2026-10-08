@@ -64,7 +64,7 @@ export const componentColorKeys = {
 	],
 	userMessages: ["accent", "border"],
 	selectorBorders: ["border"],
-	workingLine: ["low", "mid", "high", "tokenRate"],
+	workingLine: ["low", "mid", "high", "tokenRate", "turnSummary"],
 } as const;
 export type ColorOwner = keyof typeof componentColorKeys;
 export type ComponentColorKey<O extends ColorOwner> = (typeof componentColorKeys)[O][number];
@@ -128,6 +128,8 @@ export function componentColor<O extends ColorOwner>(
 		key
 	];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
+	if (owner === "workingLine" && key === "turnSummary")
+		return componentColor(config, "workingLine", "high");
 	if (owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key))
 		return undefined;
 	const legacy =
@@ -151,6 +153,7 @@ export function workingLineColor(
 	const local = config.colors?.[tier];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
 	if (tier === "tokenRate") return undefined;
+	if (tier === "turnSummary") return workingLineColor(config, colors, "high");
 	return colors[
 		tier === "low" ? "workingLineLow" : tier === "mid" ? "workingLineMid" : "workingLineHigh"
 	];

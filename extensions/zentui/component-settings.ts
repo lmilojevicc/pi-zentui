@@ -4,6 +4,7 @@ import {
 	FOOTER_FORMAT_ALIASES,
 	FOOTER_FORMAT_VARIABLES,
 	OPENCODE_FORMAT_VARIABLES,
+	type WorkingLineComponentPatch,
 	type ZentuiConfig,
 } from "./config";
 import { customValueColor } from "./custom-value-colors";
@@ -82,7 +83,7 @@ export async function editComponentColors(
 			)?.[key];
 			prepareEditorTextForCustomUi(ctx.ui);
 			const action = await ctx.ui.select(
-				`${owner}.${key}: ${local === undefined ? "inherit" : JSON.stringify(local)}`,
+				`${owner}.${key}: ${local === undefined ? "inherit" : JSON.stringify(local)}${owner === "workingLine" && key === "turnSummary" ? " — new summaries only" : ""}`,
 				["Edit override", "Reset / inherit"],
 			);
 			if (!current() || action === undefined) return;
@@ -199,6 +200,43 @@ export async function editCustomValueColors(
 		if (current())
 			ctx.ui.notify(
 				`Could not update publisher colors: ${error instanceof Error ? error.message : String(error)}`,
+				"error",
+			);
+	}
+}
+
+/** Edits apply only to newly appended entries; Reset removes the format override. */
+export async function editTurnSummaryFormat(
+	ctx: ExtensionContext,
+	deps: ComponentSettingsDeps & {
+		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext): unknown;
+	},
+): Promise<void> {
+	const generation = deps.sessionLifecycle.currentGeneration();
+	const current = () => deps.sessionLifecycle.isCurrent(generation);
+	if (!ctx.hasUI || !current()) return;
+	try {
+		prepareEditorTextForCustomUi(ctx.ui);
+		const action = await ctx.ui.select("Turn summary format — new summaries only", [
+			"Edit",
+			"Reset",
+		]);
+		if (!current() || action === undefined) return;
+		if (action === "Reset") deps.setWorkingLineComponent({ turnSummaryFormat: "" }, ctx);
+		else if (action === "Edit") {
+			prepareEditorTextForCustomUi(ctx.ui);
+			const value = await ctx.ui.editor(
+				"Turn summary format — empty = default, Esc = cancel",
+				deps.getConfig().components.workingLine.turnSummaryFormat,
+			);
+			if (!current() || value === undefined) return;
+			deps.setWorkingLineComponent({ turnSummaryFormat: value }, ctx);
+		} else return;
+		if (current()) ctx.ui.notify("Turn summary format saved for new summaries", "info");
+	} catch (error) {
+		if (current())
+			ctx.ui.notify(
+				`Could not update turn summary format: ${error instanceof Error ? error.message : String(error)}`,
 				"error",
 			);
 	}

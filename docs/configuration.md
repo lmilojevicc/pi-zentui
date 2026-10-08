@@ -249,6 +249,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "enabled": false,
       "placement": "above",
       "turnSummary": true,
+      "turnSummaryFormat": "Turn took $turn_duration$join_sep(thought for $thought_duration)$join_sep(↑$input_tokens ↓$output_tokens)$join_sep$token_rate",
       "spinner": "star-bloom",
       "spinnerIntervalMs": 100,
       "animateSpinnerColor": false,
@@ -942,7 +943,7 @@ Compaction, session/model/tree changes and loss of all rate demand clear both
 metrics. After a mid-run model change, the next properly observed turn can
 establish a new current-model aggregate without another `agent_start`. Repaint
 polling is active only while streaming and demanded; retained rates and averages
-need no idle timer. There is no new variable, latency measurement or transcript schema.
+need no idle timer. These live metrics add no latency measurement; persisted summaries have their own snapshot schema.
 OMP's native `$token_rate` semantics are unchanged.
 
 ## Working line
@@ -953,7 +954,13 @@ When enabled, Zentui owns Pi's complete working-row message and indicator. Five 
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 
-When Pi settles, the default-on **Turn summary** appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. Summaries always include both token totals, even when live Tokens or **Thinking time** is hidden or zero, and can be disabled without changing historical rows. They use the fixed high style and are inactive while Working line is disabled.
+When Pi settles, the default-on boolean **Turn summary** (`turnSummary`) appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779 · 42 tok/s avg`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. The default template includes both token totals even when live Tokens or **Thinking time** is hidden or zero. Summaries are inactive while Working line is disabled.
+
+`turnSummaryFormat` is a terminal-safe single-line template (maximum 2048 code units and eight nested optional groups). Missing, invalid, empty or whitespace-only values use the default shown above; use `turnSummary: false` to hide new summaries. Supported variables are `$turn_duration`, `$thought_duration`, `$input_tokens`, `$output_tokens`, and `$token_rate`. Braced variables and optional `(groups)` use the existing format grammar; unknown names are empty. `$sep`/`$separator` emit ` · `; `$join_sep` joins only nonempty fields. Zero thought is empty; known-zero counts remain `0`.
+
+Summary `$token_rate` is a complete label such as `42 tok/s avg`, or empty when exact final usage/timing coverage is unavailable (never an unknown dash). It sums provider-reported final assistant output divided by summed observed `turn_start` → accepted `message_end` durations, including initial wait/client preparation and excluding tools/gaps, across the **whole settled interaction**, including model selections and continuations. Non-idle settlement includes only settled runs, not an already-running successor. Summary-only collection is passive: it does not enable live Token rate, Editor/Footer slots or sampling timers. Enabling collection late cannot claim a partial exact average.
+
+`components.workingLine.colors.turnSummary` styles only new static transcript summaries. Missing/invalid values inherit effective Working **high** (local then shared fallback); explicit empty/whitespace means unstyled. `/zentui` → Working line offers **Turn summary format** Edit/Reset and **Color overrides** → `turnSummary`; Reset deletes only that override. Format and resolved style are snapshotted in new entries, so changes never rewrite history. Legacy v1/v2/v3 entries retain their original output without fabricated historical TPS. OMP remains native.
 
 Classic and KITT sweep across the entire row: Message, Tool, Elapsed, Thought, Tokens, Token rate (including `— tok/s`), and extension segments. A saved `colors.tokenRate` override never creates a fixed-color segment in animated modes; it applies only in Static (`textAnimation: "disabled"`). **Animate spinner color** optionally includes spinner cells and separator. Static uses the mid tier except for an explicit Token rate override; an omitted or invalid override inherits mid, while an empty style deliberately leaves Token rate unstyled. Static ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
 

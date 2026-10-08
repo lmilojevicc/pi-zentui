@@ -8,6 +8,7 @@ import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
 	editComponentColors,
+	editTurnSummaryFormat,
 } from "../extensions/zentui/component-settings";
 import {
 	mergeConfig,
@@ -307,4 +308,57 @@ describe("color dialog errors and draft transfer", () => {
 		expect(h.ui.notify).not.toHaveBeenCalled();
 		expect(h.ui.select).toHaveBeenCalledTimes(2);
 	});
+});
+
+describe("turn summary format dialogs", () => {
+	it.each(["Edit", "Reset"])(
+		"%s touches only the summary format and preserves expanded draft",
+		async (action) => {
+			const h = harness();
+			const setWorkingLineComponent = vi.fn();
+			h.ui.select.mockResolvedValueOnce(action);
+			h.ui.editor.mockResolvedValueOnce("$output_tokens$join_sep$token_rate");
+			await editTurnSummaryFormat(h.ctx, { ...h.deps, setWorkingLineComponent });
+			expect(setWorkingLineComponent).toHaveBeenCalledExactlyOnceWith(
+				{ turnSummaryFormat: action === "Edit" ? "$output_tokens$join_sep$token_rate" : "" },
+				h.ctx,
+			);
+			expect(h.draft()).toBe("expanded\nlong paste");
+			expect(h.ui.notify).toHaveBeenCalledWith(expect.stringContaining("new summaries"), "info");
+		},
+	);
+	it.each(["cancel-select", "cancel-editor", "stale", "restarted"])(
+		"does not save on %s",
+		async (mode) => {
+			const h = harness();
+			const setWorkingLineComponent = vi.fn();
+			h.ui.select.mockResolvedValueOnce(mode === "cancel-select" ? undefined : "Edit");
+			h.ui.editor.mockImplementationOnce(async () => {
+				if (mode === "stale" || mode === "restarted") {
+					h.deps.sessionLifecycle.shutdown();
+					if (mode === "restarted") h.deps.sessionLifecycle.start();
+				}
+				return mode === "cancel-editor" ? undefined : "new";
+			});
+			await editTurnSummaryFormat(h.ctx, { ...h.deps, setWorkingLineComponent });
+			expect(setWorkingLineComponent).not.toHaveBeenCalled();
+			expect(h.ui.notify).not.toHaveBeenCalled();
+		},
+	);
+});
+
+it("marks Working turnSummary color edits as new-summary-only", async () => {
+	const h = harness();
+	h.ui.select.mockResolvedValueOnce("turnSummary").mockResolvedValueOnce("Reset / inherit");
+	await editComponentColors(h.ctx, h.deps, "workingLine");
+	expect(h.ui.select).toHaveBeenCalledWith(expect.stringContaining("new summaries only"), [
+		"Edit override",
+		"Reset / inherit",
+	]);
+	expect(h.deps.setComponentColor).toHaveBeenCalledWith(
+		"workingLine",
+		"turnSummary",
+		undefined,
+		h.ctx,
+	);
 });
