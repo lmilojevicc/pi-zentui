@@ -28,6 +28,8 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			config.components.footer.style = "native";
 			config.components.workingLine.enabled = runtime.enabled;
 			config.components.workingLine.turnSummary = runtime.turnSummary;
+			// Summary-only collection must remain passive when live rate is opted out.
+			config.components.workingLine.segments.tokenRate = false;
 			config.components.workingLine.segments.tokens = runtime.tokens;
 			config.components.workingLine.segments.thought = runtime.thought;
 			config.components.workingLine.messages = { custom: true, values: ["Stable"] };

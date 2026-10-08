@@ -36,6 +36,8 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		loadConfig: () => {
 			const config = structuredClone(actual.defaultConfig);
 			config.components.workingLine.colorSource = "theme";
+			// Test message/indicator ownership without rate-driven refreshes.
+			config.components.workingLine.segments.tokenRate = false;
 			config.projectRefreshIntervalMs = 0;
 			config.components.editor.enabled = runtime.editorEnabled;
 			config.components.editor.style = runtime.editorStyle;

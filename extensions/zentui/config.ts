@@ -613,7 +613,7 @@ const defaultComponents: ComponentsConfig = {
 		textAnimation: "classic",
 		colorSource: "terminal",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
-		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
+		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: true },
 		placement: "above",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
@@ -1569,7 +1569,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 			),
 			messages: resolveWorkingLineMessages(workingLineMessages),
 			segments: {
-				tokenRate: parseBoolean(workingLineSegments.tokenRate, false),
+				tokenRate: parseBoolean(
+					workingLineSegments.tokenRate,
+					defaultComponents.workingLine.segments.tokenRate ?? false,
+				),
 				tool: parseBoolean(workingLineSegments.tool, defaultComponents.workingLine.segments.tool),
 				elapsed: parseBoolean(
 					workingLineSegments.elapsed,

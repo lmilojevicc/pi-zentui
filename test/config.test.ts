@@ -156,7 +156,7 @@ describe("canonical config resolution", () => {
 					custom: true,
 					values: [...defaultConfig.components.workingLine.messages.values],
 				},
-				segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
+				segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: true },
 				placement: "above",
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
@@ -905,7 +905,7 @@ describe("working-line config", () => {
 			textAnimation: "classic",
 			colorSource: "terminal",
 			messages: { custom: true },
-			segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
+			segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: true },
 		});
 		expect(component.messages.values).toHaveLength(40);
 		expect(component.messages.values.every((value) => value.length > 0)).toBe(true);

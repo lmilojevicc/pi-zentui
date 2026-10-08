@@ -97,6 +97,18 @@ describe("unsaved config defaults", () => {
 		},
 	);
 
+	it.each([undefined, null, "false", false, true])(
+		"defaults Tokens/s on without enabling components and preserves explicit choices: %j",
+		(tokenRate) => {
+			const config = mergeConfig({
+				components: { workingLine: { segments: { tokenRate } } },
+			});
+			expect(config.components.workingLine.segments.tokenRate).toBe(tokenRate !== false);
+			expect(config.components.workingLine.enabled).toBe(false);
+			expect(config.components.thinkingSteps.enabled).toBe(false);
+		},
+	);
+
 	it("preserves explicit theme sources for every owner and legacy projections", () => {
 		const config = mergeConfig({
 			components: Object.fromEntries(colorOwners.map((owner) => [owner, { colorSource: "theme" }])),
@@ -159,7 +171,12 @@ describe("unsaved config defaults", () => {
 					components: {
 						...Object.fromEntries(colorOwners.map((owner) => [owner, { colorSource: "theme" }])),
 						editor: { colorSource: "theme", styles: { minimalist: savedStyle } },
-						workingLine: { colorSource: "theme", enabled, placement: "border" },
+						workingLine: {
+							colorSource: "theme",
+							enabled,
+							placement: "border",
+							segments: { tokenRate: false },
+						},
 						thinkingSteps: { enabled, mode: "rail" },
 					},
 				};
@@ -171,6 +188,7 @@ describe("unsaved config defaults", () => {
 				expect(result.components.editor.styles.minimalist).toEqual(savedStyle);
 				for (const owner of colorOwners) expect(result.components[owner].colorSource).toBe("theme");
 				expect(result.components.workingLine.enabled).toBe(enabled);
+				expect(result.components.workingLine.segments.tokenRate).toBe(false);
 				expect(result.components.thinkingSteps.enabled).toBe(enabled);
 				const expected = structuredClone(original);
 				for (const [owner, selection] of Object.entries(minimalistPreset().components))

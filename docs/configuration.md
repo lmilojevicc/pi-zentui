@@ -284,7 +284,8 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
         "tool": true,
         "elapsed": true,
         "thought": true,
-        "tokens": true
+        "tokens": true,
+        "tokenRate": true
       }
     },
     "extensionStatuses": {
@@ -943,7 +944,7 @@ OMP's native `$token_rate` semantics are unchanged.
 
 When enabled, Zentui owns Pi's complete working-row message and indicator. Five fixed-width spinner presets are available: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse.
 
-`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It holds the last observed recent live Pi rate through tools and subsequent calls in the same interaction, not the completed average in Editor/Footer `$token_rate`. The row disappears normally at idle, and identity changes such as compaction clear the observation; see [live metadata](#live-metadata).
+`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** defaults on (`segments.tokenRate: true`) when Working line is enabled; Working line itself remains disabled by default. Set `segments.tokenRate: false` to hide the rate. Enable Working line without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"colors":{"tokenRate":"fg:202"}}}}`. It holds the last observed recent live Pi rate through tools and subsequent calls in the same interaction, not the completed average in Editor/Footer `$token_rate`. The row disappears normally at idle, and identity changes such as compaction clear the observation; see [live metadata](#live-metadata).
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 
