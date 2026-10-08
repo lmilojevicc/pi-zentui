@@ -83,7 +83,7 @@ jobs:
         run: npm ci
 
       # Focused behavior coverage, not private-adapter or full-package certification.
-      - name: Test matched Pi 0.85.0 and 0.87.1 behavior components
+      - name: Test matched Pi 0.85.0, 0.87.1 and 1.0.3 behavior components
         run: npm run test:behavior-compatibility
 
   supported-pi-compatibility:
@@ -92,7 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pi-version: ["0.85.0", "0.87.1"]
+        pi-version: ["0.85.0", "0.87.1", "1.0.3"]
 
     steps:
       - name: Checkout

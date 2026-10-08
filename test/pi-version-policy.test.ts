@@ -25,11 +25,11 @@ describe("Pi minimum version policy", () => {
 		]) {
 			expect(ci).toContain(`  ${job}:`);
 		}
-		expect(ci).toContain('pi-version: ["0.85.0", "0.87.1"]');
+		expect(ci).toContain('pi-version: ["0.85.0", "0.87.1", "1.0.3"]');
 		expect(ci).toContain("run: npm run typecheck");
 		for (const path of ["test/behavior-compatibility.mjs", "test/thinking-experimental-tui.mjs"]) {
 			const script = read(path);
-			expect(script).toContain('?? ["0.85.0", "0.87.1"]');
+			expect(script).toContain('?? ["0.85.0", "0.87.1", "1.0.3"]');
 			expect(script).not.toMatch(/0\.8[0-4]\.\d+/);
 		}
 		expect(ci).not.toMatch(/0\.8[0-4]\.\d+/);

@@ -8,7 +8,7 @@ const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-behavior-compatibility-"));
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("Run through npm run test:behavior-compatibility");
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1", "1.0.3"];
 const packages = ["pi-ai", "pi-coding-agent", "pi-tui"];
 const tests = [
 	"codex-quota.test.ts",

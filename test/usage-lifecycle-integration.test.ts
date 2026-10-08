@@ -1,3 +1,4 @@
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import {
 	AgentSession,
 	SessionManager,
@@ -71,12 +72,22 @@ import zentui from "../extensions/zentui/index";
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type Footer = { render(width: number): string[]; dispose?: () => void };
 type FooterFactory = (...args: unknown[]) => Footer;
-function usage(input = 10, cost = 1) {
-	return { input, output: 2, cacheRead: 30, cacheWrite: 5, cost: { total: cost } };
+function usage(input = 10, cost = 1): Usage {
+	return {
+		input,
+		output: 2,
+		cacheRead: 30,
+		cacheWrite: 5,
+		totalTokens: input + 37,
+		cost: { input: cost, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
+	};
 }
-function message(input = 10, cost = 1) {
+function message(input = 10, cost = 1): AssistantMessage {
 	return {
 		role: "assistant",
+		api: "openai-completions",
+		provider: "test",
+		model: "usage-model",
 		usage: usage(input, cost),
 		content: [],
 		stopReason: "stop",
@@ -233,7 +244,7 @@ describe("event-owned usage production lifecycle", () => {
 			};
 			const host = new AgentSession({
 				agent: {
-					state: { messages: [] },
+					state: { messages: [], model: h.ctx.model },
 					subscribe(handler: typeof dispatch) {
 						dispatch = handler;
 						return () => {};

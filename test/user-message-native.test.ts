@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { getMarkdownTheme, initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
-	type Box,
+	Box,
 	getCapabilities,
 	type Markdown,
 	resetCapabilitiesCache,
@@ -68,16 +68,20 @@ function install(style: "framed" | "framed-copy-friendly" | "compact" | "labeled
 		),
 	);
 }
-const probe = message("test");
-const nativeOptions = (
-	probe.children[0] as { children?: Array<{ options?: { transform?: unknown } }> }
-).children?.[0]?.options;
+function nativeMarkdownChild(result: UserMessageComponent): Markdown {
+	const child = result.children[0];
+	// Pi 1.0 renders Markdown directly; older Pi wraps it in a Box.
+	const markdown = child.constructor.name === "Markdown" ? child : (child as Box).children[0];
+	expect(markdown.constructor.name).toBe("Markdown");
+	return markdown as Markdown;
+}
+const nativeOptions = Reflect.get(nativeMarkdownChild(message("test")), "options");
 const supportsNativeOptions = Boolean(nativeOptions);
 const supportsNativeTransform = typeof nativeOptions?.transform === "function";
 // Markdown's direct option and UserMessage's registered chain are separate APIs.
 const supportsMarkdownTransform = (() => {
 	const renderProbe = message("probe");
-	const child = (renderProbe.children[0] as Box).children[0];
+	const child = nativeMarkdownChild(renderProbe);
 	const options = Reflect.get(child, "options");
 	if (!options) return false;
 	let called = false;
@@ -210,7 +214,7 @@ describe("native user-message adapter", () => {
 		install("compact");
 		const styled = message("before");
 		styled.render(40);
-		const child = (styled.children[0] as unknown as { children: Markdown[] }).children[0];
+		const child = nativeMarkdownChild(styled);
 		child.setText("after");
 		expect(plain(styled.render(40))).toContain("after");
 	});
@@ -226,12 +230,23 @@ function shapedMessage(
 	transforms: Transform[] = [],
 ) {
 	const result = message(source, transforms);
-	const box = result.children[0] as Box;
-	const markdown = box.children[0] as Markdown;
-	if (shape === "paddingX") Reflect.set(markdown, "paddingX", 1);
-	if (shape === "box sibling") box.addChild(new Text("SIBLING", 0, 0));
+	const markdown = nativeMarkdownChild(result);
+	if (shape === "paddingX" || shape === "box sibling") {
+		// These deliberately rejected Box trees must stay Box-wrapped on Pi 1.0 too.
+		let box = result.children[0] as Box;
+		if (result.children[0] === markdown) {
+			box = new Box(1, 1);
+			Reflect.set(markdown, "paddingX", 0);
+			Reflect.set(markdown, "paddingY", 0);
+			result.clear();
+			box.addChild(markdown);
+			result.addChild(box);
+		}
+		if (shape === "paddingX") Reflect.set(markdown, "paddingX", 1);
+		else box.addChild(new Text("SIBLING", 0, 0));
+	}
 	if (shape === "root sibling") result.addChild(new Text("SIBLING", 0, 0));
-	return { result, markdown, box };
+	return { result, markdown };
 }
 
 describe("native user-message source boundary independent of framing", () => {
@@ -425,8 +440,7 @@ describe("source boundary fallback ownership", () => {
 describe("Pi >=1.0 direct-Markdown user message shape", () => {
 	it("applies Zentui styling when Markdown is a direct, padded child without Box", () => {
 		const result = message("hello world");
-		const box = result.children[0] as Box;
-		const markdown = box.children[0] as Markdown;
+		const markdown = nativeMarkdownChild(result);
 		Reflect.set(markdown, "paddingX", 1);
 		Reflect.set(markdown, "paddingY", 1);
 		result.clear();

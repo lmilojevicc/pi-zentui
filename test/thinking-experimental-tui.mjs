@@ -17,7 +17,7 @@ import {
 	hasExtensionLoaderDiagnostic,
 } from "./thinking-experimental-loader-diagnostics.mjs";
 
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1", "1.0.3"];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
 const npmCli = process.env.npm_execpath;
