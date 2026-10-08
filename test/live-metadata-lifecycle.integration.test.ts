@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { type EventBus, SessionManager, type Theme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +19,10 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		},
 		saveFooterComponentPatch(patch: object) {
 			Object.assign(runtime.config?.components.footer ?? {}, patch);
+			return runtime.config;
+		},
+		saveWorkingLineComponentPatch(patch: object) {
+			Object.assign(runtime.config?.components.workingLine ?? {}, patch);
 			return runtime.config;
 		},
 		savePolishedEditorStylePatch(patch: object) {
@@ -280,7 +285,11 @@ describe("live metadata event wiring and owned consumers", () => {
 		"session_compact",
 		"session_before_switch",
 		"session_tree",
+		"session_start",
 	])("clears Pi retained rate on %s", async (event) => {
+		if (!runtime.config) throw new Error("missing config");
+		runtime.config.components.workingLine.enabled = true;
+		runtime.config.components.workingLine.segments.tokenRate = true;
 		const h = harness();
 		try {
 			await h.emit("session_start");
@@ -296,7 +305,15 @@ describe("live metadata event wiring and owned consumers", () => {
 			});
 			expect(h.render()).toContain("200 tok/s avg");
 			expect(h.renderFooter()).toContain("200 tok/s avg");
+			const row = () =>
+				stripVTControlCharacters(
+					(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+						?.frames?.[0] ?? "",
+				);
+			expect(row()).toContain("50 tok/s");
 			await h.emit(event, { toolCallId: "tool", toolName: "bash" });
+			await vi.advanceTimersByTimeAsync(100);
+			expect(row()).not.toContain("tok/s");
 			expect(h.render()).not.toContain("tok/s");
 			expect(h.renderFooter()).not.toContain("tok/s");
 		} finally {
@@ -356,6 +373,114 @@ describe("live metadata event wiring and owned consumers", () => {
 			await h.emit("session_shutdown");
 		}
 	});
+	it.each(["completed", "in-flight", "completed-plus-open"])(
+		"partitions metadata average without settled A or lost surviving work (%s)",
+		async (state) => {
+			const h = harness();
+			const expectAverage = (label: string) => {
+				expect(h.render()).toContain(`${label} tok/s avg`);
+				expect(h.renderFooter()).toContain(`${label} tok/s avg`);
+			};
+			const final = (responseId: string, output: number) =>
+				h.emit("message_end", {
+					message: {
+						role: "assistant",
+						responseId,
+						usage: { input: 10, output },
+						stopReason: "stop",
+					},
+				});
+			try {
+				await h.emit("session_start");
+				h.render();
+				await h.emit("agent_start");
+				await h.emit("turn_start");
+				await vi.advanceTimersByTimeAsync(4000);
+				await final("one", 120);
+				await h.emit("agent_end");
+				await h.emit("agent_start");
+				await vi.advanceTimersByTimeAsync(10000);
+				await h.emit("turn_start"); // B starts at 14s
+				if (state === "in-flight") {
+					await vi.advanceTimersByTimeAsync(1000);
+					expectAverage("30");
+				} else {
+					await vi.advanceTimersByTimeAsync(2000);
+					await final("two", 180);
+					expectAverage("50"); // A120/4 + B180/2
+					if (state === "completed-plus-open") {
+						await vi.advanceTimersByTimeAsync(2000);
+						await h.emit("turn_start"); // B's second call starts at 18s
+						await vi.advanceTimersByTimeAsync(1000);
+					}
+				}
+				h.ctx.isIdle = () => false;
+				await h.emit("agent_settled");
+				expectAverage(state === "in-flight" ? "—" : "90");
+				await h.emit("agent_settled"); // no accepted duplicate partition
+				expectAverage(state === "in-flight" ? "—" : "90");
+				if (state === "in-flight") {
+					await vi.advanceTimersByTimeAsync(1000);
+					await final("two", 180);
+					expectAverage("90"); // original 14s turn_start survived the 15s partition
+				} else if (state === "completed-plus-open") {
+					await vi.advanceTimersByTimeAsync(3000);
+					await final("three", 120);
+					expectAverage("50"); // B300/6, not A+B420/10
+				}
+				await h.emit("agent_end");
+				h.ctx.isIdle = () => true;
+				await h.emit("agent_settled");
+				expectAverage(state === "completed-plus-open" ? "50" : "90");
+				await h.emit("agent_settled");
+				expectAverage(state === "completed-plus-open" ? "50" : "90");
+			} finally {
+				await h.emit("session_shutdown");
+			}
+		},
+	);
+	it.each(["prior", "surviving"])(
+		"partitions unknown metadata coverage by its %s run",
+		async (unknownRun) => {
+			const h = harness();
+			const final = (responseId: string, output?: number) =>
+				h.emit("message_end", {
+					message: {
+						role: "assistant",
+						responseId,
+						stopReason: "stop",
+						...(output === undefined ? {} : { usage: { input: 10, output } }),
+					},
+				});
+			try {
+				await h.emit("session_start");
+				h.render();
+				await h.emit("agent_start");
+				await h.emit("turn_start");
+				await vi.advanceTimersByTimeAsync(4000);
+				await final("one", unknownRun === "prior" ? undefined : 120);
+				await h.emit("agent_end");
+				await h.emit("agent_start");
+				await h.emit("turn_start");
+				await vi.advanceTimersByTimeAsync(2000);
+				await final("two", unknownRun === "surviving" ? undefined : 180);
+				expect(h.render()).toContain("— tok/s avg");
+				h.ctx.isIdle = () => false;
+				await h.emit("agent_settled");
+				const expected = unknownRun === "prior" ? "90" : "—";
+				expect(h.render()).toContain(`${expected} tok/s avg`);
+				expect(h.renderFooter()).toContain(`${expected} tok/s avg`);
+				await h.emit("turn_start");
+				await vi.advanceTimersByTimeAsync(2000);
+				await final("three", 120);
+				const next = unknownRun === "prior" ? "75" : "—";
+				expect(h.render()).toContain(`${next} tok/s avg`);
+				expect(h.renderFooter()).toContain(`${next} tok/s avg`);
+			} finally {
+				await h.emit("session_shutdown");
+			}
+		},
+	);
 	it("keeps a short response as a placeholder, clears on session replacement, and does not retain disabled demand", async () => {
 		const h = harness();
 		try {
@@ -467,53 +592,194 @@ describe("live metadata event wiring and owned consumers", () => {
 		expect(tui.renderFooter()).toContain("CI passing");
 		await tui.emit("session_shutdown");
 	});
-	it("supports Working-only rate with editor/footer native and restores independent lifecycle", async () => {
+	it.each([undefined, 50, 100])(
+		"partitions held Working TPS by run on accepted non-idle settlement (surviving rate %s)",
+		async (survivingRate) => {
+			if (!runtime.config) throw new Error("missing config");
+			runtime.config.components.editor.enabled = false;
+			runtime.config.components.footer.style = "native";
+			runtime.config.components.workingLine.enabled = true;
+			runtime.config.components.workingLine.segments.tokenRate = true;
+			const h = harness();
+			const row = () =>
+				stripVTControlCharacters(
+					(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+						?.frames?.[0] ?? "",
+				);
+			const update = (responseId: string, output: number) =>
+				h.emit("message_update", {
+					message: { role: "assistant", responseId, usage: { input: 10, output } },
+				});
+			try {
+				await h.emit("session_start");
+				await streaming(h); // run A observes 50 tok/s
+				await h.emit("message_end", {
+					message: {
+						role: "assistant",
+						responseId: "one",
+						usage: { input: 10, output: 120 },
+						stopReason: "stop",
+					},
+				});
+				await h.emit("agent_end");
+				await h.emit("agent_start"); // B starts before A's settlement
+				await h.emit("turn_start");
+				await update("two", 10);
+				if (survivingRate !== undefined) {
+					await vi.advanceTimersByTimeAsync(600);
+					await update("two", 10 + survivingRate * 0.6);
+					// Retain B's observation while its sampling window is suspended by a tool.
+					await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "read" });
+				}
+				expect(row()).toContain(`${survivingRate ?? 50} tok/s`);
+				h.ctx.isIdle = () => false;
+				await h.emit("agent_settled");
+				const expected = survivingRate === undefined ? "— tok/s" : `${survivingRate} tok/s`;
+				expect(row()).toContain(expected);
+				await h.emit("agent_settled"); // no additional settled run: no new boundary
+				expect(row()).toContain(expected);
+				if (survivingRate === undefined) {
+					// B's first anchor/authorization survives; its second anchor replaces the dash.
+					await vi.advanceTimersByTimeAsync(600);
+					await update("two", 40);
+					await vi.advanceTimersByTimeAsync(100);
+					expect(row()).toContain("50 tok/s");
+				} else {
+					await h.emit("tool_execution_end", { toolCallId: "tool" });
+					expect(row()).toContain(expected);
+				}
+				// Another response in surviving B remains authorized without an agent_start.
+				await h.emit("turn_start");
+				await update("three", 10);
+				await vi.advanceTimersByTimeAsync(600);
+				await update("three", 100);
+				await vi.advanceTimersByTimeAsync(100);
+				expect(row()).toContain("150 tok/s");
+				await h.emit("agent_end");
+				h.ctx.isIdle = () => true;
+				await h.emit("agent_settled");
+				expect(row()).not.toContain("tok/s");
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				await h.emit("session_shutdown");
+			}
+		},
+	);
+	it("clears Working-only observation on disable/demand loss instead of resurrecting it on re-enable", async () => {
 		if (!runtime.config) throw new Error("missing config");
 		runtime.config.components.editor.enabled = false;
 		runtime.config.components.footer.style = "native";
 		runtime.config.components.workingLine.enabled = true;
 		runtime.config.components.workingLine.segments.tokenRate = true;
 		const h = harness();
+		const row = () =>
+			stripVTControlCharacters(
+				(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+					?.frames?.[0] ?? "",
+			);
+		try {
+			await h.emit("session_start");
+			await streaming(h);
+			await vi.advanceTimersByTimeAsync(100);
+			expect(row()).toContain("50 tok/s");
+			h.hook("setWorkingLineComponent", { enabled: false });
+			expect(row()).not.toContain("tok/s");
+			h.hook("setWorkingLineComponent", { enabled: true });
+			expect(row()).not.toContain("50 tok/s");
+			await h.emit("turn_start");
+			expect(row()).toContain("— tok/s");
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+	it("holds Working-only live rate through finals, tools, turns and continuation without idle timers", async () => {
+		if (!runtime.config) throw new Error("missing config");
+		runtime.config.components.editor.enabled = false;
+		runtime.config.components.footer.style = "native";
+		runtime.config.components.workingLine.enabled = true;
+		runtime.config.components.workingLine.segments.tokenRate = true;
+		const h = harness();
+		const row = () =>
+			stripVTControlCharacters(
+				(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+					?.frames?.[0] ?? "",
+			);
 		try {
 			await h.emit("session_start");
 			await h.emit("agent_start");
 			await h.emit("turn_start");
 			await vi.advanceTimersByTimeAsync(100);
-			const placeholder = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
-				| { frames?: string[] }
-				| undefined;
-			expect(placeholder?.frames?.some((frame) => frame.includes("— tok/s"))).toBe(true);
+			expect(row()).toContain("— tok/s");
 			await streaming(h);
 			await vi.advanceTimersByTimeAsync(100);
-			const frames = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
-				| { frames?: string[] }
-				| undefined;
-			expect(frames?.frames?.some((frame) => frame.includes("50 tok/s"))).toBe(true);
+			expect(row()).toContain("50 tok/s");
 			expect(h.exec).not.toHaveBeenCalled();
 			await vi.advanceTimersByTimeAsync(4250);
-			const gap = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
-				| { frames?: string[] }
-				| undefined;
-			expect(gap?.frames?.some((frame) => frame.includes("50 tok/s"))).toBe(true);
+			expect(row()).toContain("50 tok/s");
+			await h.emit("message_end", {
+				message: {
+					role: "assistant",
+					responseId: "one",
+					usage: { input: 10, output: 120 },
+					stopReason: "toolUse",
+				},
+			});
+			expect(row()).toContain("50 tok/s");
 			await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
-			const duringTool = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
-				| { frames?: string[] }
-				| undefined;
-			expect(duringTool?.frames?.some((frame) => frame.includes("tok/s"))).not.toBe(true);
+			expect(row()).toContain("bash");
+			expect(row()).toContain("50 tok/s");
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(row()).toContain("50 tok/s");
 			await h.emit("tool_execution_end", { toolCallId: "tool" });
+			expect(row()).toContain("50 tok/s");
+			await h.emit("turn_start");
+			expect(row()).toContain("50 tok/s");
+			await h.emit("message_update", {
+				message: {
+					role: "assistant",
+					responseId: "two",
+					usage: { input: 10, output: 10 },
+				},
+			});
+			expect(row()).toContain("50 tok/s");
+			await vi.advanceTimersByTimeAsync(600);
+			await h.emit("message_update", {
+				message: {
+					role: "assistant",
+					responseId: "two",
+					usage: { input: 10, output: 70 },
+				},
+			});
+			await vi.advanceTimersByTimeAsync(100);
+			expect(row()).toContain("100 tok/s");
 			await h.emit("agent_end");
-			const idle = h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as
-				| { frames?: string[] }
-				| undefined;
-			expect(idle?.frames?.some((frame) => frame.includes("tok/s"))).not.toBe(true);
+			expect(row()).not.toContain("tok/s");
+			await h.emit("agent_start"); // continuation/retry before settlement
+			expect(row()).toContain("100 tok/s");
+			await h.emit("turn_start");
+			expect(row()).toContain("100 tok/s");
+			await h.emit("agent_end");
+			await h.emit("agent_settled");
+			expect(row()).not.toContain("tok/s");
+			expect(vi.getTimerCount()).toBe(0);
+			await h.emit("agent_start"); // genuinely new interaction
+			expect(row()).toContain("— tok/s");
 		} finally {
 			await h.emit("session_shutdown");
 		}
 	});
 });
 
-it("uses the existing live output estimator with a visible approximate marker", async () => {
+it("retains the live estimate marker through tools/turns without changing the completed average", async () => {
+	if (!runtime.config) throw new Error("missing config");
+	runtime.config.components.workingLine.enabled = true;
+	runtime.config.components.workingLine.segments.tokenRate = true;
 	const h = harness();
+	const row = () =>
+		stripVTControlCharacters(
+			(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+				?.frames?.[0] ?? "",
+		);
 	try {
 		await h.emit("session_start");
 		h.render();
@@ -533,6 +799,9 @@ it("uses the existing live output estimator with a visible approximate marker", 
 		await h.emit("message_update", update("a".repeat(120), "a".repeat(80)));
 		expect(h.render()).toContain("— tok/s avg");
 		expect(h.renderFooter()).toContain("— tok/s avg");
+		await vi.advanceTimersByTimeAsync(100);
+		const retained = row().match(/~[1-9]\d* tok\/s/)?.[0];
+		expect(retained).toBeDefined();
 		await h.emit("message_end", {
 			message: {
 				role: "assistant",
@@ -541,9 +810,16 @@ it("uses the existing live output estimator with a visible approximate marker", 
 				stopReason: "stop",
 			},
 		});
+		expect(row()).toContain(retained);
+		await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "read" });
+		expect(row()).toContain(retained);
+		await h.emit("tool_execution_end", { toolCallId: "tool" });
+		await h.emit("turn_start");
+		expect(row()).toContain(retained);
+		expect(h.render()).toContain("1427 tok/s avg");
+		expect(h.renderFooter()).toContain("1427 tok/s avg");
 		await h.emit("agent_end");
-		expect(h.render()).toContain("1665 tok/s avg");
-		expect(h.renderFooter()).toContain("1665 tok/s avg");
+		expect(h.renderFooter()).toContain("— tok/s avg"); // the second call was never closed
 	} finally {
 		await h.emit("session_shutdown");
 	}
@@ -643,9 +919,17 @@ it("recovers rate after a mid-run model change and tool loop without another age
 		expect(h.render()).toContain("— tok/s avg");
 		await h.emit("model_select");
 		expect(h.render()).not.toContain("tok/s");
+		await vi.advanceTimersByTimeAsync(100);
+		const row = () =>
+			stripVTControlCharacters(
+				(h.ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined)
+					?.frames?.[0] ?? "",
+			);
+		expect(row()).not.toContain("tok/s");
 		await h.emit("tool_execution_start", { toolCallId: "tool", toolName: "bash" });
 		await h.emit("tool_execution_end", { toolCallId: "tool" });
 		await h.emit("turn_start");
+		expect(row()).toContain("— tok/s");
 		await h.emit("message_update", {
 			message: { role: "assistant", responseId: "new-model", usage: { input: 10, output: 10 } },
 		});

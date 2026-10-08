@@ -8,6 +8,7 @@ import {
 	MAX_WORKING_LINE_FRAME_CELLS,
 	MAX_WORKING_LINE_FRAME_CODE_UNITS,
 	MAX_WORKING_LINE_FRAMES,
+	WorkingLineController,
 } from "../extensions/zentui/working-line";
 
 const theme: ThemeLike = {
@@ -128,6 +129,73 @@ describe("working-line whole-row metric animation", () => {
 	it.each(variants)("animates TPS like normal text: %j", (variant) => {
 		checkAnimatedRows(buildWorkingLineFrames, variant);
 	});
+
+	it.each(["classic", "kitt"] as const)(
+		"renders retained TPS during active tools in the shared %s animation and stops at idle",
+		(textAnimation) => {
+			vi.useFakeTimers();
+			const current = structuredClone(defaultConfig);
+			const component = current.components.workingLine;
+			Object.assign(component, {
+				enabled: true,
+				placement: "border",
+				textAnimation,
+				messages: { custom: false, values: [] },
+				segments: { tool: true, tokenRate: true },
+				colors: { tokenRate: "fg:202" },
+			});
+			const ui = {
+				setWorkingMessage: vi.fn(),
+				setWorkingIndicator: vi.fn(),
+				setWorkingVisible: vi.fn(),
+			};
+			const ctx = { ui };
+			const controller = new WorkingLineController(
+				() => current,
+				() => theme,
+				undefined,
+				undefined,
+				() => 0,
+				undefined,
+				undefined,
+				undefined,
+				() => true,
+			);
+			try {
+				controller.startSession(ctx);
+				controller.startAgent(ctx);
+				controller.updateTokenRate("~48 tok/s", ctx);
+				controller.startTool("tool", "read", ctx);
+				const frames = (
+					ui.setWorkingIndicator.mock.calls.at(-1)?.[0] as { frames?: string[] } | undefined
+				)?.frames;
+				if (!frames) throw new Error("missing Working frames");
+				const styles = new Set(
+					frames.map((frame) => {
+						const plain = stripVTControlCharacters(frame);
+						expect(plain).toContain("read");
+						expect(plain).toContain("~48 tok/s");
+						expect(frame).not.toContain("\x1b[38;5;202m");
+						return styleAt(frame, plain.indexOf("~48 tok/s"));
+					}),
+				);
+				expect(styles.size).toBeGreaterThan(1);
+				expect(styles.has("\x1b[96m\x1b[1m")).toBe(true);
+				expect(controller.currentWorkingLineFrame()).toBeDefined();
+				expect(vi.getTimerCount()).toBe(1);
+				controller.finishTool("tool", ctx);
+				expect(stripVTControlCharacters(controller.currentWorkingLineFrame() ?? "")).toContain(
+					"~48 tok/s",
+				);
+				controller.finishAgent(ctx);
+				expect(controller.currentWorkingLineFrame()).toBeUndefined();
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				controller.dispose(ctx);
+				vi.useRealTimers();
+			}
+		},
+	);
 
 	it.each(["classic", "kitt"] as const)(
 		"reserves atomic Tokens/TPS before fitting other content (%s)",

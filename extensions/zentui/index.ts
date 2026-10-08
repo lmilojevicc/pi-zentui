@@ -1761,7 +1761,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			if (patch.enabled === false) {
 				if (!host.skinOnly) workingLineExtensions.clear();
 			}
-			return workingLine.reconcile(ctx);
+			const result = workingLine.reconcile(ctx);
+			reconcileLiveMetadata();
+			return result;
 		},
 		setSelectorBordersComponent(
 			patch: Partial<SelectorBordersComponentConfig>,
@@ -1968,6 +1970,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			refreshInteractiveState(ctx);
 			const settled = interactionMetrics.settle(ctx.isIdle());
 			if (!settled) return;
+			if (settled.nextStartedAt !== undefined) liveMetadata.partitionRates();
 			settleAgentTurn(settled.nextStartedAt);
 			if (!host.skinOnly) workingLine.settle(settled.nextTokens, settled.nextThought, ctx);
 			const config = currentConfig.components.workingLine;

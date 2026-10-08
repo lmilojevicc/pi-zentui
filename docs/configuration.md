@@ -908,7 +908,11 @@ The slot shows `— tok/s avg` before a trustworthy completed sample, never a
 live-rate substitute. After each completed call it shows **completed calls so
 far**, retaining the previous aggregate while another call in the same interaction
 is in flight, through tools, `agent_end` and settlement. Continuation/retry
-`agent_start` does not reset it; a genuinely new interaction does. Only accepted,
+`agent_start` does not reset it; a genuinely new interaction does. If non-idle
+settlement partitions an already-started run into a new interaction, only that
+surviving run's completed work and any open call's original start are retained;
+unknown coverage from settled runs is discarded, but surviving unknown coverage
+remains unknown. Only accepted,
 deduplicated finals contribute per-message output, never cumulative interaction
 totals, last streaming usage or character estimates. Successful reported zero
 output is included with its duration. Positive provider-reported partial/error
@@ -922,24 +926,30 @@ Working line keeps its separate **recent live rate**, with `~` for estimates
 and `— tok/s` before a usable measurement. It uses a bounded three-second
 observation window and needs advancing output spanning at least 500ms, excluding
 pre-output silence. The measurement expires after two seconds without advancing
-output, but its display holds the last observed window rate between chunks.
+output, but its display holds the last observed window rate while the Working row
+remains active: between chunks, through response end, tools, between-call pauses,
+continuations/retries and subsequent model turns in the same interaction. A fresh
+usable live sample replaces it; a retained value is historical, not ongoing generation.
 Text, thinking and tool-call argument deltas use the existing Unicode estimator;
 source/usage corrections rebaseline rather than producing spikes. Final usage
-never creates an instantaneous live sample. Working rate is independently opt-in,
-resets each response and hides at response end, tools and idle.
+never creates an instantaneous live sample. Working rate is independently opt-in;
+a genuinely new interaction starts at `— tok/s` until its first usable measurement.
+If non-idle settlement promotes an already-started run into a new interaction,
+only that surviving run's observation is retained; an older run's value becomes
+`— tok/s`. The whole Working row still disappears normally at idle/settlement.
 
 Compaction, session/model/tree changes and loss of all rate demand clear both
 metrics. After a mid-run model change, the next properly observed turn can
 establish a new current-model aggregate without another `agent_start`. Repaint
-polling is active only while streaming and demanded; retained averages need no
-idle timer. There is no new variable, latency measurement or transcript schema.
+polling is active only while streaming and demanded; retained rates and averages
+need no idle timer. There is no new variable, latency measurement or transcript schema.
 OMP's native `$token_rate` semantics are unchanged.
 
 ## Working line
 
 When enabled, Zentui owns Pi's complete working-row message and indicator. Five fixed-width spinner presets are available: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse.
 
-`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It uses the recent live Pi rate, not the completed average in Editor/Footer `$token_rate`, and hides during tools/idle/compaction; see [live metadata](#live-metadata).
+`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** is separately optional and default-off (`segments.tokenRate: false`); enable it without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"segments":{"tokenRate":true},"colors":{"tokenRate":"fg:202"}}}}`. It holds the last observed recent live Pi rate through tools and subsequent calls in the same interaction, not the completed average in Editor/Footer `$token_rate`. The row disappears normally at idle, and identity changes such as compaction clear the observation; see [live metadata](#live-metadata).
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 

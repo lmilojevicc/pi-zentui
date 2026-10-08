@@ -1459,7 +1459,7 @@ export class WorkingLineController {
 			elapsedMs: this.agentActive ? this.durationClock.elapsedMs() : undefined,
 			thought,
 			tokens: this.tokens,
-			tokenRate: this.agentActive && this.activeTools.size === 0 ? this.tokenRate : "",
+			tokenRate: this.agentActive ? this.tokenRate : "",
 			extensions: this.extensionSegments,
 		};
 	}

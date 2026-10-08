@@ -27,8 +27,17 @@ function fixture() {
 		average.messageEnd(value, result);
 		return result;
 	};
+	const endRun = () => {
+		metrics.agentEnd();
+		average.suspend();
+	};
+	const settle = (idle = false) => {
+		const result = metrics.settle(idle);
+		if (result?.nextStartedAt !== undefined) average.partition();
+		return result;
+	};
 	start();
-	return { average, metrics, message, start, turn, end };
+	return { average, metrics, message, start, turn, end, endRun, settle };
 }
 
 describe("AverageTokenRateTracker completed model work", () => {
@@ -61,6 +70,126 @@ describe("AverageTokenRateTracker completed model work", () => {
 		expect(f.average.snapshot()).toBe(50);
 		f.start();
 		expect(f.average.snapshot()).toBeUndefined();
+	});
+	it("drops settled A120/4 while preserving B180/2, with duplicate/idle settlement safe", () => {
+		const f = fixture();
+		f.turn(0);
+		f.end(4000);
+		f.endRun();
+		f.start();
+		f.turn(14000);
+		f.end(16000, f.message(180, "two"));
+		expect(f.average.snapshot()).toBe(50);
+		expect(f.settle()?.nextStartedAt).toBeDefined();
+		expect(f.average.snapshot()).toBe(90);
+		expect(f.settle()).toBeUndefined();
+		expect(f.average.snapshot()).toBe(90);
+		f.endRun();
+		f.settle(true);
+		expect(f.average.snapshot()).toBe(90);
+		f.start();
+		expect(f.average.snapshot()).toBeUndefined();
+	});
+	it("preserves the surviving in-flight call's start through partition", () => {
+		const f = fixture();
+		f.turn(0);
+		f.end(4000);
+		f.endRun();
+		f.start();
+		f.turn(14000);
+		expect(f.average.snapshot()).toBe(30);
+		f.settle();
+		expect(f.average.snapshot()).toBeUndefined();
+		f.end(16000, f.message(180, "two"));
+		expect(f.average.snapshot()).toBe(90);
+	});
+	it("preserves all surviving completed calls and an open second call", () => {
+		const f = fixture();
+		f.turn(0);
+		f.end(4000);
+		f.endRun();
+		f.start();
+		f.turn(14000);
+		f.end(16000, f.message(180, "two"));
+		f.turn(18000);
+		expect(f.average.snapshot()).toBe(50);
+		f.settle();
+		expect(f.average.snapshot()).toBe(90);
+		f.end(22000, f.message(120, "three"));
+		expect(f.average.snapshot()).toBe(50); // B300/6, never A420/10
+	});
+	it.each(["usage", "clock"])(
+		"discards settled-run unknown %s without poisoning valid surviving work",
+		(source) => {
+			const f = fixture();
+			f.turn(0);
+			f.end(source === "clock" ? NaN : 4000, f.message(source === "usage" ? undefined : 120));
+			f.endRun();
+			f.start();
+			f.turn(14000);
+			f.end(16000, f.message(180, "two"));
+			expect(f.average.snapshot()).toBeUndefined();
+			f.settle();
+			expect(f.average.snapshot()).toBe(90);
+		},
+	);
+	it.each(["usage", "clock", "unfinished"])(
+		"retains surviving-run unknown %s coverage after partition",
+		(source) => {
+			const f = fixture();
+			f.turn(0);
+			f.end(4000);
+			f.endRun();
+			f.start();
+			f.turn(14000);
+			if (source === "clock") f.average.observeTime(NaN);
+			if (source === "unfinished") f.turn(15000);
+			f.end(16000, f.message(source === "usage" ? undefined : 180, "two"));
+			f.settle();
+			expect(f.average.snapshot()).toBeUndefined();
+			f.turn(18000);
+			f.end(20000, f.message(120, "three"));
+			expect(f.average.snapshot()).toBeUndefined();
+		},
+	);
+	it("keeps cross-run clock ordering unknown until the earlier run is partitioned out", () => {
+		const f = fixture();
+		f.turn(0);
+		f.end(4000);
+		f.endRun();
+		f.start();
+		f.turn(1000); // regresses relative to A, but B's own two-second interval is valid
+		f.end(3000, f.message(180, "two"));
+		expect(f.average.snapshot()).toBeUndefined();
+		f.settle();
+		expect(f.average.snapshot()).toBe(90);
+	});
+	it("folds many prior runs without losing same-interaction totals or surviving contributions", () => {
+		const f = fixture();
+		for (let run = 0; run < 100; run++) {
+			if (run > 0) f.start();
+			f.turn(run * 2000);
+			f.end(run * 2000 + 1000, f.message(30, `${run}`));
+			f.endRun();
+		}
+		f.start();
+		f.turn(200000);
+		f.end(201000, f.message(60, "surviving"));
+		expect(f.average.snapshot()).toBe(3060 / 101);
+		f.settle();
+		expect(f.average.snapshot()).toBe(60);
+	});
+	it("cross-run overflow stays unknown until settled work is discarded", () => {
+		const f = fixture();
+		f.turn(0);
+		f.end(1000, f.message(Number.MAX_SAFE_INTEGER));
+		f.endRun();
+		f.start();
+		f.turn(2000);
+		f.end(3000, f.message(1, "two"));
+		expect(f.average.snapshot()).toBeUndefined();
+		f.settle();
+		expect(f.average.snapshot()).toBe(1);
 	});
 	it("accepts final-only usage with observed timing and honest successful zero", () => {
 		const f = fixture();

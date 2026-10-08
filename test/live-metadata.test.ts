@@ -279,7 +279,7 @@ describe("live metadata passive snapshot and scheduler", () => {
 		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		expect(f.repaint).toHaveBeenCalledTimes(calls);
 		f.controller.suspendRate();
-		expect(f.onRate).toHaveBeenLastCalledWith("");
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 		expect(vi.getTimerCount()).toBe(0);
 	});
@@ -299,17 +299,17 @@ describe("live metadata passive snapshot and scheduler", () => {
 		};
 		const calls = f.onRate.mock.calls.length;
 		f.controller.endResponse(final, accepted);
-		expect(f.onRate.mock.calls.slice(calls)).toEqual([[""]]);
+		expect(f.onRate.mock.calls.slice(calls)).toEqual([]);
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "30 tok/s avg" });
 		expect(vi.getTimerCount()).toBe(0);
 		f.time(14000);
 		f.controller.startResponse();
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "30 tok/s avg" });
-		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		f.time(14500);
 		f.controller.endResponse(final, { status: "duplicate" });
 		f.controller.endResponse(final, { status: "rejected" });
-		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		f.time(16000);
 		f.controller.endResponse(
 			{ ...final, usage: { input: 10, output: 180 } },
@@ -321,6 +321,103 @@ describe("live metadata passive snapshot and scheduler", () => {
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "50 tok/s avg" });
 		expect(vi.getTimerCount()).toBe(0);
 	});
+	it("holds across continuation/retry runs and replaces only with a fresh usable live sample", () => {
+		const f = fixture();
+		f.controller.reconcile(context, { github: false, tokenRate: true });
+		f.rate();
+		f.controller.suspendRate();
+		f.time(10_000);
+		f.controller.startAgent(false);
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
+		f.controller.startResponse();
+		f.controller.updateResponse({ role: "assistant", usage: { input: 10, output: 10 } });
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
+		f.time(10_600);
+		f.controller.updateResponse({ role: "assistant", usage: { input: 10, output: 70 } });
+		expect(f.onRate).toHaveBeenLastCalledWith("100 tok/s");
+		f.controller.suspendRate();
+		f.controller.startAgent(false);
+		f.controller.startResponse();
+		expect(f.onRate).toHaveBeenLastCalledWith("100 tok/s");
+		f.controller.suspendRate();
+		f.controller.startAgent(true);
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		f.controller.startResponse();
+		f.controller.updateResponse({ role: "assistant", usage: { input: 10, output: 1 } });
+		f.controller.endResponse(
+			{ role: "assistant", usage: { input: 10, output: 999 } },
+			{
+				status: "accepted",
+				source: "final",
+				tokens: { input: 10, output: 999 },
+				displayTokens: { input: 10, output: 999, outputApproximate: false },
+			},
+		);
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		expect(vi.getTimerCount()).toBe(0);
+		f.controller.startResponse();
+		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+	});
+	it("repaints changed completed average on partition even with unchanged Working text", () => {
+		const f = fixture();
+		f.controller.reconcile(context, { github: false, tokenRate: true });
+		const final = (output: number) =>
+			f.controller.endResponse(
+				{ role: "assistant", usage: { input: 10, output } },
+				{
+					status: "accepted",
+					source: "final",
+					tokens: { input: 10, output },
+					displayTokens: { input: 10, output, outputApproximate: false },
+				},
+			);
+		f.controller.startAgent(true);
+		f.controller.startResponse();
+		f.time(4000);
+		final(120);
+		f.controller.startAgent(false);
+		f.time(14000);
+		f.controller.startResponse();
+		f.time(16000);
+		final(180);
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "50 tok/s avg" });
+		const repaints = f.repaint.mock.calls.length;
+		const rateCalls = f.onRate.mock.calls.length;
+		f.controller.partitionRates();
+		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "90 tok/s avg" });
+		expect(f.repaint).toHaveBeenCalledTimes(repaints + 1);
+		expect(f.onRate).toHaveBeenCalledTimes(rateCalls);
+		f.controller.partitionRates();
+		expect(f.repaint).toHaveBeenCalledTimes(repaints + 1);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+	it.each([40, 100])(
+		"preserves a surviving run's fresh %s tok/s sample and polling across Working partition",
+		(tokensPerSecond) => {
+			const f = fixture();
+			f.controller.reconcile(context, { github: false, tokenRate: true });
+			f.rate();
+			f.controller.suspendRate();
+			f.controller.startAgent(false);
+			f.controller.startResponse();
+			f.controller.updateResponse({ role: "assistant", usage: { input: 10, output: 10 } });
+			f.time(1100);
+			f.controller.updateResponse({
+				role: "assistant",
+				usage: { input: 10, output: 10 + tokensPerSecond / 2 },
+			});
+			const sample = f.controller.rate.snapshot();
+			expect(sample?.tokensPerSecond).toBe(tokensPerSecond);
+			const average = f.controller.read(new Set(["token_rate"]));
+			const calls = f.onRate.mock.calls.length;
+			f.controller.partitionRates();
+			expect(f.controller.rate.snapshot()).toEqual(sample);
+			expect(f.onRate).toHaveBeenLastCalledWith(`${tokensPerSecond} tok/s`);
+			expect(f.onRate).toHaveBeenCalledTimes(calls);
+			expect(f.controller.read(new Set(["token_rate"]))).toEqual(average);
+			expect(vi.getTimerCount()).toBe(1);
+		},
+	);
 	it("never substitutes live rate for the average and an unclosed call leaves it unknown", () => {
 		const f = fixture();
 		f.controller.reconcile(context, { github: false, tokenRate: true });
@@ -329,7 +426,7 @@ describe("live metadata passive snapshot and scheduler", () => {
 		f.time(1000);
 		f.controller.startResponse();
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
-		expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		f.controller.rate.messageUpdate({ role: "assistant", usage: { input: 10, output: 1 } });
 		f.controller.rateChanged();
 		f.time(1100);
@@ -341,10 +438,10 @@ describe("live metadata passive snapshot and scheduler", () => {
 			displayTokens: { input: 20, output: 1030, outputApproximate: false },
 		});
 		expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
-		expect(f.onRate).toHaveBeenLastCalledWith("");
+		expect(f.onRate).toHaveBeenLastCalledWith("40 tok/s");
 		expect(vi.getTimerCount()).toBe(0);
 	});
-	it.each(["scope", "cwd", "demand", "reset", "dispose"] as const)(
+	it.each(["scope", "cwd", "demand", "reset", "resetRate", "dispose"] as const)(
 		"clears retained state and timers on %s without resurrecting disabled samples",
 		(action) => {
 			const f = fixture();
@@ -367,6 +464,7 @@ describe("live metadata passive snapshot and scheduler", () => {
 				expect(f.controller.read(new Set(["token_rate"]))).toEqual({});
 				f.time(1000);
 				f.controller.startResponse();
+				expect(f.onRate).toHaveBeenLastCalledWith("— tok/s");
 				expect(f.controller.read(new Set(["token_rate"]))).toEqual({ token_rate: "— tok/s avg" });
 			}
 		},

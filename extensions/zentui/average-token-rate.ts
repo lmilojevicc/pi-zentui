@@ -2,24 +2,48 @@ import { type MessageEndResult, parseAssistantMessageTokens } from "./interactio
 import type { TokenRateMessage } from "./token-rate";
 
 type FinalMessage = TokenRateMessage & { stopReason?: unknown };
+type CompletedWork = { output: number; elapsedMs: number; unknown: boolean };
+
+function emptyCompletedWork(): CompletedWork {
+	return { output: 0, elapsedMs: 0, unknown: false };
+}
+
+function combineCompletedWork(prior: CompletedWork, current: CompletedWork): CompletedWork {
+	const output = prior.output + current.output;
+	const elapsedMs = prior.elapsedMs + current.elapsedMs;
+	if (
+		!Number.isSafeInteger(output) ||
+		!Number.isFinite(elapsedMs) ||
+		elapsedMs > Number.MAX_SAFE_INTEGER
+	)
+		return { ...prior, unknown: true };
+	return { output, elapsedMs, unknown: prior.unknown || current.unknown };
+}
 
 /** Provider final output / summed turn_start -> accepted message_end observations.
  * Includes initial wait and client preparation, not just backend decoding. No tool/gap time.
  * Acceptance and response identity belong to InteractionMetricsTracker, not this accumulator.
  */
 export class AverageTokenRateTracker {
-	private output = 0;
-	private elapsedMs = 0;
-	private unknown = false;
+	/** Only the latest run can survive non-idle settlement; older runs fold in constant space. */
+	private priorRuns = emptyCompletedWork();
+	private currentRun = emptyCompletedWork();
 	private enabled = false;
 	private startedAt?: number;
 	private clock?: number;
+	private priorClock?: number;
 
 	constructor(private readonly now: () => number = () => performance.now()) {}
 
 	agentStart(interactionStarted: boolean): void {
 		if (interactionStarted) this.reset();
-		else this.suspend();
+		else {
+			this.suspend();
+			this.priorRuns = combineCompletedWork(this.priorRuns, this.currentRun);
+			this.currentRun = emptyCompletedWork();
+			this.priorClock = this.clock ?? this.priorClock;
+			this.clock = undefined;
+		}
 		this.enabled = true;
 	}
 
@@ -32,13 +56,16 @@ export class AverageTokenRateTracker {
 
 	observeTime(at = this.now()): void {
 		if (!this.enabled) return;
+		// Cross-run clock ordering is relevant only while those prior runs remain included.
+		if (this.clock === undefined && this.priorClock !== undefined && at < this.priorClock)
+			this.priorRuns.unknown = true;
 		if (
 			!Number.isFinite(at) ||
 			at < 0 ||
 			at > Number.MAX_SAFE_INTEGER ||
 			(this.clock !== undefined && at < this.clock)
 		)
-			this.unknown = true;
+			this.currentRun.unknown = true;
 		this.clock = at;
 	}
 
@@ -57,34 +84,43 @@ export class AverageTokenRateTracker {
 			failedPlaceholder ||
 			!Number.isFinite(elapsed) ||
 			elapsed <= 0 ||
-			!Number.isSafeInteger(this.output + usage.output) ||
-			!Number.isFinite(this.elapsedMs + elapsed) ||
-			this.elapsedMs + elapsed > Number.MAX_SAFE_INTEGER
+			!Number.isSafeInteger(this.currentRun.output + usage.output) ||
+			!Number.isFinite(this.currentRun.elapsedMs + elapsed) ||
+			this.currentRun.elapsedMs + elapsed > Number.MAX_SAFE_INTEGER
 		) {
-			this.unknown = true;
+			this.currentRun.unknown = true;
 			return;
 		}
-		this.output += usage.output;
-		this.elapsedMs += elapsed;
+		this.currentRun.output += usage.output;
+		this.currentRun.elapsedMs += elapsed;
 	}
 
 	/** An unclosed observed call cannot be silently omitted from an exact aggregate. */
 	suspend(): void {
-		if (this.startedAt !== undefined) this.unknown = true;
+		if (this.startedAt !== undefined) this.currentRun.unknown = true;
 		this.startedAt = undefined;
+	}
+
+	/** Drop settled runs without disturbing surviving completed work or an open call's anchor. */
+	partition(): void {
+		this.priorRuns = emptyCompletedWork();
+		this.priorClock = undefined;
 	}
 
 	reset(): void {
-		this.output = 0;
-		this.elapsedMs = 0;
-		this.unknown = false;
+		this.priorRuns = emptyCompletedWork();
+		this.currentRun = emptyCompletedWork();
 		this.enabled = false;
 		this.startedAt = undefined;
 		this.clock = undefined;
+		this.priorClock = undefined;
 	}
 
 	snapshot(): number | undefined {
-		return !this.unknown && this.elapsedMs > 0 ? (this.output * 1000) / this.elapsedMs : undefined;
+		const completed = combineCompletedWork(this.priorRuns, this.currentRun);
+		return !completed.unknown && completed.elapsedMs > 0
+			? (completed.output * 1000) / completed.elapsedMs
+			: undefined;
 	}
 }
 

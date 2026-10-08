@@ -22,6 +22,8 @@ export class LiveMetadataController {
 	private rateTimer: ReturnType<typeof setInterval> | undefined;
 	private streaming = false;
 	private rateLabel = "";
+	/** Bounded provenance: whether the held observation belongs to the latest agent run. */
+	private rateObservedInRun = false;
 	private workingRateLabel = "";
 	private averageLabel = "";
 	private generation = 0;
@@ -66,6 +68,8 @@ export class LiveMetadataController {
 	startAgent(interactionStarted: boolean): void {
 		if (this.disposed) return;
 		this.rate.agentStart();
+		this.rateObservedInRun = false;
+		if (interactionStarted) this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
 		this.averageRate.agentStart(interactionStarted);
 		if (this.demand.tokenRate)
 			this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
@@ -89,16 +93,27 @@ export class LiveMetadataController {
 		this.setStreaming(false);
 		if (previous !== this.averageLabel) this.repaint();
 	}
-	/** A new authorized response must not inherit another response's observed speed. */
+	/** Rebaseline live sampling each response, but hold its last observation within an interaction. */
 	startResponse(): void {
 		if (this.disposed) return;
 		this.rate.turnStart();
-		this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
+		if (!this.rateLabel) this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
 		if (this.demand.tokenRate) {
 			this.averageRate.turnStart();
 			this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
 		} else this.rate.suspend();
 		this.setStreaming(true);
+	}
+	/** Accepted settlement promoted the surviving run into a new interaction. */
+	partitionRates(): void {
+		if (this.disposed) return;
+		const previous = this.averageLabel;
+		this.averageRate.partition();
+		if (this.averageLabel) this.averageLabel = formatAverageTokenRate(this.averageRate.snapshot());
+		if (!this.rateObservedInRun) this.rateLabel = this.demand.tokenRate ? "— tok/s" : "";
+		// Do not suspend the surviving response or its next-turn authorization.
+		this.rateChanged();
+		if (previous !== this.averageLabel) this.repaint();
 	}
 	/** Tools/end retain metadata; identity/boundary changes explicitly clear it. */
 	suspendRate(clearDisplay = false): void {
@@ -107,6 +122,7 @@ export class LiveMetadataController {
 		const cleared = clearDisplay && (this.rateLabel !== "" || this.averageLabel !== "");
 		const workingWasVisible = this.workingRateLabel !== "";
 		if (clearDisplay) {
+			this.rateObservedInRun = false;
 			this.rateLabel = "";
 			this.averageLabel = "";
 			this.averageRate.reset();
@@ -130,9 +146,14 @@ export class LiveMetadataController {
 		if (this.streaming && this.demand.tokenRate) {
 			// Retain only an observed window rate, never turn final usage into a live sample.
 			const measured = formatTokenRate(this.rate.snapshot());
-			if (measured) this.rateLabel = measured;
+			if (measured) {
+				this.rateLabel = measured;
+				// A fresh run may observe the same formatted rate as the preceding run.
+				this.rateObservedInRun = true;
+			}
 		}
-		const workingText = this.streaming && this.demand.tokenRate ? this.rateLabel : "";
+		// WorkingLineController owns row visibility; tools/gaps retain historical observation only.
+		const workingText = this.demand.tokenRate ? this.rateLabel : "";
 		const workingChanged = workingText !== this.workingRateLabel;
 		if (workingChanged) {
 			this.workingRateLabel = workingText;
