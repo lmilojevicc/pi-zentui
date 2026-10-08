@@ -143,7 +143,7 @@ describe("canonical config resolution", () => {
 			},
 			thinkingSteps: { enabled: false, mode: "tree" },
 			workingLine: {
-				enabled: false,
+				enabled: true,
 				turnSummary: true,
 				turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 				spinner: "star-bloom",
@@ -157,7 +157,7 @@ describe("canonical config resolution", () => {
 					values: [...defaultConfig.components.workingLine.messages.values],
 				},
 				segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: true },
-				placement: "above",
+				placement: "border",
 			},
 			selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
 			footer: {
@@ -784,19 +784,23 @@ describe("working-line config", () => {
 			}).components.workingLine.spinnerIntervalMs,
 		).toBe(100);
 	});
-	it("normalizes canonical working-line placement and falls back invalid values to above", () => {
+	it("normalizes canonical working-line placement and defaults missing or invalid values to border", () => {
 		for (const placement of ["above", "border"] as const) {
 			expect(
 				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
 					.placement,
 			).toBe(placement);
 		}
-		for (const placement of ["input", "below", "", 1, null, true]) {
+		for (const placement of [undefined, "below", "", 1, null, true, {}, []]) {
 			expect(
 				mergeConfig({ components: { workingLine: { placement } } }).components.workingLine
 					.placement,
-			).toBe("above");
+			).toBe("border");
 		}
+		expect(
+			mergeConfig({ components: { workingLine: { placement: "input" } } }).components.workingLine
+				.placement,
+		).toBe("above");
 	});
 	it("defaults malformed or missing Turn summary to true and preserves explicit false", () => {
 		expect(mergeConfig({}).components.workingLine.turnSummary).toBe(true);
@@ -870,7 +874,7 @@ describe("working-line config", () => {
 			colorSource: "terminal",
 			messages: { custom: true, values: ["One", "Two"] },
 			segments: { tool: false, elapsed: true, thought: true, tokens: false, tokenRate: false },
-			placement: "above",
+			placement: "border",
 		});
 		expect(config.colors).toMatchObject({
 			workingLineLow: "fg:240",
@@ -897,7 +901,7 @@ describe("working-line config", () => {
 			colors: { workingLineLow: "not-a-color" },
 		}).components.workingLine;
 		expect(component).toMatchObject({
-			enabled: false,
+			enabled: true,
 			spinner: "star-bloom",
 			spinnerIntervalMs: 100,
 			animateSpinnerColor: false,

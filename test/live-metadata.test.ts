@@ -110,10 +110,12 @@ afterEach(() => {
 });
 
 describe("live metadata effective owner demand", () => {
-	it("keeps rate demand off while the default Working line is disabled", () => {
+	it("demands rate for the default Working line and releases it on opt-out", () => {
 		const config = mergeConfig({});
-		expect(config.components.workingLine.enabled).toBe(false);
+		expect(config.components.workingLine.enabled).toBe(true);
 		expect(config.components.workingLine.segments.tokenRate).toBe(true);
+		expect(liveMetadataDemand(config, owned)).toEqual({ github: false, tokenRate: true });
+		config.components.workingLine.enabled = false;
 		expect(liveMetadataDemand(config, owned)).toEqual({ github: false, tokenRate: false });
 	});
 	it.each(["minimalist", "opencode", "opencode-copy-friendly"] as const)(
@@ -131,6 +133,7 @@ describe("live metadata effective owner demand", () => {
 						},
 					},
 					footer: { style: "native" },
+					workingLine: { enabled: false },
 				},
 			});
 			expect(liveMetadataDemand(config, owned)).toEqual({ github: true, tokenRate: true });
@@ -152,6 +155,7 @@ describe("live metadata effective owner demand", () => {
 		const config = mergeConfig({
 			components: {
 				editor: { enabled: false },
+				workingLine: { enabled: false },
 				footer: {
 					style: "starship",
 					styles: {
@@ -184,7 +188,7 @@ describe("live metadata effective owner demand", () => {
 		config.components.workingLine.segments.tokenRate = false;
 		expect(liveMetadataDemand(config, owned).tokenRate).toBe(false);
 	});
-	it("unsupported and accent-rail surfaces never demand metadata lookups", () => {
+	it("unsupported and accent-rail surfaces leave independent Working rate demand intact", () => {
 		for (const style of ["future-style", "accent-rail"]) {
 			const config = mergeConfig({
 				components: {
@@ -192,7 +196,11 @@ describe("live metadata effective owner demand", () => {
 					footer: { style: "future-style", styles: { starship: { format: "$pr_number" } } },
 				},
 			});
-			expect(liveMetadataDemand(config, owned)).toEqual({ github: false, tokenRate: false });
+			expect(liveMetadataDemand(config, owned)).toEqual({ github: false, tokenRate: true });
+			expect(liveMetadataDemand(config, { ...owned, workingLine: false })).toEqual({
+				github: false,
+				tokenRate: false,
+			});
 		}
 	});
 });

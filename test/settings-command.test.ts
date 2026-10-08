@@ -1338,12 +1338,12 @@ describe("component-oriented /zentui settings", () => {
 			await h.command().handler("working-line", h.ctx);
 			const panel = h.component();
 			selectLabel(panel, "Placement");
-			expect(focusedRow(panel)).toMatch(/Above$/);
-			panel.handleInput(" ");
 			expect(focusedRow(panel)).toMatch(/Border$/);
 			panel.handleInput(" ");
 			expect(focusedRow(panel)).toMatch(/Above$/);
-			expect(h.calls.workingLine).toEqual([{ placement: "border" }, { placement: "above" }]);
+			panel.handleInput(" ");
+			expect(focusedRow(panel)).toMatch(/Border$/);
+			expect(h.calls.workingLine).toEqual([{ placement: "above" }, { placement: "border" }]);
 			expect(config.components.editor).toEqual(editor);
 			expect(h.calls.editor).toEqual([]);
 		},
@@ -1396,8 +1396,8 @@ describe("component-oriented /zentui settings", () => {
 			"Color overrides",
 		]);
 		for (const [label, expected] of [
-			["Enabled", "enabled"],
-			["Placement", "Border"],
+			["Enabled", "disabled"],
+			["Placement", "Above"],
 			["Turn summary", "disabled"],
 			["Spinner", "ASCII Pinwheel"],
 			["Spinner speed", "Slow 160 ms"],
@@ -1416,8 +1416,8 @@ describe("component-oriented /zentui settings", () => {
 			expect(focusedRow(component)).toContain(expected);
 		}
 		expect(harness.calls.workingLine).toEqual([
-			{ enabled: true },
-			{ placement: "border" },
+			{ enabled: false },
+			{ placement: "above" },
 			{ turnSummary: false },
 			{ spinner: "pinwheel" },
 			{ spinnerIntervalMs: 160 },

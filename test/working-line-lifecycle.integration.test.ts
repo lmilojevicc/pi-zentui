@@ -17,6 +17,7 @@ function required<T>(value: T | undefined): T {
 
 const runtime = vi.hoisted(() => ({
 	enabled: true,
+	freshWorkingDefaults: false,
 	custom: true,
 	message: "Stable",
 	spinner: "star-bloom" as "star-bloom" | "pulse",
@@ -37,18 +38,20 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 			const config = structuredClone(actual.defaultConfig);
 			config.components.workingLine.colorSource = "theme";
 			// Test message/indicator ownership without rate-driven refreshes.
-			config.components.workingLine.segments.tokenRate = false;
+			if (!runtime.freshWorkingDefaults) config.components.workingLine.segments.tokenRate = false;
 			config.projectRefreshIntervalMs = 0;
 			config.components.editor.enabled = runtime.editorEnabled;
 			config.components.editor.style = runtime.editorStyle;
-			config.components.editor.styles.minimalist.showTimer = false;
+			if (!runtime.freshWorkingDefaults)
+				config.components.editor.styles.minimalist.showTimer = false;
 			config.components.editor.styles.minimalist.showGit = false;
 			config.components.editor.styles.minimalist.pathDisplay = "full";
-			config.components.workingLine.placement = runtime.placement;
+			if (!runtime.freshWorkingDefaults)
+				config.components.workingLine.placement = runtime.placement;
 			config.components.userMessages.enabled = false;
 			config.components.selectorBorders.enabled = false;
 			config.components.footer.style = "native";
-			config.components.workingLine.enabled = runtime.enabled;
+			if (!runtime.freshWorkingDefaults) config.components.workingLine.enabled = runtime.enabled;
 			config.components.workingLine.spinner = runtime.spinner;
 			config.components.workingLine.spinnerIntervalMs = runtime.spinnerIntervalMs;
 			config.components.workingLine.textIntervalMs = runtime.textIntervalMs;
@@ -219,6 +222,7 @@ function harness() {
 
 beforeEach(() => {
 	runtime.enabled = true;
+	runtime.freshWorkingDefaults = false;
 	runtime.custom = true;
 	runtime.message = "Stable";
 	runtime.spinner = "star-bloom";
@@ -1160,6 +1164,50 @@ describe("working-line owned editor border integration", () => {
 		vi.clearAllTimers();
 		vi.useRealTimers();
 	});
+
+	it.each(["minimalist", "opencode", "opencode-copy-friendly", "accent-rail"] as const)(
+		"uses fresh Working defaults with %s and releases all owned timers",
+		async (style) => {
+			runtime.freshWorkingDefaults = true;
+			runtime.editorStyle = style;
+			const handlers = loadExtension();
+			const h = editorHarness();
+			try {
+				await emit(handlers, "session_start", h.ctx);
+				const config = required(runtime.config);
+				expect(config.components.workingLine).toMatchObject({
+					enabled: true,
+					placement: "border",
+					segments: { elapsed: true, tokenRate: true },
+				});
+				expect(config.components.thinkingSteps.enabled).toBe(false);
+				expect(config.components.editor.styles.minimalist.showTimer).toBe(false);
+				await emit(handlers, "agent_start", h.ctx);
+				h.editor.setText("retained draft");
+				const rows = h.render();
+				expect(capability(handlers).active).toBe(true);
+				if (style === "accent-rail") {
+					const indicator = h.calls.findLast(([name]) => name === "indicator")?.[1] as
+						| { frames?: string[] }
+						| undefined;
+					expect(stripTerminalSequences(indicator?.frames?.[0] ?? "")).toMatch(/Stable · 0s/);
+					expect(rows.join("\n")).not.toContain("Stable");
+					expect(h.visible).not.toHaveBeenCalled();
+				} else {
+					expect(rows[0]).toMatch(/Stable · 0s/);
+					expect(rows.slice(1).join("\n")).not.toContain("Stable");
+					expect(h.visible).toHaveBeenLastCalledWith(false);
+				}
+				expect(h.editor.getText()).toBe("retained draft");
+				expect(config.components.workingLine.placement).toBe("border");
+				await emit(handlers, "agent_end", h.ctx);
+				if (style !== "accent-rail") expect(h.visible).toHaveBeenLastCalledWith(true);
+			} finally {
+				await emit(handlers, "session_shutdown", h.ctx);
+			}
+			expect(vi.getTimerCount()).toBe(0);
+		},
+	);
 
 	for (const wrapped of [false, true]) {
 		it.each(["minimalist", "opencode", "opencode-copy-friendly"] as const)(

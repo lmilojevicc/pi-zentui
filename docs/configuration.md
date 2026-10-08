@@ -16,7 +16,7 @@ Disabled, native and unowned surfaces do not demand these probes on behalf of Ze
 
 ## Start with minimal overrides
 
-Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, and Starship Footer; Working line and Thinking (Experimental) are disabled.
+Do not copy the complete defaults into your file. Omitted fields keep defaults and source-aware inheritance. New installs enable Opencode Editor, Framed User messages, Zentui selector borders, Starship Footer, and Working line with Border placement; Thinking (Experimental) is disabled. All presets inherit these Working-line defaults without overriding saved choices.
 
 Change just one surface:
 
@@ -249,8 +249,8 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "mode": "tree"
     },
     "workingLine": {
-      "enabled": false,
-      "placement": "above",
+      "enabled": true,
+      "placement": "border",
       "turnSummary": true,
       "turnSummaryFormat": "Turn took $turn_duration$join_sep(thought for $thought_duration)$join_sep(↑$input_tokens ↓$output_tokens)$join_sep$token_rate",
       "spinner": "star-bloom",
@@ -418,7 +418,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
 - All three modes decorate Pi's private host renderer and are tested on exact Pi versions 0.85.0, 0.87.1, and 1.0.3. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.
-- `components.workingLine.placement` (`above | border`) selects the default floating row or the Minimalist/Opencode top border. Accent Rail supports only Above. Disabled, native, unavailable, or unsafe/narrow editors and Pi versions without working-row visibility control fall back to Above without changing saved choices. Legacy `input` normalizes to `above`; the prompt remains available for typing.
+- `components.workingLine.placement` (`above | border`) selects a floating row or the Minimalist/Opencode top border (default). Accent Rail supports only Above. Disabled, native, unavailable, or unsafe/narrow editors and Pi versions without working-row visibility control fall back to Above without changing saved choices. Legacy `input` normalizes to `above`; the prompt remains available for typing.
 - `components.selectorBorders` owns selector-border enablement, fixed `zentui` style, and color source. Disable it for native Pi behavior.
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
@@ -944,7 +944,7 @@ OMP's native `$token_rate` semantics are unchanged.
 
 When enabled, Zentui owns Pi's complete working-row message and indicator. Five fixed-width spinner presets are available: Braille Orbit, Star Bloom, ASCII Pinwheel, Claude-inspired, and three-cell Pulse.
 
-`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** defaults on (`segments.tokenRate: true`) when Working line is enabled; Working line itself remains disabled by default. Set `segments.tokenRate: false` to hide the rate. Enable Working line without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"colors":{"tokenRate":"fg:202"}}}}`. It holds the last observed recent live Pi rate through tools and subsequent calls in the same interaction, not the completed average in Editor/Footer `$token_rate`. The row disappears normally at idle, and identity changes such as compaction clear the observation; see [live metadata](#live-metadata).
+`messages.custom` defaults on and selects once per model turn from an editable, materialized 16-message list. Turning it off keeps the row owned and displays animated `Working…`; an empty or invalid list uses the same fallback. Optional segments show the latest active Tool, interaction-wide Elapsed time, cumulative wall-clock Thinking time, and whole-interaction Tokens. **Token rate** defaults on (`segments.tokenRate: true`) when Working line is enabled; Working line defaults on with Border placement. Minimalist’s own timer defaults off; Working-line Elapsed stays on. Explicit saved choices remain unchanged. Set `segments.tokenRate: false` to hide the rate. Enable Working line without adopting Editor or Footer: `{"components":{"workingLine":{"enabled":true,"colors":{"tokenRate":"fg:202"}}}}`. It holds the last observed recent live Pi rate through tools and subsequent calls in the same interaction, not the completed average in Editor/Footer `$token_rate`. The row disappears normally at idle, and identity changes such as compaction clear the observation; see [live metadata](#live-metadata).
 
 Committed totals stay provider-reported across tool loops, retries, compaction retries, and queued continuations. During a response, live output follows Pi's `↓N` convention whether usage is provider-reported or temporarily estimated. Final usage reconciles atomically; input is never estimated. Labels are sanitized and width-bounded.
 

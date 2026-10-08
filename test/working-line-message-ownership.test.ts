@@ -9,6 +9,8 @@ function harness() {
 	const config = structuredClone(defaultConfig);
 	Object.assign(config.components.workingLine, {
 		enabled: true,
+		// Message ownership tests observe the floating Loader unless testing border fallback.
+		placement: "above",
 		textAnimation: "disabled",
 		messages: { custom: true, values: ["Stable"] },
 	});

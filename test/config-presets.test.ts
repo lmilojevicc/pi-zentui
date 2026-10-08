@@ -54,6 +54,13 @@ describe("atomic component preset persistence", () => {
 				const config = saveComponentPreset(value, path);
 				expect(raw(path)).toEqual({ components: value.components });
 				expect(matchingComponentPreset(config)?.id).toBe(value.id);
+				expect(config.components.workingLine).toMatchObject({
+					enabled: true,
+					placement: "border",
+					segments: { elapsed: true, tokenRate: true },
+				});
+				expect(config.components.thinkingSteps.enabled).toBe(false);
+				expect(config.components.editor.styles.minimalist.showTimer).toBe(false);
 				expect(config).toEqual(mergeConfig(raw(path)));
 				expect(fs.renameSync).toHaveBeenCalledTimes(1);
 				expect(fs.writeFileSync).toHaveBeenCalledTimes(1);

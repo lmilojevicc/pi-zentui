@@ -603,7 +603,7 @@ const defaultComponents: ComponentsConfig = {
 	},
 	thinkingSteps: { enabled: false, mode: "tree" },
 	workingLine: {
-		enabled: false,
+		enabled: true,
 		turnSummary: true,
 		turnSummaryFormat: DEFAULT_TURN_SUMMARY_FORMAT,
 		spinner: "star-bloom",
@@ -614,7 +614,7 @@ const defaultComponents: ComponentsConfig = {
 		colorSource: "terminal",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
 		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: true },
-		placement: "above",
+		placement: "border",
 	},
 	selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
 	footer: {
@@ -1560,9 +1560,11 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					? workingLine.textAnimation
 					: defaultComponents.workingLine.textAnimation,
 			placement:
-				workingLine.placement === "border"
-					? workingLine.placement
-					: defaultComponents.workingLine.placement,
+				workingLine.placement === "above" || workingLine.placement === "input"
+					? "above"
+					: workingLine.placement === "border"
+						? "border"
+						: defaultComponents.workingLine.placement,
 			colorSource: parseColorSource(
 				workingLine.colorSource,
 				defaultComponents.workingLine.colorSource,

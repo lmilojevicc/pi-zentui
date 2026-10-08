@@ -9,7 +9,11 @@ import {
 	saveComponentPreset,
 	saveMinimalistTemplatePatch,
 } from "../extensions/zentui/config";
-import { getComponentPreset, matchingComponentPreset } from "../extensions/zentui/presets";
+import {
+	componentPresets,
+	getComponentPreset,
+	matchingComponentPreset,
+} from "../extensions/zentui/presets";
 
 const colorOwners = ["editor", "userMessages", "footer", "selectorBorders", "workingLine"] as const;
 const minimalistDefaults = {
@@ -56,7 +60,7 @@ describe("unsaved config defaults", () => {
 			});
 			expect(config.components.userMessages).toMatchObject({ enabled: true, style: "framed" });
 			expect(config.components.footer.style).toBe("starship");
-			expect(config.components.workingLine.enabled).toBe(false);
+			expect(config.components.workingLine.enabled).toBe(true);
 			expect(config.components.thinkingSteps.enabled).toBe(false);
 			expect(config.components.editor.styles.minimalist).toEqual(minimalistDefaults);
 			expect(config.editorStyles.minimalist).toEqual(minimalistDefaults);
@@ -81,6 +85,7 @@ describe("unsaved config defaults", () => {
 				colorSources: { editor: invalid, userMessages: invalid, starship: invalid },
 				components: {
 					...Object.fromEntries(colorOwners.map((owner) => [owner, { colorSource: invalid }])),
+					workingLine: { colorSource: invalid, enabled: invalid, placement: invalid },
 					editor: {
 						colorSource: invalid,
 						styles: {
@@ -94,17 +99,18 @@ describe("unsaved config defaults", () => {
 			for (const owner of colorOwners)
 				expect(config.components[owner].colorSource).toBe("terminal");
 			expect(config.components.editor.styles.minimalist).toEqual(minimalistDefaults);
+			expect(config.components.workingLine).toMatchObject({ enabled: true, placement: "border" });
 		},
 	);
 
 	it.each([undefined, null, "false", false, true])(
-		"defaults Tokens/s on without enabling components and preserves explicit choices: %j",
+		"defaults Tokens/s on and preserves explicit choices: %j",
 		(tokenRate) => {
 			const config = mergeConfig({
 				components: { workingLine: { segments: { tokenRate } } },
 			});
 			expect(config.components.workingLine.segments.tokenRate).toBe(tokenRate !== false);
-			expect(config.components.workingLine.enabled).toBe(false);
+			expect(config.components.workingLine.enabled).toBe(true);
 			expect(config.components.thinkingSteps.enabled).toBe(false);
 		},
 	);
@@ -135,7 +141,7 @@ describe("unsaved config defaults", () => {
 		expect(defaultConfig.components.editor.styles.minimalist).toEqual(minimalistDefaults);
 	});
 
-	it("selects Minimalist without enabling Footer, Working line, or Thinking steps or persisting defaults", () => {
+	it("selects Minimalist without enabling Footer or Thinking steps or persisting defaults", () => {
 		withConfig((path) => {
 			const preset = minimalistPreset();
 			const result = saveComponentPreset(preset, path);
@@ -143,15 +149,25 @@ describe("unsaved config defaults", () => {
 			expect(result.components.editor.style).toBe("minimalist");
 			expect(result.components.footer.style).toBe("hidden");
 			expect(result.components.userMessages.enabled).toBe(false);
-			expect(result.components.workingLine.enabled).toBe(false);
+			expect(result.components.workingLine).toMatchObject({
+				enabled: true,
+				placement: "border",
+				segments: { elapsed: true, tokenRate: true },
+			});
 			expect(result.components.thinkingSteps.enabled).toBe(false);
 			expect(result.components.editor.styles.minimalist).toEqual(minimalistDefaults);
 		});
 	});
 
-	it.each([false, true])(
-		"preserves saved options and enabled=%s independent components on preset selection",
-		(enabled) => {
+	it.each(
+		componentPresets.flatMap((preset) =>
+			[false, true].flatMap((enabled) =>
+				["above", "border"].map((placement) => ({ preset, enabled, placement })),
+			),
+		),
+	)(
+		"preserves saved options and enabled=$enabled placement=$placement under $preset.id",
+		({ preset, enabled, placement }) => {
 			withConfig((path) => {
 				const savedStyle = {
 					...minimalistDefaults,
@@ -174,7 +190,7 @@ describe("unsaved config defaults", () => {
 						workingLine: {
 							colorSource: "theme",
 							enabled,
-							placement: "border",
+							placement,
 							segments: { tokenRate: false },
 						},
 						thinkingSteps: { enabled, mode: "rail" },
@@ -184,14 +200,15 @@ describe("unsaved config defaults", () => {
 				const before = readFileSync(path, "utf8");
 				expect(mergeConfig(original).components.editor.styles.minimalist).toEqual(savedStyle);
 				expect(readFileSync(path, "utf8")).toBe(before);
-				const result = saveComponentPreset(minimalistPreset(), path);
+				const result = saveComponentPreset(preset, path);
 				expect(result.components.editor.styles.minimalist).toEqual(savedStyle);
 				for (const owner of colorOwners) expect(result.components[owner].colorSource).toBe("theme");
 				expect(result.components.workingLine.enabled).toBe(enabled);
+				expect(result.components.workingLine.placement).toBe(placement);
 				expect(result.components.workingLine.segments.tokenRate).toBe(false);
 				expect(result.components.thinkingSteps.enabled).toBe(enabled);
 				const expected = structuredClone(original);
-				for (const [owner, selection] of Object.entries(minimalistPreset().components))
+				for (const [owner, selection] of Object.entries(preset.components))
 					Object.assign(expected.components[owner as keyof typeof expected.components], selection);
 				expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(expected);
 			});
