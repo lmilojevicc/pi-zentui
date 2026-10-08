@@ -41,6 +41,7 @@ describe("Footer repository path rendering", () => {
 			},
 		};
 		const config = structuredClone(defaultConfig);
+		config.components.footer.colorSource = "theme";
 		config.icons.cwd = "";
 		config.components.footer.styles.starship.pathDisplay = {
 			mode: "repository",
@@ -82,6 +83,7 @@ describe("Footer repository path rendering", () => {
 	it("only asks for a repository root in repository mode", () => {
 		let footerFactory: FooterFactory | undefined;
 		const config = structuredClone(defaultConfig);
+		config.components.footer.colorSource = "theme";
 		config.icons.cwd = "";
 		const getRepositoryRoot = vi.fn(() => "/repo");
 		installFooter(

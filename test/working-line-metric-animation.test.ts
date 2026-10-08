@@ -135,6 +135,7 @@ describe("working-line whole-row metric animation", () => {
 		(textAnimation) => {
 			vi.useFakeTimers();
 			const current = structuredClone(defaultConfig);
+			current.components.workingLine.colorSource = "theme";
 			const component = current.components.workingLine;
 			Object.assign(component, {
 				enabled: true,

@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	formatTurnSummary,
 	InteractionMetricsTracker,
@@ -1294,6 +1294,28 @@ describe("thought duration tracking", () => {
 });
 
 describe("turn summary entry", () => {
+	it.each([undefined, {}, { colorSource: "invalid" }, { colorSource: "terminal" }])(
+		"defaults legacy summaries to terminal colors without rewriting persisted data: %j",
+		(options) => {
+			const data = { version: 1 as const, durationMs: 1000, input: 1, output: 2 };
+			const theme = { fg: vi.fn((_color: string, text: string) => text) };
+			const output = renderTurnSummaryEntry({ data }, options, theme)?.render(100).join("\n");
+			expect(output).toContain("\x1b[1;36m");
+			expect(theme.fg).not.toHaveBeenCalled();
+			expect(data).toEqual({ version: 1, durationMs: 1000, input: 1, output: 2 });
+		},
+	);
+
+	it("preserves an explicit theme source for legacy summaries", () => {
+		const theme = { fg: vi.fn((_color: string, text: string) => text) };
+		renderTurnSummaryEntry(
+			{ data: { version: 1, durationMs: 1000, input: 1, output: 2 } },
+			{ colorSource: "theme" },
+			theme,
+		);
+		expect(theme.fg).toHaveBeenCalledWith("accent", expect.stringContaining("Turn took"));
+	});
+
 	it("validates versioned numeric data and formats exact persistent text", () => {
 		const data = { version: 1 as const, durationMs: 42_999, input: 27_000, output: 1_400 };
 		expect(isTurnSummaryData(data)).toBe(true);

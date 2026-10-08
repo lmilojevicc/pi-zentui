@@ -53,7 +53,9 @@ function theme(): Theme {
 	} as unknown as Theme;
 }
 function cloneConfig(): PolishedTuiConfig {
-	return structuredClone(defaultConfig);
+	const config = structuredClone(defaultConfig);
+	config.components.workingLine.colorSource = "theme";
+	return config;
 }
 function goToSection(component: Component, section: SectionName): void {
 	if (footerPageNames.some((name) => name === section)) {
@@ -717,10 +719,10 @@ describe("component-oriented /zentui settings", () => {
 
 		for (const [label, value] of [
 			["Path", "project"],
-			["Context text", "percent-total"],
+			["Context text", "percent"],
 			["Context gauge", "enabled"],
-			["Session name", "disabled"],
-			["Timer", "disabled"],
+			["Session name", "enabled"],
+			["Timer", "enabled"],
 			["Cost", "disabled"],
 			["Cache hit rate", "enabled"],
 			["Git", "disabled"],
@@ -733,10 +735,10 @@ describe("component-oriented /zentui settings", () => {
 		}
 		expect(harness.calls.minimalist).toEqual([
 			{ pathDisplay: "project" },
-			{ contextFormat: "percent-total" },
+			{ contextFormat: "percent" },
 			{ contextGauge: true },
-			{ showSessionName: false },
-			{ showTimer: false },
+			{ showSessionName: true },
+			{ showTimer: true },
 			{ showCost: false },
 			{ showCacheHit: true },
 			{ showGit: false },
@@ -897,11 +899,11 @@ describe("component-oriented /zentui settings", () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
-		expect(component.render(160)[0]).not.toContain("\x1b[90m");
+		expect(component.render(160)[0]).toContain("\x1b[90m");
 		selectLabel(component, "Selector border colors");
 		component.handleInput(" ");
-		expect(component.render(160)[0]).toContain("\x1b[90m");
-		expect(harness.config.components.editor.colorSource).toBe("theme");
+		expect(component.render(160)[0]).not.toContain("\x1b[90m");
+		expect(harness.config.components.editor.colorSource).toBe("terminal");
 		goToSection(component, "Editor");
 		selectLabel(component, "Editor colors");
 		component.handleInput(" ");
@@ -917,10 +919,10 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		selectLabel(component, "Footer model label");
 		component.handleInput(" ");
-		expect(harness.calls.selectors).toEqual([{ colorSource: "terminal" }]);
-		expect(harness.calls.editor).toEqual([{ colorSource: "terminal" }, { modelLabel: "name" }]);
-		expect(harness.calls.messages).toEqual([{ colorSource: "terminal" }]);
-		expect(harness.calls.footer).toEqual([{ colorSource: "terminal" }, { modelLabel: "name" }]);
+		expect(harness.calls.selectors).toEqual([{ colorSource: "theme" }]);
+		expect(harness.calls.editor).toEqual([{ colorSource: "theme" }, { modelLabel: "name" }]);
+		expect(harness.calls.messages).toEqual([{ colorSource: "theme" }]);
+		expect(harness.calls.footer).toEqual([{ colorSource: "theme" }, { modelLabel: "name" }]);
 	});
 
 	it("rebuilds failed persistence with effective values and attempted-row focus", async () => {
@@ -1671,7 +1673,7 @@ describe("component-oriented /zentui settings", () => {
 		selectLabel(component, "Timer");
 		component.handleInput(" ");
 		expect(component.render(100).join("\n")).not.toBe(minimalist);
-		expect(harness.calls.minimalist).toEqual([{ showTimer: false }]);
+		expect(harness.calls.minimalist).toEqual([{ showTimer: true }]);
 		expect(vi.getTimerCount()).toBe(0);
 		component.handleInput("\t");
 		const messageRows = component.render(100);
@@ -1690,7 +1692,7 @@ describe("component-oriented /zentui settings", () => {
 		expect(component.render(100).join("\n")).not.toBe(copyFriendlyMessage);
 		expect(harness.calls.messages).toEqual([
 			{ style: "framed-copy-friendly" },
-			{ colorSource: "terminal" },
+			{ colorSource: "theme" },
 		]);
 		expect(vi.getTimerCount()).toBe(0);
 		component.handleInput("\t");
@@ -1705,9 +1707,9 @@ describe("component-oriented /zentui settings", () => {
 			expect(rows[3]).toContain("> Footer style");
 			expect(rows.join("\n")).not.toMatch(/samples?|synthetic|sonnet-long-context-preview/i);
 		}
-		expect(row(component, "Footer colors")).toContain("theme");
+		expect(row(component, "Footer colors")).toContain("terminal");
 		component.handleInput(" ");
-		expect(harness.calls.footer).toEqual([{ colorSource: "terminal" }]);
+		expect(harness.calls.footer).toEqual([{ colorSource: "theme" }]);
 		for (const label of ["Footer model label", "Responsive footer", "Color overrides"])
 			expect(row(component, label)).toContain(`> ${label}`);
 		for (const section of footerPageNames) {

@@ -22,6 +22,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		ensureConfigExists: () => {},
 		loadConfig: vi.fn(() => {
 			const config = structuredClone(actual.defaultConfig);
+			config.components.workingLine.colorSource = "theme";
 			config.projectRefreshIntervalMs = 5000;
 			config.components.editor.enabled = runtime.editorEnabled;
 			config.components.editor.codexQuota = false;

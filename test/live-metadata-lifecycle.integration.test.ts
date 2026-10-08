@@ -218,6 +218,7 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	runtime.config = mergeConfig({
 		projectRefreshIntervalMs: 0,
+		colorSources: { editor: "theme", starship: "theme" },
 		components: {
 			editor: {
 				style: "minimalist",

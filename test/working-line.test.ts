@@ -56,7 +56,9 @@ function theme(): Theme {
 }
 
 function config(): PolishedTuiConfig {
-	return structuredClone(defaultConfig);
+	const current = structuredClone(defaultConfig);
+	current.components.workingLine.colorSource = "theme";
+	return current;
 }
 
 const stripTerminalSequences = stripVTControlCharacters;

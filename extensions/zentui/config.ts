@@ -543,11 +543,12 @@ const defaultAccentRailStyle: AccentRailEditorStyleConfig = {
 };
 
 const defaultMinimalistStyle: MinimalistEditorStyleConfig = {
+	formats: { bottomLeft: "$session_name$join_sep($git_branch)" },
 	pathDisplay: "compact",
-	contextFormat: "percent",
+	contextFormat: "percent-total",
 	contextGauge: false,
-	showSessionName: true,
-	showTimer: true,
+	showSessionName: false,
+	showTimer: false,
 	showCost: true,
 	showCacheHit: false,
 	showGit: true,
@@ -577,7 +578,7 @@ const defaultComponents: ComponentsConfig = {
 		codexQuota: false,
 		enabled: true,
 		style: "opencode",
-		colorSource: "theme",
+		colorSource: "terminal",
 		borderColorMode: "static",
 		modelLabel: "id",
 		viewportIndicators: true,
@@ -597,7 +598,7 @@ const defaultComponents: ComponentsConfig = {
 	userMessages: {
 		enabled: true,
 		style: "framed",
-		colorSource: "theme",
+		colorSource: "terminal",
 		styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 	},
 	thinkingSteps: { enabled: false, mode: "tree" },
@@ -610,16 +611,16 @@ const defaultComponents: ComponentsConfig = {
 		animateSpinnerColor: false,
 		textIntervalMs: DEFAULT_WORKING_LINE_TEXT_INTERVAL_MS,
 		textAnimation: "classic",
-		colorSource: "theme",
+		colorSource: "terminal",
 		messages: { custom: true, values: [...PI_WORKING_LINE_MESSAGES] },
 		segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 		placement: "above",
 	},
-	selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
+	selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
 	footer: {
 		codexQuota: false,
 		style: "starship",
-		colorSource: "theme",
+		colorSource: "terminal",
 		modelLabel: "id",
 		styles: { starship: defaultStarshipStyle },
 	},
@@ -665,7 +666,7 @@ export const defaultConfig: PolishedTuiConfig = {
 	contextThresholds: defaultStarshipStyle.contextThresholds,
 	pathDisplay: defaultStarshipStyle.pathDisplay,
 	gitBranch: defaultStarshipStyle.gitBranch,
-	colorSources: { starship: "theme", editor: "theme", userMessages: "theme" },
+	colorSources: { starship: "terminal", editor: "terminal", userMessages: "terminal" },
 	features: {
 		editor: true,
 		statusLine: true,
@@ -1462,9 +1463,10 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 					transparent: parseBoolean(accentRail.transparent, defaultAccentRailStyle.transparent),
 				},
 				minimalist: {
-					...(isRecord(minimalist.formats)
-						? { formats: normalizeMinimalistFormats(minimalist.formats) }
-						: {}),
+					formats: {
+						...defaultMinimalistStyle.formats,
+						...normalizeMinimalistFormats(minimalist.formats),
+					},
 					...(isRecord(minimalist.variables)
 						? { variables: normalizeMinimalistVariables(minimalist.variables) }
 						: {}),

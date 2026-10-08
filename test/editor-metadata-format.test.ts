@@ -2,7 +2,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { defaultConfig } from "../extensions/zentui/config";
+import { defaultConfig as runtimeDefaults } from "../extensions/zentui/config";
 import {
 	type EditorMetadataValues,
 	renderEditorMetadataFormat,
@@ -10,6 +10,10 @@ import {
 	sanitizeEditorMetadataText,
 } from "../extensions/zentui/editor-metadata-format";
 import { composeEditorMetadataLine, renderPolishedEditorFrame } from "../extensions/zentui/ui";
+
+const defaultConfig = structuredClone(runtimeDefaults);
+defaultConfig.components.editor.colorSource = "theme";
+defaultConfig.colorSources.editor = "theme";
 
 function makeTheme(): Theme {
 	return {

@@ -102,7 +102,7 @@ describe("canonical config resolution", () => {
 				codexQuota: false,
 				enabled: true,
 				style: "opencode",
-				colorSource: "theme",
+				colorSource: "terminal",
 				borderColorMode: "static",
 				modelLabel: "id",
 				viewportIndicators: true,
@@ -121,11 +121,12 @@ describe("canonical config resolution", () => {
 						transparent: false,
 					},
 					minimalist: {
+						formats: { bottomLeft: "$session_name$join_sep($git_branch)" },
 						pathDisplay: "compact",
-						contextFormat: "percent",
+						contextFormat: "percent-total",
 						contextGauge: false,
-						showSessionName: true,
-						showTimer: true,
+						showSessionName: false,
+						showTimer: false,
 						showCost: true,
 						showCacheHit: false,
 						showGit: true,
@@ -137,7 +138,7 @@ describe("canonical config resolution", () => {
 			userMessages: {
 				enabled: true,
 				style: "framed",
-				colorSource: "theme",
+				colorSource: "terminal",
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
 			thinkingSteps: { enabled: false, mode: "tree" },
@@ -150,7 +151,7 @@ describe("canonical config resolution", () => {
 				animateSpinnerColor: false,
 				textIntervalMs: 60,
 				textAnimation: "classic",
-				colorSource: "theme",
+				colorSource: "terminal",
 				messages: {
 					custom: true,
 					values: [...defaultConfig.components.workingLine.messages.values],
@@ -158,11 +159,11 @@ describe("canonical config resolution", () => {
 				segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 				placement: "above",
 			},
-			selectorBorders: { enabled: true, style: "zentui", colorSource: "theme" },
+			selectorBorders: { enabled: true, style: "zentui", colorSource: "terminal" },
 			footer: {
 				codexQuota: false,
 				style: "starship",
-				colorSource: "theme",
+				colorSource: "terminal",
 				modelLabel: "id",
 				styles: {
 					starship: {
@@ -357,7 +358,7 @@ describe("canonical config resolution", () => {
 		});
 		expect(config.components.editor.enabled).toBe(false);
 		expect(config.components.editor.style).toBe("opencode");
-		expect(config.components.editor.colorSource).toBe("theme");
+		expect(config.components.editor.colorSource).toBe("terminal");
 		// Missing canonical siblings still migrate independently.
 		expect(config.components.editor.viewportIndicators).toBe(false);
 		expect(config.components.editor.borderColorMode).toBe("adaptive");
@@ -394,7 +395,7 @@ describe("canonical config resolution", () => {
 					editorStyles: { minimalist: { contextFormat: "percent-total" } },
 					components: { editor: { styles: { minimalist: { contextFormat } } } },
 				}).components.editor.styles.minimalist.contextFormat,
-			).toBe("percent");
+			).toBe("percent-total");
 		}
 
 		for (const separator of ["dash", "dot"]) {
@@ -902,7 +903,7 @@ describe("working-line config", () => {
 			animateSpinnerColor: false,
 			textIntervalMs: 60,
 			textAnimation: "classic",
-			colorSource: "theme",
+			colorSource: "terminal",
 			messages: { custom: true },
 			segments: { tool: true, elapsed: true, thought: true, tokens: true, tokenRate: false },
 		});
@@ -1553,9 +1554,9 @@ describe("mergeConfig", () => {
 		expect(config.colors.editorPrompt).toBeUndefined();
 		expect(config.colors.editorBorder).toBeUndefined();
 		expect(config.colorSources).toEqual({
-			starship: "theme",
-			editor: "theme",
-			userMessages: "theme",
+			starship: "terminal",
+			editor: "terminal",
+			userMessages: "terminal",
 		});
 		expect(config.features).toEqual({
 			editor: true,
@@ -2179,19 +2180,19 @@ describe("mergeConfig", () => {
 		expect(config.colors.editorBorder).toBeUndefined();
 		expect(config.colors.editorThinkingHigh).toBe("thinkingHigh");
 		expect(config.colorSources).toEqual({
-			starship: "theme",
+			starship: "terminal",
 			editor: "terminal",
-			userMessages: "theme",
+			userMessages: "terminal",
 		});
 	});
 
 	it("accepts valid color source preferences and ignores invalid values", () => {
 		expect(
 			mergeConfig({ colorSources: { starship: "terminal", editor: "theme" } }).colorSources,
-		).toEqual({ starship: "terminal", editor: "theme", userMessages: "theme" });
+		).toEqual({ starship: "terminal", editor: "theme", userMessages: "terminal" });
 		expect(
 			mergeConfig({ colorSources: { starship: "neon", userMessages: "terminal" } }).colorSources,
-		).toEqual({ starship: "theme", editor: "theme", userMessages: "terminal" });
+		).toEqual({ starship: "terminal", editor: "terminal", userMessages: "terminal" });
 	});
 
 	it("accepts valid UI feature preferences and ignores invalid values", () => {
@@ -2309,7 +2310,7 @@ describe("mergeConfig", () => {
 			expect(config.colorSources).toEqual({
 				starship: "terminal",
 				editor: "terminal",
-				userMessages: "theme",
+				userMessages: "terminal",
 			});
 			expect(raw.unknown).toBe(true);
 			expect(raw.icons.git).toBe("git");
@@ -2351,7 +2352,7 @@ describe("mergeConfig", () => {
 			const raw = JSON.parse(readFileSync(path, "utf8"));
 
 			expect(config.colorSources).toEqual({
-				starship: "theme",
+				starship: "terminal",
 				editor: "terminal",
 				userMessages: "terminal",
 			});
@@ -2376,15 +2377,15 @@ describe("mergeConfig", () => {
 
 			expect(config.colorSources).toEqual({
 				starship: "terminal",
-				editor: "theme",
-				userMessages: "theme",
+				editor: "terminal",
+				userMessages: "terminal",
 			});
 			expect(Object.keys(raw)).toEqual(["components"]);
 			expect(raw.components.footer.colorSource).toBe("terminal");
 			expect(Object.keys(raw.components)).toEqual(["footer"]);
 			migrateComponentSelections(path);
-			expect(readRaw(path).components.editor.colorSource).toBe("theme");
-			expect(readRaw(path).components.userMessages.colorSource).toBe("theme");
+			expect(readRaw(path).components.editor.colorSource).toBe("terminal");
+			expect(readRaw(path).components.userMessages.colorSource).toBe("terminal");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

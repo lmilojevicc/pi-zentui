@@ -1080,7 +1080,7 @@ export function renderTurnSummaryEntry(
 	return new Text(
 		`${renderWorkingLineHigh(
 			theme,
-			options.colorSource === "terminal" ? "terminal" : "theme",
+			options.colorSource === "theme" ? "theme" : "terminal",
 			options.workingLineHigh,
 			text,
 		)}${SGR_RESET}`,

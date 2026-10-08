@@ -195,7 +195,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "enabled": true,
       "codexQuota": false,
       "style": "opencode",
-      "colorSource": "theme",
+      "colorSource": "terminal",
       "borderColorMode": "static",
       "modelLabel": "id",
       "viewportIndicators": true,
@@ -214,11 +214,14 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
           "transparent": false
         },
         "minimalist": {
+          "formats": {
+            "bottomLeft": "$session_name$join_sep($git_branch)"
+          },
           "pathDisplay": "compact",
-          "contextFormat": "percent",
+          "contextFormat": "percent-total",
           "contextGauge": false,
-          "showSessionName": true,
-          "showTimer": true,
+          "showSessionName": false,
+          "showTimer": false,
           "showCost": true,
           "showCacheHit": false,
           "showGit": true,
@@ -233,7 +236,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     "userMessages": {
       "enabled": true,
       "style": "framed",
-      "colorSource": "theme",
+      "colorSource": "terminal",
       "styles": {
         "framed": {},
         "framed-copy-friendly": {},
@@ -255,7 +258,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "animateSpinnerColor": false,
       "textIntervalMs": 60,
       "textAnimation": "classic",
-      "colorSource": "theme",
+      "colorSource": "terminal",
       "messages": {
         "custom": true,
         "values": [
@@ -291,12 +294,12 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     "selectorBorders": {
       "enabled": true,
       "style": "zentui",
-      "colorSource": "theme"
+      "colorSource": "terminal"
     },
     "footer": {
       "style": "starship",
       "codexQuota": false,
-      "colorSource": "theme",
+      "colorSource": "terminal",
       "modelLabel": "id",
       "styles": {
         "starship": {
@@ -397,18 +400,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
     "gitMetricsDeleted": "bold red",
     "username": "bold yellow",
     "time": "bold yellow",
-    "os": "bold white",
-    "editorAccent": "accent",
-    "editorPrompt": "accent",
-    "editorBorder": "borderMuted",
-    "editorModel": "accent",
-    "editorProvider": "text",
-    "editorThinking": "muted",
-    "editorThinkingMinimal": "thinkingMinimal",
-    "editorThinkingLow": "thinkingLow",
-    "editorThinkingMedium": "thinkingMedium",
-    "editorThinkingHigh": "thinkingHigh",
-    "editorThinkingXhigh": "thinkingXhigh"
+    "os": "bold white"
   }
 }
 ```
@@ -430,7 +422,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.footer` owns `native | starship | hidden` style selection, color source, model label, and Starship options. Hidden hides its main segments, retaining only allowed extension statuses; an empty status line occupies no rows.
 - Starship's package-version segment reads the project manifest and is distinct from the runtime segment, which reports the installed toolchain.
 - `components.extensionStatuses` independently controls Show/Hide for observed `ctx.ui.setStatus()` publications. It also owns Hidden-only placement under `hidden`; Starship retains its own placement and color modes.
-- The shown `editor*` colors match the default `theme` source. Omit them to preserve source-aware defaults when switching between `theme` and `terminal`.
+- Editor, User messages, Footer, selector borders, and Working line default to `terminal` colors. Explicit saved `theme` choices remain unchanged. Omit optional `editor*` overrides to preserve source-aware defaults.
 
 ### Codex account quota
 
@@ -533,9 +525,9 @@ Known autocomplete rows retain Pi's native text, descriptions, and scrolling on 
 
 ### Minimalist
 
-Set `components.editor.style` to `minimalist` or select it in `/zentui`. The rounded frame places viewport counts, Bash state, current/completed turn duration, and explicit session name at top left; cost, model, thinking, context, and optional latest-prompt cache hit rate at top right; viewport count plus Git at bottom left; and configured path at bottom right. Unnamed sessions add no placeholder.
+Set `components.editor.style` to `minimalist` or select it in `/zentui`. By default, the rounded frame places viewport counts and Bash state at top left; cost, model, thinking, and percent/total context at top right; viewport count plus session name and Git branch at bottom left; and compact path at bottom right. Top-left session name and turn timer are off by default. Unnamed sessions add no placeholder.
 
-Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Session name, timer, cost, cache hit rate, and Git can be hidden independently; model, thinking, and context remain structurally stable. Metadata items are joined with dashes by default (`separator: "dash"`) or dots (`separator: "dot"`).
+Path examples are `src` (`compact`), `zentui/src` (`project`), and `~/Projects/zentui/src` (`full`). Context can render as `11%`, `11%/372k`, or, with the gauge enabled and enough room, `[█░░░░] 11%/372k`. Enable `showCacheHit` to append values such as `Cache 98.2%`; it defaults to `false`, omits missing data, yields before context at narrow widths, and remains independent of Footer. The gauge shortens or disappears before the context text at narrow widths. Generated metadata obeys the session name, timer, cost, cache hit rate, and Git toggles; template references remain explicit (set `formats.bottomLeft` to `""` to hide its default session/branch label); model, thinking, and context remain structurally stable. Metadata items are joined with dashes by default (`separator: "dash"`) or dots (`separator: "dot"`).
 
 Autocomplete stays inside the frame when Pi output can be split safely. Unknown third-party layouts fail open. Footer visibility remains independently controlled by `components.footer.style`; Minimalist does not remove Pi's header.
 
@@ -543,7 +535,8 @@ Autocomplete stays inside the frame when Pi output can be split safely. Unknown 
 
 Minimalist has six independently configurable border slots under
 `components.editor.styles.minimalist.formats`: `topLeft`, `topMiddle`,
-`topRight`, `bottomLeft`, `bottomMiddle`, and `bottomRight`. Missing slots keep
+`topRight`, `bottomLeft`, `bottomMiddle`, and `bottomRight`. Missing `bottomLeft`
+inherits `"$session_name$join_sep($git_branch)"`; other missing slots keep
 Zentui's generated layout; an empty string hides that slot's configurable
 metadata. No extra rows are added. Use **Editor → Metadata templates** in
 `/zentui` to edit a slot or **Reset / inherit** to delete its override.

@@ -36,6 +36,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 		ensureConfigExists() {},
 		loadConfig: vi.fn(() => {
 			current = structuredClone(actual.defaultConfig);
+			current.components.footer.colorSource = "theme";
 			current.projectRefreshIntervalMs = 5000;
 			current.components.editor.enabled = false;
 			current.components.footer.styles.starship.format = "$git_branch";
@@ -409,6 +410,7 @@ describe("owned project demand through real index and git reader", () => {
 			c.components.editor.enabled = true;
 			c.components.editor.style = "minimalist";
 			c.components.editor.styles.minimalist.showGit = false;
+			c.components.editor.styles.minimalist.formats = { bottomLeft: "" };
 			c.components.editor.styles.minimalist.pathDisplay = "project";
 		});
 		const roots = vi.spyOn(RepositoryRootController.prototype, "update");

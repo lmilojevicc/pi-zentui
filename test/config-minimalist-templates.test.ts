@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	defaultConfig,
 	mergeConfig,
 	saveMinimalistEditorStylePatch,
 	saveMinimalistTemplatePatch,
@@ -37,9 +38,9 @@ function style(value: unknown) {
 }
 
 describe("Minimalist template configuration", () => {
-	it("keeps defaults implicit and accepts sparse slots including intentional empty strings", () => {
+	it("inherits runtime defaults and accepts sparse slots including intentional empty strings", () => {
 		const defaults = style({});
-		expect(defaults.formats).toBeUndefined();
+		expect(defaults.formats).toEqual(defaultConfig.components.editor.styles.minimalist.formats);
 		expect(defaults.variables ?? {}).toEqual({});
 		expect(defaults.extensionColorMode ?? "original").toBe("original");
 		const formats = Object.fromEntries(
@@ -49,8 +50,14 @@ describe("Minimalist template configuration", () => {
 		expect(
 			style({ formats: { topLeft: "", topRight: false, bottomRight: 42, bogus: "ignored" } })
 				.formats,
-		).toEqual({ topLeft: "" });
-		expect(style({ formats: false }).formats).toBeUndefined();
+		).toEqual({ ...defaults.formats, topLeft: "" });
+		expect(style({ formats: false }).formats).toEqual(defaults.formats);
+		for (const bottomLeft of [null, false, 42, []]) {
+			expect(style({ formats: { bottomLeft, topRight: "" } }).formats).toEqual({
+				...defaults.formats,
+				topRight: "",
+			});
+		}
 	});
 
 	it("rejects reserved and malformed aliases and caps accepted aliases", () => {
@@ -161,7 +168,9 @@ describe("Minimalist template configuration", () => {
 					path,
 				);
 				expect(read().components.editor.styles.minimalist).toEqual({});
-				expect(resolved.components.editor.styles.minimalist.formats).toBeUndefined();
+				expect(resolved.components.editor.styles.minimalist.formats).toEqual(
+					defaultConfig.components.editor.styles.minimalist.formats,
+				);
 			},
 		);
 	});

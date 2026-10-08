@@ -25,7 +25,10 @@ function theme(calls: Array<{ color: string; text: string }> = []): Theme {
 }
 
 function config(overrides: Partial<PolishedTuiConfig["colors"]> = {}): PolishedTuiConfig {
-	const current = mergeConfig({ icons: { mode: "nerd" } }, {});
+	const current = mergeConfig(
+		{ icons: { mode: "nerd" }, components: { editor: { colorSource: "theme" } } },
+		{},
+	);
 	current.components.editor.style = "accent-rail";
 	current.colors = { ...current.colors, ...overrides };
 	return current;

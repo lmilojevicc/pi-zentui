@@ -31,7 +31,10 @@ function config(
 	options: EditorOptions = {},
 	editorBorderColorMode: PolishedTuiConfig["editorBorderColorMode"] = "static",
 ): PolishedTuiConfig {
-	const base = mergeConfig({ icons: { mode: "nerd" } }, {});
+	const base = mergeConfig(
+		{ icons: { mode: "nerd" }, components: { editor: { colorSource: "theme" } } },
+		{},
+	);
 	return {
 		...base,
 		components: {
@@ -43,6 +46,11 @@ function config(
 				viewportIndicators: options.viewportIndicators ?? base.components.editor.viewportIndicators,
 				styles: {
 					...base.components.editor.styles,
+					minimalist: {
+						...base.components.editor.styles.minimalist,
+						showTimer: true,
+						formats: undefined,
+					},
 					opencode: {
 						...base.components.editor.styles.opencode,
 						...(options.completionMenu ? { completionMenu: options.completionMenu } : {}),

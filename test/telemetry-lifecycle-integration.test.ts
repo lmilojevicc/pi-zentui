@@ -77,6 +77,7 @@ vi.mock("../extensions/zentui/config", async (importOriginal) => {
 					editor: { ...actual.defaultConfig.components.editor, enabled: false },
 					footer: {
 						...footer,
+						colorSource: "theme",
 						enabled: true,
 						style: capabilities.footerStyle,
 						styles: {

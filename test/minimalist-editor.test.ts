@@ -36,8 +36,12 @@ function recordingTheme(calls: Array<{ color: string; text: string }>): Theme {
 	} as Theme;
 }
 
+// Generated-layout tests opt into timer/session metadata and exercise theme callbacks.
 function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
-	const base = mergeConfig({ icons: { mode: "nerd" } }, {});
+	const base = mergeConfig(
+		{ icons: { mode: "nerd" }, components: { editor: { colorSource: "theme" } } },
+		{},
+	);
 	const editor = base.components.editor;
 	return {
 		...base,
@@ -53,6 +57,9 @@ function config(overrides: Partial<PolishedTuiConfig> = {}): PolishedTuiConfig {
 					...editor.styles,
 					minimalist: {
 						...editor.styles.minimalist,
+						showTimer: true,
+						showSessionName: true,
+						formats: undefined,
 						...overrides.editorStyles?.minimalist,
 					},
 				},
@@ -532,6 +539,7 @@ describe("minimalist editor frame", () => {
 						showTimer: false,
 						showCost: false,
 						showGit: false,
+						formats: undefined,
 					},
 				},
 			}),
@@ -1021,4 +1029,84 @@ describe("minimalist working line placement", () => {
 		expect(lines[1]).not.toContain("Zigzagging");
 		expect(lines[0]).toContain("Zigzagging");
 	});
+});
+
+describe("Minimalist unsaved layout defaults", () => {
+	it.each([
+		["release prep", "main", "release prep – main"],
+		["release prep", undefined, "release prep"],
+		[undefined, "main", "main"],
+		[undefined, undefined, ""],
+	])(
+		"joins the bottom-left session/branch without duplicating the top name: %j, %j",
+		(sessionName, branch, expected) => {
+			const current = mergeConfig({ components: { editor: { style: "minimalist" } } });
+			const lines = renderMinimalistFrame({
+				width: 120,
+				editorLines: ["draft"],
+				inputText: "draft",
+				uiTheme: theme(),
+				config: current,
+				metadata: {
+					cwd: "/tmp/project",
+					sessionName,
+					branch,
+					dirty: true,
+					ahead: 2,
+					modelLabel: "model-x",
+					contextPercent: 42,
+					contextWindow: 200_000,
+					costLabel: "$0.123",
+					agentDurationMs: 12_000,
+				},
+			});
+			const plain = lines.map(stripVTControlCharacters);
+			expect(plain[0]).toContain("$0.123 – model-x – 42%/200k");
+			expect(plain[0]).not.toContain("release prep");
+			expect(plain[0]).not.toContain("12s");
+			expect(plain.at(-1)).toContain(expected);
+			expect(plain.at(-1)).not.toContain("↑2");
+			expect(plain.at(-1)).not.toContain("*");
+			if (!sessionName || !branch) expect(plain.at(-1)).not.toContain(" – ");
+			expect(plain.join("\n").match(/release prep/g) ?? []).toHaveLength(sessionName ? 1 : 0);
+			expect(lines[0]).toContain("\x1b[1;35mmodel-x\x1b[0m");
+			expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
+		},
+	);
+
+	it.each([
+		[undefined, "session – main"],
+		["", ""],
+		["custom $session_name", "custom session"],
+	] as const)(
+		"keeps template semantics independent of saved visibility toggles: %j",
+		(bottomLeft, expected) => {
+			const current = mergeConfig({
+				components: {
+					editor: {
+						style: "minimalist",
+						styles: {
+							minimalist: {
+								showSessionName: false,
+								showGit: false,
+								...(bottomLeft === undefined ? {} : { formats: { bottomLeft } }),
+							},
+						},
+					},
+				},
+			});
+			const lines = renderMinimalistFrame({
+				width: 80,
+				editorLines: ["draft"],
+				inputText: "draft",
+				uiTheme: theme(),
+				config: current,
+				metadata: { cwd: "", sessionName: "session", branch: "main" },
+			}).map(stripVTControlCharacters);
+			expect(lines[0]).not.toContain("session");
+			if (expected) expect(lines.at(-1)).toContain(expected);
+			else expect(lines.at(-1)).toMatch(/^╰─+╯$/);
+			if (bottomLeft !== undefined) expect(lines.at(-1)).not.toContain("main");
+		},
+	);
 });

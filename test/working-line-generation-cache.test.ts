@@ -15,6 +15,7 @@ vi.mock("../extensions/zentui/style", async (importOriginal) => {
 
 function config() {
 	const current = structuredClone(defaultConfig);
+	current.components.workingLine.colorSource = "theme";
 	Object.assign(current.components.workingLine, {
 		enabled: true,
 		colors: { low: "dim", mid: "muted", high: "accent" },

@@ -62,7 +62,11 @@ function configuration(
 ) {
 	return mergeConfig({
 		components: {
-			editor: { style, styles: { [style]: { metadataFormat: format, variables: { quota: key } } } },
+			editor: {
+				colorSource: "theme",
+				style,
+				styles: { [style]: { metadataFormat: format, variables: { quota: key } } },
+			},
 			footer: {
 				style: "starship",
 				styles: { starship: { format: "$quota", variables: { quota: key }, responsive: false } },
