@@ -221,8 +221,10 @@ describe("user-message framed cache compatibility", () => {
 			config.components.userMessages.style = "compact";
 			expect(plain(message.render(40))).toContain("┃");
 			const theme = { fg: (_color: unknown, text: string) => `\x1b[31m${text}\x1b[0m` } as Theme;
+			config.components.userMessages.colorSource = "theme";
 			setTheme(theme);
 			const red = message.render(40);
+			expect(red.join("\n")).toContain("\x1b[31m");
 			setTheme({
 				...theme,
 				fg: (_color: unknown, text: string) => `\x1b[32m${text}\x1b[0m`,
