@@ -1,0 +1,29 @@
+--- a/src/diff-renderer.ts
++++ b/src/diff-renderer.ts
+@@ -1217,6 +1217,18 @@
+ 	return output;
+ }
+ 
++function graphemeSafeSpan(text: string, span: DiffSpan): DiffSpan {
++	let start = span.start;
++	let end = span.end;
++	for (const part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
++		const next = part.index + part.segment.length;
++		if (start > part.index && start < next) start = part.index;
++		if (end > part.index && end < next) end = next;
++		if (part.index >= end) break;
++	}
++	return { start, end };
++}
++
+ function applyInlineSpanHighlight(
+ 	plainText: string,
+ 	renderedText: string,
+@@ -1235,6 +1247,7 @@
+ 				start: Math.max(0, Math.min(plainText.length, span.start)),
+ 				end: Math.max(0, Math.min(plainText.length, span.end)),
+ 			}))
++			.map((span) => graphemeSafeSpan(plainText, span))
+ 			.filter((span) => span.end > span.start),
+ 	);
+ 	if (sorted.length === 0) {

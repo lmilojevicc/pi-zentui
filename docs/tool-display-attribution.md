@@ -2,16 +2,63 @@
 
 Zentui's native Tool display component uses [pi-tool-display 0.5.0](https://github.com/MasuRii/pi-tool-display/tree/91cef7580078371f8dc49a8607222807ad6a424d) as its visual/behavior reference. The mode names, preset selections, compact call/summary wording, adaptive diff presentation thresholds and hashline gutter conventions are adapted from its `types.ts`, `presets.ts`, `tool-overrides.ts`, `diff-presentation.ts`, `diff-renderer.ts`, `write-display-utils.ts` and `pending-diff-preview.ts`. The implementation is local to Zentui; it does not import upstream internals or read/write upstream configuration.
 
-## Deliberate differences
+## Adapted source map
 
-- Default disabled; `native` also delegates to the existing renderer. No Thinking or User message settings/patches are installed.
-- Uses Pi's public rendering-only resolver, not tool registration or execution interception. Existing execution, schemas and prompt metadata are unchanged.
-- Stable native builtin renderer identities are compared with public tool-definition factories and public builtin source metadata. Pi 1.0.3/1.0.4 create fresh Bash renderer functions, so native Bash rendering cannot be distinguished from a rendering-only extension through `next()`. Bash therefore stays native unless the owner-local advanced `builtinRendererOverrides.bash` is explicitly `true`. This setting permits replacement of existing Bash **rendering**, never a foreign tool definition. Other advanced builtin flags follow the same provenance boundary.
-- Custom/MCP matching requires exact names in `customToolOverrides`. An enabled entry only fills a renderless tool by default. Replacing an existing renderer requires that exact entry's `overrideExistingRenderers: true`; execution remains untouched. Omitted `outputMode` inherits the current MCP mode for `kind: "mcp"`, and summary for generic tools.
-- Empty, image, mixed and unknown content delegates to the predecessor. Hidden modes do not hide errors. Pending Bash progress is event-driven rather than an independently timed spinner.
-- Pending/write diffs require live, workspace-only preimages observed through public tool events. Render/history paths never read files. Unavailable preimages produce a notice instead of inventing an empty original file. The cache holds at most 16 entries / 1 MiB for 60 seconds; individual UTF-8 reads/projections are bounded to 256 KiB. Symlinks, external paths, special/binary/unreadable files are rejected. Integrators must clear this cache on session replacement, tree changes, reload and shutdown.
-- A row that delegates to its predecessor remains delegated through completion (including errors/mixed output/fallbacks), so predecessor-owned timers and state get their final rendering callback. New rows or a real rebuild/reload may acquire rendering again. Modes update live while a row is still owned. Release latches use weak references to public per-row state, not a growing tool-call ID registry.
-- Diff lines use host theme tokens and bold word-span emphasis, not upstream's custom RGB background palette. Optional host highlighting is injected. Adaptive summary (<8 columns), compact (<18), unified and split layouts fit terminal columns using public TUI utilities. Large diff computation is bounded; collapsed limits count rendered visual lines. Generated previews omit distant unchanged context. Text input is capped at 1 MiB; diff parsing at 8,000 lines, generated diffs at 4,000 lines per side, and displayed expanded text at 20,000 logical lines. Limits/omissions are reported rather than presented as complete output. This is not a pixel-identical port or a claim of complete upstream parity.
+- `diff-renderer.ts`: actual split/unified/compact/summary grids, headers, gutters,
+  statistics, RGB row/inline backgrounds, syntax and anchor handling, frames and hints.
+- `ansi-utils.ts`, `diff-presentation.ts`, `line-width-safety.ts`, `render-utils.ts`,
+  `write-display-utils.ts`: actual upstream presentation helpers.
+- `tool-presentation.ts`: presentation-only functions extracted from upstream
+  `tool-overrides.ts`; no execution/factory/interception/global adapter code.
+- `bash-display.ts`: actual upstream frames, elapsed text, shell/timeout labels and
+  timing, scoped to the component owner with bounded timers and release/disposal.
+- `renderers.ts`/`controller.ts`: rendering-only adaptation to public resolver ownership,
+  safe event-observed preimages and native card acquisition; no schema/execute changes.
+
+## User-approved Unicode correction
+
+The pinned implementation can place changed-word background ANSI inside a UTF-16
+surrogate pair or a combining/ZWJ grapheme. The user explicitly requested fixing
+this defect. The only normal-domain parity exception is snapping those emphasis
+spans to whole graphemes. `test/fixtures/tool-display-unicode-reference-patch.json`
+is the executable two-edit corrected-reference patch; the adjacent `.patch` is
+its human-readable diff. Original upstream files remain unchanged. Generated
+fixtures record both original and corrected complete rows for affected vectors,
+with exact counts/provenance; unaffected rows remain identical to original.
+Tests assert UTF-8 roundtrip, retained glyphs and no isolated surrogates.
+
+The live reference's raw 56-token ANSI palette, truecolor mode and bold/italic/
+inverse/toolOutput/toolSuccess samples are asserted before oracle generation.
+Headless oracle/replay processes enable the SDK's real Chalk styles so disabled
+non-TTY attributes cannot falsely substitute for the live reference.
+
+## Ownership and safety boundaries
+
+Default disabled/native delegates unchanged. Native provenance, stable renderer
+identities, explicit ambiguous-Bash consent and exact-name custom consent remain
+required. No Thinking/User messages, upstream configuration or execution registration
+is installed. New owned rows use upstream default card framing. Existing constructed
+edit/custom-self outer shells need public rebuild/reload to restore predecessor
+framing; callback/component cleanup and sticky release are still preserved.
+
+Text/image/mixed/empty presentation follows upstream while the host retains complete
+results, image blocks, error status, history and model content. Hidden read/search/MCP
+modes hide error text even when expanded; Summary/Preview reveals it. Unsupported
+shapes still fail open.
+
+Pending/write diffs require live, complete, workspace-only preimages from public
+events. No render/history filesystem reads or invented create/overwrite preimages.
+Symlink/external/binary/special/unreadable paths remain rejected; reads/projections
+are bounded to256KiB, cached at most16entries/1MiB/60seconds and cleared on boundaries.
+Text input1MiB, diff source8000lines, generated source4000lines/side, comparison250000
+cells, per-line16384characters and pre-wrap materialization limits remain safety
+guards. Caps/notices are not claimed to match unsafe unbounded upstream output.
+
+`test/generate-tool-display-parity.mjs` loads unchanged pinned upstream only as a
+DEVELOPMENT oracle, aliases it to the same actual public SDK/theme objects, never
+executes tools, and writes portable compressed complete ANSI card fixtures. Tests
+replay those fixtures without upstream installed paths or runtime dependencies.
+No hand-authored approximation is used as the parity expected output.
 
 ## Upstream MIT notice
 

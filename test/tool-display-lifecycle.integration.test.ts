@@ -229,11 +229,16 @@ describe("tool-display lifecycle integration", () => {
 			const h = runtime();
 			await h.emit("session_start");
 			const renderer = h.resolve("read");
-			const lines = renderer?.renderResult?.(result, options, theme, row()).render(80);
+			const lines = renderer
+				?.renderResult?.(result, options, theme, row())
+				.render(80)
+				.map((line) => line.trimEnd());
 			if (!config.enabled) expect(renderer).toBe(nativeRead);
 			else
 				expect(lines).toEqual(
-					config.style === "balanced" ? ["↳ loaded 3 lines"] : ["one", "two", "three"],
+					config.style === "balanced"
+						? ["↳ loaded 3 lines • Ctrl+O to expand"]
+						: ["one", "two", "three"],
 				);
 			expect(h.chain).toHaveLength(2);
 			await h.emit("session_start");
@@ -281,8 +286,9 @@ describe("tool-display lifecycle integration", () => {
 				h
 					.resolve("mcp__demo__echo")
 					?.renderResult?.(result, options, theme, row("late"))
-					.render(80),
-			).toEqual(["↳ 3 lines returned"]);
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["↳ 3 lines returned • Ctrl+O to expand"]);
 			expect(h.resolve("unlisted")).toBeUndefined();
 			expect(original.execute).not.toHaveBeenCalled();
 			expect(original.promptSnippet).toBe("keep");
@@ -350,6 +356,7 @@ describe("tool-display lifecycle integration", () => {
 				errorRow,
 			)
 				.render(80)
+				.map((line) => line.trimEnd())
 				.join("\n"),
 		).toContain("harmless failure");
 		const history = required(required(h.resolve("write")).renderCall)(
@@ -357,7 +364,14 @@ describe("tool-display lifecycle integration", () => {
 			theme,
 			row("old-history"),
 		);
-		expect(stripVTControlCharacters(history.render(80).join("\n"))).toContain("no live preimage");
+		expect(
+			stripVTControlCharacters(
+				history
+					.render(80)
+					.map((line) => line.trimEnd())
+					.join("\n"),
+			),
+		).toContain("no live preimage");
 		await h.emit("session_shutdown", { reason: "quit" });
 	});
 	it.each([{ path: "s" }, {}, { path: null }, { path: 42 }, { path: "" }])(
@@ -464,7 +478,12 @@ describe("tool-display lifecycle integration", () => {
 		const context = row("live", args);
 		const call = required(required(h.resolve("write")).renderCall)(args, theme, context);
 		await h.emit("tool_execution_start", { toolCallId: "live", toolName: "write", args });
-		expect(call.render(80).join("\n")).toContain("original");
+		expect(
+			call
+				.render(80)
+				.map((line) => line.trimEnd())
+				.join("\n"),
+		).toContain("original");
 		for (const boundary of [
 			"session_before_tree",
 			"session_tree",
@@ -473,7 +492,12 @@ describe("tool-display lifecycle integration", () => {
 			"session_start",
 		]) {
 			await h.emit(boundary);
-			expect(call.render(80).join("\n")).toContain("no live preimage");
+			expect(
+				call
+					.render(80)
+					.map((line) => line.trimEnd())
+					.join("\n"),
+			).toContain("no live preimage");
 		}
 		required(h.deps.setToolDisplayComponent)({ enabled: false }, h.ctx);
 		await h.emit("tool_execution_start", { toolCallId: "live", toolName: "write", args });
@@ -522,7 +546,9 @@ describe("same-row pending ownership proof", () => {
 			});
 		if (reason === "released") {
 			config.enabled = false;
-			required(renderer.renderCall)(context.args, theme, context).render(80);
+			required(renderer.renderCall)(context.args, theme, context)
+				.render(80)
+				.map((line) => line.trimEnd());
 			config.enabled = true;
 		}
 		if (reason === "disposed") controller.dispose();
@@ -558,7 +584,9 @@ describe("same-row pending ownership proof", () => {
 					row().args,
 					theme,
 					row(String(i)),
-				).render(80);
+				)
+					.render(80)
+					.map((line) => line.trimEnd());
 			expect(observe).not.toHaveBeenCalled();
 			controller.observePending(
 				{ toolCallId: "0", toolName: "write", args: row().args },

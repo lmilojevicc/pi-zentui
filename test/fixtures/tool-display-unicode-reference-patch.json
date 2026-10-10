@@ -1,0 +1,15 @@
+{
+	"commit": "91cef7580078371f8dc49a8607222807ad6a424d",
+	"file": "src/diff-renderer.ts",
+	"reason": "User-approved correction: background emphasis boundaries must not divide Unicode graphemes or surrogate pairs. No other upstream presentation changes.",
+	"replacements": [
+		{
+			"oldText": "function applyInlineSpanHighlight(\n",
+			"newText": "function graphemeSafeSpan(text: string, span: DiffSpan): DiffSpan {\n\tlet start = span.start;\n\tlet end = span.end;\n\tfor (const part of new Intl.Segmenter(undefined, { granularity: \"grapheme\" }).segment(text)) {\n\t\tconst next = part.index + part.segment.length;\n\t\tif (start > part.index && start < next) start = part.index;\n\t\tif (end > part.index && end < next) end = next;\n\t\tif (part.index >= end) break;\n\t}\n\treturn { start, end };\n}\n\nfunction applyInlineSpanHighlight(\n"
+		},
+		{
+			"oldText": "\t\t\t.filter((span) => span.end > span.start),\n\t);\n\tif (sorted.length === 0)",
+			"newText": "\t\t\t.map((span) => graphemeSafeSpan(plainText, span))\n\t\t\t.filter((span) => span.end > span.start),\n\t);\n\tif (sorted.length === 0)"
+		}
+	]
+}

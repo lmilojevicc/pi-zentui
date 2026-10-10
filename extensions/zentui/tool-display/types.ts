@@ -34,6 +34,7 @@ export const MCP_OUTPUT_MODES = READ_OUTPUT_MODES;
 export const BASH_OUTPUT_MODES = ["opencode", "summary", "preview"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
+export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 export type OutputMode = (typeof READ_OUTPUT_MODES)[number];
 export interface CustomToolDisplayConfig {
 	enabled: boolean;

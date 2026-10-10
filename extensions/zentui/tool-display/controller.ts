@@ -1,9 +1,10 @@
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
+import { createBashProgress } from "./bash-display.js";
 import type { ToolRendererResolver, ToolRenderers } from "./host-contract.js";
 import { record } from "./presets.js";
 import {
 	createToolDisplayRenderers,
-	hasOnlyTextContent,
+	hasSupportedContent,
 	type RendererResources,
 } from "./renderers.js";
 import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.js";
@@ -49,6 +50,7 @@ export function createToolDisplayController(
 	getConfig: () => ToolDisplayConfig,
 	options: ToolDisplayControllerOptions,
 ) {
+	const progress = options.progress ?? createBashProgress();
 	let installed = false;
 	let disposed = false;
 	let failure: string | undefined;
@@ -124,7 +126,7 @@ export function createToolDisplayController(
 			createToolDisplayRenderers(
 				name,
 				getConfig,
-				options,
+				{ ...options, progress },
 				isBuiltinToolName(name) ? undefined : getConfig().customToolOverrides[name],
 			);
 		const component = (build: () => Component, row: Row, initial: Component): Component => {
@@ -151,12 +153,13 @@ export function createToolDisplayController(
 			return wrapped;
 		};
 		return {
-			// Shell belongs to the predecessor/host, including mixed/image result framing.
-			renderShell: previous?.renderShell,
+			// Newly owned rows use upstream native cards; existing shells need host rebuild to release.
+			renderShell: "default",
 			renderCall(args, theme, context) {
 				const row = rowFor(context.state);
 				const current = next();
 				const delegate = () => {
+					progress.release(context);
 					if (row) {
 						row.released = true;
 						if (!row.delegated) {
@@ -215,7 +218,9 @@ export function createToolDisplayController(
 						() => {
 							if (first) {
 								first = false;
-								return initial;
+								return name === "write" || name === "edit"
+									? (own().renderCall?.(args, theme, context) ?? initial)
+									: initial;
 							}
 							return own().renderCall?.(args, theme, context) ?? initial;
 						},
@@ -230,6 +235,7 @@ export function createToolDisplayController(
 				const row = rowFor(context.state);
 				const current = next();
 				const delegate = () => {
+					progress.release(context);
 					if (row) {
 						row.released = true;
 						if (!row.delegated) {
@@ -252,7 +258,7 @@ export function createToolDisplayController(
 					if (row) row.result = rendered;
 					return rendered;
 				};
-				if (!row || row.released || !canOwn(name, current) || !hasOnlyTextContent(result))
+				if (!row || row.released || !canOwn(name, current) || !hasSupportedContent(result))
 					return delegate();
 				try {
 					const initial = own().renderResult?.(result, renderOptions, theme, context);
@@ -326,6 +332,7 @@ export function createToolDisplayController(
 		},
 		dispose(): void {
 			disposed = true;
+			progress.dispose();
 			clearPending();
 		},
 	};

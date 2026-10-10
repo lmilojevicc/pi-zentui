@@ -2,11 +2,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
-	sliceByColumn,
 	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { renderEditDiffResult } from "./diff-renderer.js";
 import type { ToolDisplayConfig } from "./types.js";
 
 export interface DiffLine {
@@ -207,93 +207,7 @@ export function resolveDiffPresentation(
 		return "split";
 	return "unified";
 }
-function fitting(candidates: string[], width: number): string {
-	return (
-		candidates.find((text) => visibleWidth(text) <= width) ??
-		truncateToWidth(candidates.at(-1) ?? "", width, "")
-	);
-}
-function changedSpan(text: string, other: string): [number, number] {
-	let start = 0;
-	let end = text.length;
-	let otherEnd = other.length;
-	while (start < end && start < otherEnd && text[start] === other[start]) start++;
-	while (end > start && otherEnd > start && text[end - 1] === other[otherEnd - 1]) {
-		end--;
-		otherEnd--;
-	}
-	// Extend partial words so emphasis does not cut a token in half.
-	while (
-		start > 0 &&
-		/[\p{L}\p{N}_]/u.test(text[start - 1]) &&
-		/[\p{L}\p{N}_]/u.test(text[start] ?? "")
-	)
-		start--;
-	while (
-		end < text.length &&
-		/[\p{L}\p{N}_]/u.test(text[end - 1] ?? "") &&
-		/[\p{L}\p{N}_]/u.test(text[end])
-	)
-		end++;
-	if (start > 0 && /[\udc00-\udfff]/.test(text[start] ?? "")) start--;
-	if (end < text.length && /[\udc00-\udfff]/.test(text[end] ?? "")) end++;
-	return [start, end];
-}
-function highlighted(
-	line: DiffLine,
-	other: DiffLine | undefined,
-	theme: Theme,
-	highlighter?: CodeHighlighter,
-	path?: string,
-): string {
-	const color =
-		line.kind === "add"
-			? "toolDiffAdded"
-			: line.kind === "remove"
-				? "toolDiffRemoved"
-				: "toolDiffContext";
-	const plain = line.text.slice(0, MAX_PREVIEW_LINE_CHARS);
-	let text = plain;
-	if (highlighter) {
-		try {
-			text = highlighter(plain, path);
-		} catch {
-			/* Plain themed fallback. */
-		}
-	}
-	if (other && plain.length <= 700 && (line.kind === "add" || line.kind === "remove")) {
-		const [start, end] = changedSpan(plain, other.text.slice(0, MAX_PREVIEW_LINE_CHARS));
-		const from = visibleWidth(plain.slice(0, start));
-		const to = visibleWidth(plain.slice(0, end));
-		text =
-			sliceByColumn(text, 0, from) +
-			theme.bold(sliceByColumn(text, from, to - from)) +
-			sliceByColumn(text, to, visibleWidth(plain) - to);
-	}
-	return theme.fg(color, text);
-}
-function pairs(
-	lines: readonly DiffLine[],
-): { left?: DiffLine; right?: DiffLine; meta?: DiffLine }[] {
-	const rows: { left?: DiffLine; right?: DiffLine; meta?: DiffLine }[] = [];
-	for (let i = 0; i < lines.length; ) {
-		if (lines[i].kind === "meta") {
-			rows.push({ meta: lines[i++] });
-			continue;
-		}
-		if (lines[i].kind === "context") {
-			rows.push({ left: lines[i], right: lines[i++] });
-			continue;
-		}
-		const removed: DiffLine[] = [];
-		const added: DiffLine[] = [];
-		while (i < lines.length && lines[i].kind === "remove") removed.push(lines[i++]);
-		while (i < lines.length && lines[i].kind === "add") added.push(lines[i++]);
-		for (let k = 0; k < Math.max(removed.length, added.length); k++)
-			rows.push({ left: removed[k], right: added[k] });
-	}
-	return rows;
-}
+/** Compatibility adapter for structured fixture rows; presentation is the actual upstream engine. */
 export function diffComponent(
 	lines: readonly DiffLine[],
 	getConfig: () => ToolDisplayConfig,
@@ -301,140 +215,24 @@ export function diffComponent(
 	expanded: boolean,
 	options: { label?: string; path?: string; highlighter?: CodeHighlighter } = {},
 ): Component {
+	const serialized = lines
+		.map((line) => {
+			if (line.kind === "meta") return line.text;
+			const label = line.kind === "add" ? line.next : line.old;
+			const marker = line.kind === "add" ? "+" : line.kind === "remove" ? "-" : " ";
+			return `${marker}${label ?? ""}${label?.includes("#") ? ":" : "|"}${line.text}`;
+		})
+		.join("\n");
 	return {
 		invalidate() {},
-		render(rawWidth) {
-			const width = safeWidth(rawWidth);
-			if (!width) return [];
-			const config = getConfig();
-			const mode = resolveDiffPresentation(config, width);
-			const added = lines.filter((line) => line.kind === "add").length;
-			const removed = lines.filter((line) => line.kind === "remove").length;
-			const header = fitting(
-				[
-					`↳ ${options.label ?? "diff"} +${added} -${removed}`,
-					`+${added} -${removed}`,
-					"diff",
-					"…",
-				],
-				width,
-			);
-			if (mode === "summary") return [theme.fg("muted", header)];
-			const limit = Math.min(
-				8000,
-				expanded ? config.expandedPreviewMaxLines || 8000 : config.diffCollapsedLines,
-			);
-			let capped = false;
-			const rendered: string[] = [];
-			const marker = (line: DiffLine) =>
-				config.diffIndicatorMode === "none"
-					? ""
-					: config.diffIndicatorMode === "classic"
-						? line.kind === "add"
-							? "+ "
-							: line.kind === "remove"
-								? "- "
-								: "  "
-						: line.kind === "context"
-							? "  "
-							: "▌ ";
-			const cell = (
-				line: DiffLine | undefined,
-				other: DiffLine | undefined,
-				cellWidth: number,
-				side?: "old" | "next",
-				budget = Math.max(0, limit - rendered.length),
-			): string[] => {
-				if (budget <= 0) {
-					capped = true;
-					return [];
-				}
-				if (!line) return [""];
-				if (line.kind === "meta")
-					return [theme.fg("muted", truncateToWidth(line.text, cellWidth, ""))];
-				const label =
-					side === "old" ? line.old : side === "next" ? line.next : (line.next ?? line.old);
-				const gutter = mode === "compact" ? marker(line) : `${marker(line)}${label ?? ""} │ `;
-				const prefix = theme.fg("muted", truncateToWidth(gutter, cellWidth, ""));
-				const available = cellWidth - visibleWidth(prefix);
-				if (available <= 0) return [prefix];
-				const plain = truncateToWidth(
-					line.text.slice(0, MAX_PREVIEW_LINE_CHARS),
-					Math.min(MAX_PREVIEW_LINE_CHARS, available * (config.diffWordWrap ? budget : 1)),
-					"",
-				);
-				capped ||= plain.length < line.text.length;
-				const text = highlighted(
-					{ ...line, text: plain },
-					other,
-					theme,
-					options.highlighter,
-					options.path,
-				);
-				const wrapped = boundedWrap(text, available, budget, config.diffWordWrap);
-				capped ||= wrapped.capped || line.text.length > MAX_PREVIEW_LINE_CHARS;
-				return wrapped.lines.map(
-					(chunk, i) => `${i === 0 ? prefix : " ".repeat(visibleWidth(prefix))}${chunk}`,
-				);
-			};
-			const rows = pairs(lines);
-			let processed = 0;
-			for (const row of rows) {
-				if (rendered.length >= limit) break;
-				processed++;
-				if (row.meta) rendered.push(...cell(row.meta, undefined, width));
-				else if (mode === "split") {
-					const leftWidth = Math.floor((width - 3) / 2);
-					const rightWidth = width - 3 - leftWidth;
-					const left = cell(row.left, row.right, leftWidth, "old");
-					const right = cell(row.right, row.left, rightWidth, "next");
-					for (let i = 0; i < Math.max(left.length, right.length); i++) {
-						const l = left[i] ?? "";
-						rendered.push(
-							`${l}${" ".repeat(Math.max(0, leftWidth - visibleWidth(l)))}${theme.fg("muted", " │ ")}${right[i] ?? ""}`,
-						);
-					}
-				} else {
-					if (row.left)
-						rendered.push(
-							...cell(row.left, row.right?.kind === "add" ? row.right : undefined, width),
-						);
-					if (row.right && row.right !== row.left)
-						rendered.push(...cell(row.right, row.left, width));
-				}
-			}
-			const shown = rendered;
-			const remaining = rows
-				.slice(processed)
-				.reduce(
-					(count, row) =>
-						count +
-						(mode === "split" || row.meta
-							? 1
-							: Number(!!row.left) + Number(!!row.right && row.right !== row.left)),
-					0,
-				);
-			const hiddenHunks = rows
-				.slice(processed)
-				.filter((row) => row.meta?.text.startsWith("@@")).length;
-			if (remaining || capped)
-				shown.push(
-					theme.fg(
-						"muted",
-						fitting(
-							[
-								capped
-									? "… (additional diff output omitted)"
-									: `… (at least ${remaining} more diff rows${hiddenHunks ? ` • ${hiddenHunks} more hunks` : ""}${expanded ? "" : " • expand tools for more"})`,
-								`… (≥${remaining} rows)`,
-								`… (≥${remaining})`,
-								"…",
-							],
-							width,
-						),
-					),
-				);
-			return [theme.fg("muted", header), ...shown].map((line) => truncateToWidth(line, width, ""));
+		render(width) {
+			return renderEditDiffResult(
+				{ diff: serialized },
+				{ expanded, filePath: options.path, highlighter: options.highlighter },
+				getConfig(),
+				theme,
+				"",
+			).render(width);
 		},
 	};
 }

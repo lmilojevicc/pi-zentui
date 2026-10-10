@@ -124,7 +124,8 @@ describe("tool-display correction regressions", () => {
 							...context(),
 							toolCallId: row.toolCallId,
 						})
-						.render(80) ?? [],
+						.render(80)
+						.map((line) => line.trimEnd()) ?? [],
 				),
 			).toContain("2 lines returned");
 		} finally {
@@ -161,7 +162,12 @@ describe("tool-display correction regressions", () => {
 			highlighter,
 			path: "new.ts",
 		});
-		expect(created.render(80).join("\n")).toContain("\x1b[35m");
+		expect(
+			created
+				.render(80)
+				.map((line) => line.trimEnd())
+				.join("\n"),
+		).toContain("\x1b[35m");
 		expect(highlighter).toHaveBeenCalledWith("const 界 = '🧪';", "new.ts");
 		const modified = diffComponent(
 			parseDiff("-1|const old = '🧪';\n+1|const next = '🧫';\n 2|same"),
@@ -192,7 +198,7 @@ describe("tool-display correction regressions", () => {
 				{ highlighter },
 			);
 			const rendered = component.render(8);
-			expect(rendered.length).toBeLessThanOrEqual(6);
+			expect(rendered.length).toBeLessThanOrEqual(7);
 			expect(rendered.map(visibleWidth).every((width) => width <= 8)).toBe(true);
 			expect(rendered.join("\n")).toContain("…");
 		}
@@ -300,8 +306,7 @@ for (const extra of [false, true]) {
 					ui,
 					"/sandbox",
 				);
-				if (!["mixed", "image", "empty"].includes(kind))
-					config = normalizeToolDisplayConfig({ enabled: false });
+				config = normalizeToolDisplayConfig({ enabled: false });
 				const native = new pi.ToolExecutionComponent(
 					"demo",
 					"native-id",

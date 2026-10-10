@@ -1126,7 +1126,7 @@ function buildToolDisplayItems(
 		{
 			id: "toolDisplayEnabled",
 			label: "Enabled",
-			description: `${statusText}${status.reason ? ` ${status.reason}` : ""} Saves only Zentui Tool display; other surfaces are unchanged.`,
+			description: `${statusText}${status.reason ? ` ${status.reason}` : ""} Saves only Zentui Tool display; other surfaces are unchanged. Reload to rebuild existing cards after ownership changes.`,
 			currentValue: featureValue(owner.enabled),
 			values: featureStateValues,
 		},

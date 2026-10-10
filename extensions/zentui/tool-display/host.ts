@@ -21,6 +21,8 @@ export function nativeToolRenderers(cwd: string): Partial<Record<BuiltinToolName
 
 export const toolDisplayHighlighter: CodeHighlighter | undefined =
 	typeof host.highlightCode === "function" && typeof host.getLanguageFromPath === "function"
-		? (text, path) =>
-				host.highlightCode(text, path ? host.getLanguageFromPath(path) : undefined).join("\n")
+		? (text, path) => {
+				const language = path ? host.getLanguageFromPath(path) : undefined;
+				return language ? (host.highlightCode(text, language)[0] ?? text) : text;
+			}
 		: undefined;

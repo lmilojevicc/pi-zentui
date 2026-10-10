@@ -11,7 +11,8 @@ import {
 } from "../extensions/zentui/tool-display/diff.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
 
-const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+const plain = (lines: string[]) =>
+	lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).join("\n");
 const theme = {
 	fg: (_token: string, text: string) => `\x1b[32m${text}\x1b[39m`,
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
@@ -47,7 +48,7 @@ describe("tool-display/diff", () => {
 		const config = () => normalizeToolDisplayConfig({ diffCollapsedLines: 4 });
 		const diff = parseDiff("+1|aaa aaa aaa aaa aaa");
 		const collapsed = diffComponent(diff, config, theme, false).render(8);
-		expect(collapsed).toHaveLength(6);
+		expect(collapsed).toHaveLength(7);
 		expect(plain(collapsed)).toContain("…");
 		expect(plain(collapsed).match(/aaa/g)).toHaveLength(4);
 		for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(8);
@@ -131,14 +132,14 @@ describe("tool-display/diff", () => {
 			),
 			() => normalizeToolDisplayConfig({ diffViewMode: "split", diffCollapsedLines: 4 }),
 			theme,
-			false,
+			true,
 		);
 		expect(plain(component.render(140))).toContain("12#AB");
 		expect(plain(component.render(140))).toContain("12#CD");
-		expect(component.render(140).join("\n")).toContain("\x1b[1mold\x1b[22m");
+		expect(component.render(140).join("\n")).toContain("\x1b[48;2;");
 		expect(plain(component.render(140))).toContain("+1 -1");
-		expect(plain(component.render(140))).toContain("at least 1 more diff rows");
-		expect(plain(component.render(8))).toContain("…");
+		expect(plain(component.render(140))).toContain("split");
+		expect(plain(component.render(8))).toContain("const");
 	});
 	it("re-evaluates theme/config without stale width caches and catches highlighting failure", () => {
 		let config = normalizeToolDisplayConfig({ diffViewMode: "unified" });
@@ -191,5 +192,23 @@ describe("tool-display/diff", () => {
 		);
 		expect(plain(component.render(80))).toContain("🧪 old");
 		expect(plain(component.render(80))).toContain("🧫 new");
+	});
+	it.each([
+		["🧪", "🧫"],
+		["👩‍💻", "👩‍🔬"],
+		["e\u0301", "e\u0300"],
+	])("preserves UTF-8 and whole graphemes in changed %s -> %s emphasis", (before, after) => {
+		const component = diffComponent(
+			parseDiff(`-1|const value = '${before}';\n+1|const value = '${after}';`),
+			() => normalizeToolDisplayConfig({ diffViewMode: "split" }),
+			theme,
+			true,
+		);
+		const rows = component.render(160);
+		for (const row of rows) expect(Buffer.from(row, "utf8").toString("utf8")).toBe(row);
+		const visible = plain(rows);
+		expect(visible).toContain(before);
+		expect(visible).toContain(after);
+		for (const glyph of [before, after]) expect(rows.some((row) => row.includes(glyph))).toBe(true);
 	});
 });

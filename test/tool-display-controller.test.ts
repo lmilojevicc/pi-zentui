@@ -4,6 +4,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createBashProgress } from "../extensions/zentui/tool-display/bash-display.js";
 import {
 	createToolDisplayController,
 	type ToolDisplayRendererAPI,
@@ -105,15 +106,21 @@ describe("tool-display/controller (public resolver only)", () => {
 		update({ enabled: true, builtinRendererOverrides: { bash: true }, bashOutputMode: "summary" });
 		const owned = controller.resolver("bash", () => predecessor);
 		expect(owned).not.toBe(predecessor);
-		expect(owned?.renderShell).toBe("self");
-		expect(owned?.renderResult?.(textResult, options, theme, ctx).render(80)).toEqual([
-			"↳ 2 lines returned",
-		]);
+		expect(owned?.renderShell).toBe("default");
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["↳ 2 lines returned • Ctrl+O to expand"]);
 		update({ enabled: false, builtinRendererOverrides: { bash: true } });
 		expect(controller.resolver("bash", () => predecessor)).toBe(predecessor);
-		expect(owned?.renderResult?.(textResult, options, theme, ctx).render(80)).toEqual([
-			"predecessor result",
-		]);
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["predecessor result"]);
 	});
 	it("foreign definitions are skipped even when advanced rendering consent is true", () => {
 		const { controller } = setup(
@@ -141,8 +148,14 @@ describe("tool-display/controller (public resolver only)", () => {
 			"renderResult",
 			"renderShell",
 		]);
-		owned?.renderCall?.({ path: "f" }, theme, ctx).render(80);
-		owned?.renderResult?.(textResult, options, theme, ctx).render(80);
+		owned
+			?.renderCall?.({ path: "f" }, theme, ctx)
+			.render(80)
+			.map((line) => line.trimEnd());
+		owned
+			?.renderResult?.(textResult, options, theme, ctx)
+			.render(80)
+			.map((line) => line.trimEnd());
 		for (const key of Object.keys(snapshot) as (keyof typeof snapshot)[])
 			expect(original[key]).toBe(snapshot[key]);
 		expect(execute).not.toHaveBeenCalled();
@@ -171,11 +184,18 @@ describe("tool-display/controller (public resolver only)", () => {
 			},
 		});
 		const owned = controller.resolver("mcp__demo__echo", () => predecessor);
-		expect(owned?.renderCall?.({}, theme, ctx).render(80)).toEqual(["MCP demo/echo (no args)"]);
-		expect(owned?.renderResult?.(textResult, options, theme, ctx).render(80)).toEqual([
-			"one",
-			"two",
-		]);
+		expect(
+			owned
+				?.renderCall?.({}, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["MCP status (no args)"]);
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["one", "two"]);
 	});
 	it("supports late tools/config getter changes, per-builtin flags, neutral idempotent release", () => {
 		const { controller, update, api } = setup({ enabled: true, readOutputMode: "summary" });
@@ -183,14 +203,19 @@ describe("tool-display/controller (public resolver only)", () => {
 		controller.install();
 		expect(api.registerToolRenderer).toHaveBeenCalledOnce();
 		const owned = controller.resolver("read", () => nativeRead);
-		expect(owned?.renderResult?.(textResult, options, theme, ctx).render(80)).toEqual([
-			"↳ loaded 2 lines",
-		]);
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["↳ loaded 2 lines • Ctrl+O to expand"]);
 		update({ enabled: true, readOutputMode: "preview" });
-		expect(owned?.renderResult?.(textResult, options, theme, ctx).render(80)).toEqual([
-			"one",
-			"two",
-		]);
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["one", "two"]);
 		update({ enabled: true, registerToolOverrides: { read: false } });
 		expect(controller.resolver("read", () => nativeRead)).toBe(nativeRead);
 		update({ enabled: true });
@@ -210,15 +235,22 @@ describe("tool-display/controller (public resolver only)", () => {
 				{ type: "image", data: "base64", mimeType: "image/png" },
 			],
 		},
-	])("empty/image/mixed results pass their exact original object to predecessor", ({ content }) => {
-		const { controller } = setup({ enabled: true, builtinRendererOverrides: { read: true } });
+	])("released rows pass exact empty/image/mixed results to predecessor", ({ content }) => {
+		const { controller, update } = setup({
+			enabled: true,
+			builtinRendererOverrides: { read: true },
+		});
 		const result = { content, details: { unknown: true } } as Parameters<
 			NonNullable<ToolRenderers["renderResult"]>
 		>[0];
 		const owned = controller.resolver("read", () => predecessor);
-		expect(owned?.renderResult?.(result, options, theme, ctx).render(80)).toEqual([
-			"predecessor result",
-		]);
+		update({ enabled: false });
+		expect(
+			owned
+				?.renderResult?.(result, options, theme, ctx)
+				.render(80)
+				.map((line) => line.trimEnd()),
+		).toEqual(["predecessor result"]);
 		expect(predecessor.renderResult).toHaveBeenLastCalledWith(result, options, theme, ctx);
 	});
 	it("capability failures stay native without re-registering tools", () => {
@@ -254,15 +286,17 @@ describe("tool-display/controller (public resolver only)", () => {
 		});
 		const owned = controller.resolver("demo", () => predecessor);
 		const output = owned?.renderResult?.(textResult, options, theme, ctx);
-		expect(output?.render(80)).toEqual(["↳ 2 lines returned"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ 2 lines returned • Ctrl+O to expand",
+		]);
 		update({ enabled: true, mcpOutputMode: "preview", customToolOverrides: { demo: entry } });
-		expect(output?.render(80)).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
 		update({
 			enabled: true,
 			mcpOutputMode: "hidden",
 			customToolOverrides: { demo: { ...entry, outputMode: "preview" } },
 		});
-		expect(output?.render(80)).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
 		const persisted = JSON.parse(
 			JSON.stringify(
 				normalizeToolDisplayConfig({
@@ -274,26 +308,31 @@ describe("tool-display/controller (public resolver only)", () => {
 		);
 		expect(persisted.customToolOverrides.demo).not.toHaveProperty("outputMode");
 		update(persisted);
-		expect(output?.render(80)).toEqual([]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([]);
 		update({
 			...persisted,
 			mcpOutputMode: "preview",
 			customToolOverrides: { demo: { ...entry, outputMode: "invalid" } },
 		});
-		expect(output?.render(80)).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
 	});
 	it("late foreign resolver precedence and foreign definitions release already acquired rendering", () => {
 		const { controller, api } = setup({ enabled: true, readOutputMode: "summary" });
 		let downstream: ToolRenderers = nativeRead;
 		const owned = controller.resolver("read", () => downstream);
 		const output = owned?.renderResult?.(textResult, options, theme, ctx);
-		expect(output?.render(80)).toEqual(["↳ loaded 2 lines"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ loaded 2 lines • Ctrl+O to expand",
+		]);
 		downstream = predecessor;
-		expect(output?.render(80)).toEqual(["↳ loaded 2 lines"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ loaded 2 lines • Ctrl+O to expand",
+		]);
 		expect(
 			owned
 				?.renderResult?.(textResult, options, theme, { ...ctx, lastComponent: output })
-				.render(80),
+				.render(80)
+				.map((line) => line.trimEnd()),
 		).toEqual(["predecessor result"]);
 		downstream = nativeRead;
 		api.getAllTools.mockReturnValue([
@@ -335,7 +374,10 @@ describe("tool-display/controller (public resolver only)", () => {
 			const first = { ...ctx, state: {}, args: { command: "echo harmless" } };
 			update({ enabled: false, builtinRendererOverrides: { bash: true } });
 			expect(
-				owned?.renderResult?.(textResult, { ...options, isPartial: true }, theme, first).render(80),
+				owned
+					?.renderResult?.(textResult, { ...options, isPartial: true }, theme, first)
+					.render(80)
+					.map((line) => line.trimEnd()),
 			).toEqual(["native result"]);
 			expect(vi.getTimerCount()).toBe(1);
 			update({
@@ -343,17 +385,26 @@ describe("tool-display/controller (public resolver only)", () => {
 				builtinRendererOverrides: { bash: true },
 				bashOutputMode: "summary",
 			});
-			expect(owned?.renderCall?.(first.args, theme, first).render(80)).toEqual([
-				"predecessor call",
-			]);
-			expect(owned?.renderResult?.(textResult, options, theme, first).render(80)).toEqual([
-				"native result",
-			]);
+			expect(
+				owned
+					?.renderCall?.(first.args, theme, first)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["predecessor call"]);
+			expect(
+				owned
+					?.renderResult?.(textResult, options, theme, first)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["native result"]);
 			expect(vi.getTimerCount()).toBe(0);
 			const second = { ...first, toolCallId: "second", state: {} };
-			expect(owned?.renderResult?.(textResult, options, theme, second).render(80)).toEqual([
-				"↳ 2 lines returned",
-			]);
+			expect(
+				owned
+					?.renderResult?.(textResult, options, theme, second)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["↳ 2 lines returned • Ctrl+O to expand"]);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -379,6 +430,7 @@ describe("tool-display/controller (public resolver only)", () => {
 							? [{ type: "image", data: "x", mimeType: "image/png" }]
 							: [...textResult.content, { type: "image", data: "x", mimeType: "image/png" }],
 				} as unknown as typeof textResult;
+			if (reason === "mixed" || reason === "image") update({ enabled: false });
 			if (reason === "foreign") {
 				update({ enabled: true, readOutputMode: "summary" });
 				downstream = predecessor;
@@ -392,32 +444,66 @@ describe("tool-display/controller (public resolver only)", () => {
 					},
 					bold: (s: string) => s,
 				} as unknown as Theme;
-			expect(owned?.renderResult?.(content, options, localTheme, row).render(80)).toEqual([
-				reason === "failure"
-					? "Tool preview unavailable; awaiting native update."
-					: "predecessor result",
-			]);
+			expect(
+				owned
+					?.renderResult?.(content, options, localTheme, row)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["predecessor result"]);
 			update({
 				enabled: true,
 				readOutputMode: "summary",
 				builtinRendererOverrides: { read: true },
 			});
-			expect(owned?.renderCall?.(ctx.args, theme, row).render(80)).toEqual(["predecessor call"]);
-			expect(owned?.renderResult?.(textResult, options, theme, row).render(80)).toEqual([
-				"predecessor result",
-			]);
+			expect(
+				owned
+					?.renderCall?.(ctx.args, theme, row)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["predecessor call"]);
+			expect(
+				owned
+					?.renderResult?.(textResult, options, theme, row)
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["predecessor result"]);
 			expect(
 				owned
 					?.renderResult?.(textResult, options, theme, { ...row, state: {}, toolCallId: "fresh" })
-					.render(80),
-			).toEqual(["↳ loaded 2 lines"]);
+					.render(80)
+					.map((line) => line.trimEnd()),
+			).toEqual(["↳ loaded 2 lines • Ctrl+O to expand"]);
 		},
 	);
 	it("missing public row identity fails open rather than storing an unbounded ID map", () => {
 		const { controller } = setup({ enabled: true, builtinRendererOverrides: { read: true } });
 		const owned = controller.resolver("read", () => predecessor);
 		expect(
-			owned?.renderResult?.(textResult, options, theme, { ...ctx, state: undefined }).render(80),
+			owned
+				?.renderResult?.(textResult, options, theme, { ...ctx, state: undefined })
+				.render(80)
+				.map((line) => line.trimEnd()),
 		).toEqual(["predecessor result"]);
+	});
+	it("bounds upstream-style Bash progress and releases only owned timers without needing paint", () => {
+		vi.useFakeTimers();
+		try {
+			const progress = createBashProgress();
+			for (let i = 0; i < 30; i++)
+				progress.renderCall({ command: "printf harmless" }, theme, {
+					...ctx,
+					toolCallId: `live-${i}`,
+					state: {},
+					isPartial: true,
+				});
+			expect(vi.getTimerCount()).toBe(16);
+			progress.release({ ...ctx, toolCallId: "live-29" });
+			expect(vi.getTimerCount()).toBe(15);
+			progress.dispose();
+			progress.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

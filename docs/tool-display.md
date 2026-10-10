@@ -45,7 +45,7 @@ count within the limits below can also be set in JSON.
 Read/MCP modes are `hidden | summary | preview`; search modes are
 `hidden | count | preview`. Bash `opencode` uses its collapse limit, `summary`
 shows a line count, and `preview` shows preview lines. Errors and partial states
-remain visible. Image, mixed, empty, or unsupported results delegate unchanged.
+follow upstream presentation. Hidden read/search/MCP modes hide result text, including errors, even when expanded; select Summary or Preview to reveal it. The host retains the actual error status/card color and full result/image data. Unknown result shapes delegate unchanged.
 Expansion uses the host's tool expansion action.
 
 ## Diff and preview controls
@@ -65,9 +65,10 @@ Expansion uses the host's tool expansion action.
 Finite numbers are floored and clamped; invalid values use defaults (preset
 counts where applicable). Auto diffs prefer split above the threshold. Narrow
 panes fall back to unified, compact, or summary presentation even with split
-selected. Diffs preserve anchors and emphasize changed word spans, wrap or clip
-long lines, and report omitted hunks or safety truncation. Colors use Pi semantic
-theme roles; owner-local raw color overrides are not currently supported.
+selected. Diffs use the adapted upstream grids, old/new headers, separators, anchors,
+indicator bars, syntax colors, RGB row/changed-word backgrounds and count hints.
+They wrap or clip long lines and report omitted hunks or safety truncation. Colors
+are derived from the current host theme exactly as upstream; owner-local raw color overrides are not currently supported.
 
 Live write/edit preimages are bounded, workspace-scoped best-effort previews.
 Symlinks, external, binary, special, unreadable, or oversized files are rejected.
@@ -160,8 +161,10 @@ predecessor call/result components and their invalidation are retained separatel
 callbacks run when the host supplies an update, even if the row is not painted.
 Ownership changes take effect on an existing row at its next host callback or
 rebuild, not merely on paint. A paint-time preview failure displays a bounded
-notice and delegates on the next host update. Initially native rows need
-recreation/rebuild/reload before acquiring Zentui rendering.
+notice and delegates on the next host update. Newly owned rows acquire the upstream default native card shell. Existing owned
+edit/custom-self cards retain their constructed outer shell until public
+rebuild/reload; callback cleanup and sticky predecessor delegation still apply.
+Initially native rows need recreation/rebuild/reload before acquiring Zentui rendering.
 
 When a predecessor slot is absent, modern Pi's callback-failure boundary invokes
 its own native call/result fallback (including arguments, collapsed limits,
@@ -172,7 +175,18 @@ Hand edits are loaded on the intended `/reload`, without mirroring or an extra
 reload. Disposing the runtime makes its registered closure permanently neutral;
 the public API has no unregister operation.
 
-Presentation is inspired by pinned pi-tool-display 0.5.0, not pixel-identical:
-semantic theme colors and bold word spans replace its custom RGB emphasis;
-Bash progress is event-driven without an extra animation timer. Attribution and
-the upstream MIT notice are in the linked focused document and packaged source.
+Presentation helpers are faithfully adapted from pinned pi-tool-display 0.5.0,
+without importing its package or config. Full public tool-card ANSI fixtures are
+reproducibly generated from unchanged upstream source and checked against the
+candidate with matching themes/options/widths. Bash uses the upstream timed
+spinner/text in a bounded, owner-scoped lifecycle. Exact comparisons apply to the
+supported normal-input domain; safety caps, unavailable complete preimages,
+unsupported shapes/hosts and existing-card shell restoration require the
+explicit guards described above. Attribution and MIT notices are included.
+
+The user-approved Unicode fix expands changed-word emphasis boundaries to whole
+graphemes, preventing the upstream surrogate/combining/ZWJ corruption. Those
+vectors intentionally differ from unpatched upstream and match a separately
+recorded minimal corrected reference; all other tested normal rows are identical.
+Development oracle generation and safety-domain details are recorded in the
+[attribution/source map](./tool-display-attribution.md).

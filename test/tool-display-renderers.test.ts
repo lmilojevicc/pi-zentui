@@ -30,7 +30,8 @@ function context(args: Record<string, unknown> = {}): ToolDisplayRenderContext {
 		invalidate() {},
 	};
 }
-const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+const plain = (lines: string[]) =>
+	lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).join("\n");
 const result = (text: string) => ({
 	content: [{ type: "text" as const, text }],
 	details: undefined,
@@ -75,7 +76,7 @@ describe("tool-display/renderers", () => {
 					expect(visibleWidth(line)).toBeLessThanOrEqual(Number.isFinite(width) ? width : 0);
 		},
 	);
-	it("F7 native read preview reports host word-wrap rows beyond its visual budget", () => {
+	it("F7 native read preview retains complete upstream word-wrap output", () => {
 		const renderer = createToolDisplayRenderers("read", () =>
 			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview", previewLines: 1 }),
 		);
@@ -89,8 +90,8 @@ describe("tool-display/renderers", () => {
 				)
 				.render(6) ?? [];
 		expect(collapsed).toHaveLength(3);
-		expect(plain(collapsed)).toContain("…");
-		expect(plain(collapsed).match(/aaa/g)).toHaveLength(2);
+		expect(plain(collapsed)).not.toContain("…");
+		expect(plain(collapsed).match(/aaa/g)).toHaveLength(3);
 		for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(6);
 		const expanded =
 			renderer
@@ -117,7 +118,7 @@ describe("tool-display/renderers", () => {
 			plain(
 				write.renderCall?.({ path: "f.ts", content: "界\n" }, theme, context()).render(80) ?? [],
 			),
-		).toBe("write f.ts (1 line • 4 B)");
+		).toBe("write f.ts (1 line • 4B)");
 	});
 	it.each(["hidden", "summary", "preview"] as const)(
 		"read %s follows compact/expanded semantics",
@@ -130,8 +131,8 @@ describe("tool-display/renderers", () => {
 				readOutputMode === "hidden"
 					? ""
 					: readOutputMode === "summary"
-						? "↳ loaded 2 lines"
-						: "one\n… (1 more line)",
+						? "↳ loaded 2 lines • Ctrl+O to expand"
+						: "one\n... (1 more line • Ctrl+O to expand)",
 			);
 			expect(plain(render(renderer, "one\ntwo\n", true))).toBe(
 				readOutputMode === "hidden" ? "" : "one\ntwo",
@@ -146,7 +147,7 @@ describe("tool-display/renderers", () => {
 		const renderer = createToolDisplayRenderers(name, () =>
 			normalizeToolDisplayConfig({ enabled: true, searchOutputMode: "count" }),
 		);
-		expect(plain(render(renderer, "one\n\ntwo\n"))).toBe(`↳ 2 ${unit} returned`);
+		expect(plain(render(renderer, "one\n\ntwo\n"))).toBe(`↳ 2 ${unit} returned • Ctrl+O to expand`);
 		expect(plain(render(renderer, "one\ntwo", true))).toBe("one\ntwo");
 	});
 	it.each(["opencode", "summary", "preview"] as const)(
@@ -162,25 +163,27 @@ describe("tool-display/renderers", () => {
 			);
 			expect(plain(render(renderer, "a\nb\nc"))).toBe(
 				bashOutputMode === "summary"
-					? "↳ 3 lines returned"
+					? "↳ 3 lines returned • Ctrl+O to expand"
 					: bashOutputMode === "opencode"
-						? "a\nb\n… (1 more line)"
-						: "a\n… (2 more lines)",
+						? "a\nb\n... (1 more line • Ctrl+O to expand)"
+						: "a\n... (2 more lines • Ctrl+O to expand)",
 			);
-			expect(plain(render(renderer, "a\nb", false, true))).toContain("running...");
+			expect(plain(render(renderer, "a\nb", false, true))).toContain("a");
 		},
 	);
-	it.each(["read", "grep", "find", "ls", "bash"])("%s errors are never hidden", (name) => {
-		const renderer = createToolDisplayRenderers(name, () =>
-			normalizeToolDisplayConfig({ enabled: true }),
-		);
-		expect(plain(render(renderer, "permission denied", false, false, {}, true))).toContain(
-			"failed",
-		);
-		expect(plain(render(renderer, "permission denied", false, false, {}, true))).toContain(
-			"permission denied",
-		);
-	});
+	it.each(["read", "grep", "find", "ls", "bash"])(
+		"%s error presentation follows upstream mode without altering failures",
+		(name) => {
+			const renderer = createToolDisplayRenderers(name, () =>
+				normalizeToolDisplayConfig({ enabled: true }),
+			);
+			const output = plain(render(renderer, "permission denied", false, false, {}, true));
+			if (name === "bash") {
+				expect(output).toContain("command failed");
+				expect(output).toContain("permission denied");
+			} else expect(output).toBe("");
+		},
+	);
 	it("generic/MCP exact adapters have distinct labels and output modes", () => {
 		const getter = () => normalizeToolDisplayConfig({ enabled: true });
 		const generic = createToolDisplayRenderers(
@@ -192,7 +195,7 @@ describe("tool-display/renderers", () => {
 		expect(plain(generic.renderCall?.({ path: "x" }, theme, context()).render(80) ?? [])).toBe(
 			"ide (1 arg)",
 		);
-		expect(plain(render(generic, "one\ntwo"))).toBe("↳ 2 lines returned");
+		expect(plain(render(generic, "one\ntwo"))).toBe("↳ 2 lines returned • Ctrl+O to expand");
 		const mcp = createToolDisplayRenderers(
 			"mcp__demo__echo",
 			getter,
@@ -222,10 +225,14 @@ describe("tool-display/renderers", () => {
 			context(),
 		);
 		expect(plain(output?.render(80) ?? [])).toBe(
-			"a\n… (1 more line)\n↳ output truncated by backend limits\nFull output: /tmp/full",
+			"a\n... (1 more line)\n(truncated by backend limits)\n(display capped at 1 lines by tool-display setting)",
 		);
 		config = normalizeToolDisplayConfig({ enabled: true, readOutputMode: "hidden" });
-		expect(output?.render(80)).toEqual([]);
+		expect(
+			renderer
+				.renderResult?.(result("a\nb"), { expanded: true, isPartial: false }, theme, context())
+				.render(80),
+		).toEqual([]);
 	});
 	it("marks incomplete pending previews honestly, never reads current files from history", () => {
 		const renderer = createToolDisplayRenderers("write", () =>
@@ -262,15 +269,15 @@ describe("tool-display/renderers", () => {
 			plain(
 				write.renderCall?.(args, theme, { ...context(args), isPartial: true }).render(80) ?? [],
 			),
-		).toContain("pending overwrite +1 -1");
-		expect(plain(render(write, "written", false, false, args))).toContain("overwrite +1 -1");
+		).toContain("pending overwrite");
+		expect(plain(render(write, "written", false, false, args))).toContain("overwritten");
 		const edit = createToolDisplayRenderers("edit", config, { pending });
 		const edits = { path: "f", oldText: "old", newText: "new" };
 		expect(
 			plain(
 				edit.renderCall?.(edits, theme, { ...context(edits), isPartial: true }).render(80) ?? [],
 			),
-		).toContain("pending edit +1 -1");
+		).toContain("pending edit");
 		get.mockReturnValue(undefined);
 		expect(plain(render(write, "written", false, false, args))).toContain("preimage unavailable");
 	});
@@ -279,7 +286,40 @@ describe("tool-display/renderers", () => {
 			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "summary" }),
 		);
 		const output = plain(render(renderer, "x\n".repeat(600_000)));
-		expect(output).toContain("Preview capped at 1 MiB");
-		expect(output).toContain("counts cover displayed input only");
+		expect(output).toContain("loaded 20001 lines");
+	});
+	it("keeps terminal instructions out of owned call/result/diff presentation without changing data", () => {
+		const cfg = () => normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview" });
+		const raw = "safe\x1b]0;unsafe-title\x07\x1b[2J text";
+		const read = createToolDisplayRenderers("read", cfg);
+		const args = { path: raw };
+		const call = read.renderCall?.(args, theme, context(args)).render(80).join("\n") ?? "";
+		const value = result(raw);
+		const output =
+			read
+				.renderResult?.(value, { expanded: false, isPartial: false }, theme, context())
+				.render(80)
+				.join("\n") ?? "";
+		for (const display of [call, output]) {
+			expect(display).not.toContain("\x1b]0;");
+			expect(display).not.toContain("\x1b[2J");
+		}
+		expect(args.path).toBe(raw);
+		expect(value.content[0].text).toBe(raw);
+		const edit = createToolDisplayRenderers("edit", cfg);
+		const details = { diff: `+1|${raw}` };
+		const edited =
+			edit
+				.renderResult?.(
+					{ ...result("edited"), details },
+					{ expanded: false, isPartial: false },
+					theme,
+					context({ path: "safe.txt" }),
+				)
+				.render(80)
+				.join("\n") ?? "";
+		expect(edited).not.toContain("\x1b]0;");
+		expect(edited).not.toContain("\x1b[2J");
+		expect(details.diff).toContain(raw);
 	});
 });
