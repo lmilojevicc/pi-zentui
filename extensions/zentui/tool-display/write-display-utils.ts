@@ -21,6 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+import { boundedContentMetadata } from "./source-bounds.js";
+
+export { boundedContentMetadata as getWriteContentMetadata } from "./source-bounds.js";
+
 export interface WriteCallSummaryOptions {
 	hasContent: boolean;
 	hasDetailedResultHeader: boolean;
@@ -40,11 +44,11 @@ export function splitWriteContentLines(content: string): string[] {
 }
 
 export function countWriteContentLines(value: unknown): number {
-	return typeof value === "string" ? splitWriteContentLines(value).length : 0;
+	return boundedContentMetadata(value).lineCount;
 }
 
 export function getWriteContentSizeBytes(value: unknown): number {
-	return typeof value === "string" ? Buffer.byteLength(value, "utf8") : 0;
+	return boundedContentMetadata(value).sizeBytes;
 }
 
 export function shouldRenderWriteCallSummary(options: WriteCallSummaryOptions): boolean {

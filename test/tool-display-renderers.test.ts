@@ -1,6 +1,13 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+	createEditToolDefinition,
+	createWriteToolDefinition,
+	initTheme,
+	type Theme,
+	ToolExecutionComponent,
+} from "@earendil-works/pi-coding-agent";
+import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
+import { createToolDisplayController } from "../extensions/zentui/tool-display/controller.js";
 import type { ToolRenderers } from "../extensions/zentui/tool-display/host-contract.js";
 import { PendingPreimages } from "../extensions/zentui/tool-display/pending.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
@@ -9,6 +16,11 @@ import {
 	hasOnlyTextContent,
 	type ToolDisplayRenderContext,
 } from "../extensions/zentui/tool-display/renderers.js";
+import {
+	boundedContentMetadata,
+	MAX_PRESENTATION_SOURCE_BYTES,
+	MAX_PREVIEW_LINE_CHARS,
+} from "../extensions/zentui/tool-display/source-bounds.js";
 
 const theme = {
 	fg: (_token: string, text: string) => `\x1b[36m${text}\x1b[39m`,
@@ -321,5 +333,182 @@ describe("tool-display/renderers", () => {
 		expect(edited).not.toContain("\x1b]0;");
 		expect(edited).not.toContain("\x1b[2J");
 		expect(details.diff).toContain(raw);
+	});
+	it.each(["new-many-lines", "overwrite-many-lines", "control-unused-content", "unicode-boundary"])(
+		"bounds full production write ingress for %s before normalization/count allocation",
+		(kind) => {
+			initTheme("dark", false);
+			const content =
+				kind === "unicode-boundary"
+					? `${"a".repeat(MAX_PREVIEW_LINE_CHARS - 1)}🧪tail`
+					: kind === "control-unused-content"
+						? "\x1b]0;payload-title\x07x\n".repeat(100000)
+						: "x\n".repeat(700000);
+			const args = Object.freeze({ path: "safe.ts", content });
+			const value = Object.freeze({
+				content: [{ type: "text", text: "written" }],
+				details: {},
+				isError: false,
+			});
+			const pending = new PendingPreimages();
+			vi.spyOn(pending, "get").mockReturnValue({
+				exists: kind.startsWith("overwrite"),
+				content: kind.startsWith("overwrite") ? "old\n" : "",
+			});
+			const native = createWriteToolDefinition("/sandbox");
+			const execute = native.execute;
+			const parameters = native.parameters;
+			const highlight = vi.fn((text: string) => text);
+			const cfg = () => normalizeToolDisplayConfig({ enabled: true, diffViewMode: "split" });
+			const controller = createToolDisplayController(
+				{
+					getAllTools: () => [
+						{ name: "write", sourceInfo: { source: "builtin", path: "builtin:write" } },
+					],
+				},
+				cfg,
+				{
+					nativeRenderers: { write: native as unknown as ToolRenderers },
+					pending,
+					highlighter: highlight,
+				},
+			);
+			const rawReplace = String.prototype.replace;
+			const rawSplit = String.prototype.split;
+			const rawByteLength = Buffer.byteLength;
+			const unbounded: string[] = [];
+			const replace = vi.spyOn(String.prototype, "replace").mockImplementation(function (
+				this: string,
+				...call: Parameters<typeof String.prototype.replace>
+			) {
+				if (this.length > MAX_PRESENTATION_SOURCE_BYTES) unbounded.push("replace");
+				return Reflect.apply(rawReplace, this, call);
+			});
+			const split = vi.spyOn(String.prototype, "split").mockImplementation(function (
+				this: string,
+				...call: Parameters<typeof String.prototype.split>
+			) {
+				if (this.length > MAX_PREVIEW_LINE_CHARS) unbounded.push("split");
+				return Reflect.apply(rawSplit, this, call);
+			});
+			const bytes = vi.spyOn(Buffer, "byteLength").mockImplementation((input, ...other) => {
+				if (typeof input === "string" && input.length > MAX_PRESENTATION_SOURCE_BYTES)
+					unbounded.push("byteLength");
+				return Reflect.apply(rawByteLength, Buffer, [input, ...other]);
+			});
+			try {
+				const row = new ToolExecutionComponent(
+					"write",
+					"ingress",
+					args,
+					{ showImages: false },
+					controller.resolver("write", () => native as unknown as ToolRenderers),
+					{ requestRender() {} } as unknown as TUI,
+					"/sandbox",
+				);
+				row.setArgsComplete();
+				row.updateResult(value, true);
+				const partial = row.render(110);
+				row.markExecutionStarted();
+				row.updateResult(value, false);
+				row.setExpanded(true);
+				const final = row.render(110);
+				expect(unbounded).toEqual([]);
+				expect(highlight).not.toHaveBeenCalled();
+				expect(plain(partial)).toContain("preview capped");
+				expect(plain(partial)).toContain("≥");
+				expect(plain(partial)).toContain("Preview omitted");
+				expect(plain(final)).toContain("bounded input limit");
+				for (const display of [...partial, ...final]) {
+					expect(visibleWidth(display)).toBeLessThanOrEqual(110);
+					expect(Buffer.from(display, "utf8").toString("utf8")).toBe(display);
+					expect(display).not.toContain("\x1b]0;");
+				}
+				expect(args.content).toBe(content);
+				expect(value.content[0].text).toBe("written");
+				expect(native.execute).toBe(execute);
+				expect(native.parameters).toBe(parameters);
+			} finally {
+				replace.mockRestore();
+				split.mockRestore();
+				bytes.mockRestore();
+				controller.dispose();
+			}
+		},
+	);
+	it("counts ordinary write metadata exactly with no line array, and bounded metadata as lower bounds", () => {
+		for (const content of ["", "\r", "a", "a\n", "a\n\n", "a\r\nb", "界🧪\n"]) {
+			const normalized = content.replace(/\r/g, "");
+			const expected = content ? normalized.split("\n") : [];
+			if (expected.at(-1) === "") expected.pop();
+			expect(boundedContentMetadata(content)).toEqual({
+				lineCount: expected.length,
+				sizeBytes: Buffer.byteLength(content, "utf8"),
+				capped: false,
+			});
+		}
+		const capped = boundedContentMetadata("x\n".repeat(700000));
+		expect(capped.capped).toBe(true);
+		expect(capped.lineCount).toBeLessThanOrEqual(4000);
+		expect(capped.sizeBytes).toBeLessThanOrEqual(MAX_PRESENTATION_SOURCE_BYTES);
+	});
+	it("bounds the adjacent edit header/partial count and leaves unused payload strings unsanitized", () => {
+		initTheme("dark", false);
+		const oldText = "\x1b]0;unused-title\x07".repeat(90000);
+		const newText = "new\n".repeat(600000);
+		const args = Object.freeze({ path: "safe.ts", oldText, newText });
+		const native = createEditToolDefinition("/sandbox") as unknown as ToolRenderers;
+		const cfg = () => normalizeToolDisplayConfig({ enabled: true });
+		const controller = createToolDisplayController(
+			{
+				getAllTools: () => [
+					{ name: "edit", sourceInfo: { source: "builtin", path: "builtin:edit" } },
+				],
+			},
+			cfg,
+			{ nativeRenderers: { edit: native } },
+		);
+		const original = String.prototype.replace;
+		const violations: string[] = [];
+		const spy = vi.spyOn(String.prototype, "replace").mockImplementation(function (
+			this: string,
+			...call: Parameters<typeof String.prototype.replace>
+		) {
+			if (this.length > MAX_PRESENTATION_SOURCE_BYTES) violations.push("replace");
+			return Reflect.apply(original, this, call);
+		});
+		try {
+			const row = new ToolExecutionComponent(
+				"edit",
+				"ingress-edit",
+				args,
+				{ showImages: false },
+				controller.resolver("edit", () => native),
+				{ requestRender() {} } as unknown as TUI,
+				"/sandbox",
+			);
+			row.setArgsComplete();
+			row.updateResult(
+				{ content: [{ type: "text", text: "editing" }], details: {}, isError: false },
+				true,
+			);
+			expect(plain(row.render(110))).toContain("preview capped");
+			expect(violations).toEqual([]);
+			row.updateResult(
+				{
+					content: [{ type: "text", text: "edited" }],
+					details: { diff: "-1|old\n+1|new" },
+					isError: false,
+				},
+				false,
+			);
+			expect(plain(row.render(110))).toContain("diff");
+			expect(violations).toEqual([]);
+			expect(args.oldText).toBe(oldText);
+			expect(args.newText).toBe(newText);
+		} finally {
+			spy.mockRestore();
+			controller.dispose();
+		}
 	});
 });

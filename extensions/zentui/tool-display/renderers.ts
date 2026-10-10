@@ -31,13 +31,14 @@ import { type PendingPreimages, projectPending } from "./pending.js";
 import { PresentationText as Text } from "./presentation-text.js";
 import { record } from "./presets.js";
 import { sanitizeTerminalControls, shortenPath } from "./render-utils.js";
+import {
+	graphemePrefix,
+	MAX_PREVIEW_LINE_CHARS,
+	type PresentationMetadata,
+} from "./source-bounds.js";
 import * as presentation from "./tool-presentation.js";
 import type { CustomToolDisplayConfig, ToolDisplayConfig } from "./types.js";
-import {
-	countWriteContentLines,
-	getWriteContentSizeBytes,
-	shouldRenderWriteCallSummary,
-} from "./write-display-utils.js";
+import { getWriteContentMetadata, shouldRenderWriteCallSummary } from "./write-display-utils.js";
 export type ToolDisplayRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 export function hasOnlyTextContent(result: unknown): boolean {
 	const content = record(result).content;
@@ -85,6 +86,45 @@ function boundedComponent(component: Component, safetyRows: number): Component {
 		},
 	};
 }
+function displayCallInput(
+	name: string,
+	args: unknown,
+	custom?: CustomToolDisplayConfig,
+): { input: Record<string, unknown>; capped: boolean } {
+	const raw = record(args);
+	const input = { ...raw };
+	let capped = false;
+	const fields =
+		custom?.kind === "mcp"
+			? ["tool", "server", "connect", "describe", "search"]
+			: custom
+				? []
+				: name === "bash"
+					? ["command", "commandPrefix", "shellPath"]
+					: name === "grep"
+						? ["path", "pattern", "glob"]
+						: name === "find"
+							? ["path", "pattern"]
+							: ["read", "write", "edit"].includes(name)
+								? ["path", "file_path"]
+								: name === "ls"
+									? ["path"]
+									: [];
+	for (const field of fields) {
+		const value = raw[field];
+		if (typeof value !== "string") continue;
+		const prefix = graphemePrefix(value, MAX_PREVIEW_LINE_CHARS);
+		capped ||= prefix.length < value.length;
+		input[field] = sanitizeTerminalControls(prefix);
+	}
+	return { input, capped };
+}
+function cappedWriteSuffix(meta: PresentationMetadata, theme: Theme): string {
+	return theme.fg(
+		"muted",
+		` (≥${meta.lineCount} lines • ≥${meta.sizeBytes} bytes • preview capped)`,
+	);
+}
 export function createToolDisplayRenderers(
 	name: string,
 	getConfig: () => ToolDisplayConfig,
@@ -102,9 +142,23 @@ export function createToolDisplayRenderers(
 		args: unknown,
 		ctx: ToolDisplayRenderContext,
 		theme: Theme,
+		capped = false,
 	): Component => {
 		if ((name !== "edit" && name !== "write") || !ctx.argsComplete || !ctx.isPartial)
 			return text(summary);
+		if (capped)
+			return presentation.buildPendingDiffCallComponent(
+				summary,
+				{
+					filePath: "",
+					fileExistedBeforeWrite: false,
+					headerLabel: "pending write",
+					notice: "Preview omitted: bounded input limit.",
+				},
+				ctx,
+				config(),
+				theme,
+			);
 		const preimage = resources.pending?.get(ctx.toolCallId, name, args, ctx.cwd);
 		const projected = projectPending(
 			name,
@@ -130,79 +184,102 @@ export function createToolDisplayRenderers(
 	return {
 		renderShell: "default",
 		renderCall(args, theme, ctx) {
-			const rawInput = record(args);
-			const input = Object.fromEntries(
-				Object.entries(rawInput).map(([key, value]) => [
-					key,
-					typeof value === "string" ? sanitizeTerminalControls(value) : value,
-				]),
-			);
-			if (custom) {
-				return custom.kind === "mcp"
-					? presentation.formatMcpCallLine("mcp", "MCP Proxy", input, theme)
-					: presentation.formatGenericToolCallLine(name, args, theme);
-			}
-			switch (name) {
-				case "read":
-					return presentation.renderReadDisplayCall(input, theme);
-				case "bash":
-					return boundedComponent(progress.renderCall(input, theme, ctx), 20000);
-				case "grep":
-					return presentation.formatSearchCallLine(
-						name,
-						`/${input.pattern}/`,
-						` in ${presentation.getSearchScope(input)}${input.glob ? ` (${input.glob})` : ""}${input.limit !== undefined ? ` limit ${input.limit}` : ""}`,
-						theme,
-					);
-				case "find":
-					return presentation.formatSearchCallLine(
-						name,
-						String(input.pattern ?? ""),
-						` in ${presentation.getSearchScope(input)}${input.limit !== undefined ? ` (limit ${input.limit})` : ""}`,
-						theme,
-					);
-				case "ls":
-					return presentation.formatSearchCallLine(
-						name,
-						presentation.getSearchScope(input),
-						input.limit !== undefined ? ` (limit ${input.limit})` : "",
-						theme,
-					);
-				case "edit":
-					return boundedComponent(
-						pendingCall(
-							`${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", shortenPath(presentation.getToolPathArg(input)) || "...")}${presentation.formatLineCountSuffix(presentation.getEditLineCount(args), theme)}`,
-							args,
-							ctx,
-							theme,
-						),
-						20000,
-					);
-				case "write": {
-					const content = presentation.getToolContentArg(args);
-					const suffix = shouldRenderWriteCallSummary({
-						hasContent: content !== undefined,
-						hasDetailedResultHeader: false,
-					})
-						? presentation.formatWriteCallSuffix(
-								countWriteContentLines(content),
-								getWriteContentSizeBytes(content),
-								theme,
-							)
-						: "";
-					return boundedComponent(
-						pendingCall(
-							`${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", shortenPath(presentation.getToolPathArg(input)) || "...")}${suffix}`,
-							args,
-							ctx,
-							theme,
-						),
-						20000,
-					);
+			const { input, capped: callCapped } = displayCallInput(name, args, custom);
+			const build = (): Component => {
+				if (custom) {
+					return custom.kind === "mcp"
+						? presentation.formatMcpCallLine("mcp", "MCP Proxy", input, theme)
+						: presentation.formatGenericToolCallLine(name, args, theme);
 				}
-				default:
-					return presentation.formatGenericToolCallLine(name, args, theme);
-			}
+				switch (name) {
+					case "read":
+						return presentation.renderReadDisplayCall(input, theme);
+					case "bash":
+						return boundedComponent(
+							progress.renderCall(
+								callCapped
+									? { ...input, command: `${String(input.command ?? "")} … (call preview capped)` }
+									: input,
+								theme,
+								ctx,
+							),
+							20000,
+						);
+					case "grep":
+						return presentation.formatSearchCallLine(
+							name,
+							`/${input.pattern}/`,
+							` in ${presentation.getSearchScope(input)}${input.glob ? ` (${input.glob})` : ""}${input.limit !== undefined ? ` limit ${input.limit}` : ""}`,
+							theme,
+						);
+					case "find":
+						return presentation.formatSearchCallLine(
+							name,
+							String(input.pattern ?? ""),
+							` in ${presentation.getSearchScope(input)}${input.limit !== undefined ? ` (limit ${input.limit})` : ""}`,
+							theme,
+						);
+					case "ls":
+						return presentation.formatSearchCallLine(
+							name,
+							presentation.getSearchScope(input),
+							input.limit !== undefined ? ` (limit ${input.limit})` : "",
+							theme,
+						);
+					case "edit": {
+						const meta = presentation.getEditLineMetadata(args);
+						const suffix = meta.capped
+							? theme.fg("muted", ` (≥${meta.lineCount} lines • preview capped)`)
+							: presentation.formatLineCountSuffix(meta.lineCount, theme);
+						return boundedComponent(
+							pendingCall(
+								`${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", shortenPath(presentation.getToolPathArg(input)) || "...")}${suffix}`,
+								args,
+								ctx,
+								theme,
+								meta.capped || callCapped,
+							),
+							20000,
+						);
+					}
+					case "write": {
+						const content = presentation.getToolContentArg(args);
+						const meta = getWriteContentMetadata(content);
+						const suffix = shouldRenderWriteCallSummary({
+							hasContent: content !== undefined,
+							hasDetailedResultHeader: false,
+						})
+							? meta.capped
+								? cappedWriteSuffix(meta, theme)
+								: presentation.formatWriteCallSuffix(meta.lineCount, meta.sizeBytes, theme)
+							: "";
+						return boundedComponent(
+							pendingCall(
+								`${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", shortenPath(presentation.getToolPathArg(input)) || "...")}${suffix}`,
+								args,
+								ctx,
+								theme,
+								meta.capped || callCapped,
+							),
+							20000,
+						);
+					}
+					default:
+						return presentation.formatGenericToolCallLine(name, args, theme);
+				}
+			};
+			const component = build();
+			if (!callCapped) return component;
+			return {
+				invalidate() {
+					component.invalidate();
+				},
+				render(width) {
+					const safe = safeWidth(width);
+					if (!safe) return [];
+					return [...component.render(safe), truncateToWidth("… (call preview capped)", safe, "")];
+				},
+			};
 		},
 		renderResult(result, options, theme, ctx) {
 			const cfg = config();
@@ -241,16 +318,25 @@ export function createToolDisplayRenderers(
 				) as Component;
 			else if (name === "write") {
 				const content = presentation.getToolContentArg(ctx.args);
+				const meta = getWriteContentMetadata(content);
 				const early = presentation.handleEditOrWriteResult(
 					safe,
 					options,
 					ctx,
 					theme,
-					countWriteContentLines(content),
+					meta.lineCount,
 					"writing",
 					"Write failed.",
 				);
-				if (early.earlyResult) component = early.earlyResult;
+				if (options.isPartial && meta.capped)
+					component = text(
+						theme.fg("warning", `writing... (≥${meta.lineCount} lines • preview capped)`),
+					);
+				else if (early.earlyResult) component = early.earlyResult;
+				else if (meta.capped)
+					component = text(
+						theme.fg("warning", "↳ write completed • diff preview omitted (bounded input limit)"),
+					);
 				else {
 					const preimage = resources.pending?.get(ctx.toolCallId, "write", ctx.args, ctx.cwd);
 					if (preimage?.content === undefined || preimage.notice || typeof content !== "string")

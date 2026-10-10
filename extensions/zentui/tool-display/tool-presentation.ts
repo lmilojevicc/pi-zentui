@@ -73,6 +73,11 @@ interface ToolRenderContextLike {
 }
 
 import type { CodeHighlighter } from "./diff.js";
+import {
+	boundedContentMetadata,
+	MAX_PRESENTATION_SOURCE_BYTES,
+	type PresentationMetadata,
+} from "./source-bounds.js";
 
 interface ToolDisplayAdapter {
 	highlighter?: CodeHighlighter;
@@ -144,13 +149,6 @@ function truncationHint(details: { truncation?: { truncated?: boolean } } | unde
 	return details?.truncation?.truncated ? " • truncated" : "";
 }
 
-function countTextLines(value: unknown): number {
-	if (typeof value !== "string") {
-		return 0;
-	}
-	return splitLines(value).length;
-}
-
 function getStringField(value: unknown, field: string): string | undefined {
 	const raw = toRecord(value)[field];
 	return typeof raw === "string" ? raw : undefined;
@@ -169,29 +167,39 @@ export function getToolContentArg(value: unknown): string | undefined {
 	return getStringField(value, "content");
 }
 
-function getEditPayloadLineCount(value: unknown): number {
-	const record = toRecord(value);
-	const lines = record.lines;
-	if (Array.isArray(lines)) {
-		return lines.filter((line): line is string => typeof line === "string").length;
+function getEditPayloadMetadata(value: unknown): PresentationMetadata {
+	const input = toRecord(value);
+	if (Array.isArray(input.lines)) {
+		let count = 0;
+		const limit = Math.min(input.lines.length, 4000);
+		for (let i = 0; i < limit; i++) if (typeof input.lines[i] === "string") count++;
+		return { lineCount: count, sizeBytes: 0, capped: input.lines.length > limit };
 	}
-	if (typeof lines === "string") {
-		return countTextLines(lines);
-	}
-
-	return countTextLines(record.newText);
+	return boundedContentMetadata(
+		typeof input.lines === "string" ? input.lines : input.newText,
+		true,
+	);
 }
-
-export function getEditLineCount(value: unknown): number {
-	const record = toRecord(value);
-	const edits = Array.isArray(record.edits) ? (record.edits as unknown[]) : [];
-	if (edits.length > 0) {
-		return edits.reduce<number>((total, edit) => {
-			return total + getEditPayloadLineCount(edit);
-		}, 0);
+export function getEditLineMetadata(value: unknown): PresentationMetadata {
+	const input = toRecord(value);
+	const edits = Array.isArray(input.edits) && input.edits.length ? input.edits : undefined;
+	if (!edits) return getEditPayloadMetadata(value);
+	let lineCount = 0;
+	let sizeBytes = 0;
+	let capped = false;
+	for (let i = 0; i < Math.min(edits.length, 4000); i++) {
+		const meta = getEditPayloadMetadata(edits[i]);
+		lineCount += meta.lineCount;
+		sizeBytes += meta.sizeBytes;
+		if (meta.capped || lineCount > 4000 || sizeBytes > MAX_PRESENTATION_SOURCE_BYTES) {
+			capped = true;
+			break;
+		}
 	}
-
-	return getEditPayloadLineCount(record);
+	return { lineCount, sizeBytes, capped: capped || edits.length > 4000 };
+}
+export function getEditLineCount(value: unknown): number {
+	return getEditLineMetadata(value).lineCount;
 }
 
 function isToolError(result: unknown, context?: ToolRenderContextLike): boolean {
@@ -955,7 +963,16 @@ export function renderEditDisplayResult(
 	adapter: ToolDisplayAdapter = {},
 	getConfig: ConfigGetter,
 ): unknown {
-	const lineCount = adapter.getEditLineCount?.(context?.args) ?? getEditLineCount(context?.args);
+	const metadata = options.isPartial ? getEditLineMetadata(context?.args) : undefined;
+	if (metadata?.capped)
+		return new Text(
+			theme.fg("warning", `editing... (≥${metadata.lineCount} lines • preview capped)`),
+			0,
+			0,
+		);
+	const lineCount = options.isPartial
+		? (adapter.getEditLineCount?.(context?.args) ?? metadata?.lineCount ?? 0)
+		: 0;
 	const { fallbackText, earlyResult } = handleEditOrWriteResult(
 		result,
 		options,

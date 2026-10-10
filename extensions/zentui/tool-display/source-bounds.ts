@@ -56,3 +56,49 @@ export function boundedPresentationSource(
 	}
 	return { lines, capped };
 }
+
+export interface PresentationMetadata {
+	lineCount: number;
+	sizeBytes: number;
+	capped: boolean;
+}
+
+/** Numeric display metadata only: no normalization, full split or payload allocation. */
+export function boundedContentMetadata(
+	value: unknown,
+	preserveTerminalEmpty = false,
+): PresentationMetadata {
+	if (typeof value !== "string" || !value) return { lineCount: 0, sizeBytes: 0, capped: false };
+	let sizeBytes = 0;
+	let lineFeeds = 0;
+	let lineChars = 0;
+	let last = "";
+	let index = 0;
+	while (index < value.length) {
+		const point = value.codePointAt(index) as number;
+		const units = point > 0xffff ? 2 : 1;
+		const bytes = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+		const nextFeeds = lineFeeds + Number(point === 10);
+		const nextChars = point === 10 ? 0 : point === 13 ? lineChars : lineChars + units;
+		const nextLast = point === 13 ? last : point === 10 ? "\n" : "text";
+		const nextLines = preserveTerminalEmpty
+			? nextFeeds + 1
+			: nextFeeds + Number(nextLast === "text");
+		if (
+			sizeBytes + bytes > MAX_PRESENTATION_SOURCE_BYTES ||
+			nextChars > MAX_PREVIEW_LINE_CHARS ||
+			nextLines > 4000
+		)
+			break;
+		sizeBytes += bytes;
+		lineFeeds = nextFeeds;
+		lineChars = nextChars;
+		last = nextLast;
+		index += units;
+	}
+	return {
+		lineCount: preserveTerminalEmpty ? lineFeeds + 1 : lineFeeds + Number(last === "text"),
+		sizeBytes,
+		capped: index < value.length,
+	};
+}
