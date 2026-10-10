@@ -99,7 +99,7 @@ interface CustomToolOverrideConfig {
 const RTK_COMPACTION_LABEL = "compacted by RTK";
 function getTextField(args: Record<string, unknown>, field: string): string | undefined {
 	const value = args[field];
-	return typeof value === "string" ? value : undefined;
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 function formatExpandHint(theme: RenderTheme): string {
 	return theme.fg("muted", " • Ctrl+O to expand");

@@ -15,6 +15,17 @@ Zentui's native Tool display component uses [pi-tool-display 0.5.0](https://gith
 - `renderers.ts`/`controller.ts`: rendering-only adaptation to public resolver ownership,
   safe event-observed preimages and native card acquisition; no schema/execute changes.
 
+## MCP extension-path oracle domains
+
+Unchanged `tool-overrides.ts:1156–1180` selects the registered label for direct MCP
+calls; automatic decoration at1988–2022 passes that name/label. Explicit custom
+MCP overrides at1930–1960 instead select the proxy form. The oracle now exercises
+both real extension registration paths with their own config semantics, rather
+than using canonical names under an explicit proxy override as evidence for the
+automatic domain. Noncanonical gateways retain explicit-proxy coverage. The live
+`sandbox_echo` export is not a matched renderer comparison when only the candidate
+explicitly overrides it; its explicit-custom presentation remains unchanged.
+
 ## User-approved Unicode correction
 
 The pinned implementation can place changed-word background ANSI inside a UTF-16

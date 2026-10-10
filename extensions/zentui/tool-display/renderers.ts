@@ -187,8 +187,16 @@ export function createToolDisplayRenderers(
 			const { input, capped: callCapped } = displayCallInput(name, args, custom);
 			const build = (): Component => {
 				if (custom) {
+					// Public Pi names encode direct MCP server/tool labels. ToolInfo
+					// exposes no label; never inspect private predecessor definitions.
+					const directMcp = /^mcp__(.+?)__(.+)$/.exec(name);
 					return custom.kind === "mcp"
-						? presentation.formatMcpCallLine("mcp", "MCP Proxy", input, theme)
+						? presentation.formatMcpCallLine(
+								directMcp ? name : "mcp",
+								directMcp ? `${directMcp[1]}/${directMcp[2]}` : "MCP Proxy",
+								input,
+								theme,
+							)
 						: presentation.formatGenericToolCallLine(name, args, theme);
 				}
 				switch (name) {

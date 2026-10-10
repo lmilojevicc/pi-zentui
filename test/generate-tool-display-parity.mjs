@@ -251,6 +251,35 @@ for (const [label, tail, crlf] of [
 		result: { content: [{ type: "text", text: "edited" }], details: { diff: payload } },
 	});
 }
+templates.push({
+	name: "custom_mcp_gateway",
+	kind: "mcp",
+	args: { tool: "echo", server: "demo", args: { message: "gateway" } },
+	result: { content: [{ type: "text", text: "gateway response" }], details: {} },
+});
+templates.push({
+	name: "mcp__zentui_demo__echo",
+	kind: "mcp",
+	args: { message: "hello from real local MCP server" },
+	result: { content: [{ type: "text", text: "hello from real local MCP server" }], details: {} },
+});
+templates.push({
+	name: "sandbox_echo",
+	kind: "generic",
+	args: { message: "hello from real custom tool" },
+	result: {
+		content: [
+			{
+				type: "text",
+				text: Array.from(
+					{ length: 12 },
+					(_, i) => `custom ${i + 1}: hello from real custom tool`,
+				).join("\n"),
+			},
+		],
+		details: {},
+	},
+});
 const cases = [];
 for (const theme of themes)
 	for (const width of [80, 110, 160])
@@ -420,14 +449,15 @@ function originalRenderers(fixture, cfg, modules) {
 	upstream.registerToolDisplayOverrides(pi, () => ({
 		...upstreamTypes.DEFAULT_TOOL_DISPLAY_CONFIG,
 		...cfg,
-		customToolOverrides: fixture.kind
-			? { [fixture.name]: { enabled: true, kind: fixture.kind, outputMode: cfg.mcpOutputMode } }
-			: {},
+		customToolOverrides:
+			fixture.kind && !/^mcp__(.+?)__(.+)$/.test(fixture.name)
+				? { [fixture.name]: { enabled: true, kind: fixture.kind, outputMode: cfg.mcpOutputMode } }
+				: {},
 	}));
 	if (fixture.kind)
 		pi.registerTool({
 			name: fixture.name,
-			label: fixture.name,
+			label: fixture.name.replace(/^mcp__(.+?)__(.+)$/, "$1/$2"),
 			description: "fixture",
 			parameters: {},
 			execute() {
@@ -632,6 +662,12 @@ const provenanceFiles = [
 	"bash-display.ts",
 ];
 const provenance = {
+	rendererDomains: {
+		directMcp:
+			"real extension automatic registration with native server/tool label and no custom override",
+		proxyMcp: "builtin mcp or explicitly configured noncanonical custom gateway",
+		generic: "explicit custom override; unlisted live sandbox_echo is outside matched config scope",
+	},
 	unicodePatchSha256: createHash("sha256").update(readFileSync(unicodePatchPath)).digest("hex"),
 	unicodeCorrection: {
 		vectors: correctedVectors,

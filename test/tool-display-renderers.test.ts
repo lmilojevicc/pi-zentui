@@ -217,7 +217,7 @@ describe("tool-display/renderers", () => {
 		);
 		expect(
 			plain(mcp.renderCall?.({ tool: "echo", server: "demo" }, theme, context()).render(80) ?? []),
-		).toBe("MCP call demo:echo (2 args)");
+		).toBe("MCP demo/echo (2 args)");
 		expect(plain(render(mcp, "one"))).toBe("one");
 	});
 	it("reports backend and expanded caps, strips terminal instructions, and re-reads config/theme", () => {
@@ -573,4 +573,91 @@ describe("tool-display/renderers", () => {
 			}
 		},
 	);
+	it.each([
+		[
+			"mcp__zentui_demo__echo",
+			{ message: "hello from real local MCP server" },
+			"MCP zentui_demo/echo (1 arg)",
+		],
+		["mcp", { tool: "echo", server: "demo", message: "proxy" }, "MCP call demo:echo (3 args)"],
+		[
+			"custom_mcp_gateway",
+			{ tool: "echo", server: "demo", message: "gateway" },
+			"MCP call demo:echo (3 args)",
+		],
+	] as const)(
+		"uses the correct direct versus proxy MCP extension presentation for %s",
+		(name, args, expected) => {
+			initTheme("dark", false);
+			const cfg = () =>
+				normalizeToolDisplayConfig({
+					enabled: true,
+					customToolOverrides: {
+						[name]: {
+							enabled: true,
+							kind: "mcp",
+							outputMode: "preview",
+							overrideExistingRenderers: true,
+						},
+					},
+				});
+			const controller = createToolDisplayController({}, cfg, { nativeRenderers: {} });
+			const row = new ToolExecutionComponent(
+				name,
+				"mcp-domain",
+				args,
+				{ showImages: false },
+				controller.resolver(name, () => ({})),
+				{ requestRender() {} } as unknown as TUI,
+				"/sandbox",
+			);
+			row.updateResult({
+				content: [{ type: "text", text: "response" }],
+				details: {},
+				isError: false,
+			});
+			expect(plain(row.render(110))).toContain(expected);
+			expect(plain(row.render(110))).toContain("response");
+			controller.dispose();
+		},
+	);
+	it("keeps explicit sandbox_echo preview rows unchanged rather than mimicking an unlisted reference tool", () => {
+		initTheme("dark", false);
+		const name = "sandbox_echo";
+		const cfg = () =>
+			normalizeToolDisplayConfig({
+				enabled: true,
+				customToolOverrides: {
+					[name]: {
+						enabled: true,
+						kind: "generic",
+						outputMode: "preview",
+						overrideExistingRenderers: true,
+					},
+				},
+			});
+		const controller = createToolDisplayController({}, cfg, { nativeRenderers: {} });
+		const args = { message: "hello from real custom tool" };
+		const content = Array.from(
+			{ length: 12 },
+			(_, index) => `custom ${index + 1}: ${args.message}`,
+		).join("\n");
+		const row = new ToolExecutionComponent(
+			name,
+			"custom-domain",
+			args,
+			{ showImages: false },
+			controller.resolver(name, () => ({})),
+			{ requestRender() {} } as unknown as TUI,
+			"/sandbox",
+		);
+		row.updateResult({ content: [{ type: "text", text: content }], details: {}, isError: false });
+		expect(plain(row.render(110))).toContain("sandbox_echo (1 arg)");
+		expect(plain(row.render(110))).toContain("... (4 more lines • Ctrl+O to expand)");
+		row.setExpanded(true);
+		const output = plain(row.render(110));
+		for (let index = 0; index < 12; index++)
+			expect(output).toContain(`custom ${index + 1}: ${args.message}`);
+		controller.dispose();
+	});
 });

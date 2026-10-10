@@ -142,6 +142,15 @@ Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matchin
 }
 ```
 
+Canonical `mcp__<server>__<tool>` entries use upstream's automatic/direct MCP
+presentation (`<server>/<tool>`). The public ToolInfo API has no registered label,
+so this documented Pi naming normalization is used without private inspection.
+The builtin `mcp` proxy and noncanonical custom-MCP gateways keep upstream's
+proxy target selection (`tool`, `server`, `connect`, `describe`, `search`). This
+changes presentation only, never the existing exact-name consent requirement.
+Comparisons must match configuration scope: an explicitly styled custom tool
+must not be compared as if it were an unlisted reference/native tool.
+
 Unlisted or disabled tools delegate. `kind` is `generic | mcp`; boolean shorthand
 is accepted with generic rendering. Omitted `outputMode` inherits `mcpOutputMode`
 for MCP and summary for generic; explicit hidden/summary/preview wins. Deleting
