@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const GIT_COMMAND_TIMEOUT_MS = 2_000;
+// Background probes must not take .git/index.lock: a probe killed mid-refresh leaves a stale lock that blocks commits.
+const GIT_PROBE_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
 
 export type GitOperationState =
 	| "REBASING"
@@ -325,6 +327,7 @@ export async function readGitStatus(
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
+				env: GIT_PROBE_ENV,
 			}),
 			options.readStash !== false
 				? execFileAsync("git", ["stash", "list"], {
@@ -345,6 +348,7 @@ export async function readGitStatus(
 				? execFileAsync("git", numstatArgs, {
 						cwd,
 						timeout: GIT_COMMAND_TIMEOUT_MS,
+						env: GIT_PROBE_ENV,
 					}).then(
 						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
 						() => ({ stdout: "", failed: true as const }),

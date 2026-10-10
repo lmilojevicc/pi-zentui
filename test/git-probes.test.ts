@@ -72,6 +72,15 @@ describe("readGitStatus subprocess demand", () => {
 		);
 	});
 
+	it("runs index-refreshing probes without optional locks", async () => {
+		await readGitStatus(root, { readMetrics: true });
+		const refreshing = probe.exec.mock.calls.filter((call) =>
+			["status", "diff"].includes(call[1][0]),
+		);
+		expect(refreshing).toHaveLength(2);
+		for (const call of refreshing) expect(call[2].env.GIT_OPTIONAL_LOCKS).toBe("0");
+	});
+
 	it("uses one process for branch-only/minimalist demand", async () => {
 		const result = await readGitStatus(root, { readStash: false, readOperationState: false });
 		expect.soft(result).toMatchObject({
