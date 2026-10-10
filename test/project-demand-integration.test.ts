@@ -375,7 +375,9 @@ describe("owned project demand through real index and git reader", () => {
 		});
 		const h = harness();
 		await h.emit("session_start");
-		expect(fixture.exec.mock.calls.map((call) => call[1][0])).toEqual(commands);
+		expect(
+			fixture.exec.mock.calls.map((call) => (call[1][0] === "-c" ? call[1][2] : call[1][0])),
+		).toEqual(commands);
 	});
 
 	it("clears demand on footer disposal without changing the other surface", async () => {

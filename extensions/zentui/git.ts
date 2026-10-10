@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const GIT_COMMAND_TIMEOUT_MS = 2_000;
+// Background probes must not take .git/index.lock: a probe killed mid-refresh leaves a stale lock that blocks commits.
+const GIT_PROBE_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
 
 export type GitOperationState =
 	| "REBASING"
@@ -319,12 +321,14 @@ export async function readGitStatus(
 	const readExactTag = options.readExactTag === true;
 	const readMetrics = options.readMetrics === true;
 	try {
-		const numstatArgs = ["diff", "HEAD", "--numstat"];
+		// diff's index refresh does not always honor GIT_OPTIONAL_LOCKS.
+		const numstatArgs = ["-c", "diff.autoRefreshIndex=false", "diff", "HEAD", "--numstat"];
 		if (options.ignoreSubmodules) numstatArgs.push("--ignore-submodules=all");
 		const [{ stdout: statusStdout }, stashResult, tagResult, metricsResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {
 				cwd,
 				timeout: GIT_COMMAND_TIMEOUT_MS,
+				env: GIT_PROBE_ENV,
 			}),
 			options.readStash !== false
 				? execFileAsync("git", ["stash", "list"], {
@@ -345,6 +349,7 @@ export async function readGitStatus(
 				? execFileAsync("git", numstatArgs, {
 						cwd,
 						timeout: GIT_COMMAND_TIMEOUT_MS,
+						env: GIT_PROBE_ENV,
 					}).then(
 						(r) => ({ stdout: typeof r.stdout === "string" ? r.stdout : String(r.stdout) }),
 						() => ({ stdout: "", failed: true as const }),
