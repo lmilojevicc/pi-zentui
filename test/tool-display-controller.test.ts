@@ -289,7 +289,12 @@ describe("tool-display/controller (public resolver only)", () => {
 		const output = owned?.renderResult?.(textResult, options, theme, ctx);
 		expect(output?.render(80)).toEqual(["↳ loaded 2 lines"]);
 		downstream = predecessor;
-		expect(output?.render(80)).toEqual(["predecessor result"]);
+		expect(output?.render(80)).toEqual(["↳ loaded 2 lines"]);
+		expect(
+			owned
+				?.renderResult?.(textResult, options, theme, { ...ctx, lastComponent: output })
+				.render(80),
+		).toEqual(["predecessor result"]);
 		downstream = nativeRead;
 		api.getAllTools.mockReturnValue([
 			{ name: "read", sourceInfo: { source: "package", path: "/foreign" } },
@@ -388,7 +393,9 @@ describe("tool-display/controller (public resolver only)", () => {
 					bold: (s: string) => s,
 				} as unknown as Theme;
 			expect(owned?.renderResult?.(content, options, localTheme, row).render(80)).toEqual([
-				"predecessor result",
+				reason === "failure"
+					? "Tool preview unavailable; awaiting native update."
+					: "predecessor result",
 			]);
 			update({
 				enabled: true,

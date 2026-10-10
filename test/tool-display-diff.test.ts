@@ -98,7 +98,7 @@ describe("tool-display/diff", () => {
 		expect(plain(component.render(140))).toContain("12#CD");
 		expect(component.render(140).join("\n")).toContain("\x1b[1mold\x1b[22m");
 		expect(plain(component.render(140))).toContain("+1 -1");
-		expect(plain(component.render(140))).toContain("1 more diff lines");
+		expect(plain(component.render(140))).toContain("at least 1 more diff rows");
 		expect(plain(component.render(8))).toContain("…");
 	});
 	it("re-evaluates theme/config without stale width caches and catches highlighting failure", () => {

@@ -1,10 +1,11 @@
 import { homedir } from "node:os";
 import type { Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
-import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import {
+	boundedContentLines,
+	boundedWrap,
 	type CodeHighlighter,
 	cleanText,
-	contentLines,
 	diffComponent,
 	diffContents,
 	focusDiffContext,
@@ -49,31 +50,66 @@ function boundedOutput(result: unknown): { text: string; capped: boolean } {
 	const content = record(result).content;
 	if (!Array.isArray(content)) return { text: "", capped: false };
 	let text = "";
+	let bytes = 0;
 	let capped = false;
 	for (const block of content) {
 		const raw = record(block).text;
 		if (typeof raw !== "string") continue;
-		const available = RENDER_INPUT_MAX_CHARS - text.length;
-		if (raw.length + 1 > available) capped = true;
-		if (available <= 0) break;
-		text += `${text ? "\n" : ""}${cleanText(raw.slice(0, available))}`;
+		const separator = text ? "\n" : "";
+		const available = RENDER_INPUT_MAX_CHARS - bytes - separator.length;
+		if (available <= 0) {
+			capped = true;
+			break;
+		}
+		// Buffer.write stops before a split UTF-8 code point and avoids an array of
+		// lines or an unbounded encoding allocation for oversized source strings.
+		const buffer = Buffer.alloc(Math.min(available, raw.length * 3));
+		const written = buffer.write(raw.slice(0, available), "utf8");
+		const prefix = buffer.subarray(0, written).toString("utf8");
+		capped ||= prefix.length < raw.length;
+		text += separator + cleanText(prefix);
+		bytes += separator.length + written;
 	}
-	return { text: text.slice(0, RENDER_INPUT_MAX_CHARS), capped };
+	return { text, capped };
 }
+function countContentLines(text: string): number {
+	if (!text) return 0;
+	let count = 0;
+	for (let i = 0; i < text.length; i++)
+		if (text[i] === "\n" || (text[i] === "\r" && text[i + 1] !== "\n")) count++;
+	return count + Number(!/[\r\n]$/.test(text));
+}
+
 function textOutput(result: unknown): string {
 	return boundedOutput(result).text;
 }
-function textComponent(build: () => string[], wrap = true): Component {
+function textComponent(
+	build: () => string[],
+	wrap = true,
+	maxRows: () => number = () => 20_000,
+	footers: () => string[] = () => [],
+): Component {
 	return {
 		invalidate() {},
 		render(rawWidth) {
 			const width = safeWidth(rawWidth);
 			if (!width) return [];
-			return build()
-				.flatMap((line) =>
-					wrap ? wrapTextWithAnsi(line, width) : [truncateToWidth(line, width, "")],
-				)
-				.map((line) => truncateToWidth(line, width, ""));
+			const limit = Math.min(20_000, Math.max(1, maxRows()));
+			const output: string[] = [];
+			let capped = false;
+			for (const line of build()) {
+				if (output.length >= limit) {
+					capped = true;
+					break;
+				}
+				const bounded = boundedWrap(line, width, limit - output.length, wrap);
+				for (const row of bounded.lines) output.push(truncateToWidth(row, width, ""));
+				capped ||= bounded.capped;
+			}
+			if (capped) output.push(truncateToWidth("… (preview output omitted)", width, ""));
+			for (const footer of footers().slice(0, 4))
+				output.push(truncateToWidth(footer.slice(0, 65_536), width, ""));
+			return output;
 		},
 	};
 }
@@ -127,7 +163,7 @@ function callText(
 			return `${title(name)} ${accent(path || ".")}${args.limit != null ? muted(` limit ${args.limit}`) : ""}`;
 		case "write": {
 			const content = typeof args.content === "string" ? args.content : undefined;
-			const n = contentLines(content ?? "").length;
+			const n = countContentLines(content ?? "");
 			const bytes = Buffer.byteLength(content ?? "");
 			const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 			return `${title(name)} ${accent(path)}${content === undefined ? "" : muted(` (${n} ${plural(n, "line")} • ${size})`)}`;
@@ -135,7 +171,11 @@ function callText(
 		case "edit": {
 			const edits = Array.isArray(args.edits) ? args.edits : [args];
 			const n = edits.reduce(
-				(sum, edit) => sum + contentLines(string(record(edit).newText)).length,
+				(sum, edit) =>
+					sum +
+					countContentLines(
+						typeof record(edit).newText === "string" ? (record(edit).newText as string) : "",
+					),
 				0,
 			);
 			return `${title(name)} ${accent(path)}${muted(` (${n} ${plural(n, "line")})`)}`;
@@ -143,11 +183,22 @@ function callText(
 	}
 }
 function outputLines(text: string, expanded: boolean): string[] {
-	const lines = contentLines(text);
+	const lines = boundedContentLines(text, 20_000).lines;
 	while (lines.at(-1)?.trim() === "") lines.pop();
 	return expanded
 		? lines
 		: lines.filter((line, i) => line.trim() || i === 0 || lines[i - 1].trim());
+}
+function resultHints(result: unknown, config: ToolDisplayConfig, theme: Theme): string[] {
+	const details = record(record(result).details);
+	const hints: string[] = [];
+	if (boundedOutput(result).capped || boundedContentLines(textOutput(result), 20_000).capped)
+		hints.push(theme.fg("warning", "Preview capped at 1 MiB; counts cover displayed input only."));
+	if (config.showTruncationHints && record(details.truncation).truncated)
+		hints.push(theme.fg("warning", "↳ output truncated by backend limits"));
+	if (config.showTruncationHints && typeof details.fullOutputPath === "string")
+		hints.push(theme.fg("muted", `Full output: ${string(details.fullOutputPath)}`));
+	return hints;
 }
 function resultLines(
 	name: string,
@@ -185,14 +236,7 @@ function resultLines(
 			),
 		];
 	if (!isError && !options.isPartial && mode === "hidden") return [];
-	const details = record(record(result).details);
-	const hints: string[] = [];
-	if (boundedOutput(result).capped)
-		hints.push(theme.fg("warning", "Preview capped at 1 MiB; counts cover displayed input only."));
-	if (config.showTruncationHints && record(details.truncation).truncated)
-		hints.push(theme.fg("warning", "↳ output truncated by backend limits"));
-	if (config.showTruncationHints && typeof details.fullOutputPath === "string")
-		hints.push(theme.fg("muted", `Full output: ${string(details.fullOutputPath)}`));
+
 	if (
 		!isError &&
 		!options.isPartial &&
@@ -216,7 +260,6 @@ function resultLines(
 				"muted",
 				name === "read" ? `↳ loaded ${count} ${unit}` : `↳ ${count} ${unit} returned`,
 			),
-			...hints,
 		];
 	}
 	const limit = options.expanded
@@ -236,7 +279,7 @@ function resultLines(
 		shown.push(
 			theme.fg("muted", `… (${lines.length - limit} more ${plural(lines.length - limit, "line")})`),
 		);
-	return [...shown, ...hints];
+	return shown;
 }
 export interface RendererResources {
 	pending?: PendingPreimages;
@@ -336,8 +379,24 @@ export function createToolDisplayRenderers(
 							]).render(width);
 						}
 					}
-					return textComponent(() =>
-						resultLines(name, result, options, theme, context, getConfig(), custom),
+					return textComponent(
+						() => resultLines(name, result, options, theme, context, getConfig(), custom),
+						true,
+						() => {
+							const config = getConfig();
+							return (
+								1 +
+								(options.expanded
+									? config.expandedPreviewMaxLines || 20_000
+									: name === "bash" && config.bashOutputMode === "opencode"
+										? config.bashCollapsedLines
+										: config.previewLines)
+							);
+						},
+						() =>
+							resultLines(name, result, options, theme, context, getConfig(), custom).length
+								? resultHints(result, getConfig(), theme)
+								: [],
 					).render(width);
 				},
 			};

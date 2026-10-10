@@ -79,7 +79,11 @@ sandbox against concurrent filesystem mutation.
 
 Text input is capped at 1 MiB, diff parsing at 8000 lines, generated diffs at
 4000 lines per side with bounded comparison work, and expanded text at 20000
-logical lines. Limits are reported instead of silently implying full output.
+logical lines. Before syntax highlighting or wrapping, each diff line is bounded
+to 16384 characters and the remaining visual-row budget. Diff layout materializes
+at most 8000 visual rows; normal previews also bound wrapping work before creating
+rows. Limits are reported instead of silently implying full output. Omitted-row
+counts are lower bounds when unrendered lines could wrap.
 
 ## Ownership and advanced JSON
 
@@ -151,8 +155,19 @@ freeze omitted custom MCP output inheritance or generate colors.
 
 On supported hosts, live mode edits affect rows Zentui still owns. A row that
 has delegated to its predecessor stays delegated for its remaining lifetime,
-including partial-to-final delivery, to preserve predecessor cleanup. Initially
-native rows need recreation/rebuild/reload before acquiring Zentui rendering.
+including partial-to-final delivery, to preserve predecessor cleanup. The actual
+predecessor call/result components and their invalidation are retained separately;
+callbacks run when the host supplies an update, even if the row is not painted.
+Ownership changes take effect on an existing row at its next host callback or
+rebuild, not merely on paint. A paint-time preview failure displays a bounded
+notice and delegates on the next host update. Initially native rows need
+recreation/rebuild/reload before acquiring Zentui rendering.
+
+When a predecessor slot is absent, modern Pi's callback-failure boundary invokes
+its own native call/result fallback (including arguments, collapsed limits,
+expansion hints, and image handling). This behavior is tested against public Pi
+1.0.3/1.0.4 components; Zentui does not import private fallback methods, fabricate a
+native component, or throw from paint to request native restoration.
 Hand edits are loaded on the intended `/reload`, without mirroring or an extra
 reload. Disposing the runtime makes its registered closure permanently neutral;
 the public API has no unregister operation.

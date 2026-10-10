@@ -2,6 +2,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
+	sliceByColumn,
 	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
@@ -27,51 +28,99 @@ export function cleanText(text: string): string {
 		.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "")
 		.replace(/\t/g, "    ");
 }
+export const MAX_PREVIEW_LINE_CHARS = 16_384;
+export function boundedContentLines(
+	text: string,
+	limit: number,
+): { lines: string[]; capped: boolean } {
+	const lines: string[] = [];
+	let start = 0;
+	while (start < text.length && lines.length < limit) {
+		const end = text.indexOf("\n", start);
+		lines.push(text.slice(start, end < 0 ? text.length : end).replace(/\r/g, ""));
+		start = end < 0 ? text.length : end + 1;
+	}
+	return { lines, capped: start < text.length };
+}
+/** Bound input before the host wrapper allocates visual rows. */
+export function boundedWrap(
+	text: string,
+	width: number,
+	maxRows: number,
+	wrap: boolean,
+): { lines: string[]; capped: boolean } {
+	if (width <= 0 || maxRows <= 0) return { lines: [], capped: text.length > 0 };
+	const input = text.slice(0, 65_536);
+	const columns = Math.min(MAX_PREVIEW_LINE_CHARS, width * (wrap ? maxRows : 1));
+	const clipped = truncateToWidth(input, columns, "");
+	const capped = input.length < text.length || visibleWidth(input) > columns;
+	const lines = wrap ? wrapTextWithAnsi(clipped, width).slice(0, maxRows) : [clipped];
+	return { lines: lines.length ? lines : [""], capped };
+}
 export function contentLines(text: string): string[] {
 	const lines = text.replace(/\r\n?/g, "\n").split("\n");
 	if (lines.at(-1) === "") lines.pop();
 	return lines;
 }
 export function parseDiff(diff: string): DiffLine[] {
-	let old = 1;
-	let next = 1;
-	const input = contentLines(diff.slice(0, 1024 * 1024));
-	const parsed: DiffLine[] = input.slice(0, 8000).map((raw) => {
+	let old: number | undefined;
+	let next: number | undefined;
+	let delta = 0;
+	const input = boundedContentLines(diff.slice(0, 1024 * 1024), 8000);
+	const parsed: DiffLine[] = input.lines.map((raw) => {
 		const hunk = /^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)/.exec(raw);
 		if (hunk) {
 			old = Number(hunk[1]);
 			next = Number(hunk[2]);
+			delta = next - old;
 			return { kind: "meta", text: cleanText(raw) };
 		}
-		if (/^(---|\+\+\+|diff |index |\\)/.test(raw)) return { kind: "meta", text: cleanText(raw) };
-		const match = /^([+\- ])(?:\s*(\d+)(?:#([A-Za-z0-9]+):|\|| ))?(.*)$/.exec(raw);
+		if (/^(---|\+\+\+|diff |index |\\)/.test(raw)) {
+			if (/^(---|\+\+\+|diff )/.test(raw)) {
+				old = undefined;
+				next = undefined;
+				delta = 0;
+			}
+			return { kind: "meta", text: cleanText(raw) };
+		}
+		const match = /^([+\- ])(?:\s*(\d+)(?:#([A-Za-z0-9]+| {2}):|\|| ))?(.*)$/.exec(raw);
 		if (!match) return { kind: "meta", text: cleanText(raw) };
 		const sign = match[1];
-		const label = match[2] ? `${match[2]}${match[3] ? `#${match[3]}` : ""}` : undefined;
-		if (label) {
-			if (sign !== "+") old = Number(match[2]);
-			if (sign !== "-") next = Number(match[2]);
+		const number = match[2] === undefined ? undefined : Number(match[2]);
+		if (number !== undefined) {
+			if (sign === "+") next ??= number;
+			else {
+				old = number;
+				next = number + delta;
+			}
 		}
+		old ??= 1;
+		next ??= old + delta;
+		const label = (cursor: number) => `${cursor}${match[3] ? `#${match[3]}` : ""}`;
 		const line: DiffLine = {
 			kind: sign === "+" ? "add" : sign === "-" ? "remove" : "context",
 			text: cleanText(match[4]),
-			old: sign !== "+" ? (label ?? String(old)) : undefined,
-			next: sign !== "-" ? (label ?? String(next)) : undefined,
+			old: sign !== "+" ? label(old) : undefined,
+			next: sign !== "-" ? label(next) : undefined,
 		};
 		if (sign !== "+") old++;
 		if (sign !== "-") next++;
+		if (sign === "+") delta++;
+		if (sign === "-") delta--;
 		return line;
 	});
-	if (input.length > 8000 || diff.length > 1024 * 1024)
+	if (input.capped || diff.length > 1024 * 1024)
 		parsed.push({ kind: "meta", text: "Diff preview capped; remaining input omitted." });
 	return parsed;
 }
 /** Exact line transformation with bounded LCS work; larger changes use remove/add blocks. */
 export function diffContents(before: string, after: string): DiffLine[] {
-	const a = contentLines(before);
-	const b = contentLines(after);
-	if (a.length > 4000 || b.length > 4000)
-		return [{ kind: "meta", text: `Diff preview omitted (${a.length} → ${b.length} lines).` }];
+	const left = boundedContentLines(before, 4000);
+	const right = boundedContentLines(after, 4000);
+	if (left.capped || right.capped)
+		return [{ kind: "meta", text: "Diff preview omitted (file exceeds 4000 lines)." }];
+	const a = left.lines;
+	const b = right.lines;
 	const output: DiffLine[] = [];
 	let i = 0;
 	let j = 0;
@@ -199,21 +248,23 @@ function highlighted(
 			: line.kind === "remove"
 				? "toolDiffRemoved"
 				: "toolDiffContext";
-	let text = line.text;
-	if (line.kind === "context" && highlighter) {
+	const plain = line.text.slice(0, MAX_PREVIEW_LINE_CHARS);
+	let text = plain;
+	if (highlighter) {
 		try {
-			text = highlighter(text, path);
+			text = highlighter(plain, path);
 		} catch {
-			/* Rendering fails open to plain text. */
+			/* Plain themed fallback. */
 		}
 	}
-	if (other && text.length <= 700 && (line.kind === "add" || line.kind === "remove")) {
-		const [start, end] = changedSpan(text, other.text);
-		return (
-			theme.fg(color, text.slice(0, start)) +
-			theme.fg(color, theme.bold(text.slice(start, end))) +
-			theme.fg(color, text.slice(end))
-		);
+	if (other && plain.length <= 700 && (line.kind === "add" || line.kind === "remove")) {
+		const [start, end] = changedSpan(plain, other.text.slice(0, MAX_PREVIEW_LINE_CHARS));
+		const from = visibleWidth(plain.slice(0, start));
+		const to = visibleWidth(plain.slice(0, end));
+		text =
+			sliceByColumn(text, 0, from) +
+			theme.bold(sliceByColumn(text, from, to - from)) +
+			sliceByColumn(text, to, visibleWidth(plain) - to);
 	}
 	return theme.fg(color, text);
 }
@@ -265,9 +316,12 @@ export function diffComponent(
 				width,
 			);
 			if (mode === "summary") return [theme.fg("muted", header)];
+			const limit = Math.min(
+				8000,
+				expanded ? config.expandedPreviewMaxLines || 8000 : config.diffCollapsedLines,
+			);
+			let capped = false;
 			const rendered: string[] = [];
-			const renderedHunks: number[] = [];
-			let hunk = 0;
 			const marker = (line: DiffLine) =>
 				config.diffIndicatorMode === "none"
 					? ""
@@ -285,7 +339,12 @@ export function diffComponent(
 				other: DiffLine | undefined,
 				cellWidth: number,
 				side?: "old" | "next",
+				budget = Math.max(0, limit - rendered.length),
 			): string[] => {
+				if (budget <= 0) {
+					capped = true;
+					return [];
+				}
 				if (!line) return [""];
 				if (line.kind === "meta")
 					return [theme.fg("muted", truncateToWidth(line.text, cellWidth, ""))];
@@ -295,18 +354,30 @@ export function diffComponent(
 				const prefix = theme.fg("muted", truncateToWidth(gutter, cellWidth, ""));
 				const available = cellWidth - visibleWidth(prefix);
 				if (available <= 0) return [prefix];
-				const text = highlighted(line, other, theme, options.highlighter, options.path);
-				const chunks = config.diffWordWrap
-					? wrapTextWithAnsi(text, available)
-					: [truncateToWidth(text, available, "")];
-				return (chunks.length ? chunks : [""]).map(
+				const plain = truncateToWidth(
+					line.text.slice(0, MAX_PREVIEW_LINE_CHARS),
+					Math.min(MAX_PREVIEW_LINE_CHARS, available * (config.diffWordWrap ? budget : 1)),
+					"",
+				);
+				capped ||= plain.length < line.text.length;
+				const text = highlighted(
+					{ ...line, text: plain },
+					other,
+					theme,
+					options.highlighter,
+					options.path,
+				);
+				const wrapped = boundedWrap(text, available, budget, config.diffWordWrap);
+				capped ||= wrapped.capped || line.text.length > MAX_PREVIEW_LINE_CHARS;
+				return wrapped.lines.map(
 					(chunk, i) => `${i === 0 ? prefix : " ".repeat(visibleWidth(prefix))}${chunk}`,
 				);
 			};
 			const rows = pairs(lines);
+			let processed = 0;
 			for (const row of rows) {
-				const start = rendered.length;
-				if (row.meta?.text.startsWith("@@")) hunk++;
+				if (rendered.length >= limit) break;
+				processed++;
 				if (row.meta) rendered.push(...cell(row.meta, undefined, width));
 				else if (mode === "split") {
 					const leftWidth = Math.floor((width - 3) / 2);
@@ -327,29 +398,32 @@ export function diffComponent(
 					if (row.right && row.right !== row.left)
 						rendered.push(...cell(row.right, row.left, width));
 				}
-				for (let i = start; i < rendered.length; i++) renderedHunks.push(hunk);
-				// Work and memory stay bounded even with giant wrapped lines.
-				if (rendered.length > 8000) {
-					rendered.push(theme.fg("warning", "Preview capped."));
-					break;
-				}
 			}
-			const limit = expanded ? config.expandedPreviewMaxLines || 20_000 : config.diffCollapsedLines;
-			const shown = rendered.slice(0, limit);
-			const remaining = rendered.length - shown.length;
-			const lastShownHunk = renderedHunks[shown.length - 1] ?? 0;
-			const hiddenHunks = new Set(
-				renderedHunks.slice(shown.length).filter((value) => value > lastShownHunk),
-			).size;
-			if (remaining)
+			const shown = rendered;
+			const remaining = rows
+				.slice(processed)
+				.reduce(
+					(count, row) =>
+						count +
+						(mode === "split" || row.meta
+							? 1
+							: Number(!!row.left) + Number(!!row.right && row.right !== row.left)),
+					0,
+				);
+			const hiddenHunks = rows
+				.slice(processed)
+				.filter((row) => row.meta?.text.startsWith("@@")).length;
+			if (remaining || capped)
 				shown.push(
 					theme.fg(
 						"muted",
 						fitting(
 							[
-								`… (${remaining} more diff lines${hiddenHunks ? ` • ${hiddenHunks} more hunks` : ""}${expanded ? "" : " • expand tools for more"})`,
-								`… (${remaining} more lines)`,
-								`… (+${remaining})`,
+								capped
+									? "… (additional diff output omitted)"
+									: `… (at least ${remaining} more diff rows${hiddenHunks ? ` • ${hiddenHunks} more hunks` : ""}${expanded ? "" : " • expand tools for more"})`,
+								`… (≥${remaining} rows)`,
+								`… (≥${remaining})`,
 								"…",
 							],
 							width,

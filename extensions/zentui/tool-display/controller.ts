@@ -1,12 +1,20 @@
-import { type Component, Text } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ToolRendererResolver, ToolRenderers } from "./host-contract.js";
-import { record } from "./presets.js";
 import {
 	createToolDisplayRenderers,
 	hasOnlyTextContent,
 	type RendererResources,
 } from "./renderers.js";
 import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.js";
+
+/** Modern Pi catches callback failures and invokes its own generic slot fallback.
+ * This signal must never escape from Component.render or be used on unsupported hosts.
+ */
+class NativeToolDisplayFallback extends Error {
+	constructor() {
+		super("Use host-native tool rendering");
+	}
+}
 
 export interface ToolDisplayRendererAPI {
 	registerToolRenderer?: (resolver: ToolRendererResolver) => void;
@@ -90,10 +98,27 @@ export function createToolDisplayController(
 	const resolver: ToolRendererResolver = (name, next) => {
 		const previous = next();
 		if (!canOwn(name, previous)) return previous;
+		interface Row {
+			released: boolean;
+			delegated: boolean;
+			predecessor?: ToolRenderers;
+			call?: Component;
+			result?: Component;
+		}
+		const rows = new WeakMap<object, Row>();
 		const ownedComponents = new WeakSet<Component>();
-		const releasedRows = new WeakSet<object>();
 		const rowKey = (state: unknown): object | undefined =>
 			state !== null && typeof state === "object" ? state : undefined;
+		const rowFor = (state: unknown): Row | undefined => {
+			const key = rowKey(state);
+			if (!key) return undefined;
+			let row = rows.get(key);
+			if (!row) {
+				row = { released: false, delegated: false };
+				rows.set(key, row);
+			}
+			return row;
+		};
 		const own = () =>
 			createToolDisplayRenderers(
 				name,
@@ -101,23 +126,24 @@ export function createToolDisplayController(
 				options,
 				isBuiltinToolName(name) ? undefined : getConfig().customToolOverrides[name],
 			);
-		const safeOwned = (owned: Component, fallback: () => Component): Component => ({
-			invalidate() {
-				owned.invalidate();
-			},
-			render(width) {
-				try {
-					return owned.render(width);
-				} catch {
-					return fallback().render(width);
-				}
-			},
-		});
-		const component = (build: () => Component): Component => {
+		const component = (build: () => Component, row: Row, initial: Component): Component => {
+			let current: Component = initial;
 			const wrapped: Component = {
-				invalidate() {},
+				invalidate() {
+					current?.invalidate();
+				},
 				render(width) {
-					return build().render(width);
+					try {
+						current = build();
+						return current.render(width);
+					} catch {
+						// Host fallback is a callback boundary, not a paint boundary. The next
+						// host update relinquishes this row; do not throw or invoke native here.
+						row.released = true;
+						return width > 0
+							? [truncateToWidth("Tool preview unavailable; awaiting native update.", width, "")]
+							: [];
+					}
 				},
 			};
 			ownedComponents.add(wrapped);
@@ -127,80 +153,114 @@ export function createToolDisplayController(
 			// Shell belongs to the predecessor/host, including mixed/image result framing.
 			renderShell: previous?.renderShell,
 			renderCall(args, theme, context) {
-				if ((name === "write" || name === "edit") && rowKey(context.state)) {
-					const key = rowKey(context.state) as object;
-					const current = () => !releasedRows.has(key) && canOwn(name, next());
+				const row = rowFor(context.state);
+				const current = next();
+				const delegate = () => {
+					if (row) {
+						row.released = true;
+						if (!row.delegated) {
+							row.predecessor = current;
+							row.delegated = true;
+						}
+					}
+					const predecessor = row ? row.predecessor : current;
+					pendingRows.delete(context.toolCallId);
+					if (!predecessor?.renderCall) throw new NativeToolDisplayFallback();
+					const lastComponent =
+						row?.call ??
+						(context.lastComponent && !ownedComponents.has(context.lastComponent)
+							? context.lastComponent
+							: undefined);
+					const result = predecessor.renderCall(args, theme, { ...context, lastComponent });
+					if (row) row.call = result;
+					return result;
+				};
+				if (!row || row.released || !canOwn(name, current)) return delegate();
+				if (name === "write" || name === "edit") {
+					const proofCurrent = () => !row.released && canOwn(name, next());
 					try {
-						if (current() && !context.executionStarted) {
+						if (proofCurrent() && !context.executionStarted) {
 							pendingRows.set(context.toolCallId, {
 								name,
 								cwd: context.cwd,
-								current,
+								current: proofCurrent,
 								time: Date.now(),
 							});
-							for (const [id, proof] of pendingRows) {
+							for (const [id, proof] of pendingRows)
 								if (pendingRows.size > 16 || Date.now() - proof.time >= 60_000)
 									pendingRows.delete(id);
-							}
 						} else pendingRows.delete(context.toolCallId);
 					} catch {
 						pendingRows.delete(context.toolCallId);
 					}
 				}
-				return component(() => {
-					const current = next();
-					const forwarded = ownedComponents.has(context.lastComponent as Component)
-						? { ...context, lastComponent: undefined }
-						: context;
-					const key = rowKey(context.state);
-					const fallback = () => {
-						if (key) releasedRows.add(key);
-						return current?.renderCall?.(args, theme, forwarded) ?? new Text("", 0, 0);
-					};
-					if (!key || releasedRows.has(key) || !canOwn(name, current)) return fallback();
-					try {
-						return safeOwned(own().renderCall?.(args, theme, forwarded) ?? fallback(), fallback);
-					} catch {
-						return fallback();
-					}
-				});
+				try {
+					// Invoke owned constructors at callback time too; a failure can safely
+					// relinquish a missing slot to the host's callback-time native fallback.
+					const initial = own().renderCall?.(args, theme, context);
+					if (!initial) return delegate();
+					let first = true;
+					return component(
+						() => {
+							if (first) {
+								first = false;
+								return initial;
+							}
+							return own().renderCall?.(args, theme, context) ?? initial;
+						},
+						row,
+						initial,
+					);
+				} catch {
+					return delegate();
+				}
 			},
 			renderResult(result, renderOptions, theme, context) {
-				return component(() => {
-					const current = next();
-					const forwarded = ownedComponents.has(context.lastComponent as Component)
-						? { ...context, lastComponent: undefined }
-						: context;
-					const key = rowKey(context.state);
-					const fallback = () => {
-						if (key) releasedRows.add(key);
-						return (
-							current?.renderResult?.(result, renderOptions, theme, forwarded) ??
-							new Text(
-								Array.isArray(record(result).content)
-									? result.content.map((block) => record(block).text ?? "").join("\n")
-									: "",
-								0,
-								0,
-							)
-						);
-					};
-					if (
-						!key ||
-						releasedRows.has(key) ||
-						!canOwn(name, current) ||
-						!hasOnlyTextContent(result)
-					)
-						return fallback();
-					try {
-						return safeOwned(
-							own().renderResult?.(result, renderOptions, theme, forwarded) ?? fallback(),
-							fallback,
-						);
-					} catch {
-						return fallback();
+				const row = rowFor(context.state);
+				const current = next();
+				const delegate = () => {
+					if (row) {
+						row.released = true;
+						if (!row.delegated) {
+							row.predecessor = current;
+							row.delegated = true;
+						}
 					}
-				});
+					const predecessor = row ? row.predecessor : current;
+					pendingRows.delete(context.toolCallId);
+					if (!predecessor?.renderResult) throw new NativeToolDisplayFallback();
+					const lastComponent =
+						row?.result ??
+						(context.lastComponent && !ownedComponents.has(context.lastComponent)
+							? context.lastComponent
+							: undefined);
+					const rendered = predecessor.renderResult(result, renderOptions, theme, {
+						...context,
+						lastComponent,
+					});
+					if (row) row.result = rendered;
+					return rendered;
+				};
+				if (!row || row.released || !canOwn(name, current) || !hasOnlyTextContent(result))
+					return delegate();
+				try {
+					const initial = own().renderResult?.(result, renderOptions, theme, context);
+					if (!initial) return delegate();
+					let first = true;
+					return component(
+						() => {
+							if (first) {
+								first = false;
+								return initial;
+							}
+							return own().renderResult?.(result, renderOptions, theme, context) ?? initial;
+						},
+						row,
+						initial,
+					);
+				} catch {
+					return delegate();
+				}
 			},
 		};
 	};
