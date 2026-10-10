@@ -579,6 +579,7 @@ describe("tool-display/renderers", () => {
 			{ message: "hello from real local MCP server" },
 			"MCP zentui_demo/echo (1 arg)",
 		],
+		["mcp__demo_prod__echo", { message: "sanitized name" }, "MCP demo_prod/echo (1 arg)"],
 		["mcp", { tool: "echo", server: "demo", message: "proxy" }, "MCP call demo:echo (3 args)"],
 		[
 			"custom_mcp_gateway",
@@ -601,13 +602,25 @@ describe("tool-display/renderers", () => {
 						},
 					},
 				});
-			const controller = createToolDisplayController({}, cfg, { nativeRenderers: {} });
+			const api = { getAllTools: () => [{ name }] };
+			Object.defineProperty(api, "getToolDefinition", {
+				get() {
+					throw new Error("Private tool-definition access is forbidden");
+				},
+			});
+			const predecessor: ToolRenderers = {};
+			Object.defineProperty(predecessor, "label", {
+				get() {
+					throw new Error("Undocumented predecessor label access is forbidden");
+				},
+			});
+			const controller = createToolDisplayController(api, cfg, { nativeRenderers: {} });
 			const row = new ToolExecutionComponent(
 				name,
 				"mcp-domain",
 				args,
 				{ showImages: false },
-				controller.resolver(name, () => ({})),
+				controller.resolver(name, () => predecessor),
 				{ requestRender() {} } as unknown as TUI,
 				"/sandbox",
 			);

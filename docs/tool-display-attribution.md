@@ -26,6 +26,13 @@ automatic domain. Noncanonical gateways retain explicit-proxy coverage. The live
 `sandbox_echo` export is not a matched renderer comparison when only the candidate
 explicitly overrides it; its explicit-custom presentation remains unchanged.
 
+The public boundary (`core/extensions/types.d.ts`: ToolInfo1542 omits label,
+ToolRenderContext347–372 has no definition/label, and ExtensionAPI has no public
+getToolDefinition) requires deriving direct labels from the sanitized Pi name.
+MCP naming (`extensions/mcp/tools.js:38–49`) replaces characters and can hash/truncate
+long names while the raw label (`:183–197`) is retained upstream, so those labels
+may differ; this limitation must not be bypassed with private access.
+
 ## User-approved Unicode correction
 
 The pinned implementation can place changed-word background ANSI inside a UTF-16
