@@ -1,5 +1,6 @@
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ToolRendererResolver, ToolRenderers } from "./host-contract.js";
+import { record } from "./presets.js";
 import {
 	createToolDisplayRenderers,
 	hasOnlyTextContent,
@@ -55,7 +56,7 @@ export function createToolDisplayController(
 	// events may consume it; bounded retention cannot accumulate restored history.
 	const pendingRows = new Map<
 		string,
-		{ name: "write" | "edit"; cwd: string; current: () => boolean; time: number }
+		{ name: "write" | "edit"; path: string; cwd: string; current: () => boolean; time: number }
 	>();
 	const clearPending = () => {
 		pendingRows.clear();
@@ -179,9 +180,19 @@ export function createToolDisplayController(
 				if (name === "write" || name === "edit") {
 					const proofCurrent = () => !row.released && canOwn(name, next());
 					try {
-						if (proofCurrent() && !context.executionStarted) {
+						const path = record(args).path;
+						// Streamed JSON may expose only a prefix of the eventual path. Do not
+						// authorize a preimage until this same row reports completed arguments.
+						if (
+							proofCurrent() &&
+							!context.executionStarted &&
+							context.argsComplete &&
+							typeof path === "string" &&
+							path.length > 0
+						) {
 							pendingRows.set(context.toolCallId, {
 								name,
+								path,
 								cwd: context.cwd,
 								current: proofCurrent,
 								time: Date.now(),
@@ -277,6 +288,7 @@ export function createToolDisplayController(
 			try {
 				if (
 					proof.name === event.toolName &&
+					proof.path === record(event.args).path &&
 					proof.cwd === cwd &&
 					Date.now() - proof.time < 60_000 &&
 					proof.current()

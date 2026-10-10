@@ -5,7 +5,9 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 	type ExtensionContext,
+	initTheme,
 	type Theme,
+	ToolExecutionComponent,
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth } from "@earendil-works/pi-tui";
@@ -357,6 +359,102 @@ describe("tool-display lifecycle integration", () => {
 		);
 		expect(stripVTControlCharacters(history.render(80).join("\n"))).toContain("no live preimage");
 		await h.emit("session_shutdown", { reason: "quit" });
+	});
+	it.each([{ path: "s" }, {}, { path: null }, { path: 42 }, { path: "" }])(
+		"F3 waits for completed same-row arguments instead of freezing streamed path %j",
+		async (partial) => {
+			save({ enabled: true });
+			writeFileSync(join(workspace, "s"), "prefix-file must not be snapshotted\n");
+			writeFileSync(join(workspace, "sample.ts"), "final-target before write\n");
+			const h = runtime();
+			await h.emit("session_start");
+			initTheme("dark", false);
+			const observe = vi.spyOn(PendingPreimages.prototype, "observe");
+			try {
+				const id = "streamed-write";
+				const args = { path: "sample.ts", content: "final-target after write\n" };
+				const messageUpdate = (arguments_: unknown) =>
+					h.emit("message_update", {
+						message: {
+							role: "assistant",
+							content: [{ type: "toolCall", id, name: "write", arguments: arguments_ }],
+						},
+					});
+				// Pi dispatches extension events before updating the public TUI row.
+				await messageUpdate({});
+				const component = new ToolExecutionComponent(
+					"write",
+					id,
+					{},
+					{ showImages: false },
+					h.resolve("write"),
+					{ requestRender() {} } as never,
+					workspace,
+				);
+				await messageUpdate(partial);
+				component.updateArgs(partial);
+				await messageUpdate(args);
+				component.updateArgs(args);
+				expect(observe).not.toHaveBeenCalled();
+				// message_end marks arguments complete before execution-start dispatch.
+				component.setArgsComplete();
+				expect(observe).not.toHaveBeenCalled();
+				await h.emit("tool_execution_start", { toolCallId: id, toolName: "write", args });
+				expect(observe).toHaveBeenCalledExactlyOnceWith(id, "write", args, workspace);
+				const cache = observe.mock.contexts[0] as PendingPreimages;
+				expect(cache.get(id, "write", args, workspace)).toEqual({
+					exists: true,
+					content: "final-target before write\n",
+				});
+				expect(cache.get(id, "write", { path: "s" }, workspace)).toBeUndefined();
+				expect(stripVTControlCharacters(component.render(100).join("\n"))).toContain(
+					"final-target before write",
+				);
+				component.markExecutionStarted();
+				writeFileSync(join(workspace, "sample.ts"), args.content);
+				await messageUpdate(args);
+				await h.emit("tool_execution_start", { toolCallId: id, toolName: "write", args });
+				expect(observe).toHaveBeenCalledOnce();
+				expect(cache.get(id, "write", args, workspace)?.content).toBe(
+					"final-target before write\n",
+				);
+			} finally {
+				observe.mockRestore();
+				await h.emit("session_shutdown", { reason: "quit" });
+			}
+		},
+	);
+	it("F3 completed path mismatch skips collection until fresh matching pre-execution proof", () => {
+		const pending = new PendingPreimages();
+		const observe = vi.spyOn(pending, "observe");
+		const controller = createToolDisplayController(
+			{
+				getAllTools: () => [
+					{ name: "write", sourceInfo: { source: "builtin", path: "builtin:write" } },
+				],
+			},
+			() => normalizeToolDisplayConfig({ enabled: true }),
+			{ nativeRenderers: { write: nativeWrite }, pending },
+		);
+		const context = row("path-mismatch", { path: "short.txt", content: "new\n" });
+		const renderer = required(controller.resolver("write", () => nativeWrite));
+		required(renderer.renderCall)(context.args, theme, context);
+		const args = { path: "final.txt", content: "created\n" };
+		controller.observePending(
+			{ toolCallId: context.toolCallId, toolName: "write", args },
+			workspace,
+		);
+		expect(observe).not.toHaveBeenCalled();
+		required(renderer.renderCall)(args, theme, { ...context, args });
+		controller.observePending(
+			{ toolCallId: context.toolCallId, toolName: "write", args },
+			workspace,
+		);
+		expect(pending.get(context.toolCallId, "write", args, workspace)).toEqual({
+			exists: false,
+			content: "",
+		});
+		controller.dispose();
 	});
 	it("captures only proven same-call live previews and clears on tree/session/reload/release boundaries", async () => {
 		save({ enabled: true });
