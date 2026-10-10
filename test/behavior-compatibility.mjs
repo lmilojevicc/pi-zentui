@@ -29,6 +29,13 @@ const tests = [
 	"working-line-placement.test.ts",
 	"working-line-editor-placement.test.ts",
 	"working-line-lifecycle.integration.test.ts",
+	"tool-display-lifecycle.integration.test.ts",
+	"tool-display-controller.test.ts",
+	"tool-display-config.test.ts",
+	"tool-display-presets.test.ts",
+	"tool-display-renderers.test.ts",
+	"tool-display-diff.test.ts",
+	"tool-display-pending.test.ts",
 ];
 const vitest = JSON.parse(
 	readFileSync(join(root, "node_modules/vitest/package.json"), "utf8"),
@@ -77,6 +84,8 @@ try {
 				timeout: 180_000,
 				env: {
 					...process.env,
+					// Each matched host must resolve its own theme assets, not the caller's Pi root.
+					PI_PACKAGE_DIR: undefined,
 					PI_CODING_AGENT_DIR: agentDir,
 					PI_OFFLINE: "1",
 					PI_SKIP_VERSION_CHECK: "1",

@@ -2,14 +2,16 @@ import {
 	createBashToolDefinition,
 	createReadToolDefinition,
 	type Theme,
-	type ToolRendererResolver,
-	type ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createToolDisplayController,
 	type ToolDisplayRendererAPI,
 } from "../extensions/zentui/tool-display/controller.js";
+import type {
+	ToolRendererResolver,
+	ToolRenderers,
+} from "../extensions/zentui/tool-display/host-contract.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
 import type { ToolDisplayRenderContext } from "../extensions/zentui/tool-display/renderers.js";
 

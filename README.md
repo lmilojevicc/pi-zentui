@@ -20,9 +20,10 @@ Zentui lets you shape Pi’s interface one component at a time. Customize your e
 - **User messages** — framed, framed copy-friendly, compact, and labeled transcript messages
 - **Thinking (Experimental)** — optional Rail, Tree, or Streaming private thinking renderers, without owning the Working line
 - **Working line** — optional ownership of Pi's complete in-progress row and settled turn summary
+- **Tool display** — opt-in compact native tool calls/results and adaptive diffs ([reference](./docs/tool-display.md))
 - **Footer** — Pi's native Footer, a Starship-style statusline, or Hidden (only allowed extension statuses)
 
-Editor, User messages, Thinking (Experimental), Working line, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
+Editor, User messages, Thinking (Experimental), Working line, Tool display, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
 ## Highlights
 
@@ -32,6 +33,7 @@ Editor, User messages, Thinking (Experimental), Working line, and selector borde
 | User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
 | Thinking (Experimental) | disabled (`tree`) | Rail, Tree, Streaming |
 | Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
+| Tool display | disabled (`opencode`) | Native, Opencode, Balanced, Verbose |
 | Footer | `starship` | Native, Starship, Hidden |
 | Selector borders | `zentui` | Independent enablement and color source |
 
@@ -114,7 +116,7 @@ OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-dat
 
 ## Configure
 
-Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
+Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Tool display, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or saved Starship placement/color preferences. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
 
 ```text
 ~/.pi/agent/zentui.json

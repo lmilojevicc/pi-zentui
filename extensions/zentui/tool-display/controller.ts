@@ -1,5 +1,5 @@
-import type { ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
+import type { ToolRendererResolver, ToolRenderers } from "./host-contract.js";
 import { record } from "./presets.js";
 import {
 	createToolDisplayRenderers,
@@ -43,6 +43,16 @@ export function createToolDisplayController(
 	let installed = false;
 	let disposed = false;
 	let failure: string | undefined;
+	// Proof is recorded by actual row callbacks, never by tool-name discovery. Only live
+	// events may consume it; bounded retention cannot accumulate restored history.
+	const pendingRows = new Map<
+		string,
+		{ name: "write" | "edit"; cwd: string; current: () => boolean; time: number }
+	>();
+	const clearPending = () => {
+		pendingRows.clear();
+		options.pending?.clear();
+	};
 	const enabled = () => {
 		try {
 			return !disposed && !failure && getConfig().enabled && getConfig().style !== "native";
@@ -117,6 +127,26 @@ export function createToolDisplayController(
 			// Shell belongs to the predecessor/host, including mixed/image result framing.
 			renderShell: previous?.renderShell,
 			renderCall(args, theme, context) {
+				if ((name === "write" || name === "edit") && rowKey(context.state)) {
+					const key = rowKey(context.state) as object;
+					const current = () => !releasedRows.has(key) && canOwn(name, next());
+					try {
+						if (current() && !context.executionStarted) {
+							pendingRows.set(context.toolCallId, {
+								name,
+								cwd: context.cwd,
+								current,
+								time: Date.now(),
+							});
+							for (const [id, proof] of pendingRows) {
+								if (pendingRows.size > 16 || Date.now() - proof.time >= 60_000)
+									pendingRows.delete(id);
+							}
+						} else pendingRows.delete(context.toolCallId);
+					} catch {
+						pendingRows.delete(context.toolCallId);
+					}
+				}
 				return component(() => {
 					const current = next();
 					const forwarded = ownedComponents.has(context.lastComponent as Component)
@@ -176,6 +206,28 @@ export function createToolDisplayController(
 	};
 	return {
 		resolver,
+		clearPending,
+		/** No evidence for this exact live call means no filesystem read. */
+		observePending(
+			event: { toolCallId: string; toolName: string; args: unknown; parentToolCallId?: string },
+			cwd: string,
+		): void {
+			const proof = pendingRows.get(event.toolCallId);
+			if (!proof || event.parentToolCallId) return;
+			try {
+				if (
+					proof.name === event.toolName &&
+					proof.cwd === cwd &&
+					Date.now() - proof.time < 60_000 &&
+					proof.current()
+				) {
+					options.pending?.observe(event.toolCallId, proof.name, event.args, cwd);
+				} else pendingRows.delete(event.toolCallId);
+			} catch {
+				// Preview failures cannot block or transform execution.
+				pendingRows.delete(event.toolCallId);
+			}
+		},
 		install(): void {
 			if (installed || disposed || typeof api.registerToolRenderer !== "function") return;
 			try {
@@ -202,7 +254,7 @@ export function createToolDisplayController(
 		},
 		dispose(): void {
 			disposed = true;
-			options.pending?.clear();
+			clearPending();
 		},
 	};
 }

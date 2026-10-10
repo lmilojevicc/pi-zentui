@@ -50,6 +50,7 @@ import {
 	saveSelectorBordersComponentPatch,
 	saveStarshipFooterStylePatch,
 	saveThinkingStepsComponentPatch,
+	saveToolDisplayComponentPatch,
 	saveUserMessagesComponentPatch,
 	saveWorkingLineComponentPatch,
 	type ThinkingStepsComponentConfig,
@@ -114,6 +115,9 @@ import {
 } from "./state";
 import { FooterTelemetryController } from "./telemetry";
 import { ThinkingExperimentalController } from "./thinking-experimental";
+import { createToolDisplayController } from "./tool-display/controller";
+import { nativeToolRenderers, toolDisplayHighlighter } from "./tool-display/host";
+import { PendingPreimages } from "./tool-display/pending";
 import { TurnSummaryRateTracker } from "./turn-summary-rate";
 import { editorWantsContext, PolishedEditor, WrappedPolishedEditor } from "./ui";
 import { installUserMessageStyle, removeUserMessageStyle } from "./user-message";
@@ -231,6 +235,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 					...config,
 					components: {
 						...config.components,
+						toolDisplay: { ...config.components.toolDisplay, enabled: false },
 						thinkingSteps: { ...config.components.thinkingSteps, enabled: false },
 						workingLine: { ...config.components.workingLine, enabled: false },
 						selectorBorders: { ...config.components.selectorBorders, enabled: false },
@@ -238,6 +243,21 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				}
 			: config;
 	let currentConfig: PolishedTuiConfig = scopeConfig(structuredClone(defaultConfig));
+	const toolDisplay = createToolDisplayController(
+		host.skinOnly ? {} : pi,
+		() => ({
+			...currentConfig.components.toolDisplay,
+			enabled: sessionLifecycle.isCurrent() && currentConfig.components.toolDisplay.enabled,
+		}),
+		{
+			nativeRenderers: host.skinOnly ? {} : nativeToolRenderers(process.cwd()),
+			pending: new PendingPreimages(),
+			highlighter: host.skinOnly ? undefined : toolDisplayHighlighter,
+		},
+	);
+	// Register one neutral resolver before transcript restoration; the live getter is
+	// reloaded synchronously on session_start. No execution registration is replaced.
+	if (!host.skinOnly) toolDisplay.install();
 	// Keep the capability guard defensive for hosts with incomplete extension APIs.
 	if (!host.skinOnly && typeof pi.registerEntryRenderer === "function") {
 		pi.registerEntryRenderer(TURN_SUMMARY_ENTRY_TYPE, (entry, options, theme) =>
@@ -1608,6 +1628,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		}
 		// Reload synchronously so private ownership uses this session's disk snapshot before
 		// any await or transcript restoration.
+		toolDisplay.clearPending();
 		currentConfig = scopeConfig(loadConfig());
 		extensionStatuses.dispose();
 		if (!host.skinOnly && isTuiContext(ctx)) extensionStatuses.install(ctx.ui);
@@ -1761,6 +1782,13 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			currentConfig = scopeConfig(saveThinkingStepsComponentPatch(patch));
 			return thinkingExperimental.reconcile();
 		},
+		getToolDisplayStatus: () => toolDisplay.status(),
+		setToolDisplayComponent(patch, _ctx) {
+			currentConfig = scopeConfig(saveToolDisplayComponentPatch(patch));
+			toolDisplay.clearPending();
+			const status = toolDisplay.status();
+			return { applied: true, reason: status.reason };
+		},
 		setWorkingLineComponent(patch: WorkingLineComponentPatch, ctx: ExtensionContext) {
 			currentConfig = scopeConfig(saveWorkingLineComponentPatch(patch));
 			if (patch.enabled === false) {
@@ -1872,7 +1900,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		},
 	});
 
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (event, ctx) => {
+		toolDisplay.clearPending();
+		if (event.reason === "reload" || event.reason === "quit") toolDisplay.dispose();
 		unsubscribeHostProjectChanges();
 		liveMetadata.dispose();
 		customVariableSessionReady = false;
@@ -1937,6 +1967,21 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	pi.on("thinking_level_select", syncInteractiveState);
 	pi.on("session_info_changed", syncInteractiveState);
 	pi.on("message_update", (event, ctx) => {
+		if (
+			!host.skinOnly &&
+			sessionLifecycle.isCurrent() &&
+			isTuiContext(ctx) &&
+			event.message.role === "assistant" &&
+			Array.isArray(event.message.content)
+		) {
+			for (const block of event.message.content) {
+				if (block.type === "toolCall")
+					toolDisplay.observePending(
+						{ toolCallId: block.id, toolName: block.name, args: block.arguments },
+						ctx.cwd,
+					);
+			}
+		}
 		if (!host.skinOnly) thinkingExperimental.updateMessage(event);
 		liveContext.update(event.message);
 		summaryRate.observeTime();
@@ -2003,6 +2048,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			}
 		});
 	pi.on("tool_execution_start", (event, ctx) => {
+		if (!host.skinOnly && sessionLifecycle.isCurrent() && isTuiContext(ctx))
+			toolDisplay.observePending(event, ctx.cwd);
 		suspendTokenRate();
 		liveContext.clear();
 		if (!host.skinOnly) workingLine.startTool(event.toolCallId, event.toolName, ctx);
@@ -2016,7 +2063,12 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	// Hook presence changes OMP maintenance/transition behavior, even for no-op handlers.
 	if (!host.skinOnly) {
 		pi.on("session_before_compact", clearTokenRate);
-		pi.on("session_before_switch", clearTokenRate);
+		pi.on("session_before_switch", () => {
+			toolDisplay.clearPending();
+			clearTokenRate();
+		});
+		pi.on("session_before_tree", () => toolDisplay.clearPending());
+		pi.on("session_before_fork", () => toolDisplay.clearPending());
 	}
 	pi.on("session_compact", (event, ctx) => {
 		clearTokenRate();
@@ -2024,6 +2076,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 		syncInteractiveAndProjectStateWithUsage(event, ctx);
 	});
 	pi.on("session_tree", (event, ctx) => {
+		toolDisplay.clearPending();
 		liveMetadata.resetRate();
 		liveMetadata.invalidateProject();
 		liveContext.clear();

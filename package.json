@@ -24,7 +24,9 @@
 		"extensions",
 		"omp.ts",
 		"docs/configuration.md",
-		"docs/footer-format.md"
+		"docs/footer-format.md",
+		"docs/tool-display.md",
+		"docs/tool-display-attribution.md"
 	],
 	"scripts": {
 		"lint": "biome check .",

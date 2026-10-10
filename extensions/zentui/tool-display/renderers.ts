@@ -1,9 +1,5 @@
 import { homedir } from "node:os";
-import type {
-	Theme,
-	ToolRenderers,
-	ToolRenderResultOptions,
-} from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
 	type CodeHighlighter,
@@ -15,6 +11,7 @@ import {
 	parseDiff,
 	safeWidth,
 } from "./diff.js";
+import type { ToolRenderers } from "./host-contract.js";
 import { type PendingPreimages, PREIMAGE_MAX_BYTES, projectPending } from "./pending.js";
 import { record } from "./presets.js";
 import {

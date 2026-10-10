@@ -2,6 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolishedTuiConfig } from "../extensions/zentui/config";
 import { emptyGitStatus, type GitReadResult } from "../extensions/zentui/git";
+import settingsSections from "./fixtures/settings-sections.json";
 
 const mocks = vi.hoisted(() => ({
 	config: undefined as unknown as PolishedTuiConfig,
@@ -687,7 +688,8 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+			for (let index = 0; index < settingsSections.indexOf("Footer"); index++)
+				component.handleInput?.("\t");
 			for (let index = 0; index < 4; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});
@@ -782,7 +784,8 @@ describe("responsive footer dependency reconciliation", () => {
 			const component = factory({ requestRender() {} }, makeTheme(), {}, () => {}) as {
 				handleInput?: (data: string) => void;
 			};
-			for (let index = 0; index < 5; index++) component.handleInput?.("\t");
+			for (let index = 0; index < settingsSections.indexOf("Footer"); index++)
+				component.handleInput?.("\t");
 			for (let index = 0; index < 5; index++) component.handleInput?.("\x1b[B");
 			component.handleInput?.(" ");
 		});

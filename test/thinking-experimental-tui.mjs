@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import settingsSections from "./fixtures/settings-sections.json" with { type: "json" };
 import {
 	assertExtensionLoaderDiagnosticFixtures,
 	hasExtensionLoaderDiagnostic,
@@ -1055,8 +1056,9 @@ try:
     structural_snapshots = []
 
     def settings_section_ready(label, index, selected_label):
-        tabs = "  Appearance / Editor / User messages / Thinking (Experimental) / Working line / Footer / Extension statuses"
-        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/7)"
+        sections = ${JSON.stringify(settingsSections)}
+        tabs = "  " + " / ".join(sections)
+        header = tabs if len(tabs) <= cols else "  " + label + " (" + str(index) + "/" + str(len(sections)) + ")"
         lines = screen.text().split("\n")
         return header in lines and any(row.startswith("→ " + selected_label + " ") for row in lines)
 
@@ -1346,6 +1348,8 @@ async function terminateSurvivors(path, metadata, fallbackPythonPid) {
 async function runDriver(python, command, environment, cwd, options = {}) {
 	const child = spawn("python3", [python, JSON.stringify(command), JSON.stringify(environment)], {
 		cwd,
+		// A caller's newer Pi asset root must not feed themes to a matched older CLI.
+		env: { ...process.env, PI_PACKAGE_DIR: undefined },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
