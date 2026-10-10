@@ -21,6 +21,7 @@ import {
 	MAX_PRESENTATION_SOURCE_BYTES,
 	MAX_PREVIEW_LINE_CHARS,
 } from "../extensions/zentui/tool-display/source-bounds.js";
+import { getEditLineMetadata } from "../extensions/zentui/tool-display/tool-presentation.js";
 
 const theme = {
 	fg: (_token: string, text: string) => `\x1b[36m${text}\x1b[39m`,
@@ -511,4 +512,65 @@ describe("tool-display/renderers", () => {
 			controller.dispose();
 		}
 	});
+	it.each([
+		["", 0],
+		["\r", 1],
+		["\r\r\r", 1],
+		["\n", 2],
+		["\r\n", 2],
+		["x\r\n", 2],
+	] as const)(
+		"preserves original upstream edit metadata for %j without a zero-count correction",
+		(raw, count) => {
+			initTheme("dark", false);
+			expect(boundedContentMetadata(raw, true)).toEqual({
+				lineCount: count,
+				sizeBytes: Buffer.byteLength(raw),
+				capped: false,
+			});
+			for (const shape of ["newText", "lines", "multi-edit"]) {
+				const payload =
+					shape === "multi-edit"
+						? {
+								edits: [
+									{ oldText: "old", newText: raw },
+									{ oldText: "old", lines: raw },
+								],
+							}
+						: shape === "lines"
+							? { lines: raw }
+							: { oldText: "old", newText: raw };
+				const args = Object.freeze({ path: "metadata.txt", ...payload });
+				const expected = shape === "multi-edit" ? 2 * count : count;
+				expect(getEditLineMetadata(args).lineCount).toBe(expected);
+				const native = createEditToolDefinition("/sandbox") as unknown as ToolRenderers;
+				const controller = createToolDisplayController(
+					{
+						getAllTools: () => [
+							{ name: "edit", sourceInfo: { source: "builtin", path: "builtin:edit" } },
+						],
+					},
+					() => normalizeToolDisplayConfig({ enabled: true }),
+					{ nativeRenderers: { edit: native } },
+				);
+				const row = new ToolExecutionComponent(
+					"edit",
+					`metadata-${shape}`,
+					args,
+					{ showImages: false },
+					controller.resolver("edit", () => native),
+					{ requestRender() {} } as unknown as TUI,
+					"/sandbox",
+				);
+				row.updateResult(
+					{ content: [{ type: "text", text: "editing" }], details: {}, isError: false },
+					true,
+				);
+				const output = plain(row.render(110));
+				expect(output).toContain(`metadata.txt (${expected} ${expected === 1 ? "line" : "lines"})`);
+				expect(output).toContain(`editing... (${expected} ${expected === 1 ? "line" : "lines"})`);
+				controller.dispose();
+			}
+		},
+	);
 });

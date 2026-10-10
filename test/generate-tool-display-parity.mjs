@@ -350,6 +350,41 @@ for (const theme of themes)
 					preimage: { exists: true, content: "const value = 1;\n" },
 					result: { content: [{ type: "text", text: "editing" }], details: {} },
 				});
+// Original-source CR metadata proof: raw truthiness precedes CR normalization.
+for (const theme of themes)
+	for (const width of [80, 110, 160])
+		for (const [label, raw] of [
+			["empty", ""],
+			["cr", "\r"],
+			["cr-only", "\r\r\r"],
+			["lf", "\n"],
+			["crlf", "\r\n"],
+			["text-crlf", "x\r\n"],
+		])
+			for (const shape of ["newText", "lines", "multi-edit"]) {
+				const payload =
+					shape === "multi-edit"
+						? {
+								edits: [
+									{ oldText: "old", newText: raw },
+									{ oldText: "old", lines: raw },
+								],
+							}
+						: shape === "lines"
+							? { lines: raw }
+							: { oldText: "old", newText: raw };
+				cases.push({
+					name: "edit",
+					theme,
+					width,
+					expanded: false,
+					clock: 1000000,
+					partial: true,
+					config: { diffViewMode: "split" },
+					args: { path: `metadata-${label}-${shape}.txt`, ...payload },
+					result: { content: [{ type: "text", text: "editing" }], details: {} },
+				});
+			}
 function publicTheme(themeName) {
 	sdk.initTheme(themeName, false);
 	let theme;
