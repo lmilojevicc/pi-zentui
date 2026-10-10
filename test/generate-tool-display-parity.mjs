@@ -237,6 +237,20 @@ templates.push({
 	args: { value: "hello" },
 	result: { content: [{ type: "text", text: "echo response" }], details: {} },
 });
+for (const [label, tail, crlf] of [
+	["absent", "", false],
+	["lf", "\n", false],
+	["two-blanks", "\n\n", false],
+	["three-blanks", "\n\n\n", false],
+	["crlf", "\r\n", true],
+]) {
+	const payload = (crlf ? "-1|old\r\n+1|new" : "-1|old\n+1|new") + tail;
+	templates.push({
+		name: "edit",
+		args: { path: `terminal-${label}.txt`, oldText: "old", newText: "new" },
+		result: { content: [{ type: "text", text: "edited" }], details: { diff: payload } },
+	});
+}
 const cases = [];
 for (const theme of themes)
 	for (const width of [80, 110, 160])

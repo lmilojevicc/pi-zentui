@@ -35,12 +35,7 @@ import {
 	readSgrColorSequence,
 	toSgrParams,
 } from "./ansi-utils.js";
-import {
-	boundedContentLines,
-	boundedWrap,
-	type CodeHighlighter,
-	MAX_PREVIEW_LINE_CHARS,
-} from "./diff.js";
+import { boundedWrap, type CodeHighlighter } from "./diff.js";
 import {
 	buildDiffSummaryText,
 	type DiffPresentationMode,
@@ -58,12 +53,12 @@ import {
 	sanitizeAnsiForThemedOutput,
 	sanitizeTerminalControls,
 } from "./render-utils.js";
+import { boundedPresentationSource } from "./source-bounds.js";
 import {
 	DEFAULT_TOOL_DISPLAY_CONFIG,
 	type DiffIndicatorMode,
 	type ToolDisplayConfig,
 } from "./types.js";
-import { splitWriteContentLines } from "./write-display-utils.js";
 
 interface DiffTheme {
 	fg(color: string, text: string): string;
@@ -465,7 +460,7 @@ function ensureImplicitHunk(currentHunk: number): number {
 	return currentHunk > 0 ? currentHunk : 1;
 }
 
-function parseDiff(diffText: string): ParsedDiff {
+function parseDiff(lines: readonly string[]): ParsedDiff {
 	const stats: DiffStats = {
 		added: 0,
 		removed: 0,
@@ -476,7 +471,7 @@ function parseDiff(diffText: string): ParsedDiff {
 	};
 	const entries: ParsedDiffEntry[] = [];
 
-	if (!diffText.trim()) {
+	if (lines.length === 0) {
 		return { entries, stats };
 	}
 
@@ -485,11 +480,7 @@ function parseDiff(diffText: string): ParsedDiff {
 	let newLineCursor: number | null = null;
 	let lineNumberDelta = 0;
 
-	const bounded = boundedContentLines(diffText.slice(0, 1024 * 1024).replace(/\r/g, ""), 8000);
-	for (const rawInput of bounded.lines) {
-		const rawLine = rawInput.slice(0, MAX_PREVIEW_LINE_CHARS);
-		if (rawInput.length > MAX_PREVIEW_LINE_CHARS)
-			entries.push(createMetaEntry("… (diff line input capped)", hunkIndex));
+	for (const rawLine of lines) {
 		stats.lines++;
 
 		const hunkMatch = rawLine.match(HUNK_HEADER_PATTERN);
@@ -2224,6 +2215,7 @@ function applyLineLimit(
 	maxExpandedLines: number,
 	totalHunks: number,
 	theme: DiffTheme,
+	inputCapped = false,
 ): string[] {
 	const expandedLimit = Number.isFinite(maxExpandedLines)
 		? maxExpandedLines
@@ -2237,6 +2229,9 @@ function applyLineLimit(
 	}
 
 	const shown = rows.slice(0, limit);
+	// The persistent outer input-cap notice replaces an otherwise misleading
+	// prefix-only count hint, without increasing the bounded body row budget.
+	if (inputCapped) return shown.map((row) => clampDiffLineToWidth(row.text, width));
 	const remaining = rows.length - shown.length;
 	const visibleHunks = new Set(
 		shown
@@ -2369,6 +2364,27 @@ function createDiffRenderCache() {
 	};
 }
 
+function cappedInputComponent(component: Component, capped: boolean, theme: DiffTheme): Component {
+	if (!capped) return component;
+	return {
+		invalidate() {
+			component.invalidate();
+		},
+		render(width) {
+			const safe = normalizeDiffRenderWidth(width);
+			if (!safe) return [];
+			const candidates = [
+				"… (diff input capped; counts cover bounded preview only)",
+				"… input capped",
+				"… capped",
+				"…",
+			];
+			const notice = candidates.find((text) => visibleWidth(text) <= safe) ?? "…";
+			return [...component.render(safe), theme.fg("warning", notice)];
+		},
+	};
+}
+
 export function renderEditDiffResult(
 	details: unknown,
 	options: DiffRenderOptions,
@@ -2376,28 +2392,26 @@ export function renderEditDiffResult(
 	theme: DiffTheme,
 	fallbackText: string,
 ): Component {
-	const originalDiff = sanitizeTerminalControls(safeGetDiff(details));
-	const cappedDiff = boundedContentLines(originalDiff.slice(0, 1024 * 1024), 8000);
-	const diffText =
-		cappedDiff.lines.join("\n") +
-		(cappedDiff.capped || originalDiff.length > 1024 * 1024 ? "\n… (diff input capped)" : "");
+	const source = boundedPresentationSource(safeGetDiff(details), 8000, true);
+	const diffText = source.lines.join("\n");
+	const finish = (component: Component) => cappedInputComponent(component, source.capped, theme);
 	if (!diffText.trim()) {
 		if (!fallbackText.trim()) {
-			return new Text(theme.fg("muted", "↳ edit completed (no diff payload)"), 0, 0);
+			return finish(new Text(theme.fg("muted", "↳ edit completed (no diff payload)"), 0, 0));
 		}
-		return new Text(theme.fg("toolOutput", fallbackText), 0, 0);
+		return finish(new Text(theme.fg("toolOutput", fallbackText), 0, 0));
 	}
 
 	let parsed: ParsedDiff;
 	try {
-		parsed = parseDiff(diffText);
+		parsed = parseDiff(source.lines);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return new Text(theme.fg("warning", `↳ unable to render diff: ${message}`), 0, 0);
+		return finish(new Text(theme.fg("warning", `↳ unable to render diff: ${message}`), 0, 0));
 	}
 
 	if (parsed.entries.length === 0) {
-		return new Text(theme.fg("muted", "↳ no diff data"), 0, 0);
+		return finish(new Text(theme.fg("muted", "↳ no diff data"), 0, 0));
 	}
 
 	const splitRows = buildSplitRows(parsed.entries);
@@ -2422,7 +2436,7 @@ export function renderEditDiffResult(
 
 	const cache = createDiffRenderCache();
 
-	return {
+	return finish({
 		render(width: number): string[] {
 			const safeWidth = normalizeDiffRenderWidth(width);
 			const mode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
@@ -2502,6 +2516,7 @@ export function renderEditDiffResult(
 				config.expandedPreviewMaxLines,
 				parsed.stats.hunks,
 				theme,
+				source.capped,
 			);
 			const frame = renderDiffFrameLine(safeWidth, theme);
 			const renderedLines =
@@ -2513,7 +2528,7 @@ export function renderEditDiffResult(
 			return cache.set(safeWidth, options.expanded, mode, clampedLines);
 		},
 		invalidate: cache.invalidate,
-	};
+	});
 }
 
 function renderWriteHeader(
@@ -2770,14 +2785,19 @@ export function renderWriteDiffResult(
 	}
 
 	const filePath = options.filePath?.trim() || "(unknown path)";
-	const boundedContent = boundedContentLines(content, 4000);
-	if (boundedContent.capped)
-		return new Text(theme.fg("warning", "↳ write diff omitted (file exceeds 4000 lines)"), 0, 0);
-	const lines = splitWriteContentLines(content);
-	const previousLines =
+	const boundedContent = boundedPresentationSource(content, MAX_WRITE_OVERWRITE_DIFF_LINES, false);
+	const boundedPrevious =
 		typeof options.previousContent === "string"
-			? splitWriteContentLines(options.previousContent)
-			: [];
+			? boundedPresentationSource(options.previousContent, MAX_WRITE_OVERWRITE_DIFF_LINES, false)
+			: { lines: [], capped: false };
+	if (boundedContent.capped || boundedPrevious.capped)
+		return new Text(
+			theme.fg("warning", "↳ write diff omitted (bounded source/per-line preview limit)"),
+			0,
+			0,
+		);
+	const lines = boundedContent.lines;
+	const previousLines = boundedPrevious.lines;
 	const hasComparablePrevious =
 		options.fileExistedBeforeWrite === true && typeof options.previousContent === "string";
 	const approximateStats = buildApproximateWriteStats(

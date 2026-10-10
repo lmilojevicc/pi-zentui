@@ -83,8 +83,13 @@ Text input is capped at 1 MiB, diff parsing at 8000 lines, generated diffs at
 logical lines. Before syntax highlighting or wrapping, each diff line is bounded
 to 16384 characters and the remaining visual-row budget. Diff layout materializes
 at most 8000 visual rows; normal previews also bound wrapping work before creating
-rows. Limits are reported instead of silently implying full output. Omitted-row
-counts are lower bounds when unrendered lines could wrap.
+rows. Limits are reported instead of silently implying full output. New and
+previous write sources and each line are bounded before splitting, highlighting
+or detailed diff construction; capped write sources produce an honest omission
+notice. Edit input-cap warnings are outside the parsed/collapsed body so they
+survive source/render boundaries and unlimited expansion. Ordinary terminal
+LF/blank meta rows retain upstream presentation. Omitted-row counts are lower
+bounds when unrendered lines could wrap.
 
 ## Ownership and advanced JSON
 

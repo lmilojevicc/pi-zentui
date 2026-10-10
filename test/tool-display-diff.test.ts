@@ -1,6 +1,6 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { initTheme, type Theme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import { Text, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vitest";
 import {
 	boundedWrap,
 	diffComponent,
@@ -9,7 +9,17 @@ import {
 	parseDiff,
 	resolveDiffPresentation,
 } from "../extensions/zentui/tool-display/diff.js";
+import {
+	renderEditDiffResult,
+	renderWriteDiffResult,
+} from "../extensions/zentui/tool-display/diff-renderer.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
+import {
+	boundedPresentationSource,
+	graphemePrefix,
+	MAX_PRESENTATION_SOURCE_BYTES,
+	MAX_PREVIEW_LINE_CHARS,
+} from "../extensions/zentui/tool-display/source-bounds.js";
 
 const plain = (lines: string[]) =>
 	lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).join("\n");
@@ -210,5 +220,138 @@ describe("tool-display/diff", () => {
 		expect(visible).toContain(before);
 		expect(visible).toContain(after);
 		for (const glyph of [before, after]) expect(rows.some((row) => row.includes(glyph))).toBe(true);
+	});
+	it.each(["create", "overwrite-new", "overwrite-previous"])(
+		"bounds write %s before real-card highlighting or detailed entries",
+		(kind) => {
+			initTheme("dark", false);
+			const huge = `${"x".repeat(2 * MAX_PRESENTATION_SOURCE_BYTES)}🧪`;
+			const content = kind === "overwrite-previous" ? "const next = 1;" : huge;
+			const previous = kind === "overwrite-previous" ? huge : "const old = 1;";
+			const highlight = vi.fn((line: string) => line);
+			const args = Object.freeze({ path: "example.ts", content });
+			const result = { content: [{ type: "text", text: "written" }], details: {}, isError: false };
+			const config = normalizeToolDisplayConfig({
+				diffViewMode: "split",
+				expandedPreviewMaxLines: 0,
+			});
+			const row = new ToolExecutionComponent(
+				"write",
+				"bounded-write",
+				args,
+				{ showImages: false },
+				{
+					renderCall: () => new Text("write example.ts", 0, 0),
+					renderResult: (
+						_result: unknown,
+						options: { expanded: boolean; isPartial: boolean },
+						current: Theme,
+					) =>
+						renderWriteDiffResult(
+							content,
+							{
+								expanded: options.expanded,
+								filePath: args.path,
+								previousContent: previous,
+								fileExistedBeforeWrite: kind !== "create",
+								highlighter: highlight,
+							},
+							config,
+							current,
+							"written",
+						),
+				},
+				{ requestRender() {} } as unknown as TUI,
+				"/sandbox",
+			);
+			row.updateResult(result);
+			row.setExpanded(true);
+			const output = row.render(80);
+			expect(plain(output)).toContain("write diff omitted");
+			expect(highlight).not.toHaveBeenCalled();
+			expect(args.content).toBe(content);
+			expect(result.content[0].text).toBe("written");
+			for (const line of output) {
+				expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+				expect(Buffer.from(line, "utf8").toString("utf8")).toBe(line);
+			}
+		},
+	);
+	it.each(["🧪", "e\u0301", "👩‍💻"])(
+		"caps source/line prefixes on complete %s boundaries",
+		(glyph) => {
+			const prefix = "a".repeat(MAX_PREVIEW_LINE_CHARS - 1);
+			const original = `${prefix + glyph}tail`;
+			const bounded = boundedPresentationSource(original, 4000, false);
+			expect(bounded.capped).toBe(true);
+			expect(bounded.lines[0]).toBe(prefix);
+			expect(Buffer.from(bounded.lines[0], "utf8").toString("utf8")).toBe(bounded.lines[0]);
+			expect(
+				graphemePrefix(`${"a".repeat(MAX_PREVIEW_LINE_CHARS - 3)}👩‍💻`, MAX_PREVIEW_LINE_CHARS),
+			).toBe("a".repeat(MAX_PREVIEW_LINE_CHARS - 3));
+			const leading = `${"a".repeat(MAX_PREVIEW_LINE_CHARS)}\n`.repeat(63);
+			const tail = "a".repeat(MAX_PRESENTATION_SOURCE_BYTES - leading.length - 1);
+			const byteBounded = boundedPresentationSource(`${leading + tail}e\u0301tail`, 4000, false);
+			expect(byteBounded.capped).toBe(true);
+			expect(byteBounded.lines.at(-1)).toBe(tail);
+			const highlight = vi.fn((line: string) => line);
+			const component = renderWriteDiffResult(
+				original,
+				{
+					expanded: true,
+					previousContent: "old",
+					fileExistedBeforeWrite: true,
+					highlighter: highlight,
+				},
+				normalizeToolDisplayConfig({}),
+				theme,
+				"written",
+			);
+			expect(plain(component.render(80))).toContain("omitted");
+			expect(highlight).not.toHaveBeenCalled();
+		},
+	);
+	it.each([8000, 8001, 8010])(
+		"retains an external capped-input warning at %s lines across rendering boundaries",
+		(count) => {
+			const payload = Array.from(
+				{ length: count },
+				(_, index) => `+${index + 1}|line-${index + 1}`,
+			).join("\n");
+			const result = Object.freeze({ diff: payload });
+			for (const expanded of [false, true])
+				for (const width of [1, 7, 8, 17, 80]) {
+					const config = normalizeToolDisplayConfig({
+						diffCollapsedLines: 4,
+						expandedPreviewMaxLines: 0,
+						diffViewMode: "unified",
+					});
+					const output = renderEditDiffResult(result, { expanded }, config, theme, "edited").render(
+						width,
+					);
+					for (const line of output) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+					if (count > 8000) {
+						expect(plain(output.at(-1) ? [output.at(-1) as string] : [])).toMatch(
+							width >= 8 ? /capped/ : /…/,
+						);
+						expect(plain(output)).not.toMatch(/\(\d+ more diff lines/);
+					} else expect(plain(output)).not.toContain("input capped");
+				}
+			expect(result.diff).toBe(payload);
+		},
+	);
+	it("counts a terminal empty meta row at the source boundary without silently dropping it", () => {
+		const payload = `${Array.from({ length: 8000 }, (_, index) => `+${index + 1}|x`).join("\n")}\n`;
+		expect(
+			plain(
+				renderEditDiffResult(
+					{ diff: payload },
+					{ expanded: true },
+					normalizeToolDisplayConfig({ expandedPreviewMaxLines: 0 }),
+					theme,
+					"edited",
+				).render(80),
+			),
+		).toContain("input capped");
 	});
 });

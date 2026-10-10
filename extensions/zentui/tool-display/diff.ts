@@ -28,7 +28,10 @@ export function cleanText(text: string): string {
 		.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "")
 		.replace(/\t/g, "    ");
 }
-export const MAX_PREVIEW_LINE_CHARS = 16_384;
+
+import { MAX_PREVIEW_LINE_CHARS } from "./source-bounds.js";
+
+export { MAX_PREVIEW_LINE_CHARS } from "./source-bounds.js";
 export function boundedContentLines(
 	text: string,
 	limit: number,
