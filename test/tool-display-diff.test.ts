@@ -2,6 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
+	boundedWrap,
 	diffComponent,
 	diffContents,
 	focusDiffContext,
@@ -16,6 +17,44 @@ const theme = {
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 } as Theme;
 describe("tool-display/diff", () => {
+	it.each([
+		"aaa aaa aaa",
+		"\x1b[35maaa aaa aaa\x1b[39m",
+		"\x1b[35m🧪a 🧪a 🧪a\x1b[39m",
+		"🧪a 🧪a 🧪a",
+		"a\u0301aa a\u0301aa a\u0301aa",
+	])("F7 boundedWrap reports omitted host word-wrap rows: %s", (text) => {
+		const bounded = boundedWrap(text, 6, 2, true);
+		expect(bounded.lines).toHaveLength(2);
+		expect(bounded.capped).toBe(true);
+		for (const line of bounded.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(6);
+		const full = boundedWrap(text, 6, 3, true);
+		expect(full.lines).toHaveLength(3);
+		expect(full.capped).toBe(false);
+	});
+	it("F7 boundedWrap preserves empty, zero-budget and nowrap behavior", () => {
+		expect(boundedWrap("aaa", 0, 2, true)).toEqual({ lines: [], capped: true });
+		expect(boundedWrap("aaa", 6, 0, true)).toEqual({ lines: [], capped: true });
+		expect(boundedWrap("", 0, 2, true)).toEqual({ lines: [], capped: false });
+		expect(boundedWrap("", 6, 2, true)).toEqual({ lines: [""], capped: false });
+		expect(boundedWrap("aaa", 6, 2, false)).toEqual({ lines: ["aaa"], capped: false });
+		const clipped = boundedWrap("aaa aaa aaa", 6, 2, false);
+		expect(clipped.lines).toHaveLength(1);
+		expect(visibleWidth(clipped.lines[0])).toBe(6);
+		expect(clipped.capped).toBe(true);
+	});
+	it("F7 compact diff reports words omitted by its visual row limit", () => {
+		const config = () => normalizeToolDisplayConfig({ diffCollapsedLines: 4 });
+		const diff = parseDiff("+1|aaa aaa aaa aaa aaa");
+		const collapsed = diffComponent(diff, config, theme, false).render(8);
+		expect(collapsed).toHaveLength(6);
+		expect(plain(collapsed)).toContain("…");
+		expect(plain(collapsed).match(/aaa/g)).toHaveLength(4);
+		for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(8);
+		const expanded = diffComponent(diff, config, theme, true).render(8);
+		expect(plain(expanded).match(/aaa/g)).toHaveLength(5);
+		expect(plain(expanded)).not.toContain("…");
+	});
 	it("parses Pi canonical, legacy, unified hunks and hashline gutters", () => {
 		expect(
 			parseDiff("-12#AB:old\n+12#CD:new\n 13|same\n- 14 legacy\n+ 14 replacement"),

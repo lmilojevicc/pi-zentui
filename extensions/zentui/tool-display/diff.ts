@@ -53,8 +53,12 @@ export function boundedWrap(
 	const input = text.slice(0, 65_536);
 	const columns = Math.min(MAX_PREVIEW_LINE_CHARS, width * (wrap ? maxRows : 1));
 	const clipped = truncateToWidth(input, columns, "");
-	const capped = input.length < text.length || visibleWidth(input) > columns;
-	const lines = wrap ? wrapTextWithAnsi(clipped, width).slice(0, maxRows) : [clipped];
+	const wrapped = wrap ? wrapTextWithAnsi(clipped, width) : [clipped];
+	const capped =
+		input.length < text.length ||
+		visibleWidth(input) > columns ||
+		(wrap && wrapped.length > maxRows);
+	const lines = wrap ? wrapped.slice(0, maxRows) : wrapped;
 	return { lines: lines.length ? lines : [""], capped };
 }
 export function contentLines(text: string): string[] {

@@ -75,6 +75,35 @@ describe("tool-display/renderers", () => {
 					expect(visibleWidth(line)).toBeLessThanOrEqual(Number.isFinite(width) ? width : 0);
 		},
 	);
+	it("F7 native read preview reports host word-wrap rows beyond its visual budget", () => {
+		const renderer = createToolDisplayRenderers("read", () =>
+			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview", previewLines: 1 }),
+		);
+		const collapsed =
+			renderer
+				.renderResult?.(
+					result("aaa aaa aaa"),
+					{ expanded: false, isPartial: false },
+					theme,
+					context(),
+				)
+				.render(6) ?? [];
+		expect(collapsed).toHaveLength(3);
+		expect(plain(collapsed)).toContain("…");
+		expect(plain(collapsed).match(/aaa/g)).toHaveLength(2);
+		for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(6);
+		const expanded =
+			renderer
+				.renderResult?.(
+					result("aaa aaa aaa"),
+					{ expanded: true, isPartial: false },
+					theme,
+					context(),
+				)
+				.render(6) ?? [];
+		expect(plain(expanded).match(/aaa/g)).toHaveLength(3);
+		expect(plain(expanded)).not.toContain("…");
+	});
 	it("read ranges and write Unicode byte/line counts are precise", () => {
 		const config = () => normalizeToolDisplayConfig({ enabled: true });
 		const read = createToolDisplayRenderers("read", config);
