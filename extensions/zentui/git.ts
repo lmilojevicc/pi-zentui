@@ -321,7 +321,8 @@ export async function readGitStatus(
 	const readExactTag = options.readExactTag === true;
 	const readMetrics = options.readMetrics === true;
 	try {
-		const numstatArgs = ["diff", "HEAD", "--numstat"];
+		// diff's index refresh does not always honor GIT_OPTIONAL_LOCKS.
+		const numstatArgs = ["-c", "diff.autoRefreshIndex=false", "diff", "HEAD", "--numstat"];
 		if (options.ignoreSubmodules) numstatArgs.push("--ignore-submodules=all");
 		const [{ stdout: statusStdout }, stashResult, tagResult, metricsResult] = await Promise.all([
 			execFileAsync("git", ["status", "--porcelain=2", "--branch"], {

@@ -33,11 +33,12 @@ beforeEach(() => {
 	failed = [];
 	failure = new Error("transient");
 	probe.exec.mockReset().mockImplementation(async (_command, args: string[]) => {
-		if (failed.includes(args[0])) throw failure;
-		if (args[0] === "status") return { stdout: status };
-		if (args[0] === "stash") return { stdout: "stash@{0}: WIP\nstash@{1}: WIP\n" };
-		if (args[0] === "describe") return { stdout: "v1.2.3\n" };
-		if (args[0] === "diff") return { stdout: "10\t2\tfile\n-\t-\tbinary\n" };
+		const subcommand = args[0] === "-c" ? args[2] : args[0];
+		if (failed.includes(subcommand)) throw failure;
+		if (subcommand === "status") return { stdout: status };
+		if (subcommand === "stash") return { stdout: "stash@{0}: WIP\nstash@{1}: WIP\n" };
+		if (subcommand === "describe") return { stdout: "v1.2.3\n" };
+		if (subcommand === "diff") return { stdout: "10\t2\tfile\n-\t-\tbinary\n" };
 		if (args.includes("--is-inside-work-tree")) return { stdout: "true\n" };
 		// Supports the old baseline as well, so the count failure measures its real path.
 		if (!args.includes("--path-format=absolute"))
@@ -74,8 +75,8 @@ describe("readGitStatus subprocess demand", () => {
 
 	it("runs index-refreshing probes without optional locks", async () => {
 		await readGitStatus(root, { readMetrics: true });
-		const refreshing = probe.exec.mock.calls.filter((call) =>
-			["status", "diff"].includes(call[1][0]),
+		const refreshing = probe.exec.mock.calls.filter(
+			(call) => call[1].includes("status") || call[1].includes("diff"),
 		);
 		expect(refreshing).toHaveLength(2);
 		for (const call of refreshing) expect(call[2].env.GIT_OPTIONAL_LOCKS).toBe("0");
@@ -106,8 +107,8 @@ describe("readGitStatus subprocess demand", () => {
 		expect(probe.exec).toHaveBeenCalledTimes(5);
 		expect(probe.exec).toHaveBeenCalledWith(
 			"git",
-			["diff", "HEAD", "--numstat", "--ignore-submodules=all"],
-			expect.anything(),
+			["-c", "diff.autoRefreshIndex=false", "diff", "HEAD", "--numstat", "--ignore-submodules=all"],
+			expect.objectContaining({ cwd: root, timeout: 2000 }),
 		);
 	});
 

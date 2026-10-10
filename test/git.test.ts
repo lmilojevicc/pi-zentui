@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,7 +8,58 @@ import {
 	emptyGitStatus,
 	parseGitNumstat,
 	parseGitStatusPorcelain,
+	readGitStatus,
 } from "../extensions/zentui/git";
+
+describe("readGitStatus with real Git", () => {
+	it.each([false, true])("preserves a stat-stale index (readMetrics=%s)", async (readMetrics) => {
+		const root = mkdtempSync(join(tmpdir(), "zentui-git-index-"));
+		const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+		try {
+			git("init", "-b", "main");
+			git("config", "user.name", "Zentui Test");
+			git("config", "user.email", "zentui@example.invalid");
+			git("config", "commit.gpgSign", "false");
+			// Ensure the probe overrides auto-refresh even when enabled in repository config.
+			git("config", "diff.autoRefreshIndex", "true");
+			const stale = join(root, "unchanged.txt");
+			writeFileSync(stale, "unchanged\n");
+			utimesSync(stale, 946684800, 946684800);
+			writeFileSync(join(root, "staged.txt"), "before\n");
+			writeFileSync(join(root, "unstaged.txt"), "before\n");
+			git("add", ".");
+			git("commit", "-m", "initial");
+			writeFileSync(join(root, "staged.txt"), "before\nstaged\n");
+			git("add", "staged.txt");
+			writeFileSync(join(root, "unstaged.txt"), "after\nextra\n");
+			// Only stat data changes: diff would otherwise refresh this clean entry on disk.
+			utimesSync(stale, 978307200, 978307200);
+			const indexPath = join(root, ".git", "index");
+			const indexBefore = readFileSync(indexPath);
+
+			expect(
+				await readGitStatus(root, {
+					readMetrics,
+					readStash: false,
+					readOperationState: false,
+				}),
+			).toMatchObject({
+				kind: "ok",
+				status: {
+					branch: "main",
+					dirty: true,
+					staged: 1,
+					modified: 1,
+					untracked: 0,
+					metrics: readMetrics ? { added: 3, deleted: 1 } : undefined,
+				},
+			});
+			expect(readFileSync(indexPath).equals(indexBefore)).toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("parseGitStatusPorcelain", () => {
 	it("returns empty status for empty output", () => {
