@@ -18,12 +18,14 @@ import {
 	type SelectorBordersComponentConfig,
 	type ThinkingStepsComponentConfig,
 	type ThinkingStepsMode,
+	type ToolDisplayComponentPatch,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
 } from "../extensions/zentui/config";
 import { componentPresets, getComponentPreset, type PresetId } from "../extensions/zentui/presets";
 import { SessionLifecycle } from "../extensions/zentui/session-lifecycle";
 import { registerZentuiSettingsCommand } from "../extensions/zentui/settings-command";
+import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets";
 
 type Component = { render(width: number): string[]; handleInput(data: string): void };
 type Command = {
@@ -36,8 +38,34 @@ const sectionNames = [
 	"User messages",
 	"Thinking",
 	"Working line",
+	"Tool display",
 	"Footer",
 	"Extension statuses",
+] as const;
+const toolDisplayRowLabels = [
+	"Enabled",
+	"Preset",
+	"Override Bash renderer",
+	"Read output",
+	"Search output",
+	"MCP output",
+	"Bash output",
+	"Preview lines",
+	"Bash collapsed lines",
+	"Expanded preview limit",
+	"Diff layout",
+	"Diff indicators",
+	"Split minimum width",
+	"Diff collapsed lines",
+	"Diff word wrap",
+	"Truncation hints",
+	"read renderer",
+	"write renderer",
+	"edit renderer",
+	"bash renderer",
+	"grep renderer",
+	"find renderer",
+	"ls renderer",
 ] as const;
 const footerPageNames = ["Segments", "Git"] as const;
 type SectionName = (typeof sectionNames)[number] | (typeof footerPageNames)[number];
@@ -142,6 +170,7 @@ function createHarness(
 		accentRail: [] as Array<Record<string, unknown>>,
 		messages: [] as Partial<UserMessagesComponentConfig>[],
 		thinkingSteps: [] as Partial<ThinkingStepsComponentConfig>[],
+		toolDisplay: [] as ToolDisplayComponentPatch[],
 		workingLine: [] as WorkingLineComponentPatch[],
 		renders: { shared: 0, local: 0 },
 		selectors: [] as Partial<SelectorBordersComponentConfig>[],
@@ -192,6 +221,28 @@ function createHarness(
 		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>) {
 			calls.messages.push(patch);
 			Object.assign(config.components.userMessages, patch);
+		},
+		getToolDisplayStatus: () => ({
+			available: true,
+			active:
+				config.components.toolDisplay.enabled && config.components.toolDisplay.style !== "native",
+			bashRequiresOverride: true,
+		}),
+		setToolDisplayComponent(patch: ToolDisplayComponentPatch) {
+			calls.toolDisplay.push(patch);
+			config.components.toolDisplay = normalizeToolDisplayConfig({
+				...config.components.toolDisplay,
+				...patch,
+				registerToolOverrides: {
+					...config.components.toolDisplay.registerToolOverrides,
+					...patch.registerToolOverrides,
+				},
+				builtinRendererOverrides: {
+					...config.components.toolDisplay.builtinRendererOverrides,
+					...patch.builtinRendererOverrides,
+				},
+			});
+			return { applied: true };
 		},
 		thinkingStepsCapability: { available: true },
 		setThinkingStepsComponent(patch: Partial<ThinkingStepsComponentConfig>) {
@@ -431,7 +482,7 @@ describe("focused OMP skin settings", () => {
 });
 
 describe("component-oriented /zentui settings", () => {
-	it("uses the exact seven-section order in wide and narrow navigation", async () => {
+	it("uses the exact eight-section order in wide and narrow navigation", async () => {
 		const harness = createHarness();
 		await harness.command().handler("", harness.ctx);
 		const component = harness.component();
@@ -446,7 +497,7 @@ describe("component-oriented /zentui settings", () => {
 		for (const [index, name] of sectionNames.entries()) {
 			const lines = component.render(40);
 			expect(lines[1]).toContain(name);
-			expect(lines[1]).toContain(`(${index + 1}/7)`);
+			expect(lines[1]).toContain(`(${index + 1}/${sectionNames.length})`);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			component.handleInput("\t");
 		}
@@ -477,7 +528,7 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.calls.editor).toEqual([{ codexQuota: true }]);
 		expect(config.components.editor.enabled).toBe(false);
 		expect(config.components.footer.codexQuota).toBe(false);
-		for (let index = 0; index < 4; index++) component.handleInput("\t");
+		for (let index = 0; index < 5; index++) component.handleInput("\t");
 		selectLabel(component, "Codex quota");
 		component.handleInput(" ");
 		expect(harness.calls.footer).toEqual([{ codexQuota: true }]);
@@ -560,6 +611,8 @@ describe("component-oriented /zentui settings", () => {
 
 			"Color overrides",
 		]);
+		component.handleInput("\t");
+		expectFocusOrder(component, toolDisplayRowLabels);
 		component.handleInput("\t");
 		expectFocusOrder(component, [
 			"Footer style",
@@ -745,7 +798,7 @@ describe("component-oriented /zentui settings", () => {
 			{ separator: "dot" },
 		]);
 
-		for (let index = 0; index < 4; index += 1) component.handleInput("\t");
+		for (let index = 0; index < 5; index += 1) component.handleInput("\t");
 		openFooterPage(component, "Git");
 		for (const [label, value] of [
 			["Commit only on detached HEAD", "disabled"],
@@ -915,6 +968,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		selectLabel(component, "Footer colors");
 		component.handleInput(" ");
 		selectLabel(component, "Footer model label");
@@ -999,6 +1053,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
+		component.handleInput("\t");
 		openFooterPage(component, "Git");
 		selectLabel(component, "Ignore submodules");
 		component.handleInput(" ");
@@ -1015,6 +1070,7 @@ describe("component-oriented /zentui settings", () => {
 		goToSection(component, "Editor");
 		expect(row(component, "Editor border color")).toContain("adaptive");
 		expect(row(component, "Editor model label")).toContain("name");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -1049,6 +1105,7 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput(" ");
 		expect(focusedRow(component)).toContain("> Editor border color");
 		expect(focusedRow(component)).toContain("static");
+		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
 		component.handleInput("\t");
@@ -1700,6 +1757,8 @@ describe("component-oriented /zentui settings", () => {
 		component.handleInput("\t");
 		const workingRows = component.render(100);
 		expectStackedPreview(workingRows, "Sautéing…");
+		component.handleInput("\t");
+		expectFocusOrder(component, toolDisplayRowLabels);
 		component.handleInput("\t");
 		expect(harness.config.components.footer.style).toBe("starship");
 		for (const width of [40, 60, 80, 120, 160]) {
@@ -2666,7 +2725,7 @@ describe("nested Starship Footer settings navigation", () => {
 			await h.command().handler(route, h.ctx);
 			expect(h.component().render(40)[1]).toContain(`Footer > ${label}`);
 			h.component().handleInput("\x1b[Z");
-			expect(h.component().render(40)[1]).toContain("Working line");
+			expect(h.component().render(40)[1]).toContain("Tool display");
 			h.sessionLifecycle.shutdown();
 			expect(h.config).toEqual(before);
 			for (const effect of effects) expect(effect).not.toHaveBeenCalled();
@@ -2691,7 +2750,7 @@ describe("nested Starship Footer settings navigation", () => {
 			for (const [route, label, firstRow] of pages) {
 				await h.command().handler(route, h.ctx);
 				const panel = h.component();
-				expect(panel.render(40)[1]).toContain("[Footer] (6/7)");
+				expect(panel.render(40)[1]).toContain("[Footer] (7/8)");
 				expectFocusOrder(panel, ["Footer style", "Color overrides"]);
 				expect(panel.render(200).join("\n")).not.toContain(firstRow);
 				expect(h.notifications.at(-1)).toBe(
@@ -3096,5 +3155,256 @@ describe("Hidden extension placement settings", () => {
 		expect(config.components.extensionStatuses.hidden.defaultPlacement).toBe("left");
 		expect(config.components.footer).toEqual(beforeFooter);
 		expect(config.components.extensionStatuses.visibility).toEqual({ saved: "hide" });
+	});
+});
+
+describe("native Tool display settings", () => {
+	it("opens the direct route with exact controls, native-safe defaults and no preview timer", async () => {
+		vi.useFakeTimers();
+		const h = createHarness();
+		const before = structuredClone(h.config);
+		await h.command().handler("tool-display", h.ctx);
+		expect(h.component().render(40)[1]).toContain("Tool display");
+		expectFocusOrder(h.component(), toolDisplayRowLabels);
+		expect(row(h.component(), "Preset")).toContain("Opencode");
+		expect(h.component().render(160).join("\n")).toContain(
+			"Saved for Tool display disabled/native",
+		);
+		expect(h.config).toEqual(before);
+		expect(h.calls.toolDisplay).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(
+			h
+				.command()
+				.getArgumentCompletions("tool")
+				?.map(({ value }) => value),
+		).toEqual(["tool-display"]);
+		for (const width of [1, 18, 40, 80, 160])
+			expect(
+				h
+					.component()
+					.render(width)
+					.every((line) => visibleWidth(line) <= width),
+			).toBe(true);
+	});
+	it("keeps dormant edits owner-local and shows Custom until preset reapplied", async () => {
+		const h = createHarness();
+		const before = structuredClone(h.config.components);
+		await h.command().handler("tool-display", h.ctx);
+		const panel = h.component();
+		selectLabel(panel, "Read output");
+		panel.handleInput(" ");
+		expect(h.calls.toolDisplay).toEqual([{ readOutputMode: "summary" }]);
+		expect(row(panel, "Preset")).toContain("Custom");
+		panel.handleInput(" ");
+		expect(row(panel, "Preset")).toContain("Native");
+		panel.handleInput(" ");
+		expect(row(panel, "Preset")).toContain("Opencode");
+		panel.handleInput(" ");
+		expect(row(panel, "Preset")).toContain("Balanced");
+		expect(h.config.components.toolDisplay).toMatchObject({
+			enabled: false,
+			readOutputMode: "summary",
+			searchOutputMode: "count",
+			mcpOutputMode: "summary",
+			bashOutputMode: "summary",
+			previewLines: 8,
+		});
+		const { toolDisplay: _tool, ...others } = h.config.components;
+		const { toolDisplay: _old, ...oldOthers } = before;
+		expect(others).toEqual(oldOthers);
+		expect(h.calls.renders.shared).toBe(0);
+		expect(h.calls.thinkingSteps).toEqual([]);
+		expect(h.calls.messages).toEqual([]);
+	});
+	it("roundtrips enable and disable without toggling any other owner", async () => {
+		const h = createHarness();
+		await h.command().handler("tool-display", h.ctx);
+		selectLabel(h.component(), "Enabled");
+		h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.enabled).toBe(true);
+		h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.enabled).toBe(false);
+		expect(h.calls.toolDisplay).toEqual([{ enabled: true }, { enabled: false }]);
+		expect(h.calls.thinkingSteps).toEqual([]);
+		expect(h.calls.messages).toEqual([]);
+		h.component().handleInput("\x1b");
+		await h.command().handler("tool-display", h.ctx);
+		expect(row(h.component(), "Enabled")).toContain("disabled");
+	});
+	it("displays every custom numeric value exactly instead of rounding to a menu preset", async () => {
+		const config = cloneConfig();
+		Object.assign(config.components.toolDisplay, {
+			previewLines: 7,
+			bashCollapsedLines: 13,
+			expandedPreviewMaxLines: 2345,
+			diffSplitMinWidth: 139,
+			diffCollapsedLines: 29,
+		});
+		const h = createHarness(config);
+		await h.command().handler("tool-display", h.ctx);
+		for (const [label, value, next] of [
+			["Preview lines", 7, 4],
+			["Bash collapsed lines", 13, 0],
+			["Expanded preview limit", 2345, 0],
+			["Split minimum width", 139, 70],
+			["Diff collapsed lines", 29, 4],
+		] as const) {
+			expect(row(h.component(), label)).toContain(String(value));
+			h.component().handleInput(" ");
+			expect(row(h.component(), label)).toContain(String(next));
+		}
+		expect(h.calls.toolDisplay).toEqual([
+			{ previewLines: 4 },
+			{ bashCollapsedLines: 0 },
+			{ expandedPreviewMaxLines: 0 },
+			{ diffSplitMinWidth: 70 },
+			{ diffCollapsedLines: 4 },
+		]);
+	});
+	it("routes per-tool modes, diff controls and builtin toggles independently", async () => {
+		const h = createHarness();
+		await h.command().handler("tool-display", h.ctx);
+		for (const label of [
+			"Read output",
+			"Search output",
+			"MCP output",
+			"Bash output",
+			"Diff layout",
+			"Diff indicators",
+			"Diff word wrap",
+			"Truncation hints",
+			"read renderer",
+			"bash renderer",
+		]) {
+			selectLabel(h.component(), label);
+			h.component().handleInput(" ");
+		}
+		expect(h.calls.toolDisplay).toEqual([
+			{ readOutputMode: "summary" },
+			{ searchOutputMode: "count" },
+			{ mcpOutputMode: "summary" },
+			{ bashOutputMode: "summary" },
+			{ diffViewMode: "split" },
+			{ diffIndicatorMode: "classic" },
+			{ diffWordWrap: false },
+			{ showTruncationHints: true },
+			{ registerToolOverrides: { read: false } },
+			{ registerToolOverrides: { bash: false } },
+		]);
+		expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({});
+		expect(h.config.components.toolDisplay.registerToolOverrides.write).toBe(true);
+	});
+	it("shows truthful unsupported API status while allowing owner-local preferences", async () => {
+		const h = createHarness(cloneConfig(), {
+			getToolDisplayStatus: () => ({
+				available: false,
+				active: false,
+				bashRequiresOverride: true,
+				reason: "Public renderer unavailable",
+			}),
+			setToolDisplayComponent(patch: ToolDisplayComponentPatch) {
+				Object.assign(h.config.components.toolDisplay, patch);
+				return { applied: false, reason: "Public renderer unavailable; native retained" };
+			},
+		});
+		await h.command().handler("tool-display", h.ctx);
+		expect(h.component().render(160).join("\n")).toContain(
+			"Renderer API unavailable; native retained",
+		);
+		expect(h.component().render(160).join("\n")).not.toMatch(/install|pi-tool-display/);
+		h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.enabled).toBe(true);
+		expect(h.notificationEvents.at(-1)?.severity).toBe("warning");
+		expect(h.notifications.at(-1)).toContain("native retained");
+	});
+	it("restores effective values and focus on persistence failure", async () => {
+		const h = createHarness(cloneConfig(), {
+			setToolDisplayComponent() {
+				throw new Error("corrupt Tool display config");
+			},
+		});
+		await h.command().handler("tool-display", h.ctx);
+		selectLabel(h.component(), "Preview lines");
+		h.component().handleInput(" ");
+		expect(focusedRow(h.component())).toContain("> Preview lines");
+		expect(focusedRow(h.component())).toMatch(/8$/);
+		expect(h.notifications.at(-1)).toBe(
+			"Could not update Zentui settings: corrupt Tool display config",
+		);
+	});
+	it("does not pretend to save without the integration callback", async () => {
+		const h = createHarness(cloneConfig(), {
+			setToolDisplayComponent: undefined,
+			getToolDisplayStatus: undefined,
+		});
+		await h.command().handler("tool-display", h.ctx);
+		expect(h.component().render(160).join("\n")).toContain("Renderer API unavailable");
+		h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.enabled).toBe(false);
+		expect(h.notifications.at(-1)).toContain("settings integration unavailable");
+	});
+	it("keeps Tool display dormant and unavailable in OMP skin-only settings", async () => {
+		const h = createHarness(cloneConfig(), { skinOnly: true });
+		await h.command().handler("tool-display", h.ctx);
+		expect(h.notifications.at(-1)).toContain("host-owned");
+		expect(h.calls.toolDisplay).toEqual([]);
+		expect(h.command().getArgumentCompletions("tool")).toBeNull();
+	});
+});
+
+describe("explicit Bash renderer consent", () => {
+	it("defaults off, saves opt-in dormant, and resets off without touching eligibility or another owner", async () => {
+		const h = createHarness();
+		const before = structuredClone(h.config.components);
+		await h.command().handler("tool-display", h.ctx);
+		expect(row(h.component(), "Override Bash renderer")).toMatch(/disabled$/);
+		const description = h.component().render(160).join("\n");
+		expect(description).toContain("replaces existing rendering for native Bash, not execution");
+		h.component().handleInput(" ");
+		expect(row(h.component(), "Override Bash renderer")).toMatch(/enabled$/);
+		expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({ bash: true });
+		expect(h.config.components.toolDisplay.enabled).toBe(false);
+		expect(h.config.components.toolDisplay.registerToolOverrides).toEqual(
+			before.toolDisplay.registerToolOverrides,
+		);
+		h.component().handleInput(" ");
+		expect(row(h.component(), "Override Bash renderer")).toMatch(/disabled$/);
+		expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({});
+		expect(h.calls.toolDisplay).toEqual([
+			{ builtinRendererOverrides: { bash: true } },
+			{ builtinRendererOverrides: { bash: null } },
+		]);
+		const { toolDisplay: _tool, ...others } = h.config.components;
+		const { toolDisplay: _old, ...oldOthers } = before;
+		expect(others).toEqual(oldOthers);
+		expect(h.calls.renders.shared).toBe(0);
+	});
+	it("does not implicitly grant consent through enablement, presets, or Bash eligibility", async () => {
+		const h = createHarness();
+		await h.command().handler("tool-display", h.ctx);
+		for (const label of ["Enabled", "Preset", "Bash output", "bash renderer", "bash renderer"]) {
+			selectLabel(h.component(), label);
+			h.component().handleInput(" ");
+			expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({});
+		}
+		expect(h.calls.toolDisplay.every((patch) => patch.builtinRendererOverrides === undefined)).toBe(
+			true,
+		);
+	});
+	it("retains consent through preset changes, but leaves Native neutral", async () => {
+		const h = createHarness();
+		await h.command().handler("tool-display", h.ctx);
+		selectLabel(h.component(), "Override Bash renderer");
+		h.component().handleInput(" ");
+		selectLabel(h.component(), "Preset");
+		for (let i = 0; i < 3; i++) h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.style).toBe("native");
+		expect(h.config.components.toolDisplay.enabled).toBe(false);
+		expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({ bash: true });
+		expect(row(h.component(), "Override Bash renderer")).toContain("enabled");
+		expect(h.component().render(160).join("\n")).toContain(
+			"Saved for Tool display disabled/native",
+		);
 	});
 });

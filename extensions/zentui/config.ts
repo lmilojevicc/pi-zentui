@@ -47,6 +47,12 @@ import {
 } from "./minimalist-template";
 import type { ComponentPreset } from "./presets";
 import { isSupportedColorSpec } from "./style";
+import { normalizeToolDisplayConfig } from "./tool-display/presets";
+import type {
+	BuiltinToolName,
+	CustomToolDisplayConfig,
+	ToolDisplayConfig,
+} from "./tool-display/types";
 import { DEFAULT_TURN_SUMMARY_FORMAT, normalizeTurnSummaryFormat } from "./turn-summary-format";
 import { normalizeWorkingLineMessages } from "./working-line";
 import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
@@ -336,7 +342,25 @@ export type ExtensionStatusComponentConfig = ExtensionStatusVisibilityConfig & {
 	};
 };
 
+export type ToolDisplayComponentPatch = Partial<
+	Omit<
+		ToolDisplayConfig,
+		"registerToolOverrides" | "builtinRendererOverrides" | "customToolOverrides"
+	>
+> & {
+	registerToolOverrides?: Partial<Record<BuiltinToolName, boolean>>;
+	builtinRendererOverrides?: Partial<Record<BuiltinToolName, boolean | null>>;
+	customToolOverrides?: Record<
+		string,
+		| (Partial<Omit<CustomToolDisplayConfig, "outputMode">> & {
+				outputMode?: CustomToolDisplayConfig["outputMode"] | null;
+		  })
+		| null
+	>;
+};
+
 export type ComponentsConfig = {
+	toolDisplay: ToolDisplayConfig;
 	extensionStatuses: ExtensionStatusComponentConfig;
 	editor: EditorComponentConfig;
 	userMessages: UserMessagesComponentConfig;
@@ -573,6 +597,7 @@ const defaultStarshipStyle: StarshipFooterStyleConfig = {
 };
 
 const defaultComponents: ComponentsConfig = {
+	toolDisplay: normalizeToolDisplayConfig({}),
 	extensionStatuses: { defaultVisibility: "show", visibility: {} },
 	editor: {
 		codexQuota: false,
@@ -1414,6 +1439,7 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 	const userMessagesSelection = resolveUserMessagesSelection(userMessages, framed, features);
 
 	return {
+		toolDisplay: normalizeToolDisplayConfig(components.toolDisplay),
 		extensionStatuses: resolveExtensionStatusComponent(components.extensionStatuses),
 		editor: {
 			codexQuota: parseBoolean(editor.codexQuota, false),
@@ -2179,6 +2205,54 @@ export function saveUserMessagesComponentPatch(
 	);
 }
 
+/** Saves only Tool display; advanced null leaves resume inheritance. No host/config bridge. */
+export function saveToolDisplayComponentPatch(
+	patch: ToolDisplayComponentPatch,
+	path = configPath,
+): PolishedTuiConfig {
+	return saveComponentsMutation(
+		["toolDisplay"],
+		(components) => {
+			const current = components.toolDisplay;
+			const { registerToolOverrides, builtinRendererOverrides, customToolOverrides, ...ordinary } =
+				patch;
+			const next = {
+				...current,
+				...ordinary,
+				registerToolOverrides: { ...current.registerToolOverrides, ...registerToolOverrides },
+				builtinRendererOverrides: { ...current.builtinRendererOverrides },
+				customToolOverrides: { ...current.customToolOverrides },
+			};
+			for (const [name, value] of Object.entries(builtinRendererOverrides ?? {})) {
+				if (value === null) delete next.builtinRendererOverrides[name as BuiltinToolName];
+				else if (value !== undefined)
+					next.builtinRendererOverrides[name as BuiltinToolName] = value;
+			}
+			for (const [name, value] of Object.entries(customToolOverrides ?? {})) {
+				if (value === null) delete next.customToolOverrides[name];
+				else {
+					const entry = { ...next.customToolOverrides[name], ...value };
+					if (entry.outputMode === null) delete entry.outputMode;
+					next.customToolOverrides[name] = entry as CustomToolDisplayConfig;
+				}
+			}
+			components.toolDisplay = normalizeToolDisplayConfig(next);
+		},
+		path,
+		(record) => {
+			const owner = recordValue(recordValue(record.components).toolDisplay);
+			const builtin = recordValue(owner.builtinRendererOverrides);
+			const custom = recordValue(owner.customToolOverrides);
+			for (const [name, value] of Object.entries(patch.builtinRendererOverrides ?? {}))
+				if (value === null) delete builtin[name];
+			for (const [name, value] of Object.entries(patch.customToolOverrides ?? {})) {
+				if (value === null) delete custom[name];
+				else if (value.outputMode === null) delete recordValue(custom[name]).outputMode;
+			}
+		},
+	);
+}
+
 export function saveThinkingStepsComponentPatch(
 	patch: Partial<ThinkingStepsComponentConfig>,
 	path = configPath,
@@ -2802,6 +2876,7 @@ export function migrateComponentSelections(path = configPath): PolishedTuiConfig
 			"editor",
 			"userMessages",
 			"thinkingSteps",
+			"toolDisplay",
 			"workingLine",
 			"selectorBorders",
 			"footer",

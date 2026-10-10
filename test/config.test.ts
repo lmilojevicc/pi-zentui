@@ -142,6 +142,7 @@ describe("canonical config resolution", () => {
 				styles: { framed: {}, "framed-copy-friendly": {}, compact: {}, labeled: {} },
 			},
 			thinkingSteps: { enabled: false, mode: "tree" },
+			toolDisplay: defaultConfig.components.toolDisplay,
 			workingLine: {
 				enabled: true,
 				turnSummary: true,
@@ -1527,6 +1528,7 @@ describe("compatibility saver recipes", () => {
 				"footer",
 				"selectorBorders",
 				"thinkingSteps",
+				"toolDisplay",
 				"userMessages",
 				"workingLine",
 			]);

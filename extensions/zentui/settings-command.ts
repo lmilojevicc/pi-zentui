@@ -58,6 +58,7 @@ import {
 	type SeparatorStyle,
 	type ThinkingStepsComponentConfig,
 	type ThinkingStepsMode,
+	type ToolDisplayComponentPatch,
 	type UserMessageStyle,
 	type UserMessagesComponentConfig,
 	type WorkingLineComponentPatch,
@@ -91,6 +92,19 @@ import {
 } from "./settings-previews";
 import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
+import type { ToolDisplayStatus } from "./tool-display/controller";
+import { toolDisplayPresetPatch } from "./tool-display/presets";
+import {
+	BASH_OUTPUT_MODES,
+	BUILTIN_TOOL_NAMES,
+	DIFF_INDICATOR_MODES,
+	DIFF_VIEW_MODES,
+	MCP_OUTPUT_MODES,
+	READ_OUTPUT_MODES,
+	SEARCH_OUTPUT_MODES,
+	TOOL_DISPLAY_PRESETS,
+	type ToolDisplayConfig,
+} from "./tool-display/types";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
@@ -181,6 +195,7 @@ const settingsSections = [
 	"userMessages",
 	"thinkingSteps",
 	"workingLine",
+	"toolDisplay",
 	"footer",
 	"extensions",
 ] as const;
@@ -265,6 +280,12 @@ function experimentalThinkingCapability(
 
 type SettingsCommandDeps = Omit<ComponentSettingsDeps, "getConfig"> & {
 	skinOnly?: boolean;
+	/** Persistence/reconciliation is integration-owned; the panel never mutates a renderer. */
+	setToolDisplayComponent?: (
+		patch: ToolDisplayComponentPatch,
+		ctx: ExtensionContext,
+	) => ApplyResult;
+	getToolDisplayStatus?: () => ToolDisplayStatus;
 	sessionLifecycle: SessionLifecycle;
 	getConfig: () => PolishedTuiConfig;
 	applyPreset: (
@@ -328,6 +349,7 @@ const sectionLabels: Record<SettingsSection, string> = {
 	userMessages: "User messages",
 	thinkingSteps: "Thinking (Experimental)",
 	workingLine: "Working line",
+	toolDisplay: "Tool display",
 	footer: "Footer",
 	segments: "Segments",
 	git: "Git",
@@ -388,6 +410,7 @@ const sectionRoutes: Record<string, SettingsSection> = {
 	thinking: "thinkingSteps",
 	"thinking-steps": "thinkingSteps",
 	"working-line": "workingLine",
+	"tool-display": "toolDisplay",
 	footer: "footer",
 	statusline: "footer",
 	status: "footer",
@@ -563,7 +586,7 @@ function argumentCompletions(prefix: string, skinOnly = false): AutocompleteItem
 }
 
 function usageText(): string {
-	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
+	return "Usage: /zentui [editor|messages|statusline|viewport-indicators] [enable|disable|toggle], /zentui [appearance|editor|user-messages|thinking|working-line|tool-display|footer|segments|git|extensions], /zentui preset <opencode|opencode-copy-friendly|rail|minimalist>, or /zentui format <template>";
 }
 
 function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
@@ -985,6 +1008,167 @@ function buildWorkingLineItems(config: PolishedTuiConfig): SettingItem[] {
 	];
 }
 
+type ToolDisplayOptionKey = Exclude<
+	keyof ToolDisplayConfig,
+	"enabled" | "style" | "registerToolOverrides" | "builtinRendererOverrides" | "customToolOverrides"
+>;
+const toolDisplayOptions: Array<{
+	key: ToolDisplayOptionKey;
+	label: string;
+	description: string;
+	values: readonly string[];
+}> = [
+	{
+		key: "readOutputMode",
+		label: "Read output",
+		description: "Hidden, summary, or preview.",
+		values: READ_OUTPUT_MODES,
+	},
+	{
+		key: "searchOutputMode",
+		label: "Search output",
+		description: "Grep/find/ls results: hidden, count, or preview.",
+		values: SEARCH_OUTPUT_MODES,
+	},
+	{
+		key: "mcpOutputMode",
+		label: "MCP output",
+		description: "Only exact-name opted-in MCP tools; never auto-discovers ownership.",
+		values: MCP_OUTPUT_MODES,
+	},
+	{
+		key: "bashOutputMode",
+		label: "Bash output",
+		description:
+			"Opencode collapses; summary counts; preview shows lines. Native Bash needs Override Bash renderer consent.",
+		values: BASH_OUTPUT_MODES,
+	},
+	{
+		key: "previewLines",
+		label: "Preview lines",
+		description: "Collapsed preview lines (1–80).",
+		values: ["4", "8", "12", "16", "24", "32", "80"],
+	},
+	{
+		key: "bashCollapsedLines",
+		label: "Bash collapsed lines",
+		description: "Opencode Bash lines (0–80).",
+		values: ["0", "5", "10", "15", "20", "30", "80"],
+	},
+	{
+		key: "expandedPreviewMaxLines",
+		label: "Expanded preview limit",
+		description: "Expanded text lines (0–20000); zero uses the renderer safety cap.",
+		values: ["0", "1000", "4000", "10000", "20000"],
+	},
+	{
+		key: "diffViewMode",
+		label: "Diff layout",
+		description: "Auto selects by width; narrow panes remain clamped.",
+		values: DIFF_VIEW_MODES,
+	},
+	{
+		key: "diffIndicatorMode",
+		label: "Diff indicators",
+		description: "Bars, classic +/− markers, or none.",
+		values: DIFF_INDICATOR_MODES,
+	},
+	{
+		key: "diffSplitMinWidth",
+		label: "Split minimum width",
+		description: "Auto split threshold (70–240 columns).",
+		values: ["70", "100", "120", "160", "200", "240"],
+	},
+	{
+		key: "diffCollapsedLines",
+		label: "Diff collapsed lines",
+		description: "Collapsed visual rows (4–240).",
+		values: ["4", "12", "24", "48", "120", "240"],
+	},
+	{
+		key: "diffWordWrap",
+		label: "Diff word wrap",
+		description: "Wrap rather than clip long diff lines.",
+		values: featureStateValues,
+	},
+	{
+		key: "showTruncationHints",
+		label: "Truncation hints",
+		description: "Show optional backend truncation metadata.",
+		values: featureStateValues,
+	},
+];
+const toolDisplayPresetLabels = {
+	native: "Native",
+	opencode: "Opencode",
+	balanced: "Balanced",
+	verbose: "Verbose",
+} as const;
+function buildToolDisplayItems(
+	config: PolishedTuiConfig,
+	status: ToolDisplayStatus,
+): SettingItem[] {
+	const owner = config.components.toolDisplay;
+	const preset =
+		owner.style === "native"
+			? "Native"
+			: TOOL_DISPLAY_PRESETS.find((id) =>
+					Object.entries(toolDisplayPresetPatch(id)).every(
+						([key, value]) => owner[key as keyof ToolDisplayConfig] === value,
+					),
+				);
+	const statusText = !status.available
+		? "Renderer API unavailable; native retained."
+		: status.active
+			? "Renderer available; active for eligible tools."
+			: "Renderer available; native retained.";
+	return [
+		{
+			id: "toolDisplayEnabled",
+			label: "Enabled",
+			description: `${statusText}${status.reason ? ` ${status.reason}` : ""} Saves only Zentui Tool display; other surfaces are unchanged.`,
+			currentValue: featureValue(owner.enabled),
+			values: featureStateValues,
+		},
+		{
+			id: "toolDisplayPreset",
+			label: "Preset",
+			description:
+				"Select modes and line counts only. Native delegates; Custom means edited preset values.",
+			currentValue:
+				preset === "Native" ? preset : preset ? toolDisplayPresetLabels[preset] : "Custom",
+			values: Object.values(toolDisplayPresetLabels),
+		},
+		{
+			id: "toolDisplayOverrideBash",
+			label: "Override Bash renderer",
+			description:
+				"Explicitly replaces existing rendering for native Bash, not execution. Off retains the predecessor; consent stays dormant while disabled/native.",
+			currentValue: featureValue(owner.builtinRendererOverrides.bash === true),
+			values: featureStateValues,
+		},
+		...toolDisplayOptions.map(({ key, label, description, values }) => {
+			const value = owner[key];
+			const currentValue = typeof value === "boolean" ? featureValue(value) : String(value);
+			return {
+				id: `toolDisplayOption:${key}`,
+				label,
+				description,
+				currentValue,
+				values: values.includes(currentValue) ? [...values] : [currentValue, ...values],
+			};
+		}),
+		...BUILTIN_TOOL_NAMES.map((name) => ({
+			id: `toolDisplayBuiltin:${name}`,
+			label: `${name} renderer`,
+			description:
+				"Allow eligible native builtin rendering only; never changes tool execution or activation.",
+			currentValue: featureValue(owner.registerToolOverrides[name]),
+			values: featureStateValues,
+		})),
+	];
+}
+
 function buildFooterItems(config: PolishedTuiConfig): SettingItem[] {
 	const footer = config.components.footer;
 	const items: SettingItem[] = [
@@ -1256,6 +1440,7 @@ function buildSectionItems(
 	config: PolishedTuiConfig,
 	active: ReadonlyMap<string, string>,
 	thinkingStepsCapability: ThinkingStepsSettingsCapability,
+	toolDisplayStatus: ToolDisplayStatus,
 ): SettingItem[] {
 	switch (section) {
 		case "appearance":
@@ -1277,6 +1462,8 @@ function buildSectionItems(
 			return buildThinkingStepsItems(config, thinkingStepsCapability);
 		case "workingLine":
 			return buildWorkingLineItems(config);
+		case "toolDisplay":
+			return buildToolDisplayItems(config, toolDisplayStatus);
 		case "footer":
 			return [
 				...buildFooterItems(config),
@@ -1350,6 +1537,12 @@ function markDormantItems(
 	const footer = config.components.footer;
 	for (const item of items) {
 		let reason = "";
+		if (
+			section === "toolDisplay" &&
+			item.id !== "toolDisplayEnabled" &&
+			(!config.components.toolDisplay.enabled || config.components.toolDisplay.style === "native")
+		)
+			reason = "Tool display disabled/native";
 		if (section === "editor" && item.id !== "editorEnabled" && !editor.enabled)
 			reason = "Editor disabled";
 		else if (
@@ -1688,6 +1881,11 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								deps.getConfig(),
 								deps.getActiveExtensionStatuses(),
 								deps.thinkingStepsCapability,
+								deps.getToolDisplayStatus?.() ?? {
+									available: false,
+									active: false,
+									bashRequiresOverride: true,
+								},
 							);
 							if (deps.skinOnly && activeSection === "footer") {
 								for (const item of items) {
@@ -1951,6 +2149,55 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											setMessages({ colorSource: newValue }, ctx);
 											settingsList.updateValue(id, newValue);
 											notifyChange("Message colors", newValue);
+											return;
+										}
+										if (id.startsWith("toolDisplay")) {
+											if (!deps.setToolDisplayComponent)
+												throw new Error("Tool display settings integration unavailable");
+											let patch: ToolDisplayComponentPatch;
+											if (id === "toolDisplayEnabled" && enabled !== undefined) patch = { enabled };
+											else if (id === "toolDisplayOverrideBash" && enabled !== undefined)
+												patch = { builtinRendererOverrides: { bash: enabled ? true : null } };
+											else if (id === "toolDisplayPreset") {
+												const style = (
+													Object.keys(toolDisplayPresetLabels) as Array<ToolDisplayConfig["style"]>
+												).find((key) => toolDisplayPresetLabels[key] === newValue);
+												if (!style) return;
+												patch = style === "native" ? { style } : toolDisplayPresetPatch(style);
+											} else if (id.startsWith("toolDisplayBuiltin:")) {
+												const name = BUILTIN_TOOL_NAMES.find(
+													(name) => id === `toolDisplayBuiltin:${name}`,
+												);
+												if (!name || enabled === undefined) return;
+												patch = { registerToolOverrides: { [name]: enabled } };
+											} else {
+												const option = toolDisplayOptions.find(
+													({ key }) => id === `toolDisplayOption:${key}`,
+												);
+												if (!option) return;
+												const current = deps.getConfig().components.toolDisplay[option.key];
+												const validValues =
+													typeof current === "number"
+														? [...option.values, String(current)]
+														: option.values;
+												if (!validValues.includes(newValue)) return;
+												patch = {
+													[option.key]:
+														typeof current === "boolean"
+															? enabled
+															: typeof current === "number"
+																? Number(newValue)
+																: newValue,
+												};
+											}
+											const result = deps.setToolDisplayComponent(patch, ctx);
+											settingsList = makeSettingsList(id);
+											const detail = result.reason?.trim();
+											ctx.ui.notify(
+												`Tool display: ${newValue}${detail ? ` (${detail})` : !result.applied ? " (native rendering retained)" : ""}`,
+												!result.applied || detail ? "warning" : "info",
+											);
+											tui.requestRender();
 											return;
 										}
 										if (id === "thinkingStepsEnabled" && enabled !== undefined) {
