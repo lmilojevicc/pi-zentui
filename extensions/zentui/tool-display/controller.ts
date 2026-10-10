@@ -1,0 +1,208 @@
+import type { ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
+import { type Component, Text } from "@earendil-works/pi-tui";
+import { record } from "./presets.js";
+import {
+	createToolDisplayRenderers,
+	hasOnlyTextContent,
+	type RendererResources,
+} from "./renderers.js";
+import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.js";
+
+export interface ToolDisplayRendererAPI {
+	registerToolRenderer?: (resolver: ToolRendererResolver) => void;
+	getAllTools?: () => readonly { name: string; sourceInfo?: { source?: string; path?: string } }[];
+}
+export interface ToolDisplayStatus {
+	available: boolean;
+	active: boolean;
+	reason?: string;
+	/** Ambiguous native Bash functions require explicit rendering-only consent. */
+	bashRequiresOverride: boolean;
+}
+export interface ToolDisplayControllerOptions extends RendererResources {
+	/** Identities from public create*ToolDefinition factories on the actual host. No private imports. */
+	nativeRenderers: Partial<Record<BuiltinToolName, ToolRenderers>>;
+}
+function rendererIdentityMatches(
+	actual: ToolRenderers,
+	native: ToolRenderers | undefined,
+): boolean {
+	return (
+		!!native &&
+		actual.renderCall === native.renderCall &&
+		actual.renderResult === native.renderResult &&
+		actual.renderShell === native.renderShell
+	);
+}
+/** One runtime-scoped resolver. Pi returns void; disposal makes the closure delegate forever. */
+export function createToolDisplayController(
+	api: ToolDisplayRendererAPI,
+	getConfig: () => ToolDisplayConfig,
+	options: ToolDisplayControllerOptions,
+) {
+	let installed = false;
+	let disposed = false;
+	let failure: string | undefined;
+	const enabled = () => {
+		try {
+			return !disposed && !failure && getConfig().enabled && getConfig().style !== "native";
+		} catch {
+			return false;
+		}
+	};
+	const canOwn = (name: string, previous: ToolRenderers | undefined): boolean => {
+		if (!enabled()) return false;
+		const config = getConfig();
+		if (isBuiltinToolName(name)) {
+			if (!config.registerToolOverrides[name]) return false;
+			let source: { source?: string; path?: string } | undefined;
+			try {
+				source = api.getAllTools?.().find((tool) => tool.name === name)?.sourceInfo;
+			} catch {
+				return false;
+			}
+			if (source?.source !== "builtin" || source.path !== `builtin:${name}`) return false;
+			return (
+				!previous ||
+				rendererIdentityMatches(previous, options.nativeRenderers[name]) ||
+				config.builtinRendererOverrides[name] === true
+			);
+		}
+		const custom = Object.hasOwn(config.customToolOverrides, name)
+			? config.customToolOverrides[name]
+			: undefined;
+		return (
+			custom?.enabled === true &&
+			((!previous?.renderCall && !previous?.renderResult && !previous?.renderShell) ||
+				custom.overrideExistingRenderers === true)
+		);
+	};
+	const resolver: ToolRendererResolver = (name, next) => {
+		const previous = next();
+		if (!canOwn(name, previous)) return previous;
+		const ownedComponents = new WeakSet<Component>();
+		const releasedRows = new WeakSet<object>();
+		const rowKey = (state: unknown): object | undefined =>
+			state !== null && typeof state === "object" ? state : undefined;
+		const own = () =>
+			createToolDisplayRenderers(
+				name,
+				getConfig,
+				options,
+				isBuiltinToolName(name) ? undefined : getConfig().customToolOverrides[name],
+			);
+		const safeOwned = (owned: Component, fallback: () => Component): Component => ({
+			invalidate() {
+				owned.invalidate();
+			},
+			render(width) {
+				try {
+					return owned.render(width);
+				} catch {
+					return fallback().render(width);
+				}
+			},
+		});
+		const component = (build: () => Component): Component => {
+			const wrapped: Component = {
+				invalidate() {},
+				render(width) {
+					return build().render(width);
+				},
+			};
+			ownedComponents.add(wrapped);
+			return wrapped;
+		};
+		return {
+			// Shell belongs to the predecessor/host, including mixed/image result framing.
+			renderShell: previous?.renderShell,
+			renderCall(args, theme, context) {
+				return component(() => {
+					const current = next();
+					const forwarded = ownedComponents.has(context.lastComponent as Component)
+						? { ...context, lastComponent: undefined }
+						: context;
+					const key = rowKey(context.state);
+					const fallback = () => {
+						if (key) releasedRows.add(key);
+						return current?.renderCall?.(args, theme, forwarded) ?? new Text("", 0, 0);
+					};
+					if (!key || releasedRows.has(key) || !canOwn(name, current)) return fallback();
+					try {
+						return safeOwned(own().renderCall?.(args, theme, forwarded) ?? fallback(), fallback);
+					} catch {
+						return fallback();
+					}
+				});
+			},
+			renderResult(result, renderOptions, theme, context) {
+				return component(() => {
+					const current = next();
+					const forwarded = ownedComponents.has(context.lastComponent as Component)
+						? { ...context, lastComponent: undefined }
+						: context;
+					const key = rowKey(context.state);
+					const fallback = () => {
+						if (key) releasedRows.add(key);
+						return (
+							current?.renderResult?.(result, renderOptions, theme, forwarded) ??
+							new Text(
+								Array.isArray(record(result).content)
+									? result.content.map((block) => record(block).text ?? "").join("\n")
+									: "",
+								0,
+								0,
+							)
+						);
+					};
+					if (
+						!key ||
+						releasedRows.has(key) ||
+						!canOwn(name, current) ||
+						!hasOnlyTextContent(result)
+					)
+						return fallback();
+					try {
+						return safeOwned(
+							own().renderResult?.(result, renderOptions, theme, forwarded) ?? fallback(),
+							fallback,
+						);
+					} catch {
+						return fallback();
+					}
+				});
+			},
+		};
+	};
+	return {
+		resolver,
+		install(): void {
+			if (installed || disposed || typeof api.registerToolRenderer !== "function") return;
+			try {
+				api.registerToolRenderer(resolver);
+				installed = true;
+			} catch {
+				failure = "Tool renderer registration unavailable; native rendering retained.";
+			}
+		},
+		status(): ToolDisplayStatus {
+			const available = typeof api.registerToolRenderer === "function" && !failure;
+			return {
+				available,
+				active: installed && enabled(),
+				bashRequiresOverride:
+					getConfig().registerToolOverrides.bash &&
+					getConfig().builtinRendererOverrides.bash !== true,
+				reason:
+					failure ??
+					(!available
+						? "Public tool renderer API unavailable; native rendering retained."
+						: undefined),
+			};
+		},
+		dispose(): void {
+			disposed = true;
+			options.pending?.clear();
+		},
+	};
+}
