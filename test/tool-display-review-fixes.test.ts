@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	createBashToolDefinition,
 	createEditToolDefinition,
 	initTheme,
 	ToolExecutionComponent,
@@ -77,6 +78,119 @@ describe("tool-display independent review regressions", () => {
 			expect(plain(row.render(110))).toContain("changed");
 		} finally {
 			parser.mockRestore();
+			controller.dispose();
+		}
+	});
+	it("keeps started Bash frames and elapsed advancing after expansion/config/theme rebuilds", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1000000);
+		initTheme("dark", false);
+		const native = createBashToolDefinition("/sandbox") as unknown as ToolRenderers;
+		let config = normalizeToolDisplayConfig({
+			enabled: true,
+			builtinRendererOverrides: { bash: true },
+		});
+		const controller = createToolDisplayController(
+			{
+				getAllTools: () => [
+					{ name: "bash", sourceInfo: { source: "builtin", path: "builtin:bash" } },
+				],
+			},
+			() => ({ ...config }),
+			{ nativeRenderers: { bash: native } },
+		);
+		const row = new ToolExecutionComponent(
+			"bash",
+			"animation",
+			{ command: "printf harmless" },
+			{ showImages: false },
+			controller.resolver("bash", () => native),
+			ui,
+			"/sandbox",
+		);
+		try {
+			row.markExecutionStarted();
+			row.updateResult(
+				{ content: [{ type: "text", text: "line" }], details: {}, isError: false },
+				true,
+			);
+			vi.advanceTimersByTime(200);
+			expect(plain(row.render(110))).toContain("⠙");
+			row.setExpanded(true);
+			vi.advanceTimersByTime(200);
+			expect(plain(row.render(110))).toContain("⠹");
+			config = normalizeToolDisplayConfig({ ...config, bashOutputMode: "preview" });
+			row.render(110);
+			vi.advanceTimersByTime(800);
+			expect(plain(row.render(110))).toContain("· 1s");
+			expect(plain(row.render(110))).toContain("⠦");
+			initTheme("light", false);
+			row.invalidate();
+			row.render(110);
+			vi.advanceTimersByTime(1000);
+			expect(plain(row.render(110))).toContain("· 2s");
+			expect(plain(row.render(110))).toContain("⠙");
+			row.updateResult(
+				{ content: [{ type: "text", text: "done" }], details: {}, isError: false },
+				false,
+			);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			controller.dispose();
+			vi.useRealTimers();
+			initTheme("dark", false);
+		}
+	});
+	it("rebuilds same-array same-length partial text mutations without unchanged-paint churn", () => {
+		initTheme("dark", false);
+		const native = createBashToolDefinition("/sandbox") as unknown as ToolRenderers;
+		const config = () =>
+			normalizeToolDisplayConfig({
+				enabled: true,
+				builtinRendererOverrides: { bash: true },
+				bashOutputMode: "preview",
+				showTruncationHints: true,
+			});
+		const controller = createToolDisplayController(
+			{
+				getAllTools: () => [
+					{ name: "bash", sourceInfo: { source: "builtin", path: "builtin:bash" } },
+				],
+			},
+			config,
+			{ nativeRenderers: { bash: native } },
+		);
+		const value = {
+			content: [{ type: "text", text: "old-text" }],
+			details: { fullOutputPath: "first.log", truncation: { truncated: false } },
+			isError: false,
+		};
+		const row = new ToolExecutionComponent(
+			"bash",
+			"mutable",
+			{ command: "printf harmless" },
+			{ showImages: false },
+			controller.resolver("bash", () => native),
+			ui,
+			"/sandbox",
+		);
+		try {
+			row.updateResult(value, true);
+			expect(plain(row.render(110))).toContain("old-text");
+			const content = value.content;
+			value.content[0].text = "new-text";
+			expect(value.content).toBe(content);
+			expect(plain(row.render(110))).toContain("new-text");
+			expect(plain(row.render(110))).not.toContain("old-text");
+			row.invalidate();
+			expect(plain(row.render(110))).toContain("new-text");
+			const unchanged = row.render(110);
+			expect(row.render(110)).toEqual(unchanged);
+			value.details.truncation.truncated = true;
+			value.details.fullOutputPath = "final.log";
+			expect(plain(row.render(110))).toContain("output truncated");
+			expect(plain(row.render(110))).toContain("final.log");
+		} finally {
 			controller.dispose();
 		}
 	});

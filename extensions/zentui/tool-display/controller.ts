@@ -7,6 +7,7 @@ import {
 	hasSupportedContent,
 	type RendererResources,
 } from "./renderers.js";
+import { MAX_PRESENTATION_SOURCE_BYTES } from "./source-bounds.js";
 import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.js";
 
 /** Modern Pi catches callback failures and invokes its own generic slot fallback.
@@ -36,6 +37,51 @@ export interface ToolDisplayStatus {
 export interface ToolDisplayControllerOptions extends RendererResources {
 	/** Identities from public create*ToolDefinition factories on the actual host. No private imports. */
 	nativeRenderers: Partial<Record<BuiltinToolName, ToolRenderers>>;
+}
+// Strings remain immutable references. Comparisons inspect at most the displayed
+// source budget, never clone/hash an unbounded result on every paint.
+class ResultTextValue {
+	constructor(readonly value: string) {}
+}
+function sameResultText(a: string, b: string): boolean {
+	if (a.length !== b.length) return false;
+	const limit = Math.min(a.length, MAX_PRESENTATION_SOURCE_BYTES);
+	if (a.length <= limit) return Object.is(a, b);
+	for (let i = 0; i < limit; i++) if (a.charCodeAt(i) !== b.charCodeAt(i)) return false;
+	return true;
+}
+function resultValues(result: unknown): readonly unknown[] {
+	const data = record(result);
+	const values: unknown[] = [];
+	const content = Array.isArray(data.content) ? data.content : [];
+	values.push(content.length);
+	for (let i = 0; i < Math.min(content.length, 256); i++) {
+		const block = record(content[i]);
+		values.push(
+			block.type,
+			typeof block.text === "string" ? new ResultTextValue(block.text) : block.text,
+			block.mimeType,
+			typeof block.data === "string" ? new ResultTextValue(block.data) : block.data,
+		);
+	}
+	// Outside the bounded key inventory, do not reuse a potentially stale view.
+	if (content.length > 256) values.push(Symbol("uncached oversized block inventory"));
+	const details = record(data.details);
+	const truncation = record(details.truncation);
+	values.push(
+		typeof details.diff === "string" ? new ResultTextValue(details.diff) : details.diff,
+		typeof details.fullOutputPath === "string"
+			? new ResultTextValue(details.fullOutputPath)
+			: details.fullOutputPath,
+		truncation.truncated,
+		truncation.truncatedBy,
+		truncation.totalLines,
+		truncation.outputLines,
+		typeof truncation.fullOutputPath === "string"
+			? new ResultTextValue(truncation.fullOutputPath)
+			: truncation.fullOutputPath,
+	);
+	return values;
 }
 function rendererIdentityMatches(
 	actual: ToolRenderers,
@@ -150,7 +196,12 @@ export function createToolDisplayController(
 				isBuiltinToolName(name) ? undefined : getConfig().customToolOverrides[name],
 			);
 		const sameKey = (a: readonly unknown[], b: readonly unknown[]) =>
-			a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+			a.length === b.length &&
+			a.every((value, index) =>
+				value instanceof ResultTextValue && b[index] instanceof ResultTextValue
+					? sameResultText(value.value, (b[index] as ResultTextValue).value)
+					: Object.is(value, b[index]),
+			);
 		const keyFor = (
 			theme: unknown,
 			context: Parameters<NonNullable<ToolRenderers["renderCall"]>>[2],
@@ -209,7 +260,7 @@ export function createToolDisplayController(
 				Object.keys(args).length,
 				data.content,
 				data.details,
-				record(data.details).diff,
+				...resultValues(result),
 				options?.expanded,
 				options?.isPartial,
 				context.executionStarted,

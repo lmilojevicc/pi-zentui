@@ -41,6 +41,7 @@ interface BashCallRenderTheme {
 }
 
 interface BashSpinnerState {
+	target?: { text: Text; args: BashCallArgs; theme: BashCallRenderTheme; invalidate?: () => void };
 	frameIndex: number;
 	startedAt?: number;
 	timer?: ReturnType<typeof setInterval>;
@@ -182,6 +183,7 @@ export function createBashProgress() {
 		}
 		state.frameIndex = 0;
 		state.startedAt = undefined;
+		state.target = undefined;
 		if (toolCallId) {
 			spinnerStatesByToolCallId.delete(toolCallId);
 		}
@@ -205,19 +207,22 @@ export function createBashProgress() {
 		}
 
 		if (spinnerState) {
+			spinnerState.target = { text, args, theme, invalidate: context.invalidate };
 			spinnerState.startedAt ??= Date.now();
 			if (!spinnerState.timer && typeof context.invalidate === "function") {
 				const timer = setInterval(() => {
 					spinnerState.frameIndex = (spinnerState.frameIndex + 1) % BASH_SPINNER_FRAMES.length;
-					text.setText(
+					const target = spinnerState.target;
+					if (!target) return;
+					target.text.setText(
 						buildBashCallText(
-							args,
-							theme,
+							target.args,
+							target.theme,
 							BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 							Date.now() - (spinnerState.startedAt ?? Date.now()),
 						),
 					);
-					context.invalidate?.();
+					target.invalidate?.();
 				}, BASH_SPINNER_INTERVAL_MS);
 				spinnerState.timer = timer;
 			}
