@@ -59,6 +59,20 @@ describe("tool-display/presets", () => {
 			overrideExistingRenderers: true,
 		});
 	});
+	it.each(["generic", "mcp"] as const)(
+		"normalizes missing/invalid %s outputMode to summary without changing valid modes",
+		(kind) => {
+			for (const outputMode of [undefined, null, "invalid", "hidden", "summary", "preview"]) {
+				const config = normalizeToolDisplayConfig({
+					mcpOutputMode: "hidden",
+					customToolOverrides: { demo: { kind, outputMode } },
+				});
+				expect(config.customToolOverrides.demo.outputMode).toBe(
+					["hidden", "summary", "preview"].includes(outputMode as string) ? outputMode : "summary",
+				);
+			}
+		},
+	);
 	it("does not share mutable defaults or convert dormant preferences to enablement", () => {
 		const a = normalizeToolDisplayConfig({ enabled: false, style: "balanced" });
 		a.registerToolOverrides.read = false;

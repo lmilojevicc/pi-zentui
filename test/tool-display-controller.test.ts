@@ -277,7 +277,7 @@ describe("tool-display/controller (public resolver only)", () => {
 			expect(controller.resolver("read", () => nativeRead)).toBe(nativeRead);
 		}
 	});
-	it("MCP mode inherits live global changes; explicit overrides and reset roundtrip correctly", () => {
+	it("custom MCP defaults stay summary across global changes; explicit overrides and reset roundtrip", () => {
 		const entry = { enabled: true, kind: "mcp", overrideExistingRenderers: true };
 		const { controller, update } = setup({
 			enabled: true,
@@ -290,7 +290,9 @@ describe("tool-display/controller (public resolver only)", () => {
 			"↳ 2 lines returned • Ctrl+O to expand",
 		]);
 		update({ enabled: true, mcpOutputMode: "preview", customToolOverrides: { demo: entry } });
-		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ 2 lines returned • Ctrl+O to expand",
+		]);
 		update({
 			enabled: true,
 			mcpOutputMode: "hidden",
@@ -306,15 +308,19 @@ describe("tool-display/controller (public resolver only)", () => {
 				}),
 			),
 		);
-		expect(persisted.customToolOverrides.demo).not.toHaveProperty("outputMode");
+		expect(persisted.customToolOverrides.demo.outputMode).toBe("summary");
 		update(persisted);
-		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ 2 lines returned • Ctrl+O to expand",
+		]);
 		update({
 			...persisted,
 			mcpOutputMode: "preview",
 			customToolOverrides: { demo: { ...entry, outputMode: "invalid" } },
 		});
-		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
+			"↳ 2 lines returned • Ctrl+O to expand",
+		]);
 	});
 	it("late foreign resolver precedence and foreign definitions release already acquired rendering", () => {
 		const { controller, api } = setup({ enabled: true, readOutputMode: "summary" });

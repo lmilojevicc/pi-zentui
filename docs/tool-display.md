@@ -143,7 +143,12 @@ Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matchin
 ```
 
 Canonical `mcp__<server>__<tool>` entries use upstream's automatic/direct MCP
-presentation (`<server>/<tool>`). The public ToolInfo API has no registered label,
+presentation (`<server>/<tool>`), even with an explicit custom override. This is
+an intentional divergence from upstream's explicit-custom path, which uses proxy
+target selection (for example, `MCP status (1 arg)` for `{message}` arguments).
+Zentui retains the approved canonical label (`MCP zentui_demo/echo (1 arg)`) so
+opting in does not change the tool's identity. The public ToolInfo API has no
+registered label,
 so public namespace metadata supplies the server boundary when available; otherwise
 the documented Pi naming normalization is used without private inspection.
 The shown label comes from the already-sanitized tool name: neither ToolInfo nor
@@ -158,9 +163,10 @@ Comparisons must match configuration scope: an explicitly styled custom tool
 must not be compared as if it were an unlisted reference/native tool.
 
 Unlisted or disabled tools delegate. `kind` is `generic | mcp`; boolean shorthand
-is accepted with generic rendering. Omitted `outputMode` inherits `mcpOutputMode`
-for MCP and summary for generic; explicit hidden/summary/preview wins. Deleting
-`outputMode` resumes inheritance. Existing renderers or shells remain owned by
+is accepted with generic rendering. Omitted or invalid `outputMode` defaults to
+summary for both kinds, matching upstream custom entries independently of global
+`mcpOutputMode`; explicit hidden/summary/preview wins. Deleting `outputMode`
+resumes the summary default. Existing renderers or shells remain owned by
 the predecessor unless the exact entry explicitly sets
 `overrideExistingRenderers: true`. Use that advanced consent only when intending
 to replace that tool's display. Builtin names and prototype names are rejected
@@ -174,7 +180,7 @@ in Zentui's configuration, preserving unrelated and unknown user-owned fields.
 Corrupt/unreadable Zentui JSON is not overwritten. Disabled/native preferences
 save dormant without taking another surface or touching another package.
 `/zentui migrate` remains the separate confirmed all-owner snapshot; it does not
-freeze omitted custom MCP output inheritance or generate colors.
+change the summary default for omitted custom output modes or generate colors.
 
 On supported hosts, live mode edits affect rows Zentui still owns. A row that
 has delegated to its predecessor stays delegated for its remaining lifetime,
@@ -209,6 +215,7 @@ explicit guards described above. Attribution and MIT notices are included.
 The user-approved Unicode fix expands changed-word emphasis boundaries to whole
 graphemes, preventing the upstream surrogate/combining/ZWJ corruption. Those
 vectors intentionally differ from unpatched upstream and match a separately
-recorded minimal corrected reference; all other tested normal rows are identical.
+recorded minimal corrected reference; all other oracle-tested normal rows are
+identical within the matched domains above.
 Development oracle generation and safety-domain details are recorded in the
 [attribution/source map](./tool-display-attribution.md).

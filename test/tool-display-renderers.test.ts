@@ -197,6 +197,43 @@ describe("tool-display/renderers", () => {
 			} else expect(output).toBe("");
 		},
 	);
+	it.each(["mcp", "generic"] as const)(
+		"custom %s without outputMode summarizes despite global hidden mode at width 112",
+		(kind) => {
+			const name = kind === "mcp" ? "mcp__zentui_demo__echo" : "sandbox_echo";
+			const args = { message: "hello from real local MCP server" };
+			const lines = Array.from(
+				{ length: 12 },
+				(_, i) => `${i + 1}: hello from real local MCP server`,
+			);
+			const config = normalizeToolDisplayConfig({
+				enabled: true,
+				mcpOutputMode: "hidden",
+				customToolOverrides: { [name]: { enabled: true, kind, overrideExistingRenderers: true } },
+			});
+			// Exercise both normalized entries and the public renderer's optional-mode fallback.
+			for (const entry of [config.customToolOverrides[name], { enabled: true, kind }]) {
+				const renderer = createToolDisplayRenderers(name, () => config, {}, entry);
+				expect(plain(renderer.renderCall?.(args, theme, context(args)).render(112) ?? [])).toBe(
+					kind === "mcp" ? "MCP zentui_demo/echo (1 arg)" : "sandbox_echo (1 arg)",
+				);
+				for (const expanded of [false, true]) {
+					const rows =
+						renderer
+							.renderResult?.(
+								result(lines.join("\n")),
+								{ expanded, isPartial: false },
+								theme,
+								context(args),
+							)
+							.render(112) ?? [];
+					expect(plain(rows)).toBe(
+						expanded ? lines.join("\n") : "↳ 12 lines returned • Ctrl+O to expand",
+					);
+				}
+			}
+		},
+	);
 	it("generic/MCP exact adapters have distinct labels and output modes", () => {
 		const getter = () => normalizeToolDisplayConfig({ enabled: true });
 		const generic = createToolDisplayRenderers(

@@ -17,6 +17,7 @@ import type { ToolDisplayConfig } from "../extensions/zentui/tool-display/types.
 interface Fixture {
 	name: string;
 	kind?: "generic" | "mcp";
+	omitCustomOutputMode?: boolean;
 	theme: string;
 	width: number;
 	expanded: boolean;
@@ -94,6 +95,32 @@ describe("tool-display pinned complete public-card parity", () => {
 		);
 		expect(data.cases.some((value) => value.theme === "reference-system")).toBe(true);
 	});
+	it("retains all oracle domains and omitted custom output-mode vectors", () => {
+		expect(data.cases).toHaveLength(17766);
+		expect(data.provenance.unicodeCorrection).toEqual({
+			vectors: 1998,
+			rows: 3123,
+			upstreamMalformedRows: 2268,
+			unchangedVectors: 15768,
+		});
+		const omitted = data.cases.filter((item) => item.omitCustomOutputMode);
+		expect(omitted).toHaveLength(108);
+		expect(new Set(omitted.map((item) => item.name))).toEqual(
+			new Set(["custom_mcp_gateway", "sandbox_echo"]),
+		);
+		for (const kind of ["generic", "mcp"])
+			for (const expanded of [false, true])
+				expect(
+					omitted.some(
+						(item) =>
+							item.kind === kind &&
+							item.expanded === expanded &&
+							item.theme === "system" &&
+							item.width === 112 &&
+							item.config.mcpOutputMode === "hidden",
+					),
+				).toBe(true);
+	});
 	(modern ? it : it.skip)(
 		"matches every complete ANSI/color/background/spacing row from the executable upstream oracle",
 		async () => {
@@ -124,7 +151,9 @@ describe("tool-display pinned complete public-card parity", () => {
 									[fixture.name]: {
 										enabled: true,
 										kind: fixture.kind,
-										outputMode: fixture.config.mcpOutputMode ?? "hidden",
+										...(fixture.omitCustomOutputMode
+											? {}
+											: { outputMode: fixture.config.mcpOutputMode ?? "hidden" }),
 										overrideExistingRenderers: true,
 									},
 								}

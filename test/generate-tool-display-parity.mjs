@@ -433,6 +433,40 @@ for (const theme of themes)
 					preimage: { exists: true, content: "const value = 1;\n" },
 					result: { content: [{ type: "text", text: "editing" }], details: {} },
 				});
+// Explicit custom entries default to summary, not the global MCP mode.
+// Canonical MCP names stay in the independent automatic-registration domain above.
+for (const theme of themes)
+	for (const width of [80, 112, 160])
+		for (const expanded of [false, true])
+			for (const mcpOutputMode of ["hidden", "summary", "preview"])
+				for (const [name, kind] of [
+					["custom_mcp_gateway", "mcp"],
+					["sandbox_echo", "generic"],
+				])
+					cases.push({
+						name,
+						kind,
+						omitCustomOutputMode: true,
+						theme,
+						width,
+						expanded,
+						clock: 1000000,
+						partial: false,
+						config: { mcpOutputMode },
+						args: { message: "hello from real local MCP server" },
+						result: {
+							content: [
+								{
+									type: "text",
+									text: Array.from(
+										{ length: 12 },
+										(_, i) => `${i + 1}: hello from real local MCP server`,
+									).join("\n"),
+								},
+							],
+							details: {},
+						},
+					});
 // Original-source CR metadata proof: raw truthiness precedes CR normalization.
 for (const theme of themes)
 	for (const width of [80, 110, 160])
@@ -505,7 +539,13 @@ function originalRenderers(fixture, cfg, modules) {
 		...cfg,
 		customToolOverrides:
 			fixture.kind && !/^mcp__(.+?)__(.+)$/.test(fixture.name)
-				? { [fixture.name]: { enabled: true, kind: fixture.kind, outputMode: cfg.mcpOutputMode } }
+				? {
+						[fixture.name]: {
+							enabled: true,
+							kind: fixture.kind,
+							...(fixture.omitCustomOutputMode ? {} : { outputMode: cfg.mcpOutputMode }),
+						},
+					}
 				: {},
 	}));
 	if (fixture.kind)
@@ -644,7 +684,9 @@ try {
 						[fixture.name]: {
 							enabled: true,
 							kind: fixture.kind,
-							outputMode: fixture.config.mcpOutputMode ?? "hidden",
+							...(fixture.omitCustomOutputMode
+								? {}
+								: { outputMode: fixture.config.mcpOutputMode ?? "hidden" }),
 							overrideExistingRenderers: true,
 						},
 					}

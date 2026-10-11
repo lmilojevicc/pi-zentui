@@ -38,8 +38,8 @@ may differ; this limitation must not be bypassed with private access.
 
 The pinned implementation can place changed-word background ANSI inside a UTF-16
 surrogate pair or a combining/ZWJ grapheme. The user explicitly requested fixing
-this defect. The only normal-domain parity exception is snapping those emphasis
-spans to whole graphemes. `test/fixtures/tool-display-unicode-reference-patch.json`
+this defect. Within the matched oracle domains above, the only normal-domain
+parity exception is snapping those emphasis spans to whole graphemes. `test/fixtures/tool-display-unicode-reference-patch.json`
 is the executable two-edit corrected-reference patch; the adjacent `.patch` is
 its human-readable diff. Original upstream files remain unchanged. Generated
 fixtures record both original and corrected complete rows for affected vectors,

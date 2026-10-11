@@ -2205,7 +2205,7 @@ export function saveUserMessagesComponentPatch(
 	);
 }
 
-/** Saves only Tool display; advanced null leaves resume inheritance. No host/config bridge. */
+/** Saves only Tool display; advanced null leaves resume defaults. No host/config bridge. */
 export function saveToolDisplayComponentPatch(
 	patch: ToolDisplayComponentPatch,
 	path = configPath,

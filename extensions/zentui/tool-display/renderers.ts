@@ -312,7 +312,7 @@ export function createToolDisplayRenderers(
 					safe,
 					options,
 					cfg,
-					custom.outputMode ?? (custom.kind === "mcp" ? cfg.mcpOutputMode : "summary"),
+					custom.outputMode ?? "summary",
 					theme,
 				);
 			} else if (name === "read")

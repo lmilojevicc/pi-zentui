@@ -100,9 +100,7 @@ export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 		config.customToolOverrides[name] = {
 			enabled: typeof value === "boolean" ? value : entry.enabled !== false,
 			kind: entry.kind === "mcp" ? "mcp" : "generic",
-			...(READ_OUTPUT_MODES.includes(entry.outputMode as ToolDisplayConfig["readOutputMode"])
-				? { outputMode: entry.outputMode as ToolDisplayConfig["readOutputMode"] }
-				: {}),
+			outputMode: choice(entry.outputMode, READ_OUTPUT_MODES, "summary"),
 			overrideExistingRenderers: entry.overrideExistingRenderers === true,
 		};
 	}

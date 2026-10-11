@@ -43,7 +43,7 @@ describe("Tool display owner configuration", () => {
 		expect(config.components.toolDisplay).toMatchObject(toolDisplayPresetPatch(style));
 		expect(config.components.toolDisplay.enabled).toBe(false);
 	});
-	it("clones ownership maps and preserves missing custom output inheritance", () => {
+	it("clones ownership maps and materializes the custom summary default", () => {
 		const input = {
 			components: { toolDisplay: { customToolOverrides: { mcp_example: { kind: "mcp" } } } },
 		};
@@ -55,7 +55,7 @@ describe("Tool display owner configuration", () => {
 		expect(b.registerToolOverrides.read).toBe(true);
 		expect(b.builtinRendererOverrides).toEqual({});
 		expect(b.customToolOverrides.mcp_example.enabled).toBe(true);
-		expect(b.customToolOverrides.mcp_example).not.toHaveProperty("outputMode");
+		expect(b.customToolOverrides.mcp_example.outputMode).toBe("summary");
 	});
 	it.each(TOOL_DISPLAY_PRESETS)(
 		"roundtrips %s enable/edit/disable/native without touching another config",
@@ -162,8 +162,8 @@ describe("Tool display owner configuration", () => {
 			);
 			expect(config.components.toolDisplay.enabled).toBe(false);
 			expect(config.components.toolDisplay.registerToolOverrides.write).toBe(true);
-			expect(raw(path).components.toolDisplay.customToolOverrides.mcp_example).not.toHaveProperty(
-				"outputMode",
+			expect(raw(path).components.toolDisplay.customToolOverrides.mcp_example.outputMode).toBe(
+				"summary",
 			);
 			config = saveToolDisplayComponentPatch(
 				{
@@ -191,8 +191,8 @@ describe("Tool display owner configuration", () => {
 				path,
 			);
 			expect(config.components.toolDisplay.builtinRendererOverrides).toEqual({});
-			expect(config.components.toolDisplay.customToolOverrides.mcp_example).not.toHaveProperty(
-				"outputMode",
+			expect(config.components.toolDisplay.customToolOverrides.mcp_example.outputMode).toBe(
+				"summary",
 			);
 			expect(raw(path).components.toolDisplay.customToolOverrides.mcp_example).not.toHaveProperty(
 				"outputMode",
@@ -251,7 +251,7 @@ describe("Tool display owner configuration", () => {
 			saveEditorComponentPatch({ modelLabel: "name" }, path);
 			expect(raw(path).components.toolDisplay).toEqual(toolDisplay);
 		}));
-	it("includes Tool display in confirmed all-owner migration without freezing MCP inheritance", () =>
+	it("includes Tool display in confirmed all-owner migration with the custom summary default", () =>
 		fixture((path) => {
 			writeFileSync(
 				path,
@@ -261,8 +261,8 @@ describe("Tool display owner configuration", () => {
 			);
 			migrateComponentSelections(path);
 			expect(raw(path).components.toolDisplay.enabled).toBe(false);
-			expect(raw(path).components.toolDisplay.customToolOverrides.example).not.toHaveProperty(
-				"outputMode",
+			expect(raw(path).components.toolDisplay.customToolOverrides.example.outputMode).toBe(
+				"summary",
 			);
 		}));
 	it.each(["{ broken", "[]", "null"])("refuses corrupt JSON %s without rewriting bytes", (bytes) =>
