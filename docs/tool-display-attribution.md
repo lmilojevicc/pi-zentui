@@ -111,9 +111,14 @@ unchanged paints and width changes; meaningful config/theme/result/preimage chan
 rebuild them. Source bounds helpers are in the leaf bounds module; algorithm
 assertions exercise the production engine, with only a thin test fixture adapter.
 
-Cached result keys compare text/image block values (at most256blocks), and known
-consumed details fields, without cloning payloads. String equality work is bounded
-to the1MiB presentation prefix; changes beyond that prefix cannot change the capped
-preview. Larger block inventories are not cache-reused. Bash timers always update
-the current slot target so expansion/config/theme rebuilds preserve frame/elapsed
-state instead of updating a detached component.
+Cached result keys compare content length, content/details identities, the first256
+text/image block values, and known consumed details fields, without cloning payloads.
+String equality work is bounded to the1MiB presentation prefix; changes beyond that
+prefix cannot change the capped preview. For inventories over256blocks, every public
+result callback refreshes the inner component to pick up uninspected tail mutations,
+including when references remain unchanged. Between callbacks, unchanged paints and
+width changes retain it; bounded value, config/theme, expansion and preimage changes
+still invalidate on paint. Ordinary inventories retain value-aware detection of
+same-length in-place text mutations without requiring a callback. Bash timers always
+update the current slot target so expansion/config/theme rebuilds preserve
+frame/elapsed state instead of updating a detached component.

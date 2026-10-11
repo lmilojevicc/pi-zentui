@@ -64,8 +64,6 @@ function resultValues(result: unknown): readonly unknown[] {
 			typeof block.data === "string" ? new ResultTextValue(block.data) : block.data,
 		);
 	}
-	// Outside the bounded key inventory, do not reuse a potentially stale view.
-	if (content.length > 256) values.push(Symbol("uncached oversized block inventory"));
 	const details = record(data.details);
 	const truncation = record(details.truncation);
 	values.push(
@@ -280,6 +278,7 @@ export function createToolDisplayController(
 			slotName: "ownedCall" | "ownedResult",
 			key: () => readonly unknown[],
 			build: () => Component | undefined,
+			refreshOnCallback = false,
 		): Component | undefined => {
 			const currentKey = key();
 			const existing = row[slotName];
@@ -287,7 +286,8 @@ export function createToolDisplayController(
 				existing.keyFor = key;
 				existing.build = build;
 			}
-			if (existing && sameKey(existing.key, currentKey)) return existing.wrapper;
+			if (existing && !refreshOnCallback && sameKey(existing.key, currentKey))
+				return existing.wrapper;
 			const initial = build();
 			if (!initial) return undefined;
 			if (existing) {
@@ -430,6 +430,8 @@ export function createToolDisplayController(
 							"ownedResult",
 							() => keyFor(theme, context, result, renderOptions),
 							() => own().renderResult?.(result, renderOptions, theme, context),
+							// Tail values beyond the bounded snapshot are callback-driven, never paint-driven.
+							Array.isArray(result.content) && result.content.length > 256,
 						) ?? delegate()
 					);
 				} catch {

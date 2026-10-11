@@ -20,67 +20,92 @@ const ui = { requestRender() {} } as unknown as TUI;
 const plain = (rows: string[]) =>
 	rows.map((row) => row.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).join("\n");
 describe("tool-display independent review regressions", () => {
-	it("retains row/slot parsing and highlighting across unchanged paints and width changes", () => {
-		initTheme("dark", false);
-		const native = createEditToolDefinition("/sandbox") as unknown as ToolRenderers;
-		let config = normalizeToolDisplayConfig({ enabled: true, diffViewMode: "unified" });
-		const highlighter = vi.fn((text: string) => text);
-		const parser = vi.spyOn(bounds, "boundedPresentationSource");
-		const controller = createToolDisplayController(
-			{
-				getAllTools: () => [
-					{ name: "edit", sourceInfo: { source: "builtin", path: "builtin:edit" } },
-				],
-			},
-			() => ({ ...config }),
-			{ nativeRenderers: { edit: native }, highlighter },
-		);
-		const diff = Array.from(
-			{ length: 4000 },
-			(_, index) => ` ${index + 1}|const value${index} = ${index};`,
-		).join("\n");
-		const result = {
-			content: [{ type: "text", text: "edited" }],
-			details: { diff },
-			isError: false,
-		};
-		const row = new ToolExecutionComponent(
-			"edit",
-			"cache",
-			{ path: "cache.ts", oldText: "old", newText: "new" },
-			{ showImages: false },
-			controller.resolver("edit", () => native),
-			ui,
-			"/sandbox",
-		);
-		try {
-			row.updateResult(result);
-			const first = row.render(80);
-			const highlighted = highlighter.mock.calls.length;
-			const parsed = parser.mock.calls.filter(([source]) => source === diff).length;
-			expect(highlighted).toBe(4000);
-			expect(parsed).toBe(1);
-			expect(row.render(80)).toEqual(first);
-			expect(highlighter).toHaveBeenCalledTimes(highlighted);
-			expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(parsed);
-			row.render(110);
-			expect(highlighter).toHaveBeenCalledTimes(highlighted);
-			expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(parsed);
-			row.setExpanded(true);
-			row.render(110);
-			expect(highlighter.mock.calls.length).toBeGreaterThan(highlighted);
-			expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(parsed + 1);
-			const prior = highlighter.mock.calls.length;
-			config = normalizeToolDisplayConfig({ ...config, diffIndicatorMode: "classic" });
-			row.render(110);
-			expect(highlighter.mock.calls.length).toBeGreaterThan(prior);
-			row.updateResult({ ...result, details: { diff: "-1|old\n+1|changed" } });
-			expect(plain(row.render(110))).toContain("changed");
-		} finally {
-			parser.mockRestore();
-			controller.dispose();
-		}
-	});
+	it.each([1, 257])(
+		"retains %i-block row/slot parsing and highlighting across unchanged paints and width changes",
+		(blockCount) => {
+			initTheme("dark", false);
+			const native = createEditToolDefinition("/sandbox") as unknown as ToolRenderers;
+			let config = normalizeToolDisplayConfig({ enabled: true, diffViewMode: "unified" });
+			const highlighter = vi.fn((text: string) => text);
+			const parser = vi.spyOn(bounds, "boundedPresentationSource");
+			const controller = createToolDisplayController(
+				{
+					getAllTools: () => [
+						{ name: "edit", sourceInfo: { source: "builtin", path: "builtin:edit" } },
+					],
+				},
+				() => ({ ...config }),
+				{ nativeRenderers: { edit: native }, highlighter },
+			);
+			const diff = Array.from(
+				{ length: 4000 },
+				(_, index) => ` ${index + 1}|const value${index} = ${index};`,
+			).join("\n");
+			const result = {
+				content: Array.from({ length: blockCount }, () => ({ type: "text", text: "edited" })),
+				details: { diff },
+				isError: false,
+			};
+			const row = new ToolExecutionComponent(
+				"edit",
+				"cache",
+				{ path: "cache.ts", oldText: "old", newText: "new" },
+				{ showImages: false },
+				controller.resolver("edit", () => native),
+				ui,
+				"/sandbox",
+			);
+			try {
+				row.updateResult(result);
+				const first = row.render(80);
+				const highlighted = highlighter.mock.calls.length;
+				const parsed = parser.mock.calls.filter(([source]) => source === diff).length;
+				expect(highlighted).toBe(4000);
+				expect(parsed).toBe(1);
+				expect(row.render(80)).toEqual(first);
+				expect(highlighter).toHaveBeenCalledTimes(highlighted);
+				expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(parsed);
+				row.render(110);
+				expect(highlighter).toHaveBeenCalledTimes(highlighted);
+				expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(parsed);
+				let expectedParsed = parsed;
+				if (blockCount > 256) {
+					// A new callback carries uninspected tail state even with the same references.
+					result.content[256].text = "update";
+					row.updateResult({ ...result });
+					row.render(110);
+					expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(
+						++expectedParsed,
+					);
+					const refreshedHighlights = highlighter.mock.calls.length;
+					row.render(80);
+					row.render(110);
+					expect(highlighter).toHaveBeenCalledTimes(refreshedHighlights);
+					expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(
+						expectedParsed,
+					);
+				}
+				row.setExpanded(true);
+				row.render(110);
+				expect(highlighter.mock.calls.length).toBeGreaterThan(highlighted);
+				expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(
+					++expectedParsed,
+				);
+				const prior = highlighter.mock.calls.length;
+				config = normalizeToolDisplayConfig({ ...config, diffIndicatorMode: "classic" });
+				row.render(110);
+				expect(highlighter.mock.calls.length).toBeGreaterThan(prior);
+				expect(parser.mock.calls.filter(([source]) => source === diff)).toHaveLength(
+					++expectedParsed,
+				);
+				row.updateResult({ ...result, details: { diff: "-1|old\n+1|changed" } });
+				expect(plain(row.render(110))).toContain("changed");
+			} finally {
+				parser.mockRestore();
+				controller.dispose();
+			}
+		},
+	);
 	it("keeps started Bash frames and elapsed advancing after expansion/config/theme rebuilds", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1000000);
