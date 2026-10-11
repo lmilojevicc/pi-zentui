@@ -627,7 +627,11 @@ globalThis.setInterval = (fn, delay) => {
 	return id;
 };
 globalThis.clearInterval = (id) => intervals.delete(id);
+const previousCapabilities = tui.getCapabilities();
 try {
+	// Match the captured truecolor rows without changing ambient capability overrides.
+	tui.setCapabilities({ ...previousCapabilities, trueColor: true });
+	if (!tui.getCapabilities().trueColor) throw new Error("Oracle requires truecolor capability");
 	for (const fixture of cases) {
 		const theme = publicTheme(fixture.theme);
 		if (fixture.theme === "reference-system") {
@@ -742,6 +746,7 @@ try {
 		});
 	}
 } finally {
+	tui.setCapabilities(previousCapabilities);
 	Date.now = originalNow;
 	globalThis.setInterval = originalSetInterval;
 	globalThis.clearInterval = originalClearInterval;

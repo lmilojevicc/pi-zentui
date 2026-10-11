@@ -124,6 +124,9 @@ describe("tool-display pinned complete public-card parity", () => {
 	(modern ? it : it.skip)(
 		"matches every complete ANSI/color/background/spacing row from the executable upstream oracle",
 		async () => {
+			// Load capability APIs only inside the modern-host oracle, not older-host imports.
+			const tui = await import("@earendil-works/pi-tui");
+			const previousCapabilities = tui.getCapabilities();
 			// Resolve the SDK's declared Chalk dependency, not an ambient/global package.
 			const sdkEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 			const chalkEntry = createRequire(sdkEntry).resolve("chalk");
@@ -139,6 +142,10 @@ describe("tool-display pinned complete public-card parity", () => {
 			vi.useFakeTimers();
 			const ui = { requestRender() {} } as unknown as TUI;
 			try {
+				// Pin cached color capability without replacing ambient capability overrides.
+				tui.setCapabilities({ ...previousCapabilities, trueColor: true });
+				expect(data.provenance.liveTheme.mode).toBe("truecolor");
+				expect(tui.getCapabilities().trueColor).toBe(true);
 				for (const [index, fixture] of data.cases.entries()) {
 					vi.setSystemTime(fixture.clock);
 					host.initTheme(fixture.theme, false);
@@ -248,12 +255,14 @@ describe("tool-display pinned complete public-card parity", () => {
 					expect(vi.getTimerCount()).toBe(0);
 				}
 			} finally {
+				tui.setCapabilities(previousCapabilities);
 				vi.useRealTimers();
 				chalk.level = oldLevel;
 				if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
 				else process.env.PI_CODING_AGENT_DIR = oldAgent;
 				host.initTheme("dark", false);
 				rmSync(agent, { recursive: true, force: true });
+				expect(tui.getCapabilities()).toBe(previousCapabilities);
 			}
 		},
 		60000,

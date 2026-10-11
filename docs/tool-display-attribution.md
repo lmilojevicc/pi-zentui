@@ -49,7 +49,11 @@ Tests assert UTF-8 roundtrip, retained glyphs and no isolated surrogates.
 The live reference's raw 56-token ANSI palette, truecolor mode and bold/italic/
 inverse/toolOutput/toolSuccess samples are asserted before oracle generation.
 Headless oracle/replay processes enable the SDK's real Chalk styles so disabled
-non-TTY attributes cannot falsely substitute for the live reference.
+non-TTY attributes cannot falsely substitute for the live reference. They also
+scope a cached truecolor capability (`getCapabilities`/`setCapabilities`) to oracle
+rendering, restoring the prior capabilities in `finally` without replacing ambient
+capability overrides. Terminal detection can otherwise emit 256color on CI. Replay
+loads these APIs only inside the modern-host test; older hosts retain their skips.
 
 ## Ownership and safety boundaries
 
