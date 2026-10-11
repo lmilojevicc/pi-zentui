@@ -72,7 +72,7 @@ interface ToolRenderContextLike {
 	expanded?: boolean;
 }
 
-import type { CodeHighlighter } from "./diff.js";
+import type { CodeHighlighter } from "./bounds.js";
 import {
 	boundedContentMetadata,
 	MAX_PRESENTATION_SOURCE_BYTES,

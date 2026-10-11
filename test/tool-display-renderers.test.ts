@@ -299,7 +299,8 @@ describe("tool-display/renderers", () => {
 			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "summary" }),
 		);
 		const output = plain(render(renderer, "x\n".repeat(600_000)));
-		expect(output).toContain("loaded 20001 lines");
+		expect(output).toContain("loaded 20000 lines");
+		expect(output).toContain("input capped");
 	});
 	it("keeps terminal instructions out of owned call/result/diff presentation without changing data", () => {
 		const cfg = () => normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview" });

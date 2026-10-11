@@ -1,7 +1,11 @@
 import { sanitizeTerminalControls } from "./render-utils.js";
 
 export const MAX_PRESENTATION_SOURCE_BYTES = 1024 * 1024;
-export const MAX_PREVIEW_LINE_CHARS = 16_384;
+
+import { MAX_PREVIEW_LINE_CHARS } from "./bounds.js";
+
+export { MAX_PREVIEW_LINE_CHARS } from "./bounds.js";
+
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** Inspect only the bounded prefix and one complete lookahead scalar. */

@@ -117,9 +117,10 @@ export function sanitizeTerminalControls(text: string): string {
 		.replace(/\x1b(?!\[[0-9;]*m)/g, "")
 		.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f-\x9f]/g, "");
 }
-export function extractTextOutput(result: ToolResultLike): string {
+export function extractTextOutputInfo(result: ToolResultLike): { text: string; capped: boolean } {
 	const rawBlocks = Array.isArray(result.content) ? result.content : [];
 	let remaining = 1024 * 1024;
+	let capped = false;
 	const output: string[] = [];
 	for (const raw of rawBlocks) {
 		if (
@@ -132,7 +133,7 @@ export function extractTextOutput(result: ToolResultLike): string {
 		)
 			continue;
 		if (remaining <= 0) {
-			output.push("… (input preview capped)");
+			capped = true;
 			break;
 		}
 		const buffer = Buffer.alloc(Math.min(remaining, raw.text.length * 3));
@@ -140,14 +141,17 @@ export function extractTextOutput(result: ToolResultLike): string {
 		const text = sanitizeTerminalControls(buffer.subarray(0, bytes).toString("utf8"));
 		output.push(text);
 		remaining -= bytes + 1;
-		if (bytes < Buffer.byteLength(raw.text)) output.push("… (input preview capped)");
+		if (raw.text.length > bytes || bytes < Buffer.byteLength(raw.text)) capped = true;
 	}
-	return output.join("\n");
+	return { text: output.join("\n"), capped };
+}
+export function extractTextOutput(result: ToolResultLike): string {
+	return extractTextOutputInfo(result).text;
 }
 
-export function splitLines(text: string): string[] {
+export function splitLinesInfo(text: string): { lines: string[]; capped: boolean } {
 	if (!text) {
-		return [];
+		return { lines: [], capped: false };
 	}
 	const lines: string[] = [];
 	let start = 0;
@@ -157,9 +161,13 @@ export function splitLines(text: string): string[] {
 		lines.push(input.slice(start, end < 0 ? input.length : end).replace(/\t/g, "    "));
 		start = end < 0 ? input.length : end + 1;
 	}
-	if (start < input.length) lines.push("… (line preview capped)");
-	else if (input.endsWith("\n")) lines.push("");
-	return lines;
+	const capped = start < input.length;
+	if (!capped && input.endsWith("\n")) lines.push("");
+	return { lines, capped };
+}
+
+export function splitLines(text: string): string[] {
+	return splitLinesInfo(text).lines;
 }
 
 export function compactOutputLines(lines: string[], options: CompactOutputOptions): string[] {

@@ -14,6 +14,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 
+import { validateReferenceSources } from "./tool-display-reference-provenance.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const reference = process.env.ZENTUI_TOOL_DISPLAY_REFERENCE;
 const jitiEntry = process.env.ZENTUI_TOOL_DISPLAY_JITI_ENTRY;
@@ -21,6 +23,14 @@ if (!reference || !jitiEntry)
 	throw new Error(
 		"Set ZENTUI_TOOL_DISPLAY_REFERENCE to the unchanged pinned checkout and ZENTUI_TOOL_DISPLAY_JITI_ENTRY to temporary jiti's public entry.",
 	);
+const pinnedManifest = JSON.parse(
+	readFileSync(join(root, "test/fixtures/tool-display-reference-hashes.json"), "utf8"),
+);
+validateReferenceSources(reference, pinnedManifest);
+if (process.argv.includes("--validate-reference-only")) {
+	console.log(`Pinned reference validated: ${pinnedManifest.commit}`);
+	process.exit(0);
+}
 const agent = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "zentui-parity-agent-"));
 process.env.PI_CODING_AGENT_DIR = agent;
 // The live TTY enables Chalk styles; headless oracle processes must do the same.
@@ -280,6 +290,50 @@ templates.push({
 		details: {},
 	},
 });
+templates.push({
+	name: "mcp__demo__prod__echo",
+	kind: "mcp",
+	args: { message: "double underscore" },
+	result: { content: [{ type: "text", text: "response" }], details: {} },
+});
+templates.push({
+	name: "mcp__demo_prod__echo",
+	kind: "mcp",
+	args: { message: "single underscore" },
+	result: { content: [{ type: "text", text: "response" }], details: {} },
+});
+const registeredMcpMetadata = {
+	mcp__demo__echo: {
+		rawServer: "demo",
+		rawTool: "echo",
+		label: "demo/echo",
+		namespace: { name: "mcp__demo" },
+	},
+	mcp__zentui_demo__echo: {
+		rawServer: "zentui_demo",
+		rawTool: "echo",
+		label: "zentui_demo/echo",
+		namespace: { name: "mcp__zentui_demo" },
+	},
+	mcp__demo__prod__echo: {
+		rawServer: "demo__prod",
+		rawTool: "echo",
+		label: "demo__prod/echo",
+		namespace: { name: "mcp__demo__prod" },
+	},
+	mcp__demo_prod__echo: {
+		rawServer: "demo_prod",
+		rawTool: "echo",
+		label: "demo_prod/echo",
+		namespace: { name: "mcp__demo_prod" },
+	},
+};
+for (const template of templates)
+	if (/^mcp__/.test(template.name)) {
+		template.mcpMetadata = registeredMcpMetadata[template.name];
+		if (!template.mcpMetadata)
+			throw new Error("Missing independently registered MCP label metadata");
+	}
 const cases = [];
 for (const theme of themes)
 	for (const width of [80, 110, 160])
@@ -457,7 +511,8 @@ function originalRenderers(fixture, cfg, modules) {
 	if (fixture.kind)
 		pi.registerTool({
 			name: fixture.name,
-			label: fixture.name.replace(/^mcp__(.+?)__(.+)$/, "$1/$2"),
+			label: fixture.mcpMetadata?.label ?? fixture.name,
+			namespace: fixture.mcpMetadata?.namespace,
 			description: "fixture",
 			parameters: {},
 			execute() {
@@ -606,6 +661,7 @@ try {
 					return [
 						{
 							name: fixture.name,
+							namespace: fixture.mcpMetadata?.namespace,
 							sourceInfo: { source: "builtin", path: `builtin:${fixture.name}` },
 						},
 					];
@@ -651,16 +707,6 @@ try {
 	corrected.disposable.disposeAll();
 	rmSync(correctedRoot, { recursive: true, force: true });
 }
-const provenanceFiles = [
-	"tool-overrides.ts",
-	"diff-renderer.ts",
-	"ansi-utils.ts",
-	"diff-presentation.ts",
-	"line-width-safety.ts",
-	"render-utils.ts",
-	"write-display-utils.ts",
-	"bash-display.ts",
-];
 const provenance = {
 	rendererDomains: {
 		directMcp:
@@ -675,18 +721,11 @@ const provenance = {
 		upstreamMalformedRows,
 		unchangedVectors: cases.length - correctedVectors,
 	},
-	commit: "91cef7580078371f8dc49a8607222807ad6a424d",
-	version: "0.5.0",
+	commit: pinnedManifest.commit,
+	version: pinnedManifest.version,
 	sdk: JSON.parse(readFileSync(join(dirname(sdkEntry), "../package.json"), "utf8")).version,
 	tui: JSON.parse(readFileSync(tuiPackage, "utf8")).version,
-	files: Object.fromEntries(
-		provenanceFiles.map((file) => [
-			file,
-			createHash("sha256")
-				.update(readFileSync(join(reference, "src", file)))
-				.digest("hex"),
-		]),
-	),
+	files: pinnedManifest.files,
 	liveTheme: livePalettePath
 		? ((palette) => ({
 				name: palette.name,

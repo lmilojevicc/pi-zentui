@@ -20,7 +20,11 @@ class NativeToolDisplayFallback extends Error {
 
 export interface ToolDisplayRendererAPI {
 	registerToolRenderer?: (resolver: ToolRendererResolver) => void;
-	getAllTools?: () => readonly { name: string; sourceInfo?: { source?: string; path?: string } }[];
+	getAllTools?: () => readonly {
+		name: string;
+		namespace?: { name: string };
+		sourceInfo?: { source?: string; path?: string };
+	}[];
 }
 export interface ToolDisplayStatus {
 	available: boolean;
@@ -101,7 +105,16 @@ export function createToolDisplayController(
 	const resolver: ToolRendererResolver = (name, next) => {
 		const previous = next();
 		if (!canOwn(name, previous)) return previous;
+		interface Slot {
+			keyFor: () => readonly unknown[];
+			build: () => Component | undefined;
+			key: readonly unknown[];
+			inner: Component;
+			wrapper: Component;
+		}
 		interface Row {
+			ownedCall?: Slot;
+			ownedResult?: Slot;
 			released: boolean;
 			delegated: boolean;
 			predecessor?: ToolRenderers;
@@ -122,35 +135,144 @@ export function createToolDisplayController(
 			}
 			return row;
 		};
+		const namespaceName = (): string | undefined => {
+			try {
+				return api.getAllTools?.().find((tool) => tool.name === name)?.namespace?.name;
+			} catch {
+				return undefined;
+			}
+		};
 		const own = () =>
 			createToolDisplayRenderers(
 				name,
 				getConfig,
-				{ ...options, progress },
+				{ ...options, progress, mcpNamespaceName: namespaceName() },
 				isBuiltinToolName(name) ? undefined : getConfig().customToolOverrides[name],
 			);
-		const component = (build: () => Component, row: Row, initial: Component): Component => {
-			let current: Component = initial;
-			const wrapped: Component = {
-				invalidate() {
-					current?.invalidate();
-				},
-				render(width) {
-					try {
-						current = build();
-						return current.render(width);
-					} catch {
-						// Host fallback is a callback boundary, not a paint boundary. The next
-						// host update relinquishes this row; do not throw or invoke native here.
-						row.released = true;
-						return width > 0
-							? [truncateToWidth("Tool preview unavailable; awaiting native update.", width, "")]
-							: [];
-					}
+		const sameKey = (a: readonly unknown[], b: readonly unknown[]) =>
+			a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+		const keyFor = (
+			theme: unknown,
+			context: Parameters<NonNullable<ToolRenderers["renderCall"]>>[2],
+			result?: unknown,
+			options?: { expanded: boolean; isPartial: boolean },
+		): readonly unknown[] => {
+			const config = getConfig();
+			const custom = config.customToolOverrides[name];
+			const args = record(context.args);
+			const data = record(result);
+			const snapshot = JSON.stringify([
+				config.enabled,
+				config.style,
+				config.readOutputMode,
+				config.searchOutputMode,
+				config.mcpOutputMode,
+				config.bashOutputMode,
+				config.previewLines,
+				config.expandedPreviewMaxLines,
+				config.bashCollapsedLines,
+				config.diffViewMode,
+				config.diffIndicatorMode,
+				config.diffSplitMinWidth,
+				config.diffCollapsedLines,
+				config.diffWordWrap,
+				config.showTruncationHints,
+				custom?.enabled,
+				custom?.kind,
+				custom?.outputMode,
+				custom?.overrideExistingRenderers,
+			]);
+			const colors = record(theme).colors;
+			const pending = name === "write" || name === "edit" ? optionsPending(context) : undefined;
+			return [
+				snapshot,
+				theme,
+				colors,
+				context.args,
+				args.path,
+				args.file_path,
+				args.content,
+				args.oldText,
+				args.newText,
+				args.edits,
+				args.lines,
+				args.command,
+				args.pattern,
+				args.glob,
+				args.limit,
+				args.offset,
+				args.tool,
+				args.server,
+				args.search,
+				args.describe,
+				args.connect,
+				Object.keys(args).length,
+				data.content,
+				data.details,
+				record(data.details).diff,
+				options?.expanded,
+				options?.isPartial,
+				context.executionStarted,
+				context.argsComplete,
+				context.isPartial,
+				context.expanded,
+				context.isError,
+				context.showImages,
+				pending,
+				namespaceName(),
+			];
+		};
+		const optionsPending = (context: Parameters<NonNullable<ToolRenderers["renderCall"]>>[2]) =>
+			options.pending?.get(context.toolCallId, name as "write" | "edit", context.args, context.cwd);
+		const component = (
+			row: Row,
+			slotName: "ownedCall" | "ownedResult",
+			key: () => readonly unknown[],
+			build: () => Component | undefined,
+		): Component | undefined => {
+			const currentKey = key();
+			const existing = row[slotName];
+			if (existing) {
+				existing.keyFor = key;
+				existing.build = build;
+			}
+			if (existing && sameKey(existing.key, currentKey)) return existing.wrapper;
+			const initial = build();
+			if (!initial) return undefined;
+			if (existing) {
+				existing.key = currentKey;
+				existing.inner = initial;
+				return existing.wrapper;
+			}
+			const slot: Slot = {
+				keyFor: key,
+				build,
+				key: currentKey,
+				inner: initial,
+				wrapper: {
+					invalidate() {
+						slot.inner.invalidate();
+					},
+					render(width) {
+						try {
+							const nextKey = slot.keyFor();
+							if (!sameKey(slot.key, nextKey)) {
+								slot.inner = slot.build() ?? slot.inner;
+								slot.key = nextKey;
+							}
+							return slot.inner.render(width);
+						} catch {
+							row.released = true;
+							return width > 0
+								? [truncateToWidth("Tool preview unavailable; awaiting native update.", width, "")]
+								: [];
+						}
+					},
 				},
 			};
-			ownedComponents.add(wrapped);
-			return wrapped;
+			ownedComponents.add(slot.wrapper);
+			row[slotName] = slot;
+			return slot.wrapper;
 		};
 		return {
 			// Newly owned rows use upstream native cards; existing shells need host rebuild to release.
@@ -209,23 +331,13 @@ export function createToolDisplayController(
 					}
 				}
 				try {
-					// Invoke owned constructors at callback time too; a failure can safely
-					// relinquish a missing slot to the host's callback-time native fallback.
-					const initial = own().renderCall?.(args, theme, context);
-					if (!initial) return delegate();
-					let first = true;
-					return component(
-						() => {
-							if (first) {
-								first = false;
-								return name === "write" || name === "edit"
-									? (own().renderCall?.(args, theme, context) ?? initial)
-									: initial;
-							}
-							return own().renderCall?.(args, theme, context) ?? initial;
-						},
-						row,
-						initial,
+					return (
+						component(
+							row,
+							"ownedCall",
+							() => keyFor(theme, context),
+							() => own().renderCall?.(args, theme, context),
+						) ?? delegate()
 					);
 				} catch {
 					return delegate();
@@ -261,19 +373,13 @@ export function createToolDisplayController(
 				if (!row || row.released || !canOwn(name, current) || !hasSupportedContent(result))
 					return delegate();
 				try {
-					const initial = own().renderResult?.(result, renderOptions, theme, context);
-					if (!initial) return delegate();
-					let first = true;
-					return component(
-						() => {
-							if (first) {
-								first = false;
-								return initial;
-							}
-							return own().renderResult?.(result, renderOptions, theme, context) ?? initial;
-						},
-						row,
-						initial,
+					return (
+						component(
+							row,
+							"ownedResult",
+							() => keyFor(theme, context, result, renderOptions),
+							() => own().renderResult?.(result, renderOptions, theme, context),
+						) ?? delegate()
 					);
 				} catch {
 					return delegate();

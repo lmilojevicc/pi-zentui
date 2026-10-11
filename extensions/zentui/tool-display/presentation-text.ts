@@ -1,5 +1,5 @@
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { boundedContentLines, boundedWrap, safeWidth } from "./diff.js";
+import { boundedContentLines, boundedWrap, safeWidth } from "./bounds.js";
 /** Native Text in the normal domain; bounds are checked before native wrapping allocates rows. */
 export class PresentationText extends Text {
 	private source: string;

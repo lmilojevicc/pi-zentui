@@ -144,7 +144,8 @@ Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matchin
 
 Canonical `mcp__<server>__<tool>` entries use upstream's automatic/direct MCP
 presentation (`<server>/<tool>`). The public ToolInfo API has no registered label,
-so this documented Pi naming normalization is used without private inspection.
+so public namespace metadata supplies the server boundary when available; otherwise
+the documented Pi naming normalization is used without private inspection.
 The shown label comes from the already-sanitized tool name: neither ToolInfo nor
 ToolRenderContext provides the raw label, and ExtensionAPI has no public
 `getToolDefinition` getter. Replaced characters or hashed/truncated long names therefore

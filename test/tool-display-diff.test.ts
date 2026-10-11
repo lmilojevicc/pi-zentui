@@ -1,14 +1,8 @@
 import { initTheme, type Theme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { Text, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import {
-	boundedWrap,
-	diffComponent,
-	diffContents,
-	focusDiffContext,
-	parseDiff,
-	resolveDiffPresentation,
-} from "../extensions/zentui/tool-display/diff.js";
+import { boundedWrap } from "../extensions/zentui/tool-display/bounds.js";
+import { resolveDiffPresentationMode } from "../extensions/zentui/tool-display/diff-presentation.js";
 import {
 	renderEditDiffResult,
 	renderWriteDiffResult,
@@ -20,6 +14,7 @@ import {
 	MAX_PRESENTATION_SOURCE_BYTES,
 	MAX_PREVIEW_LINE_CHARS,
 } from "../extensions/zentui/tool-display/source-bounds.js";
+import { editFixture, writeFixture } from "./tool-display-fixture.js";
 
 const plain = (lines: string[]) =>
 	lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).join("\n");
@@ -56,54 +51,62 @@ describe("tool-display/diff", () => {
 	});
 	it("F7 compact diff reports words omitted by its visual row limit", () => {
 		const config = () => normalizeToolDisplayConfig({ diffCollapsedLines: 4 });
-		const diff = parseDiff("+1|aaa aaa aaa aaa aaa");
-		const collapsed = diffComponent(diff, config, theme, false).render(8);
+		const diff = "+1|aaa aaa aaa aaa aaa";
+		const collapsed = editFixture(diff, config, theme, false).render(8);
 		expect(collapsed).toHaveLength(7);
 		expect(plain(collapsed)).toContain("…");
 		expect(plain(collapsed).match(/aaa/g)).toHaveLength(4);
 		for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(8);
-		const expanded = diffComponent(diff, config, theme, true).render(8);
+		const expanded = editFixture(diff, config, theme, true).render(8);
 		expect(plain(expanded).match(/aaa/g)).toHaveLength(5);
 		expect(plain(expanded)).not.toContain("…");
 	});
-	it("parses Pi canonical, legacy, unified hunks and hashline gutters", () => {
-		expect(
-			parseDiff("-12#AB:old\n+12#CD:new\n 13|same\n- 14 legacy\n+ 14 replacement"),
-		).toMatchObject([
-			{ kind: "remove", text: "old", old: "12#AB" },
-			{ kind: "add", text: "new", next: "12#CD" },
-			{ kind: "context", text: "same", old: "13", next: "13" },
-			{ kind: "remove", text: "legacy", old: "14" },
-			{ kind: "add", text: "replacement", next: "14" },
-		]);
-		expect(parseDiff("--- a/file\n+++ b/file\n@@ -4,1 +8,1 @@\n-old\n+new")).toMatchObject([
-			{ kind: "meta" },
-			{ kind: "meta" },
-			{ kind: "meta" },
-			{ old: "4" },
-			{ next: "8" },
-		]);
+	it("production parser preserves canonical/legacy/hash gutters and independent hunk cursors", () => {
+		const rendered = plain(
+			renderEditDiffResult(
+				{ diff: "-12#AB:old\n+12#CD:new\n 13|same\n- 14 legacy\n+ 14 replacement" },
+				{ expanded: true },
+				normalizeToolDisplayConfig({ diffViewMode: "split" }),
+				theme,
+				"",
+			).render(160),
+		);
+		expect(rendered).toContain("12#AB");
+		expect(rendered).toContain("12#CD");
+		expect(rendered).toContain("legacy");
+		expect(rendered).toContain("replacement");
+		const hunk = plain(
+			renderEditDiffResult(
+				{ diff: "@@ -4,1 +8,1 @@\n-old\n+new" },
+				{ expanded: true },
+				normalizeToolDisplayConfig({ diffViewMode: "split" }),
+				theme,
+				"",
+			).render(160),
+		);
+		expect(hunk).toMatch(/4.*old.*8.*new/);
 	});
-	it("builds exact create/delete/replacement/context transformations and no phantom terminal blank line", () => {
-		expect(diffContents("", "a\n")).toEqual([
-			{ kind: "add", text: "a", next: "1", old: undefined },
-		]);
-		expect(diffContents("a\n", "")).toMatchObject([{ kind: "remove", old: "1" }]);
-		expect(diffContents("a\nb\nc", "a\nx\nc")).toMatchObject([
-			{ kind: "context", old: "1", next: "1" },
-			{ kind: "remove", text: "b", old: "2" },
-			{ kind: "add", text: "x", next: "2" },
-			{ kind: "context", text: "c", old: "3", next: "3" },
-		]);
+	it("production write rendering preserves create/delete/replacement/context without phantom data rows", () => {
+		const cfg = () => normalizeToolDisplayConfig({ diffViewMode: "unified" });
+		const created = plain(writeFixture("", "a\n", cfg, theme, true).render(80));
+		expect(created).toContain("created");
+		expect(created).toMatch(/1.*a/);
+		const deleted = plain(writeFixture("a\n", "", cfg, theme, true).render(80));
+		expect(deleted).toContain("overwritten");
+		expect(deleted).toMatch(/1.*a/);
+		const changed = plain(writeFixture("a\nb\nc", "a\nx\nc", cfg, theme, true).render(80));
+		expect(changed).toContain("b");
+		expect(changed).toContain("x");
+		expect(changed).toContain("c");
 	});
 	it.each(["auto", "split", "unified"] as const)(
 		"%s adapts through summary/compact/unified/split modes",
 		(diffViewMode) => {
 			const config = normalizeToolDisplayConfig({ diffViewMode });
-			expect(resolveDiffPresentation(config, 7)).toBe("summary");
-			expect(resolveDiffPresentation(config, 8)).toBe("compact");
-			expect(resolveDiffPresentation(config, 30)).toBe("unified");
-			expect(resolveDiffPresentation(config, 140)).toBe(
+			expect(resolveDiffPresentationMode(config, 7, false)).toBe("summary");
+			expect(resolveDiffPresentationMode(config, 8, false)).toBe("compact");
+			expect(resolveDiffPresentationMode(config, 30, false)).toBe("unified");
+			expect(resolveDiffPresentationMode(config, 140, true)).toBe(
 				diffViewMode === "unified" ? "unified" : "split",
 			);
 		},
@@ -119,10 +122,8 @@ describe("tool-display/diff", () => {
 						diffIndicatorMode,
 						diffCollapsedLines: 2,
 					});
-					const component = diffComponent(
-						parseDiff(
-							`-12#AB:${"界🧪 old ".repeat(25)}\n+12#CD:${"界🧪 new ".repeat(25)}\n 13#EF:same`,
-						),
+					const component = editFixture(
+						`-12#AB:${"界🧪 old ".repeat(25)}\n+12#CD:${"界🧪 new ".repeat(25)}\n 13#EF:same`,
 						() => config,
 						theme,
 						false,
@@ -136,10 +137,8 @@ describe("tool-display/diff", () => {
 		},
 	);
 	it("shows anchors, inline word emphasis, counts and progressive collapse hints", () => {
-		const component = diffComponent(
-			parseDiff(
-				"-12#AB:const old = 1;\n+12#CD:const next = 1;\n 13#EF:same\n 14|same\n 15|same\n 16|same",
-			),
+		const component = editFixture(
+			"-12#AB:const old = 1;\n+12#CD:const next = 1;\n 13#EF:same\n 14|same\n 15|same\n 16|same",
 			() => normalizeToolDisplayConfig({ diffViewMode: "split", diffCollapsedLines: 4 }),
 			theme,
 			true,
@@ -158,7 +157,7 @@ describe("tool-display/diff", () => {
 			fg: (_token: string, text: string) => `\x1b[${tint}m${text}\x1b[39m`,
 			bold: (s: string) => s,
 		} as Theme;
-		const component = diffComponent(diffContents("a", "a\nb"), () => config, liveTheme, true, {
+		const component = writeFixture("a", "a\nb", () => config, liveTheme, true, {
 			highlighter: () => {
 				throw new Error("unsupported syntax");
 			},
@@ -174,28 +173,49 @@ describe("tool-display/diff", () => {
 		expect(component.render(120).join("\n")).toContain("\x1b[32m");
 		expect(plain(component.render(120))).toContain("a");
 	});
-	it("bounds the large middle diff algorithm without incorrect transformations", () => {
+	it("production overwrite comparison guard avoids materializing oversized matrices", () => {
 		const before = Array.from({ length: 600 }, (_, i) => `old ${i}`).join("\n");
 		const after = Array.from({ length: 600 }, (_, i) => `new ${i}`).join("\n");
-		const diff = diffContents(before, after);
-		expect(diff.filter((line) => line.kind === "remove")).toHaveLength(600);
-		expect(diff.filter((line) => line.kind === "add")).toHaveLength(600);
+		expect(
+			plain(
+				writeFixture(before, after, () => normalizeToolDisplayConfig({}), theme, true).render(80),
+			),
+		).toContain("overwrite diff omitted");
 	});
-	it("generated pending/write previews retain distant changes and mark omitted context", () => {
+	it("production expanded overwrite shows distant changes", () => {
 		const before = Array.from({ length: 100 }, (_, i) => `line ${i}`).join("\n");
 		const after = before.replace("line 80", "changed");
-		const focused = focusDiffContext(diffContents(before, after));
-		expect(focused.length).toBeLessThan(12);
-		expect(focused.some((line) => line.text === "changed")).toBe(true);
 		expect(
-			focused.some((line) => line.kind === "meta" && line.text.includes("unchanged lines omitted")),
-		).toBe(true);
+			plain(
+				writeFixture(before, after, () => normalizeToolDisplayConfig({}), theme, true).render(80),
+			),
+		).toContain("changed");
 	});
 	it("reports oversized diff omissions and preserves emoji in word highlighting", () => {
-		expect(diffContents("x\n".repeat(4001), "new")[0].text).toContain("omitted");
-		expect(parseDiff("+x\n".repeat(8001)).at(-1)?.text).toContain("capped");
-		const component = diffComponent(
-			parseDiff("-1|🧪 old\n+1|🧫 new"),
+		expect(
+			plain(
+				writeFixture(
+					"x\n".repeat(4001),
+					"new",
+					() => normalizeToolDisplayConfig({}),
+					theme,
+					true,
+				).render(80),
+			),
+		).toContain("omitted");
+		expect(
+			plain(
+				renderEditDiffResult(
+					{ diff: "+x\n".repeat(8001) },
+					{ expanded: true },
+					normalizeToolDisplayConfig({}),
+					theme,
+					"",
+				).render(80),
+			),
+		).toContain("capped");
+		const component = editFixture(
+			"-1|🧪 old\n+1|🧫 new",
 			() => normalizeToolDisplayConfig({ diffViewMode: "unified" }),
 			theme,
 			true,
@@ -208,8 +228,8 @@ describe("tool-display/diff", () => {
 		["👩‍💻", "👩‍🔬"],
 		["e\u0301", "e\u0300"],
 	])("preserves UTF-8 and whole graphemes in changed %s -> %s emphasis", (before, after) => {
-		const component = diffComponent(
-			parseDiff(`-1|const value = '${before}';\n+1|const value = '${after}';`),
+		const component = editFixture(
+			`-1|const value = '${before}';\n+1|const value = '${after}';`,
 			() => normalizeToolDisplayConfig({ diffViewMode: "split" }),
 			theme,
 			true,

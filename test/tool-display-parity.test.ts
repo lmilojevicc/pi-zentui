@@ -33,6 +33,7 @@ interface Fixture {
 		content: { type: string; text?: string; data?: string; mimeType?: string }[];
 		details: unknown;
 	};
+	mcpMetadata?: { rawServer: string; rawTool: string; label: string; namespace: { name: string } };
 	rows: string[];
 	unicodeCorrected?: boolean;
 	unchangedRows?: string[];
@@ -78,7 +79,14 @@ describe("tool-display pinned complete public-card parity", () => {
 	it("records unchanged upstream provenance and real reference palette", () => {
 		expect(data.provenance.commit).toBe("91cef7580078371f8dc49a8607222807ad6a424d");
 		expect(data.provenance.version).toBe("0.5.0");
-		expect(Object.keys(data.provenance.files)).toHaveLength(8);
+		const manifest = JSON.parse(
+			readFileSync(
+				new URL("./fixtures/tool-display-reference-hashes.json", import.meta.url),
+				"utf8",
+			),
+		);
+		expect(data.provenance.files).toEqual(manifest.files);
+		expect(data.provenance.commit).toBe(manifest.commit);
 		expect(data.provenance.livePaletteSha256).toMatch(/^[a-f0-9]{64}$/);
 		expect(data.provenance.unicodePatchSha256).toMatch(/^[a-f0-9]{64}$/);
 		expect(data.cases.filter((item) => item.unicodeCorrected).length).toBe(
@@ -134,6 +142,7 @@ describe("tool-display pinned complete public-card parity", () => {
 							getAllTools: () => [
 								{
 									name: fixture.name,
+									namespace: fixture.mcpMetadata?.namespace,
 									sourceInfo: { source: "builtin", path: `builtin:${fixture.name}` },
 								},
 							],

@@ -35,7 +35,7 @@ import {
 	readSgrColorSequence,
 	toSgrParams,
 } from "./ansi-utils.js";
-import { boundedWrap, type CodeHighlighter } from "./diff.js";
+import { boundedWrap, type CodeHighlighter } from "./bounds.js";
 import {
 	buildDiffSummaryText,
 	type DiffPresentationMode,
@@ -300,6 +300,22 @@ function resolveLanguageFromPath(rawPath: string | undefined): string | undefine
 	} catch {
 		return undefined;
 	}
+}
+
+function injectedHighlighter(highlight: CodeHighlighter, path?: string): CodeLineHighlighter {
+	const cache = new Map<string, string>();
+	return (line) => {
+		const existing = cache.get(line);
+		if (existing !== undefined) return existing;
+		let value: string;
+		try {
+			value = sanitizeAnsiForThemedOutput(highlight(line, path));
+		} catch {
+			value = sanitizeAnsiForThemedOutput(line);
+		}
+		cache.set(line, value);
+		return value;
+	};
 }
 
 function createCodeLineHighlighter(language: string | undefined): CodeLineHighlighter {
@@ -2423,13 +2439,7 @@ export function renderEditDiffResult(
 	const containerBgAnsi = resolveContainerBackgroundAnsi(theme);
 	const language = resolveLanguageFromPath(options.filePath);
 	const highlightLine = options.highlighter
-		? (line: string) => {
-				try {
-					return sanitizeAnsiForThemedOutput(options.highlighter?.(line, options.filePath) ?? line);
-				} catch {
-					return sanitizeAnsiForThemedOutput(line);
-				}
-			}
+		? injectedHighlighter(options.highlighter, options.filePath)
 		: createCodeLineHighlighter(language);
 	const wordWrap = config.diffWordWrap;
 	const indicatorMode = resolveDiffIndicatorMode(config);
@@ -2812,13 +2822,7 @@ export function renderWriteDiffResult(
 	const containerBgAnsi = resolveContainerBackgroundAnsi(theme);
 	const language = resolveLanguageFromPath(filePath);
 	const highlightLine = options.highlighter
-		? (line: string) => {
-				try {
-					return sanitizeAnsiForThemedOutput(options.highlighter?.(line, options.filePath) ?? line);
-				} catch {
-					return sanitizeAnsiForThemedOutput(line);
-				}
-			}
+		? injectedHighlighter(options.highlighter, options.filePath)
 		: createCodeLineHighlighter(language);
 	const wordWrap = config.diffWordWrap;
 	const indicatorMode = resolveDiffIndicatorMode(config);

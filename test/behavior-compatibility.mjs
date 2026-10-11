@@ -50,6 +50,7 @@ try {
 		mkdirSync(join(cwd, "test"));
 		cpSync(join(root, "test/fixtures"), join(cwd, "test/fixtures"), { recursive: true });
 		for (const test of tests) cpSync(join(root, "test", test), join(cwd, "test", test));
+		cpSync(join(root, "test/tool-display-fixture.ts"), join(cwd, "test/tool-display-fixture.ts"));
 		writeFileSync(join(cwd, "package.json"), JSON.stringify({ type: "module", private: true }));
 		execFileSync(
 			process.execPath,

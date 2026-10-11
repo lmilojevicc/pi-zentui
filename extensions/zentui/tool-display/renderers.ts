@@ -24,13 +24,18 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type BashProgress, createBashProgress } from "./bash-display.js";
-import { type CodeHighlighter, safeWidth } from "./diff.js";
+import { type CodeHighlighter, safeWidth } from "./bounds.js";
 import { renderWriteDiffResult } from "./diff-renderer.js";
 import type { ToolRenderers } from "./host-contract.js";
 import { type PendingPreimages, projectPending } from "./pending.js";
 import { PresentationText as Text } from "./presentation-text.js";
 import { record } from "./presets.js";
-import { sanitizeTerminalControls, shortenPath } from "./render-utils.js";
+import {
+	extractTextOutputInfo,
+	sanitizeTerminalControls,
+	shortenPath,
+	splitLinesInfo,
+} from "./render-utils.js";
 import {
 	graphemePrefix,
 	MAX_PREVIEW_LINE_CHARS,
@@ -66,6 +71,7 @@ export interface RendererResources {
 	pending?: PendingPreimages;
 	highlighter?: CodeHighlighter;
 	progress?: BashProgress;
+	mcpNamespaceName?: string;
 }
 function boundedComponent(component: Component, safetyRows: number): Component {
 	if (component instanceof Text) component.setSafetyRows(safetyRows);
@@ -190,10 +196,18 @@ export function createToolDisplayRenderers(
 					// Public Pi names encode direct MCP server/tool labels. ToolInfo
 					// exposes no label; never inspect private predecessor definitions.
 					const directMcp = /^mcp__(.+?)__(.+)$/.exec(name);
+					const namespace = resources.mcpNamespaceName;
+					const prefix = namespace?.startsWith("mcp__") ? `${namespace}__` : undefined;
+					const target =
+						prefix && name.startsWith(prefix)
+							? `${namespace?.slice(5)}/${name.slice(prefix.length)}`
+							: directMcp
+								? `${directMcp[1]}/${directMcp[2]}`
+								: undefined;
 					return custom.kind === "mcp"
 						? presentation.formatMcpCallLine(
 								directMcp ? name : "mcp",
-								directMcp ? `${directMcp[1]}/${directMcp[2]}` : "MCP Proxy",
+								target ?? "MCP Proxy",
 								input,
 								theme,
 							)
@@ -372,10 +386,33 @@ export function createToolDisplayRenderers(
 					cfg.mcpOutputMode,
 					theme,
 				);
-			return boundedComponent(
+			const extraction = extractTextOutputInfo(safe);
+			const inputCapped = extraction.capped || splitLinesInfo(extraction.text).capped;
+			const guarded = boundedComponent(
 				component,
 				options.expanded ? cfg.expandedPreviewMaxLines || 20000 : cfg.previewLines + 1,
 			);
+			if (!inputCapped) return guarded;
+			return {
+				invalidate() {
+					guarded.invalidate();
+				},
+				render(width) {
+					const safeWidthValue = safeWidth(width);
+					if (!safeWidthValue) return [];
+					return [
+						...guarded.render(safeWidthValue),
+						theme.fg(
+							"warning",
+							truncateToWidth(
+								"… (display input capped; counts cover bounded preview)",
+								safeWidthValue,
+								"",
+							),
+						),
+					];
+				},
+			};
 		},
 	};
 }

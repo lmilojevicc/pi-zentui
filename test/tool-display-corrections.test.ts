@@ -6,13 +6,13 @@ import type { Component } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { createToolDisplayController } from "../extensions/zentui/tool-display/controller.js";
-import { diffComponent, diffContents, parseDiff } from "../extensions/zentui/tool-display/diff.js";
 import type { ToolRenderers } from "../extensions/zentui/tool-display/host-contract.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
 import {
 	createToolDisplayRenderers,
 	type ToolDisplayRenderContext,
 } from "../extensions/zentui/tool-display/renderers.js";
+import { editFixture, writeFixture } from "./tool-display-fixture.js";
 
 const theme = {
 	fg: (_slot: string, text: string) => `\x1b[32m${text}\x1b[39m`,
@@ -132,33 +132,22 @@ describe("tool-display correction regressions", () => {
 			vi.useRealTimers();
 		}
 	});
-	it("F4 maintains delta across labeled Pi inserts/deletes, skipped context and hash anchors", () => {
-		expect(parseDiff(" 1|one\n+2|inserted\n 2#AB:two\n-3|three\n-4|four\n 10|ten")).toMatchObject([
-			{ old: "1", next: "1" },
-			{ next: "2" },
-			{ old: "2#AB", next: "3#AB" },
-			{ old: "3" },
-			{ old: "4" },
-			{ old: "10", next: "9" },
-		]);
-		expect(
-			parseDiff(
-				"@@ -20,2 +30,3 @@\n 20|same\n+31|new\n 21|next\n--- a/other\n+++ b/other\n 1|fresh",
-			),
-		).toMatchObject([
-			{ kind: "meta" },
-			{ old: "20", next: "30" },
-			{ next: "31" },
-			{ old: "21", next: "32" },
-			{ kind: "meta" },
-			{ kind: "meta" },
-			{ old: "1", next: "1" },
-		]);
+	it("F4 production rendering keeps independent old/new labels after inserts and deletes", () => {
+		const output = plain(
+			editFixture(
+				" 1|one\n+2|inserted\n 2|two\n-3|three\n-4|four\n 10|ten",
+				() => normalizeToolDisplayConfig({ diffViewMode: "split" }),
+				theme,
+				true,
+			).render(160),
+		);
+		expect(output).toMatch(/2.*two.*3.*two/);
+		expect(output).toMatch(/10.*ten.*9.*ten/);
 	});
 	it("F5 syntax highlights create/add/remove/context while preserving word emphasis and Unicode widths", () => {
 		const highlighter = vi.fn((text: string) => `\x1b[35m${text}\x1b[39m`);
 		const config = () => normalizeToolDisplayConfig({ diffViewMode: "unified" });
-		const created = diffComponent(diffContents("", "const 界 = '🧪';"), config, theme, true, {
+		const created = writeFixture("", "const 界 = '🧪';", config, theme, true, {
 			highlighter,
 			path: "new.ts",
 		});
@@ -169,8 +158,8 @@ describe("tool-display correction regressions", () => {
 				.join("\n"),
 		).toContain("\x1b[35m");
 		expect(highlighter).toHaveBeenCalledWith("const 界 = '🧪';", "new.ts");
-		const modified = diffComponent(
-			parseDiff("-1|const old = '🧪';\n+1|const next = '🧫';\n 2|same"),
+		const modified = editFixture(
+			"-1|const old = '🧪';\n+1|const next = '🧫';\n 2|same",
 			config,
 			theme,
 			true,
@@ -190,8 +179,8 @@ describe("tool-display correction regressions", () => {
 		const highlighter = vi.fn((text: string) => text);
 		for (const length of [256 * 1024, 1024 * 1024 - 20]) {
 			const line = "x".repeat(length);
-			const component = diffComponent(
-				parseDiff(`+1|${line}`),
+			const component = editFixture(
+				`+1|${line}`,
 				() => normalizeToolDisplayConfig({ diffViewMode: "unified", diffCollapsedLines: 4 }),
 				theme,
 				false,

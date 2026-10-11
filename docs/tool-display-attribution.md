@@ -28,7 +28,8 @@ explicitly overrides it; its explicit-custom presentation remains unchanged.
 
 The public boundary (`core/extensions/types.d.ts`: ToolInfo1542 omits label,
 ToolRenderContext347–372 has no definition/label, and ExtensionAPI has no public
-getToolDefinition) requires deriving direct labels from the sanitized Pi name.
+getToolDefinition) requires deriving direct labels from the sanitized Pi name,
+using the public namespace server boundary when available.
 MCP naming (`extensions/mcp/tools.js:38–49`) replaces characters and can hash/truncate
 long names while the raw label (`:183–197`) is retained upstream, so those labels
 may differ; this limitation must not be bypassed with private access.
@@ -101,3 +102,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Oracle generation verifies every pinned upstream source hash against the checked-in
+manifest before importing reference code. Registered raw MCP server/tool labels
+and public namespaces are independent fixture metadata, not derived by the
+candidate split rule. Row/slot components retain parsed/highlighted work across
+unchanged paints and width changes; meaningful config/theme/result/preimage changes
+rebuild them. Source bounds helpers are in the leaf bounds module; algorithm
+assertions exercise the production engine, with only a thin test fixture adapter.

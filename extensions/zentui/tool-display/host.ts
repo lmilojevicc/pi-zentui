@@ -1,5 +1,5 @@
 import * as host from "@earendil-works/pi-coding-agent";
-import type { CodeHighlighter } from "./diff.js";
+import type { CodeHighlighter } from "./bounds.js";
 import type { ToolRenderers } from "./host-contract.js";
 import { BUILTIN_TOOL_NAMES, type BuiltinToolName } from "./types.js";
 
