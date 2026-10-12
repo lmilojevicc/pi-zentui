@@ -24,7 +24,7 @@ both real extension registration paths with their own config semantics, rather
 than using canonical names under an explicit proxy override as evidence for the
 automatic domain. Noncanonical gateways retain explicit-proxy coverage. The live
 `sandbox_echo` export is not a matched renderer comparison when only the candidate
-explicitly overrides it; its explicit-custom presentation remains unchanged.
+explicitly overrides it; its explicit-custom result presentation remains unchanged; owned call arguments now use the inline form.
 
 The public boundary (`core/extensions/types.d.ts`: ToolInfo1542 omits label,
 ToolRenderContext347–372 has no definition/label, and ExtensionAPI has no public
@@ -55,33 +55,59 @@ rendering, restoring the prior capabilities in `finally` without replacing ambie
 capability overrides. Terminal detection can otherwise emit 256color on CI. Replay
 loads these APIs only inside the modern-host test; older hosts retain their skips.
 
-## User-approved expanded MCP arguments (option D)
+## User-approved native-style presentation
 
-Expansion through the public Pi tool action (Ctrl+O) adds exactly one muted
-`args: message="hello" repeat=3` line below the unchanged MCP call line and before
-results. This applies only to owned `kind: "mcp"` direct canonical entries and
-proxy/noncanonical gateways. Proxy routing keys are already represented by the
-target and are omitted; nested payloads render as `args: args={"message":"hello"}`.
-Empty payloads add no line. Own-key order, quoted strings, raw primitives and
-compact object/array JSON are preserved; controls are escaped and the single
-line is width-bounded with trailing `…`. Inspection is bounded before JSON
-serialization. No values are masked or redacted, matching native Pi; masking is
-an explicit non-goal. Generic tools and every other surface are unchanged.
-Collapsed MCP parity is unchanged.
+The earlier option D count-only collapsed MCP look is superseded. Owned generic
+calls show `sandbox_echo message="hello from real custom tool"`. Direct canonical
+MCP calls show the accent target plus inline args:
+`zentui_demo/echo message="hello from real local MCP server"` (no `MCP ` or count).
+Expanded MCP uses the smaller honest form: target-only call plus exactly one
+muted `args: message="hello from real local MCP server"` row. Generic expansion
+retains inline args. Empty generic/direct calls retain `(no args)` collapsed;
+empty expanded MCP adds no args line. Proxy/gateway targets remain unchanged;
+`call demo:echo args={"message":"hello"}` collapses to inline payload and expands
+to `call demo:echo` plus `args: args={"message":"hello"}`. Routing keys are omitted
+because they already appear in the target; routing-only calls use `(no args)`
+collapsed. Values use the existing bounded, own-data-only args formatter with
+escaped controls, quoted strings/raw primitives/compact JSON and width ellipsis.
+No values are masked or redacted.
 
-Upstream pi-tool-display 0.5.0 never prints argument values in its MCP call slot.
-The approved usability change is therefore a declared divergence, not a skipped
-comparison. The generator independently transforms the upstream call renderer
-for expanded MCP vectors with nonempty payloads, then lets the same public host
-apply full ANSI/card framing. No candidate rows or candidate formatter are used
-as expected output, and unchanged upstream source hashes remain verified.
-The fixture retains original complete rows as `upstreamMcpRows` and records
-`mcpArgsExpansion` with **1080 vectors / 1080 inserted rows / 16902 unchanged
-vectors** across **17982 cases**. The `rows` counter counts inserted argument
-rows, not shifted result-row indices. Each affected vector is asserted to be
-exactly one insertion with every preexisting full-ANSI row preserved; all other
-vectors retain the original full-ANSI comparison. Unicode correction remains
-separately counted (1998 vectors / 3123 rows / 2268 upstream malformed rows).
+Successful writes without real preimages show `↳ written` and the call arguments'
+content as an addition-only grid. This is not a reconstructed diff and performs
+no filesystem reads. Upstream defaults to `↳ created` even for historical
+overwrites; `written` is deliberately neutral. Live real-preimage create/overwrite
+diffs and bounded/unavailable-content notices remain intact. Grep/find/ls insert
+one blank row before visible results; hidden/empty result slots remain empty.
+
+These are explicit divergences from unchanged pi-tool-display 0.5.0. The generator
+independently transforms bounded fixture call payloads and search spacing, and
+uses the corrected upstream write grid with an explicit `written` header for
+no-preimage vectors. It never imports the candidate formatter or copies candidate
+rows as expectations. Original upstream expectations are retained as
+`upstreamMcpRows`, `upstreamGenericRows`, `upstreamWriteRows`, `upstreamSearchRows`.
+Expanded MCP fixtures additionally retain target-only `inlineMcpRows` to audit the
+single args insertion. Original upstream source hashes remain verified.
+
+Across **21222 cases**, provenance records:
+
+| Divergence | Vectors | Rows | Unchanged vectors |
+| --- | ---: | ---: | ---: |
+| `genericInlineArgs` | 702 | 702 | 20520 |
+| `mcpInlineArgs` | 2214 | 5823 | 19008 |
+| `mcpArgsExpansion` | 1080 | 1080 | 20142 |
+| `writeContentWithoutPreimage` | 2808 | 2808 | 18414 |
+| `searchResultSeparator` | 702 | 702 | 20520 |
+| `unicodeCorrection` | 1998 | 3123 | 19224 |
+
+Search/expanded-args row counts mean inserted rows, not shifted indices. Other
+row counts mean changed/added indices (MCP therefore includes shifted result
+indices); these domains overlap rather than summing to case count. Unicode still
+records 2268 original malformed rows. The 3240 added no-preimage write vectors
+mirror successful existing write grids across widths/layouts/indicators/wrapping;
+432 extremely narrow headers truncate identically to upstream and stay undeclared.
+Tests audit preserved full-ANSI result rows, the single search/args insertions and
+write-header-only differences. Every unaffected vector retains the full-ANSI
+comparison, including unrelated collapsed calls and real-preimage writes.
 
 ## Ownership and safety boundaries
 
@@ -97,7 +123,7 @@ results, image blocks, error status, history and model content. Hidden read/sear
 modes hide error text even when expanded; Summary/Preview reveals it. Unsupported
 shapes still fail open.
 
-Pending/write diffs require live, complete, workspace-only preimages from public
+Pending and true old/new write diffs require live, complete, workspace-only preimages from public
 events. No render/history filesystem reads or invented create/overwrite preimages.
 Symlink/external/binary/special/unreadable paths remain rejected; reads/projections
 are bounded to256KiB, cached at most16entries/1MiB/60seconds and cleared on boundaries.
@@ -109,9 +135,9 @@ guards. Caps/notices are not claimed to match unsafe unbounded upstream output.
 DEVELOPMENT oracle, aliases it to the same actual public SDK/theme objects, never
 executes tools, and writes portable compressed complete ANSI card fixtures. Tests
 replay those fixtures without upstream installed paths or runtime dependencies.
-No screenshot-derived expected rows are used. The two declared divergences use
-the minimal Unicode reference patch and the independent generator-side expanded
-MCP arguments transform described above; every other domain is unchanged.
+No screenshot-derived expected rows are used. Declared divergences use the minimal
+Unicode reference patch and the independent generator-side native-style transforms
+described above; every other domain is unchanged.
 
 ## Upstream MIT notice
 

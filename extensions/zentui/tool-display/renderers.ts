@@ -98,7 +98,7 @@ function displayCallInput(
 	custom?: CustomToolDisplayConfig,
 ): { input: Record<string, unknown>; capped: boolean } {
 	const raw = record(args);
-	const input = { ...raw };
+	const input = custom ? (Object.create(null) as Record<string, unknown>) : { ...raw };
 	let capped = false;
 	const fields =
 		custom?.kind === "mcp"
@@ -117,7 +117,12 @@ function displayCallInput(
 									? ["path"]
 									: [];
 	for (const field of fields) {
-		const value = raw[field];
+		const descriptor = Object.getOwnPropertyDescriptor(raw, field);
+		const value = custom
+			? descriptor && "value" in descriptor
+				? descriptor.value
+				: undefined
+			: raw[field];
 		if (typeof value !== "string") continue;
 		const prefix = graphemePrefix(value, MAX_PREVIEW_LINE_CHARS);
 		capped ||= prefix.length < value.length;
@@ -205,13 +210,15 @@ export function createToolDisplayRenderers(
 								? `${directMcp[1]}/${directMcp[2]}`
 								: undefined;
 					if (custom.kind !== "mcp")
-						return presentation.formatGenericToolCallLine(name, args, theme);
+						return presentation.formatGenericToolCallLine(name, args, theme, true);
 					const toolName = directMcp ? name : "mcp";
 					const call = presentation.formatMcpCallLine(
 						toolName,
 						target ?? "MCP Proxy",
 						input,
 						theme,
+						ctx.expanded,
+						record(args),
 					);
 					return ctx.expanded
 						? presentation.buildExpandedMcpCall(call, toolName, record(args), theme)
@@ -323,8 +330,8 @@ export function createToolDisplayRenderers(
 				component = presentation.renderReadDisplayResult(safe, options, cfg, theme);
 			else if (name === "bash")
 				component = presentation.renderBashDisplayResult(safe, options, theme, ctx, config);
-			else if (["grep", "find", "ls"].includes(name))
-				component = presentation.renderSearchResult(
+			else if (["grep", "find", "ls"].includes(name)) {
+				const search = presentation.renderSearchResult(
 					safe,
 					options,
 					cfg,
@@ -333,7 +340,16 @@ export function createToolDisplayRenderers(
 					result.details as never,
 					name === "grep" ? "matches" : name === "ls" ? "entries" : undefined,
 				);
-			else if (name === "edit")
+				component = {
+					invalidate() {
+						search.invalidate();
+					},
+					render(width) {
+						const rows = search.render(width);
+						return rows.length ? ["", ...rows] : rows;
+					},
+				};
+			} else if (name === "edit")
 				component = presentation.renderEditDisplayResult(
 					safe,
 					options,
@@ -365,16 +381,18 @@ export function createToolDisplayRenderers(
 					);
 				else {
 					const preimage = resources.pending?.get(ctx.toolCallId, "write", ctx.args, ctx.cwd);
-					if (preimage?.content === undefined || preimage.notice || typeof content !== "string")
-						component = text(theme.fg("muted", "↳ write completed • preimage unavailable"));
+					if (typeof content !== "string")
+						component = text(theme.fg("muted", "↳ write completed • content unavailable"));
 					else
 						component = renderWriteDiffResult(
 							content,
 							{
 								expanded: options.expanded,
 								filePath: presentation.getToolPathArg(ctx.args),
-								previousContent: preimage.content,
-								fileExistedBeforeWrite: preimage.exists === true,
+								previousContent: preimage?.notice ? undefined : preimage?.content,
+								fileExistedBeforeWrite: !preimage?.notice && preimage?.exists === true,
+								headerLabel:
+									preimage?.content === undefined || preimage.notice ? "written" : undefined,
 								highlighter: resources.highlighter,
 							},
 							cfg,

@@ -5,11 +5,16 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 import * as host from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { createToolDisplayController } from "../extensions/zentui/tool-display/controller.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
-import { formatMcpArgsLine } from "../extensions/zentui/tool-display/tool-presentation.js";
+import {
+	buildExpandedMcpCall,
+	formatGenericToolCallLine,
+	formatMcpArgsLine,
+	formatMcpCallLine,
+} from "../extensions/zentui/tool-display/tool-presentation.js";
 
 interface DesignCase {
 	id: string;
@@ -142,9 +147,57 @@ describe("formatMcpArgsLine", () => {
 	});
 });
 
+describe("native-style inline call arguments", () => {
+	const theme = { fg: (_token: string, value: string) => value, bold: (value: string) => value };
+	const call = (kind: string, args: Record<string, unknown>, expanded = false) => {
+		if (kind === "generic") return formatGenericToolCallLine("sandbox_echo", args, theme, true);
+		const name = kind === "direct" ? "mcp__demo__echo" : "mcp";
+		const base = formatMcpCallLine(name, "demo/echo", args, theme, expanded);
+		return expanded ? buildExpandedMcpCall(base, name, args, theme) : base;
+	};
+	it.each(["generic", "direct", "proxy"])(
+		"%s shares escaping, bounds and own-data-only inspection",
+		(kind) => {
+			let reads = 0;
+			const args = { message: "hi\x1b[31m\n", repeat: 3, secret: "not-masked" };
+			Object.defineProperty(args, "getter", {
+				enumerable: true,
+				get() {
+					reads++;
+					throw new Error("must not run");
+				},
+			});
+			const rows = call(kind, args).render(200);
+			expect(rows.join("\n")).toContain('message="hi\\u001b[31m\\n" repeat=3 secret="not-masked"…');
+			expect(reads).toBe(0);
+			for (const width of [1, 7, 17, 72, 100, 132]) {
+				const bounded = call(kind, { message: "界🙂".repeat(10000) }).render(width);
+				expect(bounded).toHaveLength(1);
+				expect(visibleWidth(bounded[0])).toBeLessThanOrEqual(width);
+				expect(Buffer.from(bounded[0]).toString()).toBe(bounded[0]);
+				expect(bounded[0]).toContain("…");
+			}
+			expect(call(kind, {}).render(80)[0]).toContain("(no args)");
+		},
+	);
+	it.each(["direct", "proxy"])("%s expands with a target-only call and one args line", (kind) => {
+		const args =
+			kind === "proxy"
+				? { server: "demo", tool: "echo", args: { message: "hello" } }
+				: { message: "hello" };
+		const collapsed = call(kind, args).render(100).join("\n");
+		const expanded = call(kind, args, true).render(100);
+		expect(collapsed).toContain('"hello"');
+		expect(collapsed).not.toContain("MCP ");
+		expect(expanded).toHaveLength(2);
+		expect(expanded[0].trimEnd()).toBe(kind === "proxy" ? "call demo:echo" : "demo/echo");
+		expect(expanded.join("\n").match(/hello/g)).toHaveLength(1);
+	});
+});
+
 describe("production controller MCP expansion through public Pi ToolExecutionComponent", () => {
 	(modern ? it : it.skip)(
-		"matches approved option D ANSI rows and rebuilds the call slot across expansion for every edge input",
+		"matches native-style inline/expanded ANSI rows and rebuilds the call slot across expansion for every edge input",
 		async () => {
 			const tui = await import("@earendil-works/pi-tui");
 			const capabilities = tui.getCapabilities();
@@ -207,8 +260,7 @@ describe("production controller MCP expansion through public Pi ToolExecutionCom
 							plain(collapsed).some((line) => line.startsWith(" args: ")),
 							fixture.id,
 						).toBe(false);
-						if (width === 72 && fixture.id.startsWith("baseline-"))
-							expect(collapsed).toEqual(fixture.rows);
+
 						row.setExpanded(true);
 						const expanded = row.render(width);
 						const expected = formatMcpArgsLine(
@@ -221,8 +273,19 @@ describe("production controller MCP expansion through public Pi ToolExecutionCom
 							expected ? [` ${expected}`] : [],
 						);
 						if (expected) expect(lines[3]).toBe(` ${expected}`);
-						if (width === 72 && fixture.id.startsWith("option-D"))
-							expect(expanded).toEqual(fixture.rows);
+						const oracle = palette.cases.find(
+							(value: DesignCase & { width: number; theme: string; expanded: boolean }) =>
+								value.name === fixture.name &&
+								JSON.stringify(value.args) === JSON.stringify(fixture.args) &&
+								value.width === width &&
+								value.theme === "reference-system" &&
+								value.expanded &&
+								(value as unknown as { config: { mcpOutputMode: string } }).config.mcpOutputMode ===
+									"summary",
+						);
+						expect(oracle, fixture.id).toBeDefined();
+						expect(expanded).toEqual(oracle.rows);
+						if (expected) expect(lines[2]).not.toContain(expected.slice(6));
 						for (const line of expanded) expect(tui.visibleWidth(line)).toBeLessThanOrEqual(width);
 						row.setExpanded(false);
 						expect(row.render(width), `${fixture.id} collapsed after expansion`).toEqual(collapsed);

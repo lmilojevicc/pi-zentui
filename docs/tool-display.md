@@ -48,27 +48,48 @@ shows a line count, and `preview` shows preview lines. Errors and partial states
 follow upstream presentation. Hidden read/search/MCP modes hide result text, including errors, even when expanded; select Summary or Preview to reveal it. The host retains the actual error status/card color and full result/image data. Unknown result shapes delegate unchanged.
 Expansion uses the host's tool expansion action.
 
-For exact-name opted-in `kind: "mcp"` entries only, expansion (Ctrl+O) adds one
-muted arguments line under the unchanged call line, before result rows:
+Owned generic custom calls show inline arguments, for example:
 
 ```text
-MCP demo/echo (2 args)
-args: message="hello" repeat=3
+sandbox_echo message="hello from real custom tool"
 ```
 
-The `mcp` proxy and noncanonical MCP gateways omit target-encoded routing keys
-(`tool`, `server`, `connect`, `describe`, `search`), retaining nested payloads as
-`args: args={"message":"hello"}`. Search/describe extras remain visible, for
-example `args: limit=8` or `args: verbose=true`. Empty payloads add no line.
-Strings are quoted, numbers/booleans/null are raw, and objects/arrays are compact
-JSON in own-key order. The line is width-bounded with a trailing `…`; terminal
-controls are escaped. Inspection is bounded to 16384 source characters, 256
-entries and 16 nesting levels before serialization. Values are **not masked or
-redacted**, matching native Pi; masking is an explicit non-goal, not a security
-promise. Hidden mode still hides results, not this expanded call information.
-Collapsed MCP cards remain byte-identical to upstream. Generic custom tools,
-builtins, disabled/native/delegated rows and all other surfaces are unchanged.
-Expanded MCP arguments are a declared, counted upstream parity divergence.
+Owned direct canonical MCP calls use the accent label/namespace-derived target,
+without an `MCP ` prefix or argument count. Collapsed and expanded forms are:
+
+```text
+zentui_demo/echo message="hello from real local MCP server"
+
+zentui_demo/echo
+args: message="hello from real local MCP server"
+```
+
+Expansion (Ctrl+O) keeps the existing muted `args: ...` line and uses a target-only
+call line: the payload is never printed twice. Generic expansion keeps the inline
+call. Empty generic/direct arguments retain `(no args)` when collapsed; expanded
+MCP has only its target when there is no payload.
+
+The `mcp` proxy and noncanonical MCP gateways keep their existing target selection
+(`call demo:echo`, `search "x" @demo`, `describe`, `connect`, `status`). Collapsed
+calls likewise append inline payloads, e.g. `call demo:echo args={"message":"hello"}`;
+expanded calls show `call demo:echo` followed by `args: args={"message":"hello"}`.
+Target-encoded routing keys (`tool`, `server`, `connect`, `describe`, `search`) are
+omitted from the payload. Search/describe extras remain visible as `limit=8` or
+`verbose=true`; routing-only calls use `(no args)` collapsed and no extra expanded line.
+
+The shared args formatter quotes strings, leaves numbers/booleans/null raw and
+uses compact object/array JSON in own-key order. Calls and args lines are
+width-bounded with trailing `…`; terminal controls are escaped. Inspection is
+bounded to 16384 source characters, 256 entries and 16 nesting levels before
+serialization; accessors are never invoked. Values are **not masked or redacted**,
+matching native Pi; masking is an explicit non-goal, not a security promise.
+Hidden mode still hides results, not call information.
+
+Grep/find/ls insert one blank separator between the call and visible result rows,
+matching native search spacing; hidden/empty result slots add no blank row.
+Inline generic/MCP calls, expanded MCP args, write wording and search spacing
+are declared, counted upstream parity divergences. Disabled/native/delegated rows
+and unrelated surfaces remain unchanged.
 
 ## Diff and preview controls
 
@@ -95,8 +116,12 @@ are derived from the current host theme exactly as upstream; owner-local raw col
 Live write/edit preimages are bounded, workspace-scoped best-effort previews.
 Symlinks, external, binary, special, unreadable, or oversized files are rejected.
 Historical rendering never reads files to reconstruct an old preimage. When
-preimages are unavailable, the renderer reports that rather than inventing an
-overwrite/create diff. Preview caches are bounded and cleared across session,
+write preimages are unavailable, `↳ written` precedes an addition-only content
+grid (line numbers and configured addition indicators), sourced solely from call
+arguments. This is not an old/new diff and never reads files. The neutral
+`written` replaces upstream's `created`, which could misleadingly imply a new
+file during an overwrite. Real preimages keep the true `created`/`overwritten`
+diff. Missing content and oversized inputs retain honest unavailable/omission notices. Preview caches are bounded and cleared across session,
 tree, reload, shutdown, and release boundaries. These previews are not a security
 sandbox against concurrent filesystem mutation.
 
@@ -168,7 +193,7 @@ Canonical `mcp__<server>__<tool>` entries use upstream's automatic/direct MCP
 presentation (`<server>/<tool>`), even with an explicit custom override. This is
 an intentional divergence from upstream's explicit-custom path, which uses proxy
 target selection (for example, `MCP status (1 arg)` for `{message}` arguments).
-Zentui retains the approved canonical label (`MCP zentui_demo/echo (1 arg)`) so
+Zentui retains the canonical target (`zentui_demo/echo`) with inline payloads, so
 opting in does not change the tool's identity. The public ToolInfo API has no
 registered label,
 so public namespace metadata supplies the server boundary when available; otherwise
@@ -237,8 +262,9 @@ explicit guards described above. Attribution and MIT notices are included.
 The user-approved Unicode fix expands changed-word emphasis boundaries to whole
 graphemes, preventing the upstream surrogate/combining/ZWJ corruption. Those
 vectors intentionally differ from unpatched upstream and match a separately
-recorded minimal corrected reference. Expanded MCP arguments are the separate
-approved divergence described above; all remaining oracle-tested normal rows,
-including collapsed MCP rows, are identical within the matched domains above.
+recorded minimal corrected reference. The native-style generic/MCP calls, expanded MCP arguments, no-preimage write
+wording and search separators are separately declared above. All remaining
+oracle-tested normal rows are identical within the matched domains; collapsed
+MCP calls intentionally supersede the earlier count-only presentation.
 Development oracle generation and safety-domain details are recorded in the
 [attribution/source map](./tool-display-attribution.md).

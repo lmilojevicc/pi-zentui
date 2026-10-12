@@ -40,6 +40,11 @@ interface Fixture {
 	unchangedRows?: string[];
 	mcpArgsExpanded?: boolean;
 	upstreamMcpRows?: string[];
+	inlineMcpRows?: string[];
+	upstreamGenericRows?: string[];
+	upstreamWriteRows?: string[];
+	upstreamSearchRows?: string[];
+	presentationDivergence?: string;
 }
 const data = JSON.parse(
 	gunzipSync(
@@ -53,6 +58,25 @@ const data = JSON.parse(
 		files: Record<string, string>;
 		livePaletteSha256: string;
 		unicodePatchSha256: string;
+		genericInlineArgs: {
+			vectors: number;
+			rows: number;
+			unchangedVectors: number;
+			rationale: string;
+		};
+		mcpInlineArgs: { vectors: number; rows: number; unchangedVectors: number; rationale: string };
+		writeContentWithoutPreimage: {
+			vectors: number;
+			rows: number;
+			unchangedVectors: number;
+			rationale: string;
+		};
+		searchResultSeparator: {
+			vectors: number;
+			rows: number;
+			unchangedVectors: number;
+			rationale: string;
+		};
 		mcpArgsExpansion: {
 			vectors: number;
 			rows: number;
@@ -104,24 +128,24 @@ describe("tool-display pinned complete public-card parity", () => {
 		expect(data.cases.some((value) => value.theme === "reference-system")).toBe(true);
 	});
 	it("retains all oracle domains and omitted custom output-mode vectors", () => {
-		expect(data.cases).toHaveLength(17982);
+		expect(data.cases).toHaveLength(21222);
 		expect(data.provenance.unicodeCorrection).toEqual({
 			vectors: 1998,
 			rows: 3123,
 			upstreamMalformedRows: 2268,
-			unchangedVectors: 15984,
+			unchangedVectors: 19224,
 		});
 		expect(data.provenance.mcpArgsExpansion).toMatchObject({
 			vectors: 1080,
 			rows: 1080,
-			unchangedVectors: 16902,
+			unchangedVectors: 20142,
 		});
 		const argsExpanded = data.cases.filter((item) => item.mcpArgsExpanded);
 		expect(argsExpanded).toHaveLength(data.provenance.mcpArgsExpansion.vectors);
 		for (const fixture of argsExpanded) {
 			expect(fixture.kind).toBe("mcp");
 			expect(fixture.expanded).toBe(true);
-			const upstream = fixture.upstreamMcpRows as string[];
+			const upstream = fixture.inlineMcpRows as string[];
 			const insertion = fixture.rows.findIndex((row, index) => row !== upstream[index]);
 			expect(fixture.rows[insertion]).toContain("args: ");
 			expect(fixture.rows).toHaveLength(upstream.length + 1);
@@ -132,6 +156,48 @@ describe("tool-display pinned complete public-card parity", () => {
 				.filter((item) => item.kind === "mcp" && !item.expanded)
 				.every((item) => !item.mcpArgsExpanded),
 		).toBe(true);
+		for (const [domain, vectors, rows] of [
+			["genericInlineArgs", 702, 702],
+			["mcpInlineArgs", 2214, 5823],
+			["writeContentWithoutPreimage", 2808, 2808],
+			["searchResultSeparator", 702, 702],
+		] as const) {
+			expect(data.provenance[domain]).toMatchObject({
+				vectors,
+				rows,
+				unchangedVectors: data.cases.length - vectors,
+			});
+			expect(data.provenance[domain].rationale).not.toBe("");
+			const affected = data.cases.filter((value) => value.presentationDivergence === domain);
+			expect(affected).toHaveLength(vectors);
+			for (const fixture of affected) {
+				const upstream =
+					fixture.upstreamMcpRows ??
+					fixture.upstreamGenericRows ??
+					fixture.upstreamWriteRows ??
+					fixture.upstreamSearchRows;
+				expect(upstream).toBeDefined();
+				expect(fixture.rows).not.toEqual(upstream);
+				if (domain === "genericInlineArgs" || domain === "mcpInlineArgs") {
+					expect(fixture.rows.slice(0, 2)).toEqual((upstream as string[]).slice(0, 2));
+					expect(fixture.rows.slice(fixture.mcpArgsExpanded ? 4 : 3)).toEqual(
+						(upstream as string[]).slice(3),
+					);
+				}
+				if (domain === "writeContentWithoutPreimage") {
+					const before = upstream as string[];
+					const header = fixture.rows.findIndex((row, index) => row !== before[index]);
+					expect(fixture.rows.filter((_, index) => index !== header)).toEqual(
+						before.filter((_, index) => index !== header),
+					);
+				}
+				if (domain === "searchResultSeparator") {
+					const before = upstream as string[];
+					const insertion = fixture.rows.findIndex((row, index) => row !== before[index]);
+					expect(fixture.rows.filter((_, index) => index !== insertion)).toEqual(before);
+				}
+			}
+		}
 		const omitted = data.cases.filter((item) => item.omitCustomOutputMode);
 		expect(omitted).toHaveLength(108);
 		expect(new Set(omitted.map((item) => item.name))).toEqual(

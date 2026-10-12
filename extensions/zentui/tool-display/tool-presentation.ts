@@ -31,7 +31,13 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { formatSize } from "@earendil-works/pi-coding-agent";
-import { type Component, Container, Spacer, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Container,
+	Spacer,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import { ANSI_SGR_PATTERN } from "./ansi-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
 import { PresentationText as Text } from "./presentation-text.js";
@@ -765,21 +771,42 @@ export function formatMcpCallLine(
 	toolLabel: string,
 	args: Record<string, unknown>,
 	theme: RenderTheme,
-): Text {
-	const argCount = Object.keys(args).length;
-	const argSuffix = formatArgCountSuffix(argCount, theme);
+	expanded = false,
+	payloadArgs = args,
+): Component {
 	const target =
 		toolName === "mcp"
 			? resolveMcpProxyCallTarget(args)
 			: toolLabel.startsWith("MCP ")
 				? toolLabel.slice("MCP ".length)
 				: toolLabel;
+	const title = theme.fg("accent", target);
+	return expanded
+		? new Text(title, 0, 0)
+		: formatInlineArgsCall(title, toolName, payloadArgs, theme);
+}
 
-	return new Text(
-		`${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("accent", target)}${argSuffix}`,
-		0,
-		0,
-	);
+/** Reuse the expanded args formatter, reserving columns for the call identity. */
+function formatInlineArgsCall(
+	title: string,
+	toolName: string,
+	args: Record<string, unknown>,
+	theme: RenderTheme,
+): Component {
+	return {
+		invalidate() {},
+		render(rawWidth) {
+			const width = safeWidth(rawWidth);
+			if (!width) return [];
+			// The formatter's six-column "args: " prefix is replaced by the call title.
+			const available = width - visibleWidth(title) - 1;
+			const payload = formatMcpArgsLine(toolName, args, Math.max(7, available + 6));
+			const suffix = payload
+				? theme.fg("muted", ` ${payload.slice(6)}`)
+				: formatArgCountSuffix(0, theme);
+			return new Text(truncateToWidth(`${title}${suffix}`, width, "…"), 0, 0).render(width);
+		},
+	};
 }
 
 /** Bound inspection before JSON serialization; never invoke payload toJSON methods or accessors. */
@@ -950,8 +977,16 @@ export function formatGenericToolCallLine(
 	toolName: string,
 	args: unknown,
 	theme: RenderTheme,
-): Text {
+	inlineArgs = false,
+): Component {
 	const argRecord = toRecord(args);
+	if (inlineArgs)
+		return formatInlineArgsCall(
+			theme.fg("toolTitle", theme.bold(toolName)),
+			"generic",
+			argRecord,
+			theme,
+		);
 	const argCount = Object.keys(argRecord).length;
 	const argSuffix = formatArgCountSuffix(argCount, theme);
 	return new Text(`${theme.fg("toolTitle", theme.bold(toolName))}${argSuffix}`, 0, 0);

@@ -160,8 +160,10 @@ describe("tool-display/renderers", () => {
 		const renderer = createToolDisplayRenderers(name, () =>
 			normalizeToolDisplayConfig({ enabled: true, searchOutputMode: "count" }),
 		);
-		expect(plain(render(renderer, "one\n\ntwo\n"))).toBe(`↳ 2 ${unit} returned • Ctrl+O to expand`);
-		expect(plain(render(renderer, "one\ntwo", true))).toBe("one\ntwo");
+		expect(plain(render(renderer, "one\n\ntwo\n"))).toBe(
+			`\n↳ 2 ${unit} returned • Ctrl+O to expand`,
+		);
+		expect(plain(render(renderer, "one\ntwo", true))).toBe("\none\ntwo");
 	});
 	it.each(["opencode", "summary", "preview"] as const)(
 		"bash %s shows the correct collapsed lines, and streaming content",
@@ -215,7 +217,9 @@ describe("tool-display/renderers", () => {
 			for (const entry of [config.customToolOverrides[name], { enabled: true, kind }]) {
 				const renderer = createToolDisplayRenderers(name, () => config, {}, entry);
 				expect(plain(renderer.renderCall?.(args, theme, context(args)).render(112) ?? [])).toBe(
-					kind === "mcp" ? "MCP zentui_demo/echo (1 arg)" : "sandbox_echo (1 arg)",
+					kind === "mcp"
+						? 'zentui_demo/echo message="hello from real local MCP server"'
+						: 'sandbox_echo message="hello from real local MCP server"',
 				);
 				for (const expanded of [false, true]) {
 					const rows =
@@ -234,6 +238,29 @@ describe("tool-display/renderers", () => {
 			}
 		},
 	);
+	it.each(["generic", "mcp"] as const)(
+		"custom %s call inspects only own data properties",
+		(kind) => {
+			let reads = 0;
+			const args = { message: "hello" };
+			for (const key of ["boom", "server", "tool"])
+				Object.defineProperty(args, key, {
+					enumerable: true,
+					get() {
+						reads++;
+						throw new Error("no getter reads");
+					},
+				});
+			const renderer = createToolDisplayRenderers(
+				"custom_gateway",
+				() => normalizeToolDisplayConfig({ enabled: true }),
+				{},
+				{ enabled: true, kind },
+			);
+			expect(() => renderer.renderCall?.(args, theme, context(args)).render(80)).not.toThrow();
+			expect(reads).toBe(0);
+		},
+	);
 	it("generic/MCP exact adapters have distinct labels and output modes", () => {
 		const getter = () => normalizeToolDisplayConfig({ enabled: true });
 		const generic = createToolDisplayRenderers(
@@ -243,7 +270,7 @@ describe("tool-display/renderers", () => {
 			{ enabled: true, kind: "generic", outputMode: "summary" },
 		);
 		expect(plain(generic.renderCall?.({ path: "x" }, theme, context()).render(80) ?? [])).toBe(
-			"ide (1 arg)",
+			'ide path="x"',
 		);
 		expect(plain(render(generic, "one\ntwo"))).toBe("↳ 2 lines returned • Ctrl+O to expand");
 		const mcp = createToolDisplayRenderers(
@@ -254,7 +281,7 @@ describe("tool-display/renderers", () => {
 		);
 		expect(
 			plain(mcp.renderCall?.({ tool: "echo", server: "demo" }, theme, context()).render(80) ?? []),
-		).toBe("MCP demo/echo (2 args)");
+		).toBe('demo/echo tool="echo" server="demo"');
 		expect(plain(render(mcp, "one"))).toBe("one");
 	});
 	it("reports backend and expanded caps, strips terminal instructions, and re-reads config/theme", () => {
@@ -291,9 +318,38 @@ describe("tool-display/renderers", () => {
 		const args = { path: "missing", content: "new" };
 		const call = renderer.renderCall?.(args, theme, { ...context(args), isPartial: true });
 		expect(plain(call?.render(80) ?? [])).toContain("no live preimage");
-		expect(plain(render(renderer, "written", false, false, args))).toContain(
-			"preimage unavailable",
-		);
+		expect(plain(render(renderer, "written", false, false, args))).toContain("↳ written");
+	});
+	it.each([false, true])(
+		"renders call content as additions without a preimage (expanded=%s)",
+		(expanded) => {
+			const renderer = createToolDisplayRenderers("write", () =>
+				normalizeToolDisplayConfig({ enabled: true, diffViewMode: "unified" }),
+			);
+			const args = { path: "history.txt", content: "written first\nwritten second\n" };
+			const rows = plain(
+				render(renderer, "result text must not be used as file content", expanded, false, args),
+			);
+			expect(rows).toContain("↳ written");
+			expect(rows).toMatch(/▌\s+1 │ written first/);
+			expect(rows).toMatch(/▌\s+2 │ written second/);
+			expect(rows).not.toContain("created");
+			expect(rows).not.toContain("overwritten");
+			expect(rows).not.toContain("result text");
+			expect(plain(render(renderer, "written", expanded))).toContain("content unavailable");
+		},
+	);
+	it.each(["grep", "find", "ls"])("%s adds one separator only before visible results", (name) => {
+		for (const expanded of [false, true]) {
+			const renderer = createToolDisplayRenderers(name, () =>
+				normalizeToolDisplayConfig({ enabled: true, searchOutputMode: "preview" }),
+			);
+			expect(plain(render(renderer, "first\nsecond", expanded))).toBe("\nfirst\nsecond");
+			const hidden = createToolDisplayRenderers(name, () =>
+				normalizeToolDisplayConfig({ enabled: true, searchOutputMode: "hidden" }),
+			);
+			expect(render(hidden, "first", expanded)).toEqual([]);
+		}
 	});
 	it("only non-empty all-text content is eligible (images/mixed/unknown/empty pass through)", () => {
 		expect(hasOnlyTextContent(result("x"))).toBe(true);
@@ -329,7 +385,7 @@ describe("tool-display/renderers", () => {
 			),
 		).toContain("pending edit");
 		get.mockReturnValue(undefined);
-		expect(plain(render(write, "written", false, false, args))).toContain("preimage unavailable");
+		expect(plain(render(write, "written", false, false, args))).toContain("↳ written");
 	});
 	it("giant output is explicitly capped and never sends raw terminal controls", () => {
 		const renderer = createToolDisplayRenderers("read", () =>
@@ -615,14 +671,18 @@ describe("tool-display/renderers", () => {
 		[
 			"mcp__zentui_demo__echo",
 			{ message: "hello from real local MCP server" },
-			"MCP zentui_demo/echo (1 arg)",
+			'zentui_demo/echo message="hello from real local MCP server"',
 		],
-		["mcp__demo_prod__echo", { message: "sanitized name" }, "MCP demo_prod/echo (1 arg)"],
-		["mcp", { tool: "echo", server: "demo", message: "proxy" }, "MCP call demo:echo (3 args)"],
+		[
+			"mcp__demo_prod__echo",
+			{ message: "sanitized name" },
+			'demo_prod/echo message="sanitized name"',
+		],
+		["mcp", { tool: "echo", server: "demo", message: "proxy" }, 'call demo:echo message="proxy"'],
 		[
 			"custom_mcp_gateway",
 			{ tool: "echo", server: "demo", message: "gateway" },
-			"MCP call demo:echo (3 args)",
+			'call demo:echo message="gateway"',
 		],
 	] as const)(
 		"uses the correct direct versus proxy MCP extension presentation for %s",
@@ -672,7 +732,7 @@ describe("tool-display/renderers", () => {
 			controller.dispose();
 		},
 	);
-	it("keeps explicit sandbox_echo preview rows unchanged rather than mimicking an unlisted reference tool", () => {
+	it("keeps explicit sandbox_echo result previews unchanged while showing inline call arguments", () => {
 		initTheme("dark", false);
 		const name = "sandbox_echo";
 		const cfg = () =>
@@ -703,7 +763,7 @@ describe("tool-display/renderers", () => {
 			"/sandbox",
 		);
 		row.updateResult({ content: [{ type: "text", text: content }], details: {}, isError: false });
-		expect(plain(row.render(110))).toContain("sandbox_echo (1 arg)");
+		expect(plain(row.render(110))).toContain('sandbox_echo message="hello from real custom tool"');
 		expect(plain(row.render(110))).toContain("... (4 more lines • Ctrl+O to expand)");
 		row.setExpanded(true);
 		const output = plain(row.render(110));

@@ -71,6 +71,7 @@ writeFileSync(join(correctedRoot, unicodePatch.file), correctedSource);
 async function referenceModules(path) {
 	return {
 		upstream: await jiti.import(join(path, "src/tool-overrides.ts")),
+		diff: await jiti.import(join(path, "src/diff-renderer.ts")),
 		types: await jiti.import(join(path, "src/types.ts")),
 		disposable: await jiti.import(join(path, "src/disposable.ts")),
 	};
@@ -502,6 +503,13 @@ for (const theme of themes)
 					result: { content: [{ type: "text", text: "editing" }], details: {} },
 				});
 			}
+// Replay the same successful write grids without execution preimages (history domain).
+for (const fixture of [...cases].filter(
+	(value) => value.name === "write" && !value.partial && !value.error,
+)) {
+	const { preimage: _preimage, ...history } = fixture;
+	cases.push(history);
+}
 // Approved option D and edge inputs; the sample is not used as oracle expected output.
 const argsDesign = JSON.parse(
 	readFileSync(join(root, "test/fixtures/tool-display-mcp-args-design.json"), "utf8"),
@@ -525,33 +533,91 @@ for (const theme of themes)
 					argsDesignCase: sample.id,
 				});
 
-// Independent generator-side declared transform: only bounded fixture payloads, never candidate rows.
-function declaredMcpArgsRenderers(fixture, renderers) {
-	if (fixture.kind !== "mcp" || !fixture.expanded) return renderers;
+// Independent transforms of bounded fixture payloads, never candidate code or rows.
+function declaredNativeRenderers(fixture, renderers, includeExpansion = true) {
 	const payload = Object.entries(fixture.args).filter(
 		([key]) =>
-			/^mcp__(.+?)__(.+)$/.test(fixture.name) ||
+			fixture.kind !== "mcp" ||
+			/^mcp__/.test(fixture.name) ||
 			!["tool", "server", "connect", "describe", "search"].includes(key),
 	);
-	if (!payload.length) return renderers;
-	const text =
-		`args: ${payload.map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(" ")}`.replace(
+	const escaped = payload
+		.map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+		.join(" ")
+		.replace(
 			/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
 			(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
 		);
-	if (text.length > 16384)
-		throw new Error("Declared transform fixtures must remain within the source budget");
+	if (escaped.length > 16384) throw new Error("Transform fixtures exceed source budget");
+	const { tool, server, connect, describe, search } = fixture.args;
+	const proxyTarget = tool
+		? `call ${server ? `${server}:` : ""}${tool}`
+		: connect
+			? `connect ${connect}`
+			: describe
+				? `describe ${describe}${server ? ` @${server}` : ""}`
+				: search
+					? `search "${search}"${server ? ` @${server}` : ""}`
+					: server
+						? `tools ${server}`
+						: "status";
 	return {
 		...renderers,
 		renderCall(args, theme, ctx) {
-			const call = renderers.renderCall(args, theme, ctx);
+			if (!fixture.kind) return renderers.renderCall(args, theme, ctx);
+			const title =
+				fixture.kind === "generic"
+					? theme.fg("toolTitle", theme.bold(fixture.name))
+					: theme.fg("accent", fixture.mcpMetadata?.label ?? proxyTarget);
+			return {
+				invalidate() {},
+				render(width) {
+					if (fixture.kind === "mcp" && fixture.expanded) {
+						const rows = new tui.Text(title, 0, 0).render(width);
+						const line = tui
+							.truncateToWidth(`args: ${escaped}`, width, "…")
+							.replace(/\x1b\[[0-9;]*m/g, "");
+						return includeExpansion && escaped ? [...rows, theme.fg("muted", line)] : rows;
+					}
+					const bounded = tui
+						.truncateToWidth(
+							`args: ${escaped}`,
+							Math.max(7, width - tui.visibleWidth(title) + 5),
+							"…",
+						)
+						.replace(/\x1b\[[0-9;]*m/g, "")
+						.slice(6);
+					const suffix = theme.fg("muted", escaped ? ` ${bounded}` : " (no args)");
+					return new tui.Text(tui.truncateToWidth(`${title}${suffix}`, width, "…"), 0, 0).render(
+						width,
+					);
+				},
+			};
+		},
+		renderResult(result, options, theme, ctx) {
+			const historyWrite =
+				fixture.name === "write" && !fixture.preimage && !fixture.partial && !fixture.error;
+			const body = historyWrite
+				? corrected.diff.renderWriteDiffResult(
+						fixture.args.content,
+						{ expanded: options.expanded, filePath: fixture.args.path, headerLabel: "written" },
+						{ ...corrected.types.DEFAULT_TOOL_DISPLAY_CONFIG, ...fixture.config },
+						theme,
+						"",
+					)
+				: renderers.renderResult(result, options, theme, ctx);
+			if (
+				!["grep", "find", "ls"].includes(fixture.name) &&
+				!(fixture.name === "write" && !fixture.preimage && !fixture.partial && !fixture.error)
+			)
+				return body;
 			return {
 				invalidate() {
-					call.invalidate();
+					body.invalidate();
 				},
 				render(width) {
-					const line = tui.truncateToWidth(text, width, "…").replace(/\x1b\[[0-9;]*m/g, "");
-					return [...call.render(width), theme.fg("muted", line)];
+					const rows = body.render(width);
+					return fixture.name === "write" ? rows : rows.length ? ["", ...rows] : rows;
 				},
 			};
 		},
@@ -661,6 +727,14 @@ let correctedRows = 0;
 let upstreamMalformedRows = 0;
 let mcpArgsVectors = 0;
 let mcpArgsRows = 0;
+const presentationStats = Object.fromEntries(
+	[
+		"genericInlineArgs",
+		"mcpInlineArgs",
+		"writeContentWithoutPreimage",
+		"searchResultSeparator",
+	].map((name) => [name, { vectors: 0, rows: 0 }]),
+);
 const first = [];
 let clock = 1000000;
 const intervals = new Map();
@@ -726,21 +800,39 @@ try {
 		original.disposable.disposeAll();
 		const correctedRenderers = originalRenderers(fixture, fixture.config, corrected);
 		const unicodeRows = render(fixture, correctedRenderers);
-		const expected = render(fixture, declaredMcpArgsRenderers(fixture, correctedRenderers));
+		const inlineRows = render(fixture, declaredNativeRenderers(fixture, correctedRenderers, false));
+		const expected = render(fixture, declaredNativeRenderers(fixture, correctedRenderers));
 		corrected.disposable.disposeAll();
-		const mcpArgsExpanded = JSON.stringify(expected) !== JSON.stringify(unicodeRows);
+		const mcpArgsExpanded = JSON.stringify(expected) !== JSON.stringify(inlineRows);
 		if (mcpArgsExpanded) {
-			const insertion = expected.findIndex((row, index) => row !== unicodeRows[index]);
+			const insertion = expected.findIndex((row, index) => row !== inlineRows[index]);
 			if (
-				expected.length !== unicodeRows.length + 1 ||
+				expected.length !== inlineRows.length + 1 ||
 				JSON.stringify(expected.filter((_, index) => index !== insertion)) !==
-					JSON.stringify(unicodeRows)
+					JSON.stringify(inlineRows)
 			)
-				throw new Error(
-					"MCP args divergence must insert exactly one row and preserve all upstream rows",
-				);
+				throw new Error("Expanded args must be exactly one insertion after the target-only call");
 			mcpArgsVectors++;
 			mcpArgsRows++;
+		}
+		const domain =
+			fixture.kind === "generic"
+				? "genericInlineArgs"
+				: fixture.kind === "mcp"
+					? "mcpInlineArgs"
+					: fixture.name === "write" && !fixture.preimage
+						? "writeContentWithoutPreimage"
+						: ["grep", "find", "ls"].includes(fixture.name)
+							? "searchResultSeparator"
+							: undefined;
+		const presentationChanged = JSON.stringify(expected) !== JSON.stringify(unicodeRows);
+		if (domain && presentationChanged) {
+			presentationStats[domain].vectors++;
+			// Search counts inserted blank rows; other domains count changed/added row indices.
+			presentationStats[domain].rows +=
+				domain === "searchResultSeparator"
+					? expected.length - unicodeRows.length
+					: expected.filter((row, index) => row !== unicodeRows[index]).length;
 		}
 		const unicodeCorrected = JSON.stringify(unchangedRows) !== JSON.stringify(unicodeRows);
 		if (unicodeCorrected) {
@@ -817,7 +909,19 @@ try {
 			...fixture,
 			rows: expected,
 			...(unicodeCorrected ? { unicodeCorrected: true, unchangedRows } : {}),
-			...(mcpArgsExpanded ? { mcpArgsExpanded: true, upstreamMcpRows: unicodeRows } : {}),
+			...(mcpArgsExpanded ? { mcpArgsExpanded: true, inlineMcpRows: inlineRows } : {}),
+			...(domain && presentationChanged
+				? {
+						presentationDivergence: domain,
+						[fixture.kind === "mcp"
+							? "upstreamMcpRows"
+							: fixture.kind === "generic"
+								? "upstreamGenericRows"
+								: fixture.name === "write"
+									? "upstreamWriteRows"
+									: "upstreamSearchRows"]: unicodeRows,
+					}
+				: {}),
 		});
 	}
 } finally {
@@ -848,8 +952,27 @@ const provenance = {
 		rows: mcpArgsRows,
 		unchangedVectors: cases.length - mcpArgsVectors,
 		rationale:
-			"Approved option D: one muted payload arguments row on MCP expansion only; no masking. Generator-side independent transform of unchanged upstream call renderer; rows counts inserted rows, not shifted result indices.",
+			"Expanded MCP retains one muted payload row below a target-only call, never duplicates inline arguments. Independent bounded-fixture transform; rows counts inserted args rows relative to target-only calls.",
 	},
+	...Object.fromEntries(
+		Object.entries(presentationStats).map(([domain, stats]) => [
+			domain,
+			{
+				...stats,
+				unchangedVectors: cases.length - stats.vectors,
+				rationale: {
+					genericInlineArgs:
+						"Owned generic custom calls show native-style inline payloads; empty args retain (no args). Independent bounded-fixture transform; rows counts changed/added indices.",
+					mcpInlineArgs:
+						"MCP collapsed calls show accent target plus inline payload without MCP prefix/count; expanded calls keep target plus one muted args row. Proxy targets/routing omission unchanged. Rows counts changed/added indices.",
+					writeContentWithoutPreimage:
+						"History writes display call content as addition-only grid with neutral written rather than upstream created; no invented preimage. Rows counts changed header indices.",
+					searchResultSeparator:
+						"Native grep/find/ls insert one blank separator before nonempty result rows; hidden/empty results stay unchanged. Rows counts inserted separators.",
+				}[domain],
+			},
+		]),
+	),
 	commit: pinnedManifest.commit,
 	version: pinnedManifest.version,
 	sdk: JSON.parse(readFileSync(join(dirname(sdkEntry), "../package.json"), "utf8")).version,
