@@ -48,6 +48,28 @@ shows a line count, and `preview` shows preview lines. Errors and partial states
 follow upstream presentation. Hidden read/search/MCP modes hide result text, including errors, even when expanded; select Summary or Preview to reveal it. The host retains the actual error status/card color and full result/image data. Unknown result shapes delegate unchanged.
 Expansion uses the host's tool expansion action.
 
+For exact-name opted-in `kind: "mcp"` entries only, expansion (Ctrl+O) adds one
+muted arguments line under the unchanged call line, before result rows:
+
+```text
+MCP demo/echo (2 args)
+args: message="hello" repeat=3
+```
+
+The `mcp` proxy and noncanonical MCP gateways omit target-encoded routing keys
+(`tool`, `server`, `connect`, `describe`, `search`), retaining nested payloads as
+`args: args={"message":"hello"}`. Search/describe extras remain visible, for
+example `args: limit=8` or `args: verbose=true`. Empty payloads add no line.
+Strings are quoted, numbers/booleans/null are raw, and objects/arrays are compact
+JSON in own-key order. The line is width-bounded with a trailing `…`; terminal
+controls are escaped. Inspection is bounded to 16384 source characters, 256
+entries and 16 nesting levels before serialization. Values are **not masked or
+redacted**, matching native Pi; masking is an explicit non-goal, not a security
+promise. Hidden mode still hides results, not this expanded call information.
+Collapsed MCP cards remain byte-identical to upstream. Generic custom tools,
+builtins, disabled/native/delegated rows and all other surfaces are unchanged.
+Expanded MCP arguments are a declared, counted upstream parity divergence.
+
 ## Diff and preview controls
 
 | Field | Default | Accepted values |
@@ -215,7 +237,8 @@ explicit guards described above. Attribution and MIT notices are included.
 The user-approved Unicode fix expands changed-word emphasis boundaries to whole
 graphemes, preventing the upstream surrogate/combining/ZWJ corruption. Those
 vectors intentionally differ from unpatched upstream and match a separately
-recorded minimal corrected reference; all other oracle-tested normal rows are
-identical within the matched domains above.
+recorded minimal corrected reference. Expanded MCP arguments are the separate
+approved divergence described above; all remaining oracle-tested normal rows,
+including collapsed MCP rows, are identical within the matched domains above.
 Development oracle generation and safety-domain details are recorded in the
 [attribution/source map](./tool-display-attribution.md).

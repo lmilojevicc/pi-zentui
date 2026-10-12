@@ -34,6 +34,7 @@ const tests = [
 	"tool-display-config.test.ts",
 	"tool-display-presets.test.ts",
 	"tool-display-renderers.test.ts",
+	"tool-display-mcp-args.test.ts",
 	"tool-display-diff.test.ts",
 	"tool-display-pending.test.ts",
 ];

@@ -502,6 +502,62 @@ for (const theme of themes)
 					result: { content: [{ type: "text", text: "editing" }], details: {} },
 				});
 			}
+// Approved option D and edge inputs; the sample is not used as oracle expected output.
+const argsDesign = JSON.parse(
+	readFileSync(join(root, "test/fixtures/tool-display-mcp-args-design.json"), "utf8"),
+);
+for (const theme of themes)
+	for (const width of [72, 100, 132])
+		for (const expanded of [false, true])
+			for (const sample of argsDesign.cases.filter((value) => !value.id.startsWith("option-D")))
+				cases.push({
+					name: sample.name,
+					kind: "mcp",
+					args: sample.args,
+					result: sample.result,
+					mcpMetadata: registeredMcpMetadata[sample.name],
+					theme,
+					width,
+					expanded,
+					clock: 1000000,
+					partial: false,
+					config: { mcpOutputMode: "summary" },
+					argsDesignCase: sample.id,
+				});
+
+// Independent generator-side declared transform: only bounded fixture payloads, never candidate rows.
+function declaredMcpArgsRenderers(fixture, renderers) {
+	if (fixture.kind !== "mcp" || !fixture.expanded) return renderers;
+	const payload = Object.entries(fixture.args).filter(
+		([key]) =>
+			/^mcp__(.+?)__(.+)$/.test(fixture.name) ||
+			!["tool", "server", "connect", "describe", "search"].includes(key),
+	);
+	if (!payload.length) return renderers;
+	const text =
+		`args: ${payload.map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(" ")}`.replace(
+			/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+			(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+		);
+	if (text.length > 16384)
+		throw new Error("Declared transform fixtures must remain within the source budget");
+	return {
+		...renderers,
+		renderCall(args, theme, ctx) {
+			const call = renderers.renderCall(args, theme, ctx);
+			return {
+				invalidate() {
+					call.invalidate();
+				},
+				render(width) {
+					const line = tui.truncateToWidth(text, width, "…").replace(/\x1b\[[0-9;]*m/g, "");
+					return [...call.render(width), theme.fg("muted", line)];
+				},
+			};
+		},
+	};
+}
+
 function publicTheme(themeName) {
 	sdk.initTheme(themeName, false);
 	let theme;
@@ -603,6 +659,8 @@ let mismatches = 0;
 let correctedVectors = 0;
 let correctedRows = 0;
 let upstreamMalformedRows = 0;
+let mcpArgsVectors = 0;
+let mcpArgsRows = 0;
 const first = [];
 let clock = 1000000;
 const intervals = new Map();
@@ -666,12 +724,28 @@ try {
 		}
 		const unchangedRows = render(fixture, originalRenderers(fixture, fixture.config, original));
 		original.disposable.disposeAll();
-		const expected = render(fixture, originalRenderers(fixture, fixture.config, corrected));
+		const correctedRenderers = originalRenderers(fixture, fixture.config, corrected);
+		const unicodeRows = render(fixture, correctedRenderers);
+		const expected = render(fixture, declaredMcpArgsRenderers(fixture, correctedRenderers));
 		corrected.disposable.disposeAll();
-		const unicodeCorrected = JSON.stringify(unchangedRows) !== JSON.stringify(expected);
+		const mcpArgsExpanded = JSON.stringify(expected) !== JSON.stringify(unicodeRows);
+		if (mcpArgsExpanded) {
+			const insertion = expected.findIndex((row, index) => row !== unicodeRows[index]);
+			if (
+				expected.length !== unicodeRows.length + 1 ||
+				JSON.stringify(expected.filter((_, index) => index !== insertion)) !==
+					JSON.stringify(unicodeRows)
+			)
+				throw new Error(
+					"MCP args divergence must insert exactly one row and preserve all upstream rows",
+				);
+			mcpArgsVectors++;
+			mcpArgsRows++;
+		}
+		const unicodeCorrected = JSON.stringify(unchangedRows) !== JSON.stringify(unicodeRows);
 		if (unicodeCorrected) {
 			correctedVectors++;
-			correctedRows += expected.filter((row, index) => row !== unchangedRows[index]).length;
+			correctedRows += unicodeRows.filter((row, index) => row !== unchangedRows[index]).length;
 		}
 		upstreamMalformedRows += unchangedRows.filter(
 			(row) => Buffer.from(row, "utf8").toString("utf8") !== row,
@@ -743,6 +817,7 @@ try {
 			...fixture,
 			rows: expected,
 			...(unicodeCorrected ? { unicodeCorrected: true, unchangedRows } : {}),
+			...(mcpArgsExpanded ? { mcpArgsExpanded: true, upstreamMcpRows: unicodeRows } : {}),
 		});
 	}
 } finally {
@@ -767,6 +842,13 @@ const provenance = {
 		rows: correctedRows,
 		upstreamMalformedRows,
 		unchangedVectors: cases.length - correctedVectors,
+	},
+	mcpArgsExpansion: {
+		vectors: mcpArgsVectors,
+		rows: mcpArgsRows,
+		unchangedVectors: cases.length - mcpArgsVectors,
+		rationale:
+			"Approved option D: one muted payload arguments row on MCP expansion only; no masking. Generator-side independent transform of unchanged upstream call renderer; rows counts inserted rows, not shifted result indices.",
 	},
 	commit: pinnedManifest.commit,
 	version: pinnedManifest.version,

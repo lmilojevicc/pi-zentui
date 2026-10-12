@@ -1,0 +1,306 @@
+{
+	"source": "Approved option D design sample at 547f5d3; edge inputs only. Spec supersedes illustrative redaction and empty-args placeholder rows.",
+	"cases": [
+		{
+			"id": "baseline-direct-collapsed-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"message": "hello",
+				"repeat": 3
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			},
+			"rows": [
+				"",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[39m\u001b[1mMCP\u001b[22m\u001b[39m \u001b[38;2;188;140;175mdemo/echo\u001b[39m\u001b[38;2;152;156;177m (2 args)\u001b[39m                                                 \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177m↳ 5 lines returned\u001b[39m\u001b[38;2;152;156;177m • Ctrl+O to expand\u001b[39m                                  \u001b[49m",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m"
+			]
+		},
+		{
+			"id": "baseline-proxy-collapsed-1",
+			"name": "mcp",
+			"args": {
+				"server": "demo",
+				"tool": "echo",
+				"args": {
+					"message": "hello"
+				}
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			},
+			"rows": [
+				"",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[39m\u001b[1mMCP\u001b[22m\u001b[39m \u001b[38;2;188;140;175mcall demo:echo\u001b[39m\u001b[38;2;152;156;177m (3 args)\u001b[39m                                            \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177m↳ 5 lines returned\u001b[39m\u001b[38;2;152;156;177m • Ctrl+O to expand\u001b[39m                                  \u001b[49m",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m"
+			]
+		},
+		{
+			"id": "option-D-expanded-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"message": "hello",
+				"repeat": 3
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			},
+			"rows": [
+				"",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[39m\u001b[1mMCP\u001b[22m\u001b[39m \u001b[38;2;188;140;175mdemo/echo\u001b[39m\u001b[38;2;152;156;177m (2 args)\u001b[39m                                                 \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177margs: message=\"hello\" repeat=3\u001b[39m                                         \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mhello from demo\u001b[39m                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177msecond response line\u001b[39m                                                   \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mthird response line\u001b[39m                                                    \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mfourth response line\u001b[39m                                                   \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mfifth response line\u001b[39m                                                    \u001b[49m",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m"
+			]
+		},
+		{
+			"id": "option-D-expanded-2",
+			"name": "mcp",
+			"args": {
+				"server": "demo",
+				"tool": "echo",
+				"args": {
+					"message": "hello"
+				}
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			},
+			"rows": [
+				"",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[39m\u001b[1mMCP\u001b[22m\u001b[39m \u001b[38;2;188;140;175mcall demo:echo\u001b[39m\u001b[38;2;152;156;177m (3 args)\u001b[39m                                            \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177margs: args={\"message\":\"hello\"}\u001b[39m                                         \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mhello from demo\u001b[39m                                                        \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177msecond response line\u001b[39m                                                   \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mthird response line\u001b[39m                                                    \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mfourth response line\u001b[39m                                                   \u001b[49m",
+				"\u001b[48;2;27;50;25m \u001b[38;2;152;156;177mfifth response line\u001b[39m                                                    \u001b[49m",
+				"\u001b[48;2;27;50;25m                                                                        \u001b[49m"
+			]
+		},
+		{
+			"id": "proxy-search-1",
+			"name": "mcp",
+			"args": {
+				"server": "demo",
+				"search": "x",
+				"limit": 8
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "proxy-describe-1",
+			"name": "mcp",
+			"args": {
+				"server": "demo",
+				"describe": "echo",
+				"verbose": true
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "proxy-connect-1",
+			"name": "mcp",
+			"args": {
+				"connect": "demo"
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "proxy-status-1",
+			"name": "mcp",
+			"args": {},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "edge-long-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"message": "A long illustrative message about terminal rendering; A long illustrative message about terminal rendering; A long illustrative message about terminal rendering; A long illustrative message about terminal rendering; A long illustrative message about terminal rendering; ",
+				"repeat": 3
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "edge-many-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"message": "hello",
+				"repeat": 3,
+				"locale": "en",
+				"mode": "brief",
+				"timeout": 30,
+				"cache": false
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "edge-nested-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"args": {
+					"message": "hello",
+					"filters": {
+						"tags": ["a", "b", "c"],
+						"active": true
+					},
+					"options": [
+						1,
+						{
+							"mode": "brief"
+						}
+					]
+				}
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "edge-secret-1",
+			"name": "mcp__demo__echo",
+			"args": {
+				"args": {
+					"apiKey": "demo-secret-not-real",
+					"message": "hi\u001b[31m\n"
+				},
+				"repeat": 3
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "edge-empty-1",
+			"name": "mcp__demo__echo",
+			"args": {},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		},
+		{
+			"id": "width-72-C-1",
+			"name": "mcp",
+			"args": {
+				"server": "demo",
+				"tool": "echo",
+				"args": {
+					"message": "Review this deliberately long illustrative message before sending it to the demo server.",
+					"repeat": 3
+				},
+				"timeout": 30,
+				"locale": "en"
+			},
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "hello from demo\nsecond response line\nthird response line\nfourth response line\nfifth response line"
+					}
+				],
+				"details": {}
+			}
+		}
+	]
+}

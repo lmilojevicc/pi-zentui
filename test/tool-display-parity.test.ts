@@ -38,6 +38,8 @@ interface Fixture {
 	rows: string[];
 	unicodeCorrected?: boolean;
 	unchangedRows?: string[];
+	mcpArgsExpanded?: boolean;
+	upstreamMcpRows?: string[];
 }
 const data = JSON.parse(
 	gunzipSync(
@@ -51,6 +53,12 @@ const data = JSON.parse(
 		files: Record<string, string>;
 		livePaletteSha256: string;
 		unicodePatchSha256: string;
+		mcpArgsExpansion: {
+			vectors: number;
+			rows: number;
+			unchangedVectors: number;
+			rationale: string;
+		};
 		unicodeCorrection: {
 			vectors: number;
 			rows: number;
@@ -96,13 +104,34 @@ describe("tool-display pinned complete public-card parity", () => {
 		expect(data.cases.some((value) => value.theme === "reference-system")).toBe(true);
 	});
 	it("retains all oracle domains and omitted custom output-mode vectors", () => {
-		expect(data.cases).toHaveLength(17766);
+		expect(data.cases).toHaveLength(17982);
 		expect(data.provenance.unicodeCorrection).toEqual({
 			vectors: 1998,
 			rows: 3123,
 			upstreamMalformedRows: 2268,
-			unchangedVectors: 15768,
+			unchangedVectors: 15984,
 		});
+		expect(data.provenance.mcpArgsExpansion).toMatchObject({
+			vectors: 1080,
+			rows: 1080,
+			unchangedVectors: 16902,
+		});
+		const argsExpanded = data.cases.filter((item) => item.mcpArgsExpanded);
+		expect(argsExpanded).toHaveLength(data.provenance.mcpArgsExpansion.vectors);
+		for (const fixture of argsExpanded) {
+			expect(fixture.kind).toBe("mcp");
+			expect(fixture.expanded).toBe(true);
+			const upstream = fixture.upstreamMcpRows as string[];
+			const insertion = fixture.rows.findIndex((row, index) => row !== upstream[index]);
+			expect(fixture.rows[insertion]).toContain("args: ");
+			expect(fixture.rows).toHaveLength(upstream.length + 1);
+			expect(fixture.rows.filter((_, index) => index !== insertion)).toEqual(upstream);
+		}
+		expect(
+			data.cases
+				.filter((item) => item.kind === "mcp" && !item.expanded)
+				.every((item) => !item.mcpArgsExpanded),
+		).toBe(true);
 		const omitted = data.cases.filter((item) => item.omitCustomOutputMode);
 		expect(omitted).toHaveLength(108);
 		expect(new Set(omitted.map((item) => item.name))).toEqual(

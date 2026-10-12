@@ -31,7 +31,8 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { formatSize } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer } from "@earendil-works/pi-tui";
+import { type Component, Container, Spacer, truncateToWidth } from "@earendil-works/pi-tui";
+import { ANSI_SGR_PATTERN } from "./ansi-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
 import { PresentationText as Text } from "./presentation-text.js";
 import { record as toRecord } from "./presets.js";
@@ -43,6 +44,7 @@ import {
 	pluralize,
 	previewLines,
 	sanitizeAnsiForThemedOutput,
+	sanitizeTerminalControls,
 	shortenPath,
 	splitLines,
 } from "./render-utils.js";
@@ -72,10 +74,12 @@ interface ToolRenderContextLike {
 	expanded?: boolean;
 }
 
-import type { CodeHighlighter } from "./bounds.js";
+import { type CodeHighlighter, safeWidth } from "./bounds.js";
 import {
 	boundedContentMetadata,
+	graphemePrefix,
 	MAX_PRESENTATION_SOURCE_BYTES,
+	MAX_PREVIEW_LINE_CHARS,
 	type PresentationMetadata,
 } from "./source-bounds.js";
 
@@ -776,6 +780,106 @@ export function formatMcpCallLine(
 		0,
 		0,
 	);
+}
+
+/** Bound inspection before JSON serialization; never invoke payload toJSON methods or accessors. */
+export function formatMcpArgsLine(
+	toolName: string,
+	args: Record<string, unknown>,
+	width: number,
+): string | undefined {
+	const columns = safeWidth(width);
+	if (!columns) return undefined;
+	let remaining = MAX_PREVIEW_LINE_CHARS;
+	let entries = 256;
+	let capped = false;
+	const ancestors = new Set<object>();
+	// Only own data properties are payload values. Accessors are never invoked: a getter
+	// could throw inside render or hide work behind a side effect. Model arguments are
+	// JSON-parsed data properties, so ordinary rendering is unaffected.
+	const dataValue = (source: object, key: string): { present: boolean; value?: unknown } => {
+		const descriptor = Object.getOwnPropertyDescriptor(source, key);
+		if (!descriptor || !("value" in descriptor)) return { present: false };
+		return { present: true, value: descriptor.value };
+	};
+	const prefix = (value: string): string => {
+		const text = graphemePrefix(value, remaining);
+		remaining -= text.length;
+		capped ||= text.length < value.length;
+		return text;
+	};
+	const inspect = (value: unknown, depth: number): unknown => {
+		if (typeof value === "string") return prefix(value);
+		if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+		if (!value || typeof value !== "object") return null;
+		if (depth >= 16 || ancestors.has(value)) {
+			capped = true;
+			return null;
+		}
+		ancestors.add(value);
+		const copy: Record<string, unknown> | unknown[] = Array.isArray(value)
+			? []
+			: Object.create(null);
+		for (const key in value) {
+			if (!Object.hasOwn(value, key)) continue;
+			if (remaining <= 0 || entries-- <= 0) {
+				capped = true;
+				break;
+			}
+			const entry = dataValue(value, key);
+			if (!entry.present) {
+				capped = true;
+				continue;
+			}
+			const label = prefix(key);
+			const child = inspect(entry.value, depth + 1);
+			if (Array.isArray(copy)) copy.push(child);
+			else copy[label] = child;
+			if (capped) break;
+		}
+		ancestors.delete(value);
+		return copy;
+	};
+	const parts: string[] = [];
+	for (const key in args) {
+		if (!Object.hasOwn(args, key)) continue;
+		// Proxy routing is already visible in the target; nested args remains one payload value.
+		if (toolName === "mcp" && ["tool", "server", "connect", "describe", "search"].includes(key))
+			continue;
+		if (remaining <= 0 || entries-- <= 0) {
+			capped = true;
+			break;
+		}
+		const entry = dataValue(args, key);
+		if (!entry.present) {
+			capped = true;
+			continue;
+		}
+		parts.push(`${prefix(key)}=${JSON.stringify(inspect(entry.value, 0))}`);
+		if (capped) break;
+	}
+	if (!parts.length) return undefined;
+	const line = sanitizeTerminalControls(`args: ${parts.join(" ")}`, "escape");
+	// The host truncator adds SGR resets; this plain formatter leaves all styling to the theme.
+	return truncateToWidth(capped ? `${line}…` : line, columns, "…").replace(ANSI_SGR_PATTERN, "");
+}
+
+export function buildExpandedMcpCall(
+	call: Component,
+	toolName: string,
+	args: Record<string, unknown>,
+	theme: RenderTheme,
+): Component {
+	return {
+		invalidate() {
+			call.invalidate();
+		},
+		render(width) {
+			const rows = call.render(width);
+			const line = formatMcpArgsLine(toolName, args, width);
+			return line ? [...rows, theme.fg("muted", line)] : rows;
+		},
+	};
 }
 
 function getMcpTruncationDetails(details: unknown): {

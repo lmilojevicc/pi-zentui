@@ -38,7 +38,7 @@ may differ; this limitation must not be bypassed with private access.
 
 The pinned implementation can place changed-word background ANSI inside a UTF-16
 surrogate pair or a combining/ZWJ grapheme. The user explicitly requested fixing
-this defect. Within the matched oracle domains above, the only normal-domain
+this defect. Within the matched oracle domains above, one declared normal-domain
 parity exception is snapping those emphasis spans to whole graphemes. `test/fixtures/tool-display-unicode-reference-patch.json`
 is the executable two-edit corrected-reference patch; the adjacent `.patch` is
 its human-readable diff. Original upstream files remain unchanged. Generated
@@ -54,6 +54,34 @@ scope a cached truecolor capability (`getCapabilities`/`setCapabilities`) to ora
 rendering, restoring the prior capabilities in `finally` without replacing ambient
 capability overrides. Terminal detection can otherwise emit 256color on CI. Replay
 loads these APIs only inside the modern-host test; older hosts retain their skips.
+
+## User-approved expanded MCP arguments (option D)
+
+Expansion through the public Pi tool action (Ctrl+O) adds exactly one muted
+`args: message="hello" repeat=3` line below the unchanged MCP call line and before
+results. This applies only to owned `kind: "mcp"` direct canonical entries and
+proxy/noncanonical gateways. Proxy routing keys are already represented by the
+target and are omitted; nested payloads render as `args: args={"message":"hello"}`.
+Empty payloads add no line. Own-key order, quoted strings, raw primitives and
+compact object/array JSON are preserved; controls are escaped and the single
+line is width-bounded with trailing `…`. Inspection is bounded before JSON
+serialization. No values are masked or redacted, matching native Pi; masking is
+an explicit non-goal. Generic tools and every other surface are unchanged.
+Collapsed MCP parity is unchanged.
+
+Upstream pi-tool-display 0.5.0 never prints argument values in its MCP call slot.
+The approved usability change is therefore a declared divergence, not a skipped
+comparison. The generator independently transforms the upstream call renderer
+for expanded MCP vectors with nonempty payloads, then lets the same public host
+apply full ANSI/card framing. No candidate rows or candidate formatter are used
+as expected output, and unchanged upstream source hashes remain verified.
+The fixture retains original complete rows as `upstreamMcpRows` and records
+`mcpArgsExpansion` with **1080 vectors / 1080 inserted rows / 16902 unchanged
+vectors** across **17982 cases**. The `rows` counter counts inserted argument
+rows, not shifted result-row indices. Each affected vector is asserted to be
+exactly one insertion with every preexisting full-ANSI row preserved; all other
+vectors retain the original full-ANSI comparison. Unicode correction remains
+separately counted (1998 vectors / 3123 rows / 2268 upstream malformed rows).
 
 ## Ownership and safety boundaries
 
@@ -81,7 +109,9 @@ guards. Caps/notices are not claimed to match unsafe unbounded upstream output.
 DEVELOPMENT oracle, aliases it to the same actual public SDK/theme objects, never
 executes tools, and writes portable compressed complete ANSI card fixtures. Tests
 replay those fixtures without upstream installed paths or runtime dependencies.
-No hand-authored approximation is used as the parity expected output.
+No screenshot-derived expected rows are used. The two declared divergences use
+the minimal Unicode reference patch and the independent generator-side expanded
+MCP arguments transform described above; every other domain is unchanged.
 
 ## Upstream MIT notice
 

@@ -204,14 +204,18 @@ export function createToolDisplayRenderers(
 							: directMcp
 								? `${directMcp[1]}/${directMcp[2]}`
 								: undefined;
-					return custom.kind === "mcp"
-						? presentation.formatMcpCallLine(
-								directMcp ? name : "mcp",
-								target ?? "MCP Proxy",
-								input,
-								theme,
-							)
-						: presentation.formatGenericToolCallLine(name, args, theme);
+					if (custom.kind !== "mcp")
+						return presentation.formatGenericToolCallLine(name, args, theme);
+					const toolName = directMcp ? name : "mcp";
+					const call = presentation.formatMcpCallLine(
+						toolName,
+						target ?? "MCP Proxy",
+						input,
+						theme,
+					);
+					return ctx.expanded
+						? presentation.buildExpandedMcpCall(call, toolName, record(args), theme)
+						: call;
 				}
 				switch (name) {
 					case "read":
