@@ -9,6 +9,8 @@ import {
 } from "../extensions/zentui/tool-display/renderers.js";
 import { MAX_PREVIEW_LINE_CHARS } from "../extensions/zentui/tool-display/source-bounds.js";
 
+import { toolRenderContextDefaults } from "./tool-display-context-fixture.js";
+
 const command = `for i in 1 2 3 4 5; do printf 'stream %s\\n' "$i"; sleep 0.3; done`;
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 const theme = {
@@ -16,6 +18,7 @@ const theme = {
 	bold: (text: string) => text,
 };
 const ctx = (args = {}): ToolDisplayRenderContext => ({
+	...toolRenderContextDefaults,
 	args,
 	cwd: "/sandbox",
 	toolCallId: "test",

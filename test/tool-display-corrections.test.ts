@@ -12,6 +12,7 @@ import {
 	createToolDisplayRenderers,
 	type ToolDisplayRenderContext,
 } from "../extensions/zentui/tool-display/renderers.js";
+import { toolRenderContextDefaults } from "./tool-display-context-fixture.js";
 import { editFixture, writeFixture } from "./tool-display-fixture.js";
 
 const theme = {
@@ -19,6 +20,7 @@ const theme = {
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 } as currentPi.Theme;
 const context = (): ToolDisplayRenderContext => ({
+	...toolRenderContextDefaults,
 	args: { value: "hello" },
 	cwd: "/sandbox",
 	toolCallId: "one",

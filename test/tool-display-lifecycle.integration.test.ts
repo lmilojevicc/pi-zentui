@@ -44,6 +44,7 @@ import { createToolDisplayController } from "../extensions/zentui/tool-display/c
 import { PendingPreimages } from "../extensions/zentui/tool-display/pending";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets";
 import type { ToolDisplayRenderContext } from "../extensions/zentui/tool-display/renderers";
+import { toolRenderContextDefaults } from "./tool-display-context-fixture.js";
 
 const agent = join(isolated.root, "agent");
 const configPath = join(agent, "zentui.json");
@@ -66,6 +67,7 @@ const result = {
 const options = { expanded: false, isPartial: false };
 function row(id = "id", args: unknown = { path: "short.txt" }): ToolDisplayRenderContext {
 	return {
+		...toolRenderContextDefaults,
 		args,
 		toolCallId: id,
 		cwd: workspace,

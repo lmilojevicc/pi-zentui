@@ -23,12 +23,15 @@ import {
 } from "../extensions/zentui/tool-display/source-bounds.js";
 import { getEditLineMetadata } from "../extensions/zentui/tool-display/tool-presentation.js";
 
+import { toolRenderContextDefaults } from "./tool-display-context-fixture.js";
+
 const theme = {
 	fg: (_token: string, text: string) => `\x1b[36m${text}\x1b[39m`,
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 } as Theme;
 function context(args: Record<string, unknown> = {}): ToolDisplayRenderContext {
 	return {
+		...toolRenderContextDefaults,
 		args,
 		cwd: "/sandbox",
 		toolCallId: "live",

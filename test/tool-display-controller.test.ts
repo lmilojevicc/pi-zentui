@@ -16,8 +16,11 @@ import type {
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
 import type { ToolDisplayRenderContext } from "../extensions/zentui/tool-display/renderers.js";
 
+import { toolRenderContextDefaults } from "./tool-display-context-fixture.js";
+
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as Theme;
 const ctx: ToolDisplayRenderContext = {
+	...toolRenderContextDefaults,
 	args: { path: "f" },
 	toolCallId: "id",
 	cwd: "/sandbox",
