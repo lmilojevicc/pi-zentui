@@ -19,6 +19,10 @@ export function nativeToolRenderers(cwd: string): Partial<Record<BuiltinToolName
 	return renderers;
 }
 
+/** Public highlightCode and real tool callbacks share Pi's active theme; never mutate it. */
+export const bashCommandHighlighter: ((text: string) => string[]) | undefined =
+	typeof host.highlightCode === "function" ? (text) => host.highlightCode(text, "bash") : undefined;
+
 export const toolDisplayHighlighter: CodeHighlighter | undefined =
 	typeof host.highlightCode === "function" && typeof host.getLanguageFromPath === "function"
 		? (text, path) => {

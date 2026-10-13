@@ -700,6 +700,34 @@ function declaredOpenCodeRenderers(fixture, renderers, legacy) {
 	};
 }
 
+// Intentional foreground-only Bash domain: retain upstream layout/timers and use
+// the actual public host grammar on independently assembled fixture call text.
+function declaredBashSyntaxRenderers(fixture, renderers) {
+	if (fixture.name !== "bash") return renderers;
+	return {
+		...renderers,
+		renderCall(args, theme, ctx) {
+			const command =
+				typeof args.command === "string" && args.command.trim() ? args.command : "...";
+			const prefix = typeof args.commandPrefix === "string" ? args.commandPrefix.trim() : "";
+			const display = prefix ? `${prefix} ${command}` : command;
+			// Public Text's raw whitespace-token classification requires syntax SGR
+			// to start on the next visible token, not on intervening whitespace.
+			const colored = sdk
+				.highlightCode(display, "bash")
+				.join("\n")
+				.replace(/((?:\x1b\[[0-9;]*m)+)([ \t\n]+)/g, "$2$1");
+			if (colored.replace(/\x1b\[[0-9;]*m/g, "") !== display)
+				throw new Error("Public Bash grammar altered fixture text");
+			return renderers.renderCall(
+				{ ...args, commandPrefix: undefined, command: colored },
+				theme,
+				ctx,
+			);
+		},
+	};
+}
+
 function publicTheme(themeName) {
 	sdk.initTheme(themeName, false);
 	let theme;
@@ -805,6 +833,8 @@ let openCodeVectors = 0;
 let openCodeRows = 0;
 let mcpArgsVectors = 0;
 let mcpArgsRows = 0;
+let bashSyntaxVectors = 0;
+let bashSyntaxRows = 0;
 const presentationStats = Object.fromEntries(
 	[
 		"genericInlineArgs",
@@ -880,7 +910,7 @@ try {
 		const unicodeRows = render(fixture, correctedRenderers);
 		const inlineRows = render(fixture, declaredNativeRenderers(fixture, correctedRenderers, false));
 		const nativeRows = render(fixture, declaredNativeRenderers(fixture, correctedRenderers));
-		const expected = render(
+		const preSyntaxExpected = render(
 			fixture,
 			declaredOpenCodeRenderers(
 				fixture,
@@ -888,7 +918,27 @@ try {
 				declaredNativeRenderers(fixture, correctedRenderers),
 			),
 		);
-		const mcpOpenCode = JSON.stringify(expected) !== JSON.stringify(nativeRows);
+		const expected =
+			fixture.name === "bash"
+				? render(fixture, declaredBashSyntaxRenderers(fixture, correctedRenderers))
+				: preSyntaxExpected;
+		const bashSyntaxColorOnly = JSON.stringify(expected) !== JSON.stringify(preSyntaxExpected);
+		if (bashSyntaxColorOnly) {
+			if (
+				fixture.name !== "bash" ||
+				expected.length !== preSyntaxExpected.length ||
+				expected.some(
+					(row, index) =>
+						row.replace(/\x1b\[[0-9;]*m/g, "") !==
+							preSyntaxExpected[index].replace(/\x1b\[[0-9;]*m/g, "") ||
+						tui.visibleWidth(row) !== tui.visibleWidth(preSyntaxExpected[index]),
+				)
+			)
+				throw new Error("Bash syntax transform changed content or geometry");
+			bashSyntaxVectors++;
+			bashSyntaxRows += expected.filter((row, index) => row !== preSyntaxExpected[index]).length;
+		}
+		const mcpOpenCode = JSON.stringify(preSyntaxExpected) !== JSON.stringify(nativeRows);
 		if (mcpOpenCode) {
 			openCodeVectors++;
 			openCodeRows +=
@@ -1001,6 +1051,9 @@ try {
 		output.push({
 			...fixture,
 			rows: expected,
+			...(bashSyntaxColorOnly
+				? { bashSyntaxColorOnly: true, upstreamBashRows: preSyntaxExpected }
+				: {}),
 			...(mcpOpenCode ? { mcpOpenCode: true, nativeMcpRows: nativeRows } : {}),
 			...(unicodeCorrected ? { unicodeCorrected: true, unchangedRows } : {}),
 			...(mcpArgsExpanded ? { mcpArgsExpanded: true, inlineMcpRows: inlineRows } : {}),
@@ -1028,6 +1081,13 @@ try {
 	rmSync(correctedRoot, { recursive: true, force: true });
 }
 const provenance = {
+	bashSyntaxColorOnly: {
+		vectors: bashSyntaxVectors,
+		rows: bashSyntaxRows,
+		unchangedVectors: cases.length - bashSyntaxVectors,
+		rationale:
+			"Foreground-only command syntax via public host highlightCode(display, bash), inserted into unchanged upstream call rendering. Original complete upstreamBashRows retained; every stripped row, width and line count checked. No output/status/layout changes.",
+	},
 	rendererDomains: {
 		directMcp:
 			"real extension automatic registration with native server/tool label and no custom override",

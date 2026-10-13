@@ -21,6 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+import { bashCommandHighlighter } from "./host.js";
 import { PresentationText as Text } from "./presentation-text.js";
 
 const BASH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
@@ -99,6 +100,7 @@ function buildBashCallText(
 	theme: BashCallRenderTheme,
 	spinnerFrame?: string,
 	elapsedMs?: number,
+	commandColors?: (args: BashCallArgs, theme: BashCallRenderTheme) => string,
 ): string {
 	const commandDisplay = buildCommandDisplay(args);
 	const shellSuffix =
@@ -114,10 +116,88 @@ function buildBashCallText(
 			? theme.fg("muted", ` · ${formatElapsed(elapsedMs)}`)
 			: "";
 
-	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${theme.fg("accent", commandDisplay)}${shellSuffix}${timeoutSuffix}${elapsedSuffix}`;
+	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${commandColors ? commandColors(args, theme) : theme.fg("accent", commandDisplay)}${shellSuffix}${timeoutSuffix}${elapsedSuffix}`;
 }
 
-export function createBashProgress() {
+// Only foreground SGR is permitted: resets/backgrounds/styles could change the host card.
+const FOREGROUND_SGR = /\x1b\[(?:3[0-7]|9[0-7]|39|38;5;\d{1,3}|38;2;\d{1,3};\d{1,3};\d{1,3})m/g;
+const commandGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+function preservesGraphemes(display: string, colored: string): boolean {
+	const boundaries = new Set([display.length]);
+	for (const segment of commandGraphemes.segment(display)) boundaries.add(segment.index);
+	let escapes = 0;
+	for (const match of colored.matchAll(FOREGROUND_SGR)) {
+		if (!boundaries.has(match.index - escapes)) return false;
+		escapes += match[0].length;
+	}
+	return true;
+}
+const SYNTAX_PALETTE = [
+	"accent",
+	"muted",
+	"syntaxKeyword",
+	"syntaxString",
+	"syntaxNumber",
+	"syntaxComment",
+	"syntaxFunction",
+	"syntaxType",
+	"syntaxVariable",
+	"syntaxOperator",
+	"syntaxPunctuation",
+] as const;
+
+export function createBashProgress(
+	highlight: ((text: string) => string[]) | null | undefined = bashCommandHighlighter,
+) {
+	const highlightedCommands = new Map<string, string>();
+	function commandColors(args: BashCallArgs, theme: BashCallRenderTheme): string {
+		const display = buildCommandDisplay(args);
+		if (args.shellPath !== undefined && typeof args.shellPath !== "string")
+			return theme.fg("accent", display);
+		const shell = args.shellPath?.trim().replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+		if (!highlight || (shell && shell !== "bash" && shell !== "sh"))
+			return theme.fg("accent", display);
+		// Pi keeps a stable theme proxy across swaps. Sample the live syntax palette,
+		// not proxy identity; this cheap check also runs on retained spinner targets.
+		const key = JSON.stringify([display, ...SYNTAX_PALETTE.map((token) => theme.fg(token, ""))]);
+		let colored = highlightedCommands.get(key);
+		if (colored === undefined) {
+			colored = display;
+			try {
+				const lines = highlight(display);
+				if (
+					Array.isArray(lines) &&
+					lines.length === display.split("\n").length &&
+					lines.every(
+						(line) => typeof line === "string" && line.length <= display.length * 64 + 1024,
+					)
+				) {
+					const candidate = lines.join("\n");
+					if (
+						candidate.length <= display.length * 64 + 1024 &&
+						candidate.replace(FOREGROUND_SGR, (sgr) => {
+							const values = sgr.slice(2, -1).split(";").map(Number);
+							return values.length > 1 && values.slice(2).some((value) => value > 255) ? sgr : "";
+						}) === display &&
+						preservesGraphemes(display, candidate)
+					) {
+						// Pi Text identifies whitespace tokens with raw trim(). Keeping
+						// syntax SGR off spaces preserves the original word-wrap geometry.
+						const normalized = candidate.replace(/((?:\x1b\[[0-9;]*m)+)([ \t\n]+)/g, "$2$1");
+						// Moving an escape over a space can split its combining marks.
+						// Validate the final placement too; unsafe spans keep plain accent.
+						if (preservesGraphemes(display, normalized)) colored = normalized;
+					}
+				}
+			} catch {
+				// Missing/partial/invalid highlighting fails open to the original accent row.
+			}
+			highlightedCommands.set(key, colored);
+			if (highlightedCommands.size > 16)
+				highlightedCommands.delete(highlightedCommands.keys().next().value as string);
+		}
+		return theme.fg("accent", colored);
+	}
 	const spinnerStatesByToolCallId = new Map<string, BashSpinnerState>();
 	let nextSyntheticToolCallId = 0;
 
@@ -202,7 +282,7 @@ export function createBashProgress() {
 
 		if (!shouldSpin) {
 			stopSpinner(toolCallId, spinnerState);
-			text.setText(buildBashCallText(args, theme));
+			text.setText(buildBashCallText(args, theme, undefined, undefined, commandColors));
 			return text;
 		}
 
@@ -220,6 +300,7 @@ export function createBashProgress() {
 							target.theme,
 							BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 							Date.now() - (spinnerState.startedAt ?? Date.now()),
+							commandColors,
 						),
 					);
 					target.invalidate?.();
@@ -231,7 +312,7 @@ export function createBashProgress() {
 		const spinnerFrame = spinnerState ? BASH_SPINNER_FRAMES[spinnerState.frameIndex] : undefined;
 		const elapsedMs =
 			spinnerState?.startedAt !== undefined ? Date.now() - spinnerState.startedAt : undefined;
-		text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs));
+		text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs, commandColors));
 		return text;
 	}
 
@@ -243,6 +324,7 @@ export function createBashProgress() {
 		},
 		dispose() {
 			for (const [id, state] of spinnerStatesByToolCallId) stopSpinner(id, state);
+			highlightedCommands.clear();
 		},
 	};
 }

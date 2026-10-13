@@ -118,6 +118,7 @@ Across **21366 cases**, provenance records:
 | `writeContentWithoutPreimage` | 2808 | 2808 | 18558 |
 | `searchResultSeparator` | 702 | 702 | 20664 |
 | `unicodeCorrection` | 1998 | 3123 | 19368 |
+| `bashSyntaxColorOnly` | 486 | 486 | 20880 |
 
 Search/expanded-args row counts mean inserted rows, not shifted indices. Other
 row counts mean changed/added indices (MCP therefore includes shifted result
@@ -131,6 +132,25 @@ retained intermediate full-ANSI rows, single search/args insertions, new MCP
 changed/added/removed counts and write-header-only differences. Every unaffected
 vector retains the full-ANSI comparison, including unrelated collapsed calls and
 real-preimage writes.
+
+## User-approved Bash syntax foreground colors
+
+Owned Bash command/prefix text uses public `highlightCode(display, "bash")`, retaining
+all upstream characters, wrapping, prompt/suffix/status/output colors and backgrounds.
+The independently generated `bashSyntaxColorOnly` domain retains complete original
+`upstreamBashRows`; its 486 vectors/486 changed rows have identical stripped content,
+widths and line counts. All other 20880 vectors remain byte-identical to the preceding
+fixture. Full-ANSI replay remains mandatory for every candidate card.
+
+The public highlighter uses Pi's active theme, as do real tool-render callbacks. This
+is an integration constraint, not a promise to honor artificial callback themes.
+No global theme mutation occurs. A bounded 16-entry input/live-syntax-palette cache
+refreshes through Pi's stable theme proxy on theme swaps without re-lexing unchanged
+spinner ticks. Ingress sanitization/source caps run first. Only foreground SGR with
+exactly preserved text is accepted; missing, throwing, oversized or invalid output
+falls back to the original accent row. Explicit non-Bash shell paths use that same
+fallback (only default, `bash` and `sh` paths opt into Bash grammar). No arbitrary tool
+output is highlighted and no ownership/configuration/execution changes are made.
 
 ## Ownership and safety boundaries
 

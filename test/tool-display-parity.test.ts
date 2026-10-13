@@ -36,6 +36,8 @@ interface Fixture {
 	};
 	mcpMetadata?: { rawServer: string; rawTool: string; label: string; namespace: { name: string } };
 	rows: string[];
+	bashSyntaxColorOnly?: boolean;
+	upstreamBashRows?: string[];
 	unicodeCorrected?: boolean;
 	unchangedRows?: string[];
 	mcpOpenCode?: boolean;
@@ -60,6 +62,12 @@ const data = JSON.parse(
 		files: Record<string, string>;
 		livePaletteSha256: string;
 		unicodePatchSha256: string;
+		bashSyntaxColorOnly: {
+			vectors: number;
+			rows: number;
+			unchangedVectors: number;
+			rationale: string;
+		};
 		genericInlineArgs: {
 			vectors: number;
 			rows: number;
@@ -129,6 +137,36 @@ describe("tool-display pinned complete public-card parity", () => {
 			data.provenance.unicodeCorrection.vectors,
 		);
 		expect(data.cases.some((value) => value.theme === "reference-system")).toBe(true);
+	});
+	it("accounts for the intentional Bash-syntax-color-only domain with complete retained upstream rows", async () => {
+		const { visibleWidth } = await import("@earendil-works/pi-tui");
+		expect(data.provenance.bashSyntaxColorOnly).toMatchObject({
+			vectors: 486,
+			rows: 486,
+			unchangedVectors: 20880,
+		});
+		expect(data.provenance.bashSyntaxColorOnly.rationale).not.toBe("");
+		const changed = data.cases.filter((item) => item.bashSyntaxColorOnly);
+		expect(changed).toHaveLength(486);
+		let rows = 0;
+		for (const fixture of changed) {
+			expect(fixture.name).toBe("bash");
+			const before = fixture.upstreamBashRows as string[];
+			expect(before).toBeDefined();
+			expect(fixture.rows).toHaveLength(before.length);
+			expect(fixture.rows.map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""))).toEqual(
+				before.map((row) => row.replace(/\x1b\[[0-9;]*m/g, "")),
+			);
+			expect(fixture.rows.map(visibleWidth)).toEqual(before.map(visibleWidth));
+			rows += fixture.rows.filter((row, index) => row !== before[index]).length;
+		}
+		expect(rows).toBe(486);
+		expect(
+			data.cases
+				.filter((item) => item.name !== "bash")
+				.every((item) => !item.bashSyntaxColorOnly && !item.upstreamBashRows),
+		).toBe(true);
+		// Complete ANSI replay below still asserts every candidate row, including Bash.
 	});
 	it("retains all oracle domains and omitted custom output-mode vectors", () => {
 		expect(data.cases).toHaveLength(21366);
