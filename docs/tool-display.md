@@ -19,8 +19,8 @@ and model-facing prompt metadata remain unchanged.
 
 The host must expose the public `registerToolRenderer(resolver)` API. Capability
 status reflects the actual host API, not package directories or install records.
-Pi 1.0.3 and 1.0.4 expose this contract; older supported Pi hosts without it keep
-native/predecessor rendering. OMP skin-only mode does not expose Tool display
+Pi 1.0.3 and 1.0.4 expose this contract; hosts without it keep native/predecessor
+rendering. OMP skin-only mode does not expose Tool display
 controls and retains saved preferences without applying them.
 
 ## Presets and modes

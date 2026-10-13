@@ -18,7 +18,7 @@ import {
 	hasExtensionLoaderDiagnostic,
 } from "./thinking-experimental-loader-diagnostics.mjs";
 
-const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["0.85.0", "0.87.1", "1.0.3"];
+const versions = process.env.ZENTUI_PI_VERSIONS?.split(",") ?? ["1.0.0", "1.0.3"];
 const root = join(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "zentui-thinking-tui-"));
 const npmCli = process.env.npm_execpath;
@@ -34,10 +34,14 @@ function resolveInstalledManifest(installRoot, packageName) {
 
 function attestInstalledVersions(installRoot, requestedVersion) {
 	const packages = {
-		...(requestedVersion === "0.85.0" ? { server: "@earendil-works/pi-server" } : {}),
 		codingAgent: "@earendil-works/pi-coding-agent",
 		tui: "@earendil-works/pi-tui",
 		ai: "@earendil-works/pi-ai",
+		agentCore: "@earendil-works/pi-agent-core",
+		chord: "@earendil-works/chord",
+		codemode: "@earendil-works/pi-codemode",
+		mcp: "@earendil-works/pi-mcp",
+		telemetry: "@earendil-works/pi-telemetry",
 	};
 	const resolved = Object.fromEntries(
 		Object.entries(packages).map(([key, packageName]) => [
@@ -1535,8 +1539,10 @@ while True: time.sleep(1)
 				`@earendil-works/pi-ai@${version}`,
 				`@earendil-works/pi-coding-agent@${version}`,
 				`@earendil-works/pi-tui@${version}`,
-				// Pi 0.85.0's unbundled exports import pi-server but omit its dependency.
-				...(version === "0.85.0" ? [`@earendil-works/pi-server@${version}`] : []),
+				// Match the public host family to avoid newer codemode declaration drift.
+				...["pi-agent-core", "chord", "pi-codemode", "pi-mcp", "pi-telemetry"].map(
+					(name) => `@earendil-works/${name}@${version}`,
+				),
 			],
 			{ cwd: versionRoot, stdio: "inherit", timeout: 180_000 },
 		);
