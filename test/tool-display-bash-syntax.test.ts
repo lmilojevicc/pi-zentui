@@ -38,7 +38,7 @@ function activeTheme(name: string): Theme {
 		{},
 		{},
 		{
-			renderCall(_args, current) {
+			renderCall(_args: unknown, current: Theme) {
 				captured = current;
 				return new Text("", 0, 0);
 			},
