@@ -195,7 +195,7 @@ describe("tool-display/controller (public resolver only)", () => {
 				?.renderResult?.(textResult, options, theme, ctx)
 				.render(80)
 				.map((line) => line.trimEnd()),
-		).toEqual(["one", "two"]);
+		).toEqual(["• Ctrl+O to expand"]);
 	});
 	it("supports late tools/config getter changes, per-builtin flags, neutral idempotent release", () => {
 		const { controller, update, api } = setup({ enabled: true, readOutputMode: "summary" });
@@ -285,20 +285,27 @@ describe("tool-display/controller (public resolver only)", () => {
 			customToolOverrides: { demo: entry },
 		});
 		const owned = controller.resolver("demo", () => predecessor);
-		const output = owned?.renderResult?.(textResult, options, theme, ctx);
+		const output = owned?.renderResult?.(textResult, { ...options, expanded: true }, theme, {
+			...ctx,
+			expanded: true,
+		});
 		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
-			"↳ 2 lines returned • Ctrl+O to expand",
+			"",
+			"output:",
+			"↳ 2 lines returned",
 		]);
 		update({ enabled: true, mcpOutputMode: "preview", customToolOverrides: { demo: entry } });
 		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
-			"↳ 2 lines returned • Ctrl+O to expand",
+			"",
+			"output:",
+			"↳ 2 lines returned",
 		]);
 		update({
 			enabled: true,
 			mcpOutputMode: "hidden",
 			customToolOverrides: { demo: { ...entry, outputMode: "preview" } },
 		});
-		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		expect(output?.render(80).map((line) => line.trimEnd())).toEqual(["", "output:", "one", "two"]);
 		const persisted = JSON.parse(
 			JSON.stringify(
 				normalizeToolDisplayConfig({
@@ -311,7 +318,9 @@ describe("tool-display/controller (public resolver only)", () => {
 		expect(persisted.customToolOverrides.demo.outputMode).toBe("summary");
 		update(persisted);
 		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
-			"↳ 2 lines returned • Ctrl+O to expand",
+			"",
+			"output:",
+			"↳ 2 lines returned",
 		]);
 		update({
 			...persisted,
@@ -319,7 +328,9 @@ describe("tool-display/controller (public resolver only)", () => {
 			customToolOverrides: { demo: { ...entry, outputMode: "invalid" } },
 		});
 		expect(output?.render(80).map((line) => line.trimEnd())).toEqual([
-			"↳ 2 lines returned • Ctrl+O to expand",
+			"",
+			"output:",
+			"↳ 2 lines returned",
 		]);
 	});
 	it("late foreign resolver precedence and foreign definitions release already acquired rendering", () => {

@@ -245,7 +245,7 @@ describe("tool-display independent review regressions", () => {
 			ui,
 			"/sandbox",
 		);
-		expect(plain(row.render(110))).toContain('demo__prod/echo message="hello"');
+		expect(plain(row.render(110))).toContain('demo__prod/echo [message="hello"]');
 		controller.dispose();
 	});
 	it("does not UTF8-scan the unbounded original merely to detect extraction truncation", () => {

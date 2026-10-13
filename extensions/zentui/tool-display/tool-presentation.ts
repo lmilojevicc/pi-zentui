@@ -80,7 +80,7 @@ interface ToolRenderContextLike {
 	expanded?: boolean;
 }
 
-import { type CodeHighlighter, safeWidth } from "./bounds.js";
+import { boundedWrap, type CodeHighlighter, safeWidth } from "./bounds.js";
 import {
 	boundedContentMetadata,
 	graphemePrefix,
@@ -771,7 +771,6 @@ export function formatMcpCallLine(
 	toolLabel: string,
 	args: Record<string, unknown>,
 	theme: RenderTheme,
-	expanded = false,
 	payloadArgs = args,
 ): Component {
 	const target =
@@ -781,9 +780,37 @@ export function formatMcpCallLine(
 				? toolLabel.slice("MCP ".length)
 				: toolLabel;
 	const title = theme.fg("accent", target);
-	return expanded
-		? new Text(title, 0, 0)
-		: formatInlineArgsCall(title, toolName, payloadArgs, theme);
+	const payload = formatArgumentPayload(toolName, payloadArgs, ", ");
+	return hangingText(`${title}${theme.fg("muted", payload ? ` [${payload}]` : " (no args)")}`);
+}
+
+/** Each logical line keeps its margin; only wrapped continuations are indented. */
+function hangingText(source: string): Component {
+	return {
+		invalidate() {},
+		render(rawWidth) {
+			const width = safeWidth(rawWidth);
+			if (!width) return [];
+			const indent = width > 2 ? "  " : "";
+			const rows: string[] = [];
+			let capped = false;
+			for (const line of source.split("\n")) {
+				const wrapped = boundedWrap(line, width - indent.length, 20_000 - rows.length, true);
+				rows.push(
+					...wrapped.lines.map((row, index) =>
+						truncateToWidth(`${index ? indent : ""}${row}`, width, ""),
+					),
+				);
+				capped ||= wrapped.capped;
+				if (rows.length >= 20_000) {
+					capped = true;
+					break;
+				}
+			}
+			if (capped) rows.push(truncateToWidth("… (preview output omitted)", width, ""));
+			return rows;
+		},
+	};
 }
 
 /** Reuse the expanded args formatter, reserving columns for the call identity. */
@@ -817,6 +844,16 @@ export function formatMcpArgsLine(
 ): string | undefined {
 	const columns = safeWidth(width);
 	if (!columns) return undefined;
+	const payload = formatArgumentPayload(toolName, args, " ");
+	if (!payload) return undefined;
+	return truncateToWidth(`args: ${payload}`, columns, "…").replace(ANSI_SGR_PATTERN, "");
+}
+
+function formatArgumentPayload(
+	toolName: string,
+	args: Record<string, unknown>,
+	separator: string,
+): string | undefined {
 	let remaining = MAX_PREVIEW_LINE_CHARS;
 	let entries = 256;
 	let capped = false;
@@ -886,27 +923,8 @@ export function formatMcpArgsLine(
 		if (capped) break;
 	}
 	if (!parts.length) return undefined;
-	const line = sanitizeTerminalControls(`args: ${parts.join(" ")}`, "escape");
-	// The host truncator adds SGR resets; this plain formatter leaves all styling to the theme.
-	return truncateToWidth(capped ? `${line}…` : line, columns, "…").replace(ANSI_SGR_PATTERN, "");
-}
-
-export function buildExpandedMcpCall(
-	call: Component,
-	toolName: string,
-	args: Record<string, unknown>,
-	theme: RenderTheme,
-): Component {
-	return {
-		invalidate() {
-			call.invalidate();
-		},
-		render(width) {
-			const rows = call.render(width);
-			const line = formatMcpArgsLine(toolName, args, width);
-			return line ? [...rows, theme.fg("muted", line)] : rows;
-		},
-	};
+	const payload = sanitizeTerminalControls(parts.join(separator), "escape");
+	return capped ? `${payload}…` : payload;
 }
 
 function getMcpTruncationDetails(details: unknown): {
@@ -971,6 +989,37 @@ function renderMcpResult(
 	}
 
 	return renderMcpPreview(mcpCtx);
+}
+
+/** MCP expansion differs from generic custom results; do not change their mode semantics. */
+export function renderMcpDisplayResult(
+	result: ToolRenderInput,
+	options: ToolRenderResultOptions,
+	config: ToolDisplayConfig,
+	outputMode: CustomToolOverrideConfig["outputMode"],
+	theme: RenderTheme,
+): Component {
+	const partial = handlePartialResult(options, theme, "running...");
+	if (partial) return partial;
+	if (outputMode === "hidden") return textResult("");
+	const lines = prepareOutputLines(extractTextOutput(result), { ...options, expanded: true });
+	if (!options.expanded) {
+		return textResult(lines.length ? theme.fg("muted", "• Ctrl+O to expand") : "");
+	}
+	const ctx: McpPreviewHintContext = {
+		lines,
+		config,
+		theme,
+		options,
+		details: result.details,
+		truncation: getMcpTruncationDetails(result.details),
+	};
+	const lineCount = countNonEmptyLines(lines);
+	const body =
+		outputMode === "summary"
+			? theme.fg("muted", `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`)
+			: buildPreviewText(lines, getExpandedPreviewLineLimit(lines, config), theme, true);
+	return hangingText(`\n${theme.fg("muted", "output:")}\n${appendMcpPreviewHints(body, ctx)}`);
 }
 
 export function formatGenericToolCallLine(

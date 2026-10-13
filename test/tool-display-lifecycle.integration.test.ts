@@ -288,7 +288,7 @@ describe("tool-display lifecycle integration", () => {
 					?.renderResult?.(result, options, theme, row("late"))
 					.render(80)
 					.map((line) => line.trimEnd()),
-			).toEqual(["↳ 3 lines returned • Ctrl+O to expand"]);
+			).toEqual(["• Ctrl+O to expand"]);
 			expect(h.resolve("unlisted")).toBeUndefined();
 			expect(original.execute).not.toHaveBeenCalled();
 			expect(original.promptSnippet).toBe("keep");

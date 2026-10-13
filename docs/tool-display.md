@@ -45,7 +45,7 @@ count within the limits below can also be set in JSON.
 Read/MCP modes are `hidden | summary | preview`; search modes are
 `hidden | count | preview`. Bash `opencode` uses its collapse limit, `summary`
 shows a line count, and `preview` shows preview lines. Errors and partial states
-follow upstream presentation. Hidden read/search/MCP modes hide result text, including errors, even when expanded; select Summary or Preview to reveal it. The host retains the actual error status/card color and full result/image data. Unknown result shapes delegate unchanged.
+follow upstream presentation. Hidden read/search/MCP modes hide result text, including errors, even when expanded; select Preview to reveal MCP text (Summary reveals only its line count). The host retains the actual error status/card color and full result/image data. Unknown result shapes delegate unchanged.
 Expansion uses the host's tool expansion action.
 
 Owned generic custom calls show inline arguments, for example:
@@ -55,40 +55,78 @@ sandbox_echo message="hello from real custom tool"
 ```
 
 Owned direct canonical MCP calls use the accent label/namespace-derived target,
-without an `MCP ` prefix or argument count. Collapsed and expanded forms are:
+without an `MCP ` prefix or argument count. Both states keep the same bracketed
+argument list. In `preview` mode:
 
 ```text
-zentui_demo/echo message="hello from real local MCP server"
-
-zentui_demo/echo
-args: message="hello from real local MCP server"
+zentui_demo/echo [message="hello from real local MCP server", repeat=2]
+• Ctrl+O to expand
 ```
 
-Expansion (Ctrl+O) keeps the existing muted `args: ...` line and uses a target-only
-call line: the payload is never printed twice. Generic expansion keeps the inline
-call. Empty generic/direct arguments retain `(no args)` when collapsed; expanded
-MCP has only its target when there is no payload.
+Expanded (Ctrl+O):
+
+```text
+zentui_demo/echo [message="hello from real local MCP server", repeat=2]
+
+output:
+first result line
+second result line
+```
+
+Call arguments wrap onto as many rows as needed, with a two-column hanging
+indent on continuations; there is no width ellipsis. Each output logical line
+starts at the same margin as `output:`; only its wrapped continuations are
+hanging-indented by two columns. The expanded call is identical to the collapsed
+call, with no separate duplicate `args:` block. Empty arguments keep `(no args)`
+in both states. Generic custom calls retain their existing width ellipsis.
 
 The `mcp` proxy and noncanonical MCP gateways keep their existing target selection
-(`call demo:echo`, `search "x" @demo`, `describe`, `connect`, `status`). Collapsed
-calls likewise append inline payloads, e.g. `call demo:echo args={"message":"hello"}`;
-expanded calls show `call demo:echo` followed by `args: args={"message":"hello"}`.
+(`call demo:echo`, `search "x" @demo`, `describe`, `connect`, `status`). Their calls
+use the same bracketed layout, e.g. `call demo:echo [args={"message":"hello"}]`.
 Target-encoded routing keys (`tool`, `server`, `connect`, `describe`, `search`) are
-omitted from the payload. Search/describe extras remain visible as `limit=8` or
-`verbose=true`; routing-only calls use `(no args)` collapsed and no extra expanded line.
+omitted from the payload. Search/describe extras remain visible as `[limit=8]` or
+`[verbose=true]`; routing-only calls keep `(no args)` in both states.
+
+### MCP output modes
+
+| MCP mode | Collapsed | Expanded |
+| --- | --- | --- |
+| `preview` (recommended) | Call args + `• Ctrl+O to expand` when text output exists; no result text | Same call, blank line, `output:` on its own line, then every result line, subject to documented safety/expanded-preview caps |
+| `summary` | Call args + the same hint when text output exists; no result text/count | Same call, blank line, `output:`, then `↳ N lines returned` (nonempty logical lines, before wrapping); no result text |
+| `hidden` | Call args only, no output hint | Same call; no output, even errors |
+
+An empty Preview expansion shows `output:` followed by `↳ (no output)`; Summary
+shows zero lines returned. No hint is added for empty text output or Hidden mode.
+Partial/running status, host error colors and images, backend truncation notices
+and expanded-preview limits remain intact. `previewLines` does not truncate MCP
+arguments or final expanded output; `expandedPreviewMaxLines` still applies.
+Generic custom tools and read/search/Bash modes retain their existing semantics.
+
+Existing presets and the omitted custom-entry `summary` default are preserved
+conservatively: this changes how MCP modes display, not saved choices. Select an
+explicit MCP `outputMode: "preview"` to see returned lines on expansion; Summary
+no longer reveals result text even when expanded.
 
 The shared args formatter quotes strings, leaves numbers/booleans/null raw and
-uses compact object/array JSON in own-key order. Calls and args lines are
-width-bounded with trailing `…`; terminal controls are escaped. Inspection is
-bounded to 16384 source characters, 256 entries and 16 nesting levels before
-serialization; accessors are never invoked. Values are **not masked or redacted**,
-matching native Pi; masking is an explicit non-goal, not a security promise.
-Hidden mode still hides results, not call information.
+uses compact object/array JSON in own-key order; terminal controls are escaped.
+Inspection is bounded to 16384 source characters, 256 entries and 16 nesting
+levels before serialization; accessors are never invoked. Source-cap ellipses
+and safety omission notices remain, unlike width truncation. Values are **not
+masked or redacted**, matching native Pi; masking is an explicit non-goal, not a
+security promise. Hidden mode still hides results, not call information.
+
+This follows OpenCode's expand-to-see-output behaviour, not its exact details:
+OpenCode uses `zentui_demo_echo`; we keep Pi's `zentui_demo/echo`. OpenCode adds a
+status glyph; we retain Pi's card status/colors without adding that glyph.
+OpenCode has no expand hint; we show Pi's real `• Ctrl+O to expand`.
+OpenCode leaves string values unquoted; we keep JSON quoting/escaping. We keep
+the bracketed args on expansion rather than duplicate a key/value block, and
+place `output:` alone above the same-margin result lines.
 
 Grep/find/ls insert one blank separator between the call and visible result rows,
 matching native search spacing; hidden/empty result slots add no blank row.
-Inline generic/MCP calls, expanded MCP args, write wording and search spacing
-are declared, counted upstream parity divergences. Disabled/native/delegated rows
+Inline generic calls, the superseding OpenCode-style MCP layout/output modes,
+write wording and search spacing are declared, counted upstream parity divergences. Disabled/native/delegated rows
 and unrelated surfaces remain unchanged.
 
 ## Diff and preview controls
@@ -193,7 +231,7 @@ Canonical `mcp__<server>__<tool>` entries use upstream's automatic/direct MCP
 presentation (`<server>/<tool>`), even with an explicit custom override. This is
 an intentional divergence from upstream's explicit-custom path, which uses proxy
 target selection (for example, `MCP status (1 arg)` for `{message}` arguments).
-Zentui retains the canonical target (`zentui_demo/echo`) with inline payloads, so
+Zentui retains the canonical target (`zentui_demo/echo`) with bracketed payloads, so
 opting in does not change the tool's identity. The public ToolInfo API has no
 registered label,
 so public namespace metadata supplies the server boundary when available; otherwise
@@ -262,8 +300,8 @@ explicit guards described above. Attribution and MIT notices are included.
 The user-approved Unicode fix expands changed-word emphasis boundaries to whole
 graphemes, preventing the upstream surrogate/combining/ZWJ corruption. Those
 vectors intentionally differ from unpatched upstream and match a separately
-recorded minimal corrected reference. The native-style generic/MCP calls, expanded MCP arguments, no-preimage write
-wording and search separators are separately declared above. All remaining
+recorded minimal corrected reference. The native-style generic calls, superseding OpenCode-style MCP calls/output,
+no-preimage write wording and search separators are separately declared above. All remaining
 oracle-tested normal rows are identical within the matched domains; collapsed
 MCP calls intentionally supersede the earlier count-only presentation.
 Development oracle generation and safety-domain details are recorded in the

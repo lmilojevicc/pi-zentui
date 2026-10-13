@@ -212,17 +212,13 @@ export function createToolDisplayRenderers(
 					if (custom.kind !== "mcp")
 						return presentation.formatGenericToolCallLine(name, args, theme, true);
 					const toolName = directMcp ? name : "mcp";
-					const call = presentation.formatMcpCallLine(
+					return presentation.formatMcpCallLine(
 						toolName,
 						target ?? "MCP Proxy",
 						input,
 						theme,
-						ctx.expanded,
 						record(args),
 					);
-					return ctx.expanded
-						? presentation.buildExpandedMcpCall(call, toolName, record(args), theme)
-						: call;
 				}
 				switch (name) {
 					case "read":
@@ -319,13 +315,11 @@ export function createToolDisplayRenderers(
 			const safe = result; // Full result/image/error identity remains available to host and execution.
 			let component: Component;
 			if (custom) {
-				component = presentation.renderCustomToolResult(
-					safe,
-					options,
-					cfg,
-					custom.outputMode ?? "summary",
-					theme,
-				);
+				component = (
+					custom.kind === "mcp"
+						? presentation.renderMcpDisplayResult
+						: presentation.renderCustomToolResult
+				)(safe, options, cfg, custom.outputMode ?? "summary", theme);
 			} else if (name === "read")
 				component = presentation.renderReadDisplayResult(safe, options, cfg, theme);
 			else if (name === "bash")

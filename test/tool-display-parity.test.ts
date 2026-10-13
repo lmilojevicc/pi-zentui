@@ -38,6 +38,8 @@ interface Fixture {
 	rows: string[];
 	unicodeCorrected?: boolean;
 	unchangedRows?: string[];
+	mcpOpenCode?: boolean;
+	nativeMcpRows?: string[];
 	mcpArgsExpanded?: boolean;
 	upstreamMcpRows?: string[];
 	inlineMcpRows?: string[];
@@ -77,6 +79,7 @@ const data = JSON.parse(
 			unchangedVectors: number;
 			rationale: string;
 		};
+		mcpOpenCode: { vectors: number; rows: number; unchangedVectors: number; rationale: string };
 		mcpArgsExpansion: {
 			vectors: number;
 			rows: number;
@@ -128,17 +131,17 @@ describe("tool-display pinned complete public-card parity", () => {
 		expect(data.cases.some((value) => value.theme === "reference-system")).toBe(true);
 	});
 	it("retains all oracle domains and omitted custom output-mode vectors", () => {
-		expect(data.cases).toHaveLength(21222);
+		expect(data.cases).toHaveLength(21366);
 		expect(data.provenance.unicodeCorrection).toEqual({
 			vectors: 1998,
 			rows: 3123,
 			upstreamMalformedRows: 2268,
-			unchangedVectors: 19224,
+			unchangedVectors: 19368,
 		});
 		expect(data.provenance.mcpArgsExpansion).toMatchObject({
-			vectors: 1080,
-			rows: 1080,
-			unchangedVectors: 20142,
+			vectors: 1134,
+			rows: 1134,
+			unchangedVectors: 20232,
 		});
 		const argsExpanded = data.cases.filter((item) => item.mcpArgsExpanded);
 		expect(argsExpanded).toHaveLength(data.provenance.mcpArgsExpansion.vectors);
@@ -146,10 +149,11 @@ describe("tool-display pinned complete public-card parity", () => {
 			expect(fixture.kind).toBe("mcp");
 			expect(fixture.expanded).toBe(true);
 			const upstream = fixture.inlineMcpRows as string[];
-			const insertion = fixture.rows.findIndex((row, index) => row !== upstream[index]);
-			expect(fixture.rows[insertion]).toContain("args: ");
-			expect(fixture.rows).toHaveLength(upstream.length + 1);
-			expect(fixture.rows.filter((_, index) => index !== insertion)).toEqual(upstream);
+			const rows = fixture.nativeMcpRows as string[];
+			const insertion = rows.findIndex((row, index) => row !== upstream[index]);
+			expect(rows[insertion]).toContain("args: ");
+			expect(rows).toHaveLength(upstream.length + 1);
+			expect(rows.filter((_, index) => index !== insertion)).toEqual(upstream);
 		}
 		expect(
 			data.cases
@@ -158,7 +162,7 @@ describe("tool-display pinned complete public-card parity", () => {
 		).toBe(true);
 		for (const [domain, vectors, rows] of [
 			["genericInlineArgs", 702, 702],
-			["mcpInlineArgs", 2214, 5823],
+			["mcpInlineArgs", 2358, 6345],
 			["writeContentWithoutPreimage", 2808, 2808],
 			["searchResultSeparator", 702, 702],
 		] as const) {
@@ -177,10 +181,11 @@ describe("tool-display pinned complete public-card parity", () => {
 					fixture.upstreamWriteRows ??
 					fixture.upstreamSearchRows;
 				expect(upstream).toBeDefined();
-				expect(fixture.rows).not.toEqual(upstream);
+				const rows = fixture.nativeMcpRows ?? fixture.rows;
+				expect(rows).not.toEqual(upstream);
 				if (domain === "genericInlineArgs" || domain === "mcpInlineArgs") {
-					expect(fixture.rows.slice(0, 2)).toEqual((upstream as string[]).slice(0, 2));
-					expect(fixture.rows.slice(fixture.mcpArgsExpanded ? 4 : 3)).toEqual(
+					expect(rows.slice(0, 2)).toEqual((upstream as string[]).slice(0, 2));
+					expect(rows.slice(fixture.mcpArgsExpanded ? 4 : 3)).toEqual(
 						(upstream as string[]).slice(3),
 					);
 				}
@@ -198,6 +203,32 @@ describe("tool-display pinned complete public-card parity", () => {
 				}
 			}
 		}
+		expect(data.provenance.mcpOpenCode).toMatchObject({
+			vectors: 2358,
+			rows: 8229,
+			unchangedVectors: 19008,
+		});
+		expect(data.provenance.mcpOpenCode.rationale).not.toBe("");
+		const openCode = data.cases.filter((item) => item.mcpOpenCode);
+		expect(openCode).toHaveLength(data.provenance.mcpOpenCode.vectors);
+		let changedRows = 0;
+		for (const fixture of openCode) {
+			expect(fixture.kind).toBe("mcp");
+			expect(fixture.nativeMcpRows).toBeDefined();
+			expect(fixture.upstreamMcpRows).toBeDefined();
+			expect(fixture.rows).not.toEqual(fixture.nativeMcpRows);
+			const before = fixture.nativeMcpRows as string[];
+			changedRows +=
+				Math.max(before.length, fixture.rows.length) -
+				fixture.rows.filter((row, index) => row === before[index]).length;
+		}
+		expect(changedRows).toBe(data.provenance.mcpOpenCode.rows);
+		// All non-MCP domains keep their previous complete ANSI rows; no relaxed comparison.
+		expect(
+			data.cases
+				.filter((item) => item.kind !== "mcp")
+				.every((item) => !item.mcpOpenCode && !item.nativeMcpRows),
+		).toBe(true);
 		const omitted = data.cases.filter((item) => item.omitCustomOutputMode);
 		expect(omitted).toHaveLength(108);
 		expect(new Set(omitted.map((item) => item.name))).toEqual(

@@ -57,20 +57,33 @@ loads these APIs only inside the modern-host test; older hosts retain their skip
 
 ## User-approved native-style presentation
 
-The earlier option D count-only collapsed MCP look is superseded. Owned generic
-calls show `sandbox_echo message="hello from real custom tool"`. Direct canonical
-MCP calls show the accent target plus inline args:
-`zentui_demo/echo message="hello from real local MCP server"` (no `MCP ` or count).
-Expanded MCP uses the smaller honest form: target-only call plus exactly one
-muted `args: message="hello from real local MCP server"` row. Generic expansion
-retains inline args. Empty generic/direct calls retain `(no args)` collapsed;
-empty expanded MCP adds no args line. Proxy/gateway targets remain unchanged;
-`call demo:echo args={"message":"hello"}` collapses to inline payload and expands
-to `call demo:echo` plus `args: args={"message":"hello"}`. Routing keys are omitted
-because they already appear in the target; routing-only calls use `(no args)`
-collapsed. Values use the existing bounded, own-data-only args formatter with
-escaped controls, quoted strings/raw primitives/compact JSON and width ellipsis.
-No values are masked or redacted.
+The earlier option D count-only and native-style inline MCP looks are superseded.
+Owned generic calls still show `sandbox_echo message="hello from real custom tool"`.
+MCP calls now retain the same accent target plus bracketed args in both states:
+`zentui_demo/echo [message="hello from real local MCP server"]`. Calls wrap with
+two-column hanging continuations, never a width ellipsis. Empty args keep
+`(no args)` in both states. Proxy/gateway targets remain unchanged, e.g.
+`call demo:echo [args={"message":"hello"}]`; routing keys are omitted because
+they already appear in the target. Values retain bounded own-data-only inspection,
+escaped controls, quoted strings/raw primitives/compact JSON, and source-cap notices.
+No values are masked or redacted. Generic call width truncation is unchanged.
+
+Final collapsed MCP rows show no result text in any mode. Preview/Summary add
+Pi's real `• Ctrl+O to expand` only when text output exists. Expanded Preview
+shows a blank row, `output:` alone, then every bounded result logical line at the
+same margin, with two-column hanging wraps. Expanded Summary shows the nonempty
+logical returned-line count under `output:` instead of result text; Hidden shows
+nothing even when expanded. Running status, host error/image handling and safety/
+backend notices remain intact. Existing presets/custom-entry Summary defaults
+are deliberately preserved; Preview is recommended as an explicit MCP selection.
+This conservatively resolves the old documented Summary-expands-to-preview
+semantics in favour of the owner's requested mode mapping, without rewriting config.
+
+Deliberate differences from OpenCode: their `zentui_demo_echo` naming versus our
+Pi `zentui_demo/echo`; their status glyph versus Pi's existing card status/colors;
+their lack of an expand hint versus our `• Ctrl+O to expand`; their unquoted strings
+versus our quoting/escaping. Expanded args are not duplicated as their key/value
+block, and our `output:` is alone above same-margin result lines.
 
 Successful writes without real preimages show `↳ written` and the call arguments'
 content as an addition-only grid. This is not a reconstructed diff and performs
@@ -85,29 +98,39 @@ uses the corrected upstream write grid with an explicit `written` header for
 no-preimage vectors. It never imports the candidate formatter or copies candidate
 rows as expectations. Original upstream expectations are retained as
 `upstreamMcpRows`, `upstreamGenericRows`, `upstreamWriteRows`, `upstreamSearchRows`.
-Expanded MCP fixtures additionally retain target-only `inlineMcpRows` to audit the
-single args insertion. Original upstream source hashes remain verified.
+The prior native-style MCP expectation is retained as `nativeMcpRows` for the
+new `mcpOpenCode` divergence. Its target-only `inlineMcpRows` still audits the
+previous single args insertion. The new generator-side transform obtains targets
+and Preview content from upstream renderers, independently formats bounded
+fixture args, and wraps logical lines through the public TUI wrapper. It never
+imports candidate formatting. Earlier divergence counts audit the retained
+intermediate expectation; `mcpOpenCode` counts the superseding rows against it.
+Original upstream source hashes remain verified.
 
-Across **21222 cases**, provenance records:
+Across **21366 cases**, provenance records:
 
 | Divergence | Vectors | Rows | Unchanged vectors |
 | --- | ---: | ---: | ---: |
-| `genericInlineArgs` | 702 | 702 | 20520 |
-| `mcpInlineArgs` | 2214 | 5823 | 19008 |
-| `mcpArgsExpansion` | 1080 | 1080 | 20142 |
-| `writeContentWithoutPreimage` | 2808 | 2808 | 18414 |
-| `searchResultSeparator` | 702 | 702 | 20520 |
-| `unicodeCorrection` | 1998 | 3123 | 19224 |
+| `genericInlineArgs` | 702 | 702 | 20664 |
+| `mcpInlineArgs` (retained intermediate) | 2358 | 6345 | 19008 |
+| `mcpArgsExpansion` (retained intermediate) | 1134 | 1134 | 20232 |
+| `mcpOpenCode` | 2358 | 8229 | 19008 |
+| `writeContentWithoutPreimage` | 2808 | 2808 | 18558 |
+| `searchResultSeparator` | 702 | 702 | 20664 |
+| `unicodeCorrection` | 1998 | 3123 | 19368 |
 
 Search/expanded-args row counts mean inserted rows, not shifted indices. Other
 row counts mean changed/added indices (MCP therefore includes shifted result
-indices); these domains overlap rather than summing to case count. Unicode still
+indices); `mcpOpenCode` also counts removed indices. These domains overlap rather
+than summing to case count. Unicode still
 records 2268 original malformed rows. The 3240 added no-preimage write vectors
 mirror successful existing write grids across widths/layouts/indicators/wrapping;
 432 extremely narrow headers truncate identically to upstream and stay undeclared.
-Tests audit preserved full-ANSI result rows, the single search/args insertions and
-write-header-only differences. Every unaffected vector retains the full-ANSI
-comparison, including unrelated collapsed calls and real-preimage writes.
+The 144 added vectors cover MCP edge inputs at 80/150 columns. Tests audit the
+retained intermediate full-ANSI rows, single search/args insertions, new MCP
+changed/added/removed counts and write-header-only differences. Every unaffected
+vector retains the full-ANSI comparison, including unrelated collapsed calls and
+real-preimage writes.
 
 ## Ownership and safety boundaries
 
@@ -118,9 +141,11 @@ is installed. New owned rows use upstream default card framing. Existing constru
 edit/custom-self outer shells need public rebuild/reload to restore predecessor
 framing; callback/component cleanup and sticky release are still preserved.
 
-Text/image/mixed/empty presentation follows upstream while the host retains complete
-results, image blocks, error status, history and model content. Hidden read/search/MCP
-modes hide error text even when expanded; Summary/Preview reveals it. Unsupported
+Text/image/mixed/empty presentation retains upstream handling except the declared
+MCP layout/mode changes; the host retains complete results, image blocks, error
+status, history and model content. Hidden read/search/MCP
+modes hide error text even when expanded; MCP Preview reveals it and MCP Summary
+reveals only the nonempty-line count (read/search Summary expansion is unchanged). Unsupported
 shapes still fail open.
 
 Pending and true old/new write diffs require live, complete, workspace-only preimages from public

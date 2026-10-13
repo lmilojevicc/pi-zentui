@@ -218,7 +218,7 @@ describe("tool-display/renderers", () => {
 				const renderer = createToolDisplayRenderers(name, () => config, {}, entry);
 				expect(plain(renderer.renderCall?.(args, theme, context(args)).render(112) ?? [])).toBe(
 					kind === "mcp"
-						? 'zentui_demo/echo message="hello from real local MCP server"'
+						? 'zentui_demo/echo [message="hello from real local MCP server"]'
 						: 'sandbox_echo message="hello from real local MCP server"',
 				);
 				for (const expanded of [false, true]) {
@@ -232,7 +232,13 @@ describe("tool-display/renderers", () => {
 							)
 							.render(112) ?? [];
 					expect(plain(rows)).toBe(
-						expanded ? lines.join("\n") : "↳ 12 lines returned • Ctrl+O to expand",
+						kind === "mcp"
+							? expanded
+								? "\noutput:\n↳ 12 lines returned"
+								: "• Ctrl+O to expand"
+							: expanded
+								? lines.join("\n")
+								: "↳ 12 lines returned • Ctrl+O to expand",
 					);
 				}
 			}
@@ -281,8 +287,9 @@ describe("tool-display/renderers", () => {
 		);
 		expect(
 			plain(mcp.renderCall?.({ tool: "echo", server: "demo" }, theme, context()).render(80) ?? []),
-		).toBe('demo/echo tool="echo" server="demo"');
-		expect(plain(render(mcp, "one"))).toBe("one");
+		).toBe('demo/echo [tool="echo", server="demo"]');
+		expect(plain(render(mcp, "one"))).toBe("• Ctrl+O to expand");
+		expect(plain(render(mcp, "one", true))).toBe("\noutput:\none");
 	});
 	it("reports backend and expanded caps, strips terminal instructions, and re-reads config/theme", () => {
 		let config = normalizeToolDisplayConfig({
@@ -671,18 +678,18 @@ describe("tool-display/renderers", () => {
 		[
 			"mcp__zentui_demo__echo",
 			{ message: "hello from real local MCP server" },
-			'zentui_demo/echo message="hello from real local MCP server"',
+			'zentui_demo/echo [message="hello from real local MCP server"]',
 		],
 		[
 			"mcp__demo_prod__echo",
 			{ message: "sanitized name" },
-			'demo_prod/echo message="sanitized name"',
+			'demo_prod/echo [message="sanitized name"]',
 		],
-		["mcp", { tool: "echo", server: "demo", message: "proxy" }, 'call demo:echo message="proxy"'],
+		["mcp", { tool: "echo", server: "demo", message: "proxy" }, 'call demo:echo [message="proxy"]'],
 		[
 			"custom_mcp_gateway",
 			{ tool: "echo", server: "demo", message: "gateway" },
-			'call demo:echo message="gateway"',
+			'call demo:echo [message="gateway"]',
 		],
 	] as const)(
 		"uses the correct direct versus proxy MCP extension presentation for %s",
@@ -728,7 +735,10 @@ describe("tool-display/renderers", () => {
 				isError: false,
 			});
 			expect(plain(row.render(110))).toContain(expected);
-			expect(plain(row.render(110))).toContain("response");
+			expect(plain(row.render(110))).not.toContain("response");
+			row.setExpanded(true);
+			expect(plain(row.render(110))).toContain(expected);
+			expect(plain(row.render(110))).toContain("output:\n response");
 			controller.dispose();
 		},
 	);

@@ -515,7 +515,7 @@ const argsDesign = JSON.parse(
 	readFileSync(join(root, "test/fixtures/tool-display-mcp-args-design.json"), "utf8"),
 );
 for (const theme of themes)
-	for (const width of [72, 100, 132])
+	for (const width of [72, 80, 100, 132, 150])
 		for (const expanded of [false, true])
 			for (const sample of argsDesign.cases.filter((value) => !value.id.startsWith("option-D")))
 				cases.push({
@@ -624,6 +624,82 @@ function declaredNativeRenderers(fixture, renderers, includeExpansion = true) {
 	};
 }
 
+// OpenCode-style MCP is a second, independently counted transform of the prior expectation.
+const referenceUtils = await jiti.import(join(reference, "src/render-utils.ts"));
+function declaredOpenCodeRenderers(fixture, renderers, legacy) {
+	if (fixture.kind !== "mcp") return legacy;
+	const mode = fixture.omitCustomOutputMode
+		? "summary"
+		: (fixture.config.mcpOutputMode ?? "hidden");
+	const previewRenderers = originalRenderers(
+		{ ...fixture, omitCustomOutputMode: false },
+		{ ...fixture.config, mcpOutputMode: "preview" },
+		corrected,
+	);
+	const wrap = (lines) => ({
+		invalidate() {},
+		render(width) {
+			const indent = width > 2 ? "  " : "";
+			return lines.flatMap((line) =>
+				tui
+					.wrapTextWithAnsi(line, width - indent.length)
+					.map((row, index) => `${index ? indent : ""}${row}`),
+			);
+		},
+	});
+	return {
+		...legacy,
+		renderCall(args, theme, ctx) {
+			const payload = Object.entries(fixture.args)
+				.filter(
+					([key]) =>
+						/^mcp__/.test(fixture.name) ||
+						!["tool", "server", "connect", "describe", "search"].includes(key),
+				)
+				.map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+				.join(", ")
+				.replace(
+					/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+					(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+				);
+			// Upstream-derived target-only call (before the previous args insertion).
+			const target = declaredNativeRenderers({ ...fixture, expanded: true }, renderers, false)
+				.renderCall(args, theme, ctx)
+				.render(16384)[0]
+				.trimEnd();
+			return wrap([`${target}${theme.fg("muted", payload ? ` [${payload}]` : " (no args)")}`]);
+		},
+		renderResult(result, options, theme, ctx) {
+			if (options.isPartial) return renderers.renderResult(result, options, theme, ctx);
+			if (mode === "hidden") return new tui.Text("", 0, 0);
+			const lines = referenceUtils.compactOutputLines(
+				referenceUtils.splitLines(referenceUtils.extractTextOutput(result)),
+				{ expanded: true },
+			);
+			if (!options.expanded)
+				return new tui.Text(lines.length ? theme.fg("muted", "• Ctrl+O to expand") : "", 0, 0);
+			const preview = previewRenderers
+				.renderResult(result, { ...options, expanded: true }, theme, ctx)
+				.render(16384)
+				.map((row) => row.trimEnd());
+			let output = preview;
+			if (mode === "summary") {
+				const count = referenceUtils.countNonEmptyLines(lines);
+				// Keep upstream backend/cap hint rows after replacing just the result lines.
+				const cap =
+					fixture.config.expandedPreviewMaxLines ??
+					corrected.types.DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines;
+				const shown = lines.length ? (cap ? Math.min(lines.length, cap) : lines.length) : 1;
+				output = [
+					theme.fg("muted", `↳ ${count} ${referenceUtils.pluralize(count, "line")} returned`),
+					...preview.slice(shown),
+				];
+			}
+			return wrap(["", theme.fg("muted", "output:"), ...output]);
+		},
+	};
+}
+
 function publicTheme(themeName) {
 	sdk.initTheme(themeName, false);
 	let theme;
@@ -725,6 +801,8 @@ let mismatches = 0;
 let correctedVectors = 0;
 let correctedRows = 0;
 let upstreamMalformedRows = 0;
+let openCodeVectors = 0;
+let openCodeRows = 0;
 let mcpArgsVectors = 0;
 let mcpArgsRows = 0;
 const presentationStats = Object.fromEntries(
@@ -801,14 +879,29 @@ try {
 		const correctedRenderers = originalRenderers(fixture, fixture.config, corrected);
 		const unicodeRows = render(fixture, correctedRenderers);
 		const inlineRows = render(fixture, declaredNativeRenderers(fixture, correctedRenderers, false));
-		const expected = render(fixture, declaredNativeRenderers(fixture, correctedRenderers));
+		const nativeRows = render(fixture, declaredNativeRenderers(fixture, correctedRenderers));
+		const expected = render(
+			fixture,
+			declaredOpenCodeRenderers(
+				fixture,
+				correctedRenderers,
+				declaredNativeRenderers(fixture, correctedRenderers),
+			),
+		);
+		const mcpOpenCode = JSON.stringify(expected) !== JSON.stringify(nativeRows);
+		if (mcpOpenCode) {
+			openCodeVectors++;
+			openCodeRows +=
+				Math.max(expected.length, nativeRows.length) -
+				expected.filter((row, index) => row === nativeRows[index]).length;
+		}
 		corrected.disposable.disposeAll();
-		const mcpArgsExpanded = JSON.stringify(expected) !== JSON.stringify(inlineRows);
+		const mcpArgsExpanded = JSON.stringify(nativeRows) !== JSON.stringify(inlineRows);
 		if (mcpArgsExpanded) {
-			const insertion = expected.findIndex((row, index) => row !== inlineRows[index]);
+			const insertion = nativeRows.findIndex((row, index) => row !== inlineRows[index]);
 			if (
-				expected.length !== inlineRows.length + 1 ||
-				JSON.stringify(expected.filter((_, index) => index !== insertion)) !==
+				nativeRows.length !== inlineRows.length + 1 ||
+				JSON.stringify(nativeRows.filter((_, index) => index !== insertion)) !==
 					JSON.stringify(inlineRows)
 			)
 				throw new Error("Expanded args must be exactly one insertion after the target-only call");
@@ -825,14 +918,14 @@ try {
 						: ["grep", "find", "ls"].includes(fixture.name)
 							? "searchResultSeparator"
 							: undefined;
-		const presentationChanged = JSON.stringify(expected) !== JSON.stringify(unicodeRows);
+		const presentationChanged = JSON.stringify(nativeRows) !== JSON.stringify(unicodeRows);
 		if (domain && presentationChanged) {
 			presentationStats[domain].vectors++;
 			// Search counts inserted blank rows; other domains count changed/added row indices.
 			presentationStats[domain].rows +=
 				domain === "searchResultSeparator"
-					? expected.length - unicodeRows.length
-					: expected.filter((row, index) => row !== unicodeRows[index]).length;
+					? nativeRows.length - unicodeRows.length
+					: nativeRows.filter((row, index) => row !== unicodeRows[index]).length;
 		}
 		const unicodeCorrected = JSON.stringify(unchangedRows) !== JSON.stringify(unicodeRows);
 		if (unicodeCorrected) {
@@ -908,6 +1001,7 @@ try {
 		output.push({
 			...fixture,
 			rows: expected,
+			...(mcpOpenCode ? { mcpOpenCode: true, nativeMcpRows: nativeRows } : {}),
 			...(unicodeCorrected ? { unicodeCorrected: true, unchangedRows } : {}),
 			...(mcpArgsExpanded ? { mcpArgsExpanded: true, inlineMcpRows: inlineRows } : {}),
 			...(domain && presentationChanged
@@ -946,6 +1040,13 @@ const provenance = {
 		rows: correctedRows,
 		upstreamMalformedRows,
 		unchangedVectors: cases.length - correctedVectors,
+	},
+	mcpOpenCode: {
+		vectors: openCodeVectors,
+		rows: openCodeRows,
+		unchangedVectors: cases.length - openCodeVectors,
+		rationale:
+			"MCP keeps bracketed args in both states with hanging wraps, never width ellipsis; collapsed shows only a real Pi expand hint, expanded preview shows output: then result lines, summary returns a nonempty-line count and hidden hides output. Independent upstream-derived transform; rows count changed/added/removed indices relative to the retained nativeMcpRows. Upstream rows remain retained separately.",
 	},
 	mcpArgsExpansion: {
 		vectors: mcpArgsVectors,
