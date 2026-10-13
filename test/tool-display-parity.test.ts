@@ -243,7 +243,7 @@ describe("tool-display pinned complete public-card parity", () => {
 		}
 		expect(data.provenance.mcpOpenCode).toMatchObject({
 			vectors: 2358,
-			rows: 8229,
+			rows: 8274,
 			unchangedVectors: 19008,
 		});
 		expect(data.provenance.mcpOpenCode.rationale).not.toBe("");

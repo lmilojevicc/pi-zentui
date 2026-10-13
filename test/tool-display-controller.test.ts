@@ -189,7 +189,7 @@ describe("tool-display/controller (public resolver only)", () => {
 				?.renderCall?.({}, theme, ctx)
 				.render(80)
 				.map((line) => line.trimEnd()),
-		).toEqual(["demo/echo (no args)"]);
+		).toEqual([" demo/echo (no args)"]);
 		expect(
 			owned
 				?.renderResult?.(textResult, options, theme, ctx)

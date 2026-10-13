@@ -667,7 +667,8 @@ function declaredOpenCodeRenderers(fixture, renderers, legacy) {
 				.renderCall(args, theme, ctx)
 				.render(16384)[0]
 				.trimEnd();
-			return wrap([`${target}${theme.fg("muted", payload ? ` [${payload}]` : " (no args)")}`]);
+			const title = theme.fg("accent", ` ${target.replace(/\x1b\[[0-9;]*m/g, "")}`);
+			return wrap([`${title}${theme.fg("muted", payload ? ` [${payload}]` : " (no args)")}`]);
 		},
 		renderResult(result, options, theme, ctx) {
 			if (options.isPartial) return renderers.renderResult(result, options, theme, ctx);
@@ -1106,7 +1107,7 @@ const provenance = {
 		rows: openCodeRows,
 		unchangedVectors: cases.length - openCodeVectors,
 		rationale:
-			"MCP keeps bracketed args in both states with hanging wraps, never width ellipsis; collapsed shows only a real Pi expand hint, expanded preview shows output: then result lines, summary returns a nonempty-line count and hidden hides output. Independent upstream-derived transform; rows count changed/added/removed indices relative to the retained nativeMcpRows. Upstream rows remain retained separately.",
+			"MCP prefixes the target with the requested  identifier and keeps bracketed args in both states with hanging wraps, never width ellipsis; collapsed shows only a real Pi expand hint, expanded preview shows output: then result lines, summary returns a nonempty-line count and hidden hides output. Independent upstream-derived transform; rows count changed/added/removed indices relative to the retained nativeMcpRows. Upstream rows remain retained separately.",
 	},
 	mcpArgsExpansion: {
 		vectors: mcpArgsVectors,

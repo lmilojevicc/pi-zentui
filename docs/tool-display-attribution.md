@@ -59,11 +59,11 @@ loads these APIs only inside the modern-host test; older hosts retain their skip
 
 The earlier option D count-only and native-style inline MCP looks are superseded.
 Owned generic calls still show `sandbox_echo message="hello from real custom tool"`.
-MCP calls now retain the same accent target plus bracketed args in both states:
-`zentui_demo/echo [message="hello from real local MCP server"]`. Calls wrap with
+MCP calls prefix the same accent target with `` and retain bracketed args in both states:
+` zentui_demo/echo [message="hello from real local MCP server"]`. Calls wrap with
 two-column hanging continuations, never a width ellipsis. Empty args keep
 `(no args)` in both states. Proxy/gateway targets remain unchanged, e.g.
-`call demo:echo [args={"message":"hello"}]`; routing keys are omitted because
+` call demo:echo [args={"message":"hello"}]`; routing keys are omitted because
 they already appear in the target. Values retain bounded own-data-only inspection,
 escaped controls, quoted strings/raw primitives/compact JSON, and source-cap notices.
 No values are masked or redacted. Generic call width truncation is unchanged.
@@ -80,7 +80,7 @@ This conservatively resolves the old documented Summary-expands-to-preview
 semantics in favour of the owner's requested mode mapping, without rewriting config.
 
 Deliberate differences from OpenCode: their `zentui_demo_echo` naming versus our
-Pi `zentui_demo/echo`; their status glyph versus Pi's existing card status/colors;
+Pi `zentui_demo/echo`; their status glyph versus our MCP identifier `` and Pi's existing card status/colors;
 their lack of an expand hint versus our `• Ctrl+O to expand`; their unquoted strings
 versus our quoting/escaping. Expanded args are not duplicated as their key/value
 block, and our `output:` is alone above same-margin result lines.
@@ -114,7 +114,7 @@ Across **21366 cases**, provenance records:
 | `genericInlineArgs` | 702 | 702 | 20664 |
 | `mcpInlineArgs` (retained intermediate) | 2358 | 6345 | 19008 |
 | `mcpArgsExpansion` (retained intermediate) | 1134 | 1134 | 20232 |
-| `mcpOpenCode` | 2358 | 8229 | 19008 |
+| `mcpOpenCode` | 2358 | 8274 | 19008 |
 | `writeContentWithoutPreimage` | 2808 | 2808 | 18558 |
 | `searchResultSeparator` | 702 | 702 | 20664 |
 | `unicodeCorrection` | 1998 | 3123 | 19368 |

@@ -779,7 +779,7 @@ export function formatMcpCallLine(
 			: toolLabel.startsWith("MCP ")
 				? toolLabel.slice("MCP ".length)
 				: toolLabel;
-	const title = theme.fg("accent", target);
+	const title = theme.fg("accent", ` ${target}`);
 	const payload = formatArgumentPayload(toolName, payloadArgs, ", ");
 	return hangingText(`${title}${theme.fg("muted", payload ? ` [${payload}]` : " (no args)")}`);
 }

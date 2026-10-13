@@ -160,6 +160,8 @@ describe("OpenCode-style bracketed MCP arguments", () => {
 				const name = kind === "proxy" ? "mcp" : "mcp__demo__echo";
 				const rows = formatMcpCallLine(name, "demo/echo", args, theme).render(width);
 				expect(rows.length).toBeGreaterThan(1);
+				expect(rows[0]).toMatch(/^ /u);
+				expect(rows.join("").match(//gu)).toHaveLength(1);
 				expect(rows.slice(1).every((row) => row.startsWith("  "))).toBe(true);
 				expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
 				expect(rows.join("")).not.toContain("…");
@@ -181,7 +183,7 @@ describe("OpenCode-style bracketed MCP arguments", () => {
 		expect(
 			formatMcpCallLine("mcp__demo__echo", "demo/echo", args, theme).render(300).join(""),
 		).toBe(
-			'demo/echo [message="hi\\u001b[31m\\n", repeat=3, ok=true, nothing=null, secret="not-masked", nested={"tags":[1,"a"]}]',
+			' demo/echo [message="hi\\u001b[31m\\n", repeat=3, ok=true, nothing=null, secret="not-masked", nested={"tags":[1,"a"]}]',
 		);
 		Object.defineProperty(args, "getter", {
 			enumerable: true,
@@ -205,11 +207,11 @@ describe("OpenCode-style bracketed MCP arguments", () => {
 			expect(rows.join("")).toContain("…"); // Source safety bound, not width ellipsis.
 		}
 		expect(formatMcpCallLine("mcp__demo__echo", "demo/echo", {}, theme).render(80)).toEqual([
-			"demo/echo (no args)",
+			" demo/echo (no args)",
 		]);
 		expect(
 			formatMcpCallLine("mcp", "", { server: "demo", tool: "echo" }, theme).render(80),
-		).toEqual(["call demo:echo (no args)"]);
+		).toEqual([" call demo:echo (no args)"]);
 	});
 	it("leaves generic custom calls unchanged", () => {
 		expect(

@@ -54,19 +54,19 @@ Owned generic custom calls show inline arguments, for example:
 sandbox_echo message="hello from real custom tool"
 ```
 
-Owned direct canonical MCP calls use the accent label/namespace-derived target,
+Owned direct canonical MCP calls prefix the accent label/namespace-derived target with ``,
 without an `MCP ` prefix or argument count. Both states keep the same bracketed
 argument list. In `preview` mode:
 
 ```text
-zentui_demo/echo [message="hello from real local MCP server", repeat=2]
+ zentui_demo/echo [message="hello from real local MCP server", repeat=2]
 • Ctrl+O to expand
 ```
 
 Expanded (Ctrl+O):
 
 ```text
-zentui_demo/echo [message="hello from real local MCP server", repeat=2]
+ zentui_demo/echo [message="hello from real local MCP server", repeat=2]
 
 output:
 first result line
@@ -82,7 +82,7 @@ in both states. Generic custom calls retain their existing width ellipsis.
 
 The `mcp` proxy and noncanonical MCP gateways keep their existing target selection
 (`call demo:echo`, `search "x" @demo`, `describe`, `connect`, `status`). Their calls
-use the same bracketed layout, e.g. `call demo:echo [args={"message":"hello"}]`.
+use the same bracketed layout, e.g. ` call demo:echo [args={"message":"hello"}]`.
 Target-encoded routing keys (`tool`, `server`, `connect`, `describe`, `search`) are
 omitted from the payload. Search/describe extras remain visible as `[limit=8]` or
 `[verbose=true]`; routing-only calls keep `(no args)` in both states.
@@ -117,7 +117,7 @@ security promise. Hidden mode still hides results, not call information.
 
 This follows OpenCode's expand-to-see-output behaviour, not its exact details:
 OpenCode uses `zentui_demo_echo`; we keep Pi's `zentui_demo/echo`. OpenCode adds a
-status glyph; we retain Pi's card status/colors without adding that glyph.
+status glyph; our `` identifies MCP calls, while Pi's card status/colors remain unchanged.
 OpenCode has no expand hint; we show Pi's real `• Ctrl+O to expand`.
 OpenCode leaves string values unquoted; we keep JSON quoting/escaping. We keep
 the bracketed args on expansion rather than duplicate a key/value block, and
