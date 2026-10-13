@@ -43,8 +43,15 @@ const vitest = JSON.parse(
 ).version;
 try {
 	for (const version of versions) {
-		// Pi 0.85.0's unbundled exports import pi-server but omit it from dependencies.
-		const installPackages = version === "0.85.0" ? [...packages, "pi-server"] : packages;
+		// Match the host's public package family, not just its top-level entries:
+		// 1.0.3 + newer codemode loses MCP_TYPESCRIPT_PREAMBLE before tests load.
+		const installPackages = [
+			...packages,
+			"pi-agent-core",
+			...(version.startsWith("1.") ? ["chord", "pi-codemode", "pi-mcp", "pi-telemetry"] : []),
+			// Pi 0.85.0's unbundled exports omit their pi-server dependency.
+			...(version === "0.85.0" ? ["pi-server"] : []),
+		];
 		const cwd = join(workspace, version);
 		mkdirSync(cwd);
 		cpSync(join(root, "extensions"), join(cwd, "extensions"), { recursive: true });
