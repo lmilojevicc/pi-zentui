@@ -1053,7 +1053,7 @@ const provenance = {
 		rows: mcpArgsRows,
 		unchangedVectors: cases.length - mcpArgsVectors,
 		rationale:
-			"Expanded MCP retains one muted payload row below a target-only call, never duplicates inline arguments. Independent bounded-fixture transform; rows counts inserted args rows relative to target-only calls.",
+			"Retained invariant for the superseded MCP inline-args transform: nativeRows versus inlineRows verifies exactly one muted args row inserted after an expanded target-only call, with all other rows unchanged. Vectors count differing cases; rows count inserted args rows. This is not the shipped presentation, which is accounted by mcpOpenCode.",
 	},
 	...Object.fromEntries(
 		Object.entries(presentationStats).map(([domain, stats]) => [
@@ -1065,7 +1065,7 @@ const provenance = {
 					genericInlineArgs:
 						"Owned generic custom calls show native-style inline payloads; empty args retain (no args). Independent bounded-fixture transform; rows counts changed/added indices.",
 					mcpInlineArgs:
-						"MCP collapsed calls show accent target plus inline payload without MCP prefix/count; expanded calls keep target plus one muted args row. Proxy targets/routing omission unchanged. Rows counts changed/added indices.",
+						"Retained superseded MCP inline-args transform versus Unicode-corrected upstream: nativeRows versus unicodeRows for fixture.kind === mcp, classified by fixture kind. The intermediate calls use accent targets with inline payloads when collapsed and one muted args row for nonempty payloads when expanded; proxy targets/routing omission remain unchanged. Vectors count differing cases; rows count changed/added nativeRows indices, including shifted result rows. This is not the shipped presentation, which is accounted by mcpOpenCode.",
 					writeContentWithoutPreimage:
 						"History writes display call content as addition-only grid with neutral written rather than upstream created; no invented preimage. Rows counts changed header indices.",
 					searchResultSeparator:
