@@ -224,14 +224,15 @@ describe("production controller MCP expansion through public Pi ToolExecutionCom
 	(modern ? it : it.skip)(
 		"matches full ANSI edge fixtures and keeps output behind expansion in all MCP modes",
 		async () => {
-			const tui = await import("@earendil-works/pi-tui");
+			// Resolve the SDK's declared pi-tui, not an ambient copy: older hosts nest their
+			// own pi-tui, and the theme reads capabilities from that instance.
+			const sdkEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+			const tui = await import(
+				pathToFileURL(createRequire(sdkEntry).resolve("@earendil-works/pi-tui")).href
+			);
 			const capabilities = tui.getCapabilities();
 			const { default: chalk } = await import(
-				pathToFileURL(
-					createRequire(
-						fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent")),
-					).resolve("chalk"),
-				).href
+				pathToFileURL(createRequire(sdkEntry).resolve("chalk")).href
 			);
 			const level = chalk.level;
 			chalk.level = 3;
