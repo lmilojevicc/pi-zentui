@@ -81,6 +81,32 @@ Zentui detects a broad set of runtime and language modules, preserves Nerd Font 
 
 ![Zentui Labeled user-message style in a rounded frame with the label User.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/user-message-labeled.png)
 
+### Tool display
+
+<h4 align="center"><code>MCP call — collapsed</code></h4>
+
+![Zentui MCP tool call collapsed, showing the bracketed arguments and Pi's expand hint.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-mcp-collapsed.png)
+
+<h4 align="center"><code>MCP call — expanded</code></h4>
+
+![The same Zentui MCP call expanded with Ctrl+O, showing output: followed by each returned result line.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-mcp-expanded.png)
+
+<h4 align="center"><code>read</code></h4>
+
+![Zentui read result with preview lines under the call.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-read.png)
+
+<h4 align="center"><code>write</code></h4>
+
+![Zentui write showing the written content as an addition-only grid under a neutral written header.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-write.png)
+
+<h4 align="center"><code>diff</code></h4>
+
+![Zentui edit showing a split old/new diff with change bars.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-diff.png)
+
+<h4 align="center"><code>search and Bash</code></h4>
+
+![Zentui grep results separated from the call by a blank row, followed by a collapsed Bash command with streamed output.](https://raw.githubusercontent.com/lmilojevicc/pi-zentui/main/assets/screenshots/tool-display-search.png)
+
 ## Install
 
 ```bash
