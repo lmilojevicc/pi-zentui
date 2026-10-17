@@ -309,6 +309,51 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 	});
 
 	it.each(["tree", "rail"] as const)(
+		"keeps %s when one chunk finishes the last label and opens a fence",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const assistant = component();
+			const marker = mode === "tree" ? "┆ Thinking" : "│ Thinking";
+			const source = "# Plan\nbody\n\nNow the biggest logic question in fe";
+			assistant.updateContent(message(source), true);
+			expect(plain(assistant.render(80)).join("\n")).toContain(marker);
+			for (const next of [
+				`${source}edLine:\n\n\`\`\`js\nif`,
+				`${source}edLine:\n\n\`\`\`js\nif (x) {\n\nNext step:\n\n\`\`\`js\nconst`,
+			]) {
+				assistant.updateContent(message(next), true);
+				const output = plain(assistant.render(80)).join("\n");
+				expect(output).toContain(marker);
+				expect(output).toContain("Now the biggest logic question in feedLine:");
+			}
+		},
+	);
+
+	it.each(["tree", "rail"] as const)(
+		"fails open when a fence-opening chunk changes or adds unsafe %s labels",
+		(mode) => {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const source = "# Plan\nbody\n\n# Second";
+			for (const next of [
+				"# Plan\nbody\n\n# Different\n```\nunfinished",
+				`${source}\n\n# ![image](asset.png)\n\n\`\`\`\nunfinished`,
+			]) {
+				const assistant = component();
+				assistant.updateContent(message(source), true);
+				assistant.render(80);
+				assistant.updateContent(message(next), true);
+				expect(plain(assistant.render(80)).join("\n")).not.toContain(
+					mode === "tree" ? "┆ Thinking" : "│ Thinking",
+				);
+			}
+		},
+	);
+
+	it.each(["tree", "rail"] as const)(
 		"fails open for nonrecoverable %s streaming updates",
 		(mode) => {
 			bridgeSourceLoadedMarkdownIdentity();

@@ -15,6 +15,7 @@ export const THINKING_STEPS_RETAINED_HEAD_STEPS = 4;
 export const THINKING_STEPS_MAX_LABEL_LENGTH = 512;
 /** The open line is classified from this many leading characters; the rest is checked when it commits. */
 const OPEN_LINE_WORK_LENGTH = 2_048;
+const PARTIAL_ESCAPE_SUFFIX = /\x1b(?:\[[0-9;]*)?$/;
 
 export type ThinkingStep = Readonly<{
 	number: number;
@@ -208,11 +209,13 @@ export class ThinkingStepsParser {
 		const open = pending.slice(lineEnd + 1);
 		// A trailing CR is the first half of a CRLF split across updates.
 		const windowed = open.length > OPEN_LINE_WORK_LENGTH;
-		const openLine = windowed
-			? open.slice(0, OPEN_LINE_WORK_LENGTH)
-			: open.endsWith("\r")
-				? open.slice(0, -1)
-				: open;
+		const openLine = (
+			windowed
+				? open.slice(0, OPEN_LINE_WORK_LENGTH)
+				: open.endsWith("\r")
+					? open.slice(0, -1)
+					: open
+		).replace(PARTIAL_ESCAPE_SUFFIX, ""); // A chunk may split an SGR sequence; it is rechecked whole.
 		const work = openLine ? cloneState(this.state) : this.state;
 		if (openLine) {
 			const sanitized = sanitizeSgrOnlySourceText(openLine);

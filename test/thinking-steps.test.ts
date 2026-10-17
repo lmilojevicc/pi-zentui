@@ -225,9 +225,19 @@ describe("Thinking-step structural parser", () => {
 		expect(last).toEqual({ result: expected });
 	});
 
+	it("ignores an SGR sequence split at the end of the open line", () => {
+		const parser = new ThinkingStepsParser();
+		for (const tail of ["\x1b", "\x1b[", "\x1b[39"])
+			expect(parser.advance(`# Plan\nbody\n\nSEND.${tail}`)).toHaveProperty("result");
+		expect(parser.advance("# Plan\nbody\n\nSEND.\x1b[39m done")).toHaveProperty("result");
+		expect(new ThinkingStepsParser().advance("# Plan\nbody\n\nSEND.\x1b[2J")).toHaveProperty(
+			"rejection",
+		);
+	});
+
 	it("keeps transient open-line problems recoverable but poisons committed ones", () => {
 		const parser = new ThinkingStepsParser();
-		expect(parser.advance("# One\n# Two \x1b[3")).toEqual({ rejection: "unsafe-control" });
+		expect(parser.advance("# One\n# Two \x1b[2J")).toEqual({ rejection: "unsafe-control" });
 		expect(parser.advance("# One\n# Two \x1b[31mred\x1b[0m")).toMatchObject({
 			result: { steps: [{ label: "One" }, { label: "Two red" }] },
 		});

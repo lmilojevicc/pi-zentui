@@ -196,9 +196,11 @@ type StructuralThinkingMode = Exclude<ThinkingStepsMode, "streaming">;
  * SOFTWARE.
  */
 
+const IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(/;
+
 function unsafeRenderedRow(source: string, row: string): boolean {
 	return (
-		/!\[[^\]]*\]\(/.test(source) ||
+		IMAGE_SOURCE_PATTERN.test(source) ||
 		row.includes("\x1b_G") ||
 		/\x1b\]1337;File=/.test(row) ||
 		visibleWidth(row) === 0
@@ -720,8 +722,27 @@ type ThinkingRunParseEntry = {
 	active: boolean;
 	token: symbol;
 	presented: boolean;
-	labels: readonly string[];
+	steps: readonly ThinkingStep[];
 };
+
+/**
+ * Shown labels must persist, except that the last may finish streaming. Labels appended in the
+ * same frame that opens a fence are accepted only when an image cannot hide behind them.
+ */
+function continuesShownSteps(
+	shown: readonly ThinkingStep[],
+	next: readonly ThinkingStep[],
+): boolean {
+	const last = shown.at(-1)?.number;
+	if (last === undefined) return false;
+	const labels = new Map(shown.map((step) => [step.number, step.label]));
+	return next.every((step) => {
+		if (step.number > last) return !IMAGE_SOURCE_PATTERN.test(step.label);
+		const label = labels.get(step.number);
+		if (label === undefined) return false;
+		return step.number === last ? step.label.startsWith(label) : step.label === label;
+	});
+}
 
 type ParsedThinkingRun = ThinkingRunParseEntry & { result: ThinkingStepsParseResult };
 
@@ -814,18 +835,16 @@ class ThinkingRunParseCache {
 			active,
 			token: Symbol(),
 			presented: false,
-			labels: result?.steps.map((step) => step.label) ?? [],
+			steps: result?.steps ?? [],
 		};
 		// Only an already displayed, append-only active run may survive unfinished syntax.
-		// Matching every label also prevents a newly appended unsafe label being suppressed.
 		if (
 			result &&
 			active &&
 			previous?.active &&
 			previous.presented &&
 			appendOnly &&
-			previous.labels.length === entry.labels.length &&
-			entry.labels.every((label, index) => label === previous.labels[index])
+			continuesShownSteps(previous.steps, entry.steps)
 		)
 			entry.presented = true;
 		this.entries.set(run, entry);
