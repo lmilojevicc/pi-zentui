@@ -15,6 +15,7 @@ import {
 	ThinkingStepsRows,
 } from "../extensions/zentui/thinking-experimental";
 import * as ThinkingStepsParser from "../extensions/zentui/thinking-steps";
+import * as UserMessageOsc from "../extensions/zentui/user-message-osc";
 
 initTheme("dark", false);
 
@@ -317,11 +318,8 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			for (const next of [
 				"# Replacement\nbody\n```\nunfinished",
 				`${source}\n\n# ![image](asset.png)\n\n\`\`\`\nunfinished`,
-				`${source}\n\n# ${"x".repeat(513)}\n\n$$\nunfinished`,
 				`${source}\n\n\`\`\`bad\`info\nunfinished`,
 				`${source}\n\n\`\`\`\nunsafe\x1b[2J`,
-				`${source}\n\n$$\n${"x".repeat(65_536)}`,
-				`${source}\n${Array.from({ length: 128 }, (_, index) => `# Step ${index}`).join("\n")}\n$$`,
 			]) {
 				const assistant = component();
 				assistant.updateContent(message(source), true);
@@ -335,6 +333,160 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 			}
 		},
 	);
+
+	describe("long traces (issue #190)", () => {
+		const numberedTrace = () =>
+			Array.from({ length: 60 }, (_, index) => {
+				const bullets =
+					index < 29 ? Array.from({ length: 3 }, (_, bullet) => `- detail ${index}.${bullet}`) : [];
+				return [
+					`${index + 1}. Reasoning entry ${index + 1}`,
+					...bullets,
+					`   ${"prose ".repeat(40)}`,
+					"",
+				].join("\n");
+			}).join("\n");
+		const proseTrace = () =>
+			Array.from(
+				{ length: 40 },
+				(_, index) =>
+					`Paragraph ${index} ${"keeps thinking out loud without ever stopping ".repeat(30)}`,
+			).join("\n\n");
+		const bulkyTrace = () =>
+			Array.from(
+				{ length: 30 },
+				(_, index) => `## Section ${index + 1}\n${"body line of the trace\n".repeat(150)}`,
+			).join("\n");
+
+		function stream(mode: "tree" | "rail", source: string, step: number) {
+			bridgeSourceLoadedMarkdownIdentity();
+			const value = controller({ enabled: true, mode });
+			value.startSession(context().ctx);
+			const assistant = component();
+			const marker = mode === "tree" ? "┆ Thinking" : "│ Thinking";
+			let rendered = 0;
+			let output: string[] = [];
+			for (let end = step; end < source.length + step; end += step) {
+				assistant.updateContent(message(source.slice(0, end), 1_000), true);
+				output = plain(assistant.render(100));
+				expect(output.join("\n"), `native fallback at ${end}`).toContain(marker);
+				rendered += 1;
+			}
+			assistant.updateContent(message(source, 1_000), false);
+			output = plain(assistant.render(100));
+			return { value, assistant, output, rendered };
+		}
+
+		it.each(["tree", "rail"] as const)(
+			"renders a 60-entry numbered trace with 145+ labels in %s",
+			(mode) => {
+				const source = numberedTrace();
+				const parsed = ThinkingStepsParser.parseThinkingStepsResult(source);
+				expect((parsed?.steps.length ?? 0) + (parsed?.omittedSteps ?? 0)).toBeGreaterThanOrEqual(
+					145,
+				);
+				const { value, output } = stream(mode, source, 700);
+				expect(output.join("\n")).toContain(mode === "tree" ? "┆ Thinking" : "│ Thinking");
+				expect(output.join("\n")).toContain("Reasoning entry 60");
+				expect(output.length).toBeLessThanOrEqual(mode === "tree" ? 7 : 35);
+				if (mode === "rail") expect(output.join("\n")).toMatch(/… \d+ steps omitted/);
+				expect(output.join("\n")).not.toContain("Reasoning entry 5\n");
+				expect(value.diagnostics).toMatchObject({
+					fallbackRuns: 0,
+					omittedSteps: expect.any(Number),
+				});
+				expect(value.diagnostics.omittedSteps).toBeGreaterThan(100);
+			},
+		);
+
+		it.each(["tree", "rail"] as const)(
+			"renders long prose paragraphs over the label limit in %s",
+			(mode) => {
+				const source = proseTrace();
+				expect(source.split("\n\n").every((paragraph) => paragraph.length > 512)).toBe(true);
+				const { value, output } = stream(mode, source, 900);
+				expect(output.join("\n")).toContain("Paragraph 39");
+				expect(value.diagnostics).toMatchObject({ fallbackRuns: 0 });
+				expect(value.diagnostics.clampedLabels).toBeGreaterThan(0);
+			},
+		);
+
+		it.each(["tree", "rail"] as const)(
+			"keeps %s for a source beyond the retained-source budget",
+			(mode) => {
+				const source = bulkyTrace();
+				expect(source.length).toBeGreaterThan(65_536);
+				const advance = vi.spyOn(ThinkingStepsParser.ThinkingStepsParser.prototype, "advance");
+				try {
+					const { value, output, rendered } = stream(mode, source, 2_048);
+					expect(output.join("\n")).toContain("Section 30");
+					expect(value.diagnostics).toMatchObject({ fallbackRuns: 0 });
+					// One incremental advance per update, never a cold re-parse of the whole source.
+					expect(advance.mock.calls.length).toBeLessThanOrEqual(rendered + 2);
+				} finally {
+					advance.mockRestore();
+				}
+			},
+		);
+
+		it("bounds retained parse text and per-update parse input while streaming a long source", () => {
+			const source = bulkyTrace();
+			const sanitize = vi.spyOn(UserMessageOsc, "sanitizeSgrOnlySourceText");
+			try {
+				bridgeSourceLoadedMarkdownIdentity();
+				const value = controller({ enabled: true, mode: "rail" });
+				value.startSession(context().ctx);
+				const assistant = component();
+				const chunk = 2_048;
+				let worst = 0;
+				for (let end = chunk; end < source.length + chunk; end += chunk) {
+					assistant.updateContent(message(source.slice(0, end), 1_000), true);
+					sanitize.mockClear();
+					assistant.render(100);
+					assistant.updateContent(message(source.slice(0, end + 1), 1_000), true);
+					worst = Math.max(
+						worst,
+						sanitize.mock.calls.reduce((total, [text]) => total + text.length, 0),
+					);
+				}
+				expect(worst).toBeLessThanOrEqual(chunk + 2 * 2_048);
+				const entries = (
+					value as unknown as {
+						states: WeakMap<
+							object,
+							{ structuralCache: { entries: Map<number, { source: string }> } }
+						>;
+					}
+				).states.get(assistant)?.structuralCache.entries;
+				expect(
+					[...(entries?.values() ?? [])].reduce((total, entry) => total + entry.source.length, 0),
+				).toBeLessThanOrEqual(65_536);
+			} finally {
+				sanitize.mockRestore();
+			}
+		});
+
+		it.each(["tree", "rail"] as const)(
+			"reports genuinely unparseable %s content through diagnostics",
+			(mode) => {
+				bridgeSourceLoadedMarkdownIdentity();
+				const value = controller({ enabled: true, mode });
+				value.startSession(context().ctx);
+				const assistant = component();
+				assistant.updateContent(message("# Plan\nbody"), true);
+				assistant.render(80);
+				expect(value.diagnostics).toMatchObject({ fallbackRuns: 0 });
+				assistant.updateContent(message("# Plan\nbody\n```bad`info\nx\n# More"), true);
+				expect(plain(assistant.render(80)).join("\n")).not.toMatch(/[┆│] Thinking/);
+				expect(value.diagnostics).toMatchObject({
+					fallbackRuns: 1,
+					lastFallbackReason: "malformed-fence",
+				});
+				assistant.updateContent(message("# Plan\nbody\n```bad`info\nx\n# More\n# Later"), true);
+				expect(value.diagnostics).toMatchObject({ fallbackRuns: 1 });
+			},
+		);
+	});
 
 	it.each(["tree", "rail"] as const)(
 		"does not retain %s without a prior successful presentation or active run",
@@ -462,7 +614,7 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 
 	it("parses unchanged runs once across 100 native answer updates, then invalidates on source/theme/hidden changes", () => {
 		bridgeSourceLoadedMarkdownIdentity();
-		const parse = vi.spyOn(ThinkingStepsParser, "parseThinkingStepsResult");
+		const parse = vi.spyOn(ThinkingStepsParser.ThinkingStepsParser.prototype, "advance");
 		try {
 			const value = controller({ enabled: true, mode: "tree" });
 			value.startSession(context().ctx);

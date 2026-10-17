@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	parseThinkingSteps,
 	parseThinkingStepsResult,
-	THINKING_STEPS_MAX_INPUT_LENGTH,
+	THINKING_STEPS_MAX_CHUNK_LENGTH,
 	THINKING_STEPS_MAX_LABEL_LENGTH,
-	THINKING_STEPS_MAX_STEPS,
+	THINKING_STEPS_MAX_RETAINED_STEPS,
+	THINKING_STEPS_RETAINED_HEAD_STEPS,
+	ThinkingStepsParser,
 } from "../extensions/zentui/thinking-steps";
+import * as UserMessageOsc from "../extensions/zentui/user-message-osc";
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("Thinking-step structural parser", () => {
 	it.each(["```ts", "~~~", "$$", "\\["])(
@@ -14,7 +21,9 @@ describe("Thinking-step structural parser", () => {
 			const source = `# Plan\r\nbody\r\n${opening}\r\n# opaque`;
 			expect(parseThinkingStepsResult(source)).toEqual({
 				unfinished: true,
-				steps: [{ number: 1, label: "Plan", body: `body\n${opening}\n# opaque` }],
+				steps: [{ number: 1, label: "Plan" }],
+				omittedSteps: 0,
+				clampedLabels: 0,
 			});
 			expect(parseThinkingSteps(source)).toBeUndefined();
 		},
@@ -24,21 +33,19 @@ describe("Thinking-step structural parser", () => {
 		"```ts\nbody",
 		"# Plan\n```bad`info\nbody",
 		"# Plan\n```\nunsafe\x1b[2J",
-		`# ${"x".repeat(513)}\n$$\nbody`,
-		`# Plan\n$$\n${"x".repeat(65_536)}`,
-		`${Array.from({ length: 129 }, (_, index) => `# Step ${index}`).join("\n")}\n$$`,
+		`Intro\n${"x".repeat(THINKING_STEPS_MAX_CHUNK_LENGTH)}`,
 	])("never classifies unsafe, orphan, or over-budget input as recoverable", (source) => {
 		expect(parseThinkingStepsResult(source)).toBeUndefined();
 	});
-	it("derives headings, top-level lists, and prose while retaining bodies", () => {
+	it("derives headings, top-level lists, and prose labels", () => {
 		expect(
 			parseThinkingSteps(
 				"# Inspect\nbody\n\n- Check API\n  - nested body\n\nProse label\nprose body",
 			),
 		).toEqual([
-			{ number: 1, label: "Inspect", body: "body" },
-			{ number: 2, label: "Check API", body: "  - nested body" },
-			{ number: 3, label: "Prose label", body: "prose body" },
+			{ number: 1, label: "Inspect" },
+			{ number: 2, label: "Check API" },
+			{ number: 3, label: "Prose label" },
 		]);
 	});
 
@@ -52,7 +59,7 @@ describe("Thinking-step structural parser", () => {
 		const actual = parseThinkingSteps(decorated);
 		expect(actual).toEqual(expected);
 		for (const step of actual ?? []) {
-			expect(`${step.label}\n${step.body}`).not.toMatch(/[\x1b\x80-\x9f]/);
+			expect(step.label).not.toMatch(/[\x1b\x80-\x9f]/);
 		}
 	});
 
@@ -95,8 +102,6 @@ describe("Thinking-step structural parser", () => {
 		].join("\n");
 		const steps = parseThinkingSteps(source);
 		expect(steps?.map((step) => step.label)).toEqual(["Analyze", "Done"]);
-		expect(steps?.[0]?.body).toContain("```mermaid\n# hidden\n```");
-		expect(steps?.[0]?.body).toContain("$$\n- hidden\n$$");
 	});
 
 	it.each([
@@ -111,35 +116,165 @@ describe("Thinking-step structural parser", () => {
 		expect(parseThinkingSteps(source)).toBeUndefined();
 	});
 
-	it("normalizes CRLF and enforces inclusive parser bounds", () => {
+	it("normalizes CRLF and enforces the per-update source bound inclusively", () => {
 		expect(parseThinkingSteps("# One\r\nbody\r\n# Two")?.map((step) => step.label)).toEqual([
 			"One",
 			"Two",
 		]);
-		const exactInput = `Intro\n${"x".repeat(THINKING_STEPS_MAX_INPUT_LENGTH - 6)}`;
-		expect(parseThinkingSteps(exactInput)).toHaveLength(1);
-		expect(parseThinkingSteps(`${exactInput}x`)).toBeUndefined();
+		const exact = `Intro\n${"x".repeat(THINKING_STEPS_MAX_CHUNK_LENGTH - 6)}`;
+		expect(exact).toHaveLength(THINKING_STEPS_MAX_CHUNK_LENGTH);
+		expect(parseThinkingSteps(exact)).toHaveLength(1);
+		expect(parseThinkingSteps(`${exact}x`)).toBeUndefined();
 		const decoratedPrefix = "# A\n\x1b[31m";
 		const decoratedSuffix = "\x1b[0m";
-		const decoratedExact = `${decoratedPrefix}${"a".repeat(THINKING_STEPS_MAX_INPUT_LENGTH - decoratedPrefix.length - decoratedSuffix.length)}${decoratedSuffix}`;
-		expect(decoratedExact).toHaveLength(THINKING_STEPS_MAX_INPUT_LENGTH);
-		expect(parseThinkingSteps(decoratedExact)).toHaveLength(1);
-		expect(parseThinkingSteps(`${decoratedExact}x`)).toBeUndefined();
+		const decoratedExact = `${decoratedPrefix}${"a".repeat(1_000)}${decoratedSuffix}`;
+		expect(parseThinkingSteps(decoratedExact)?.map((step) => step.label)).toEqual(["A"]);
+	});
+
+	it("clamps over-long labels instead of rejecting the run", () => {
+		const exact = "a".repeat(THINKING_STEPS_MAX_LABEL_LENGTH);
+		const decorated = `\x1b[38;2;137;180;250m${exact}\x1b[39m`;
+		expect(parseThinkingStepsResult(`# ${decorated}`)).toMatchObject({
+			steps: [{ label: exact }],
+			clampedLabels: 0,
+		});
+		const heading = parseThinkingStepsResult(
+			`# ${decorated}a\n- ${exact}${exact}\n1. ${"界".repeat(900)}`,
+		);
+		expect(heading?.clampedLabels).toBe(3);
+		for (const step of heading?.steps ?? []) {
+			expect(step.label.length).toBeLessThanOrEqual(THINKING_STEPS_MAX_LABEL_LENGTH);
+			expect(step.label.endsWith("…")).toBe(true);
+		}
+		const emoji = parseThinkingSteps(`# ${"a".repeat(THINKING_STEPS_MAX_LABEL_LENGTH - 2)}😀😀`);
+		expect(emoji?.[0]?.label).toMatch(/a…$/u);
+		expect(emoji?.[0]?.label).not.toMatch(/[\ud800-\udbff]…$/);
+	});
+
+	it("shortens an over-long prose paragraph to its first sentence, then to the limit", () => {
+		const sentence = "I should check the parser before changing anything.";
+		const paragraph = `${sentence} ${"More reasoning follows here. ".repeat(60)}`;
+		const unpunctuated = `Hmm ${"let me think ".repeat(80)}`;
 		expect(
-			parseThinkingSteps(
-				`# \x1b[38;2;137;180;250m${"a".repeat(THINKING_STEPS_MAX_LABEL_LENGTH)}\x1b[39m`,
-			),
-		).toHaveLength(1);
+			parseThinkingSteps(`${paragraph}\n\n${unpunctuated}\n\nShort one. Still the whole line.`),
+		).toEqual([
+			{ number: 1, label: sentence },
+			{
+				number: 2,
+				label: `${unpunctuated.slice(0, THINKING_STEPS_MAX_LABEL_LENGTH - 1).trimEnd()}…`,
+			},
+			{ number: 3, label: "Short one. Still the whole line." },
+		]);
+	});
+
+	it("treats label-less separators as body once a step exists", () => {
 		expect(
-			parseThinkingSteps(
-				`# \x1b[38;2;137;180;250m${"a".repeat(THINKING_STEPS_MAX_LABEL_LENGTH + 1)}\x1b[39m`,
+			parseThinkingSteps("# One\n\n---\n\n- - -\n\n***\n# Two")?.map((step) => step.label),
+		).toEqual(["One", "Two"]);
+		expect(parseThinkingSteps("---\n# Late")).toBeUndefined();
+	});
+
+	it("caps retained steps to the first few plus the most recent without rejecting", () => {
+		const total = THINKING_STEPS_MAX_RETAINED_STEPS * 4 + 17;
+		const source = Array.from({ length: total }, (_, index) => `# Step ${index + 1}`).join("\n");
+		const result = parseThinkingStepsResult(source);
+		const numbers = result?.steps.map((step) => step.number) ?? [];
+		expect(numbers).toHaveLength(THINKING_STEPS_MAX_RETAINED_STEPS);
+		expect(numbers.slice(0, THINKING_STEPS_RETAINED_HEAD_STEPS)).toEqual([1, 2, 3, 4]);
+		expect(numbers.at(-1)).toBe(total);
+		expect(numbers.slice(THINKING_STEPS_RETAINED_HEAD_STEPS)).toEqual(
+			Array.from(
+				{ length: THINKING_STEPS_MAX_RETAINED_STEPS - THINKING_STEPS_RETAINED_HEAD_STEPS },
+				(_, index) =>
+					total -
+					(THINKING_STEPS_MAX_RETAINED_STEPS - THINKING_STEPS_RETAINED_HEAD_STEPS) +
+					1 +
+					index,
 			),
-		).toBeUndefined();
-		const exactSteps = Array.from(
-			{ length: THINKING_STEPS_MAX_STEPS },
-			(_, index) => `# Step ${index}`,
-		).join("\n");
-		expect(parseThinkingSteps(exactSteps)).toHaveLength(THINKING_STEPS_MAX_STEPS);
-		expect(parseThinkingSteps(`${exactSteps}\n# overflow`)).toBeUndefined();
+		);
+		expect(result?.omittedSteps).toBe(total - THINKING_STEPS_MAX_RETAINED_STEPS);
+		expect(result?.steps.find((step) => step.number === 5)).toBeUndefined();
+	});
+
+	it("parses incrementally: every chunk split matches the one-shot result", () => {
+		const source = [
+			"Intro paragraph. More.",
+			"",
+			"# Plan",
+			"```ts",
+			"# not a step",
+			"```",
+			"- Check\r",
+			"$$",
+			"x",
+			"$$",
+			"",
+			"Closing thought",
+		].join("\n");
+		const expected = parseThinkingStepsResult(source);
+		for (let split = 1; split < source.length; split += 1) {
+			const parser = new ThinkingStepsParser();
+			parser.advance(source.slice(0, split));
+			const advance = parser.advance(source);
+			expect("result" in advance ? advance.result : undefined, `split ${split}`).toEqual(expected);
+		}
+		const byCharacter = new ThinkingStepsParser();
+		let last: ReturnType<ThinkingStepsParser["advance"]> | undefined;
+		for (let end = 1; end <= source.length; end += 1)
+			last = byCharacter.advance(source.slice(0, end));
+		expect(last).toEqual({ result: expected });
+	});
+
+	it("keeps transient open-line problems recoverable but poisons committed ones", () => {
+		const parser = new ThinkingStepsParser();
+		expect(parser.advance("# One\n# Two \x1b[3")).toEqual({ rejection: "unsafe-control" });
+		expect(parser.advance("# One\n# Two \x1b[31mred\x1b[0m")).toMatchObject({
+			result: { steps: [{ label: "One" }, { label: "Two red" }] },
+		});
+		expect(parser.advance("# One\n# Two \x1b[2J\n# Three")).toEqual({
+			rejection: "unsafe-control",
+		});
+		expect(parser.advance("# One\n# Two \x1b[2J\n# Three\n# Four")).toEqual({
+			rejection: "unsafe-control",
+		});
+	});
+
+	it("bounds work per update by the new text plus the open line", () => {
+		const sanitize = vi.spyOn(UserMessageOsc, "sanitizeSgrOnlySourceText");
+		const lines = Array.from(
+			{ length: 6_000 },
+			(_, index) => `${index % 40 === 0 ? "# Step" : "body"} ${index} ${"lorem ipsum ".repeat(5)}`,
+		);
+		const source = lines.join("\n");
+		expect(source.length).toBeGreaterThan(400_000);
+		const chunk = 1_024;
+		const parser = new ThinkingStepsParser();
+		const work: number[] = [];
+		for (let end = chunk; end < source.length + chunk; end += chunk) {
+			sanitize.mockClear();
+			const advance = parser.advance(source.slice(0, end));
+			expect("result" in advance).toBe(true);
+			work.push(sanitize.mock.calls.reduce((total, [text]) => total + text.length, 0));
+		}
+		expect(Math.max(...work)).toBeGreaterThan(chunk / 2);
+		expect(Math.max(...work)).toBeLessThanOrEqual(chunk + 2 * 2_048);
+		expect(work.slice(-10).every((value) => value <= chunk + 2 * 2_048)).toBe(true);
+		// Total work is linear in the source, not quadratic in the number of updates.
+		expect(work.reduce((total, value) => total + value, 0)).toBeLessThan(source.length * 1.5);
+	});
+
+	it("bounds work per update for one endless unterminated line", () => {
+		const sanitize = vi.spyOn(UserMessageOsc, "sanitizeSgrOnlySourceText");
+		const source = `Reasoning ${"without a newline ".repeat(20_000)}`;
+		const parser = new ThinkingStepsParser();
+		for (let end = 4_096; end < source.length; end += 4_096) {
+			sanitize.mockClear();
+			const advance = parser.advance(source.slice(0, end));
+			expect("result" in advance).toBe(true);
+			expect(sanitize).toHaveBeenCalledTimes(1);
+			expect(
+				sanitize.mock.calls.reduce((total, [text]) => total + text.length, 0),
+			).toBeLessThanOrEqual(2_048);
+		}
 	});
 });

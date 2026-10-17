@@ -19,11 +19,11 @@ import {
 } from "./prototype-patch-registry";
 import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
 import {
-	parseThinkingStepsResult,
-	THINKING_STEPS_MAX_INPUT_LENGTH,
-	THINKING_STEPS_MAX_STEPS,
+	THINKING_STEPS_MAX_RETAINED_SOURCE_LENGTH,
 	type ThinkingStep,
 	type ThinkingStepsParseResult,
+	ThinkingStepsParser,
+	type ThinkingStepsRejection,
 } from "./thinking-steps";
 
 /*
@@ -117,11 +117,13 @@ type ToggleInput = Readonly<{
 	rawFallback: boolean;
 }>;
 
-export type ThinkingExperimentalDiagnostics = Readonly<{
-	trackedComponents: number;
-	activeComponents: number;
-	lastTimerWork: number;
-}>;
+export type ThinkingExperimentalDiagnostics = Readonly<
+	{
+		trackedComponents: number;
+		activeComponents: number;
+		lastTimerWork: number;
+	} & ThinkingStructuralDegradation
+>;
 
 export type ThinkingExperimentalState = Readonly<{
 	/** Backward-compatible alias for whole renderer availability. */
@@ -220,7 +222,9 @@ export class ThinkingStepsRows implements Component {
 	private readonly title: Markdown;
 	// Content and presentation are constructor-fixed; retain only the last successful layout.
 	private renderedCache: { width: number; theme: AccentTheme; rows: string[] } | undefined;
-	private readonly labels: Array<{ source: string; markdown: Markdown }>;
+	private readonly labels: Array<
+		{ source: string; markdown: Markdown } | { omitted: number; markdown?: undefined }
+	>;
 
 	constructor(
 		private readonly native: Component,
@@ -241,10 +245,23 @@ export class ThinkingStepsRows implements Component {
 			shape.defaultTextStyle,
 			shape.options,
 		);
-		this.labels = selected.map((step) => ({
-			source: step.label,
-			markdown: new Markdown(step.label, 0, 0, shape.theme, shape.defaultTextStyle, shape.options),
-		}));
+		this.labels = selected.flatMap((step, index) => {
+			const omitted = index > 0 ? step.number - (selected[index - 1]?.number ?? 0) - 1 : 0;
+			return [
+				...(omitted > 0 ? [{ omitted }] : []),
+				{
+					source: step.label,
+					markdown: new Markdown(
+						step.label,
+						0,
+						0,
+						shape.theme,
+						shape.defaultTextStyle,
+						shape.options,
+					),
+				},
+			];
+		});
 	}
 
 	private renderNative(width: number): string[] {
@@ -285,6 +302,12 @@ export class ThinkingStepsRows implements Component {
 								: "└─ · "
 							: "├─ · ";
 				const budget = innerWidth - visibleWidth(connector);
+				if (!value.markdown) {
+					if (budget <= 0) return this.renderNative(width);
+					const marker = `… ${value.omitted} ${value.omitted === 1 ? "step" : "steps"} omitted`;
+					renderedLabels.push({ connector, label: truncateToWidth(marker, budget, "…") });
+					continue;
+				}
 				const label = croppedMarkdownRow(value.markdown, value.source, budget);
 				if (!label) return this.renderNative(width);
 				renderedLabels.push({ connector, label });
@@ -313,7 +336,7 @@ export class ThinkingStepsRows implements Component {
 		this.onInvalidate?.();
 		this.native.invalidate();
 		this.title.invalidate();
-		for (const label of this.labels) label.markdown.invalidate();
+		for (const label of this.labels) label.markdown?.invalidate();
 	}
 }
 
@@ -685,24 +708,66 @@ function activeThinkingRun(message: AssistantMessage, incomplete: boolean): numb
 }
 
 type ThinkingRunParseEntry = {
+	/** Trailing window of the parsed source (the whole source while it fits the budget). */
 	source: string;
-	result: ThinkingStepsParseResult;
+	sourceStart: number;
+	sourceLength: number;
+	head: string;
+	parser: ThinkingStepsParser;
+	/** Absent while the latest source is rejected; the parser may still resume from a longer one. */
+	result: ThinkingStepsParseResult | undefined;
+	rejection: ThinkingStepsRejection | undefined;
 	active: boolean;
 	token: symbol;
 	presented: boolean;
 	labels: readonly string[];
 };
 
-/** Per-component source budget, shared across runs; never retains rendered/theme-colored rows. */
+type ParsedThinkingRun = ThinkingRunParseEntry & { result: ThinkingStepsParseResult };
+
+export type ThinkingStructuralDegradation = Readonly<{
+	/** Runs currently rendered natively because their structure could not be parsed. */
+	fallbackRuns: number;
+	lastFallbackReason?: ThinkingStepsRejection;
+	/** Steps parsed but not shown, and labels shortened, across the cached runs. */
+	omittedSteps: number;
+	clampedLabels: number;
+}>;
+
+const SOURCE_HEAD_LENGTH = 128;
+
+/**
+ * Per-component parse state, shared source budget across runs; never retains rendered/theme-colored
+ * rows. Longer sources keep only a verification window: the settled prefix lives in the parser.
+ */
 class ThinkingRunParseCache {
 	private entries = new Map<number, ThinkingRunParseEntry>();
+	private fallbacks = new Map<number, ThinkingStepsRejection>();
 
 	clear(): void {
 		this.entries.clear();
+		this.fallbacks.clear();
 	}
 
 	retainRuns(runs: ReadonlySet<number>): void {
 		for (const run of this.entries.keys()) if (!runs.has(run)) this.entries.delete(run);
+		for (const run of this.fallbacks.keys()) if (!runs.has(run)) this.fallbacks.delete(run);
+	}
+
+	degradation(): ThinkingStructuralDegradation {
+		let omittedSteps = 0;
+		let clampedLabels = 0;
+		for (const entry of this.entries.values()) {
+			omittedSteps += entry.result?.omittedSteps ?? 0;
+			clampedLabels += entry.result?.clampedLabels ?? 0;
+		}
+		const lastFallbackReason = [...this.fallbacks.values()].at(-1);
+		return {
+			fallbackRuns: this.fallbacks.size,
+			...(lastFallbackReason ? { lastFallbackReason } : {}),
+			omittedSteps,
+			clampedLabels,
+		};
 	}
 
 	presentationListener(run: number, token: symbol): (visible: boolean) => void {
@@ -712,27 +777,53 @@ class ThinkingRunParseCache {
 		};
 	}
 
-	parse(run: number, source: string, active: boolean): ThinkingRunParseEntry | undefined {
+	/** True when `source` only appends to the text the entry was parsed from. */
+	private static extends(entry: ThinkingRunParseEntry, source: string): boolean {
+		return (
+			source.length >= entry.sourceLength &&
+			source.startsWith(entry.head) &&
+			source.startsWith(entry.source, entry.sourceStart)
+		);
+	}
+
+	parse(run: number, source: string, active: boolean): ParsedThinkingRun | undefined {
 		const previous = this.entries.get(run);
-		if (previous?.source === source && previous.active === active) return previous;
-		const result = parseThinkingStepsResult(source);
+		const appendOnly = previous !== undefined && ThinkingRunParseCache.extends(previous, source);
+		const unchanged = appendOnly && previous.sourceLength === source.length;
+		if (unchanged && previous.active === active) return this.settle(run, previous);
+		const parser = appendOnly ? previous.parser : new ThinkingStepsParser();
+		let result: ThinkingStepsParseResult | undefined;
+		let rejection: ThinkingStepsRejection | undefined;
+		if (unchanged) {
+			({ result, rejection } = previous);
+		} else {
+			const advance = parser.advance(source);
+			if ("result" in advance) result = advance.result;
+			else rejection = advance.rejection;
+		}
 		this.entries.delete(run);
-		if (!result) return undefined;
+		const sourceStart = Math.max(0, source.length - THINKING_STEPS_MAX_RETAINED_SOURCE_LENGTH);
 		const entry: ThinkingRunParseEntry = {
-			source,
+			source: source.slice(sourceStart),
+			sourceStart,
+			sourceLength: source.length,
+			head: source.slice(0, SOURCE_HEAD_LENGTH),
+			parser,
 			result,
+			rejection,
 			active,
 			token: Symbol(),
 			presented: false,
-			labels: result.steps.map((step) => step.label),
+			labels: result?.steps.map((step) => step.label) ?? [],
 		};
 		// Only an already displayed, append-only active run may survive unfinished syntax.
 		// Matching every label also prevents a newly appended unsafe label being suppressed.
 		if (
+			result &&
 			active &&
 			previous?.active &&
 			previous.presented &&
-			source.startsWith(previous.source) &&
+			appendOnly &&
 			previous.labels.length === entry.labels.length &&
 			entry.labels.every((label, index) => label === previous.labels[index])
 		)
@@ -740,13 +831,22 @@ class ThinkingRunParseCache {
 		this.entries.set(run, entry);
 		let size = 0;
 		for (const value of this.entries.values()) size += value.source.length;
-		while (size > THINKING_STEPS_MAX_INPUT_LENGTH || this.entries.size > THINKING_STEPS_MAX_STEPS) {
+		while (size > THINKING_STEPS_MAX_RETAINED_SOURCE_LENGTH) {
 			const oldest = this.entries.entries().next().value;
 			if (!oldest) break;
 			size -= oldest[1].source.length;
 			this.entries.delete(oldest[0]);
 		}
-		return entry;
+		return this.settle(run, entry);
+	}
+
+	private settle(run: number, entry: ThinkingRunParseEntry): ParsedThinkingRun | undefined {
+		if (entry.result) {
+			this.fallbacks.delete(run);
+			return entry as ParsedThinkingRun;
+		}
+		this.fallbacks.set(run, entry.rejection ?? "empty");
+		return undefined;
 	}
 }
 
@@ -988,10 +1088,26 @@ export class ThinkingExperimentalController {
 	}
 
 	get diagnostics(): ThinkingExperimentalDiagnostics {
+		const tracked = this.trackedEntries();
+		let fallbackRuns = 0;
+		let omittedSteps = 0;
+		let clampedLabels = 0;
+		let lastFallbackReason: ThinkingStepsRejection | undefined;
+		for (const [, state] of tracked) {
+			const degradation = state.structuralCache.degradation();
+			fallbackRuns += degradation.fallbackRuns;
+			omittedSteps += degradation.omittedSteps;
+			clampedLabels += degradation.clampedLabels;
+			lastFallbackReason = degradation.lastFallbackReason ?? lastFallbackReason;
+		}
 		return Object.freeze({
-			trackedComponents: this.trackedEntries().length,
+			trackedComponents: tracked.length,
 			activeComponents: this.activeEntries().length,
 			lastTimerWork: this.lastTimerWork,
+			fallbackRuns,
+			...(lastFallbackReason ? { lastFallbackReason } : {}),
+			omittedSteps,
+			clampedLabels,
 		});
 	}
 

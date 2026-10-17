@@ -1,7 +1,10 @@
 import { Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { createThinkingStepsRows } from "../extensions/zentui/thinking-experimental";
-import { parseThinkingSteps } from "../extensions/zentui/thinking-steps";
+import {
+	parseThinkingSteps,
+	THINKING_STEPS_MAX_RETAINED_STEPS,
+} from "../extensions/zentui/thinking-steps";
 
 const identityTheme = Object.fromEntries(
 	[
@@ -104,6 +107,41 @@ describe("Experimental native Rail/Tree rows", () => {
 			"├─ · Label 6",
 			"└─ · Label 7",
 		]);
+	});
+
+	it("marks the omitted gap between retained Rail steps and keeps Tree to the latest five", () => {
+		const source = Array.from({ length: 40 }, (_, index) => `# Label ${index + 1}`).join("\n");
+		const rail = rows(source, "rail", 80, true).rendered.map(plain);
+		expect(rail).toHaveLength(1 + THINKING_STEPS_MAX_RETAINED_STEPS + 1);
+		expect(rail.slice(0, 6)).toEqual([
+			"│ Thinking",
+			"│ Label 1",
+			"│ Label 2",
+			"│ Label 3",
+			"│ Label 4",
+			`│ … ${40 - THINKING_STEPS_MAX_RETAINED_STEPS} steps omitted`,
+		]);
+		expect(rail.at(-1)).toBe("│ • Label 40");
+		expect(rows(source, "tree").rendered.map(plain)).toEqual([
+			"┆ Thinking",
+			"├─ · Label 36",
+			"├─ · Label 37",
+			"├─ · Label 38",
+			"├─ · Label 39",
+			"└─ · Label 40",
+		]);
+		const single = rows(
+			Array.from(
+				{ length: THINKING_STEPS_MAX_RETAINED_STEPS + 1 },
+				(_, index) => `# L${index}`,
+			).join("\n"),
+			"rail",
+		).rendered.map(plain);
+		expect(single).toContain("│ … 1 step omitted");
+		for (const width of [30, 12]) {
+			const narrow = rows(source, "rail", width).rendered;
+			expect(narrow.every((row) => visibleWidth(row) <= width)).toBe(true);
+		}
 	});
 
 	it.each(["rail", "tree"] as const)(
