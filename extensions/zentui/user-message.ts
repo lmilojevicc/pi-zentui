@@ -280,7 +280,9 @@ function renderZentuiUserMessage(
 
 function withPromptZoneMarkers(lines: string[]): string[] {
 	if (lines.length === 1) {
-		return [`${OSC133_ZONE_START}${lines[0]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`];
+		// Pi's fullscreen renderer strips only a leading run of zone markers per row,
+		// so a single row keeps all three at its start, as Pi's native message does.
+		return [`${OSC133_ZONE_START}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${lines[0]}`];
 	}
 	const markedLines = [...lines];
 	markedLines[0] = OSC133_ZONE_START + markedLines[0];
