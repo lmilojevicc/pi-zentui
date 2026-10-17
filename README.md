@@ -221,7 +221,7 @@ Streaming retains Pi's host-rendered final five rows under `Thinking 7.1s`, fold
 
 Pi also provides a native fullscreen TUI with a sticky editor and Footer. Both tested versions are covered by a fullscreen live-transition PTY smoke in addition to the standard matrix. Zentui does not enable fullscreen automatically; select it from Pi's `/settings`, set `"tuiMode": "fullscreen"` in Pi settings, or launch Pi with `--tui-mode fullscreen`.
 
-**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
+**Codex quota (opt-in):** Show remaining 5-hour/weekly quota for `openai-codex` (polled) and official `openai` sign-in (from response headers) through independent Editor and Starship Footer settings, both off by default. See [configuration and private-endpoint limitations](./docs/configuration.md#codex-account-quota), including `$codex_quota` for custom templates.
 
 Minimalist can also show the latest assistant prompt's cache hit rate in its top-right metadata. Enable **Editor → Minimalist → Cache hit rate** or set `components.editor.styles.minimalist.showCacheHit` to `true`; it is off by default and does not depend on Footer.
 

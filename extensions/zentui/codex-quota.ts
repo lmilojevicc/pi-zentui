@@ -43,6 +43,11 @@ export function parseCodexQuota(value: unknown): CodexQuota | undefined {
 	return result.fiveHour !== undefined || result.week !== undefined ? result : undefined;
 }
 
+/** Providers whose quota may be displayed: polled for `openai-codex`, header-sourced for `openai`. */
+export function hasCodexQuotaProvider(provider: string | undefined): boolean {
+	return provider === "openai-codex" || provider === "openai";
+}
+
 export function editorWantsCodexQuota(config: ZentuiConfig): boolean {
 	const editor = config.components.editor;
 	if (!editor.enabled || !editor.codexQuota) return false;

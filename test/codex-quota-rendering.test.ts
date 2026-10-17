@@ -205,7 +205,7 @@ describe.each(["theme", "terminal"] as const)("quota with %s colors", (colorSour
 			}
 			starship.format = "$codex_quota";
 			expect(plain(footer?.render(140).join("\n") ?? "")).toContain("5h");
-			provider = "openai";
+			provider = "anthropic";
 			expect(plain(footer?.render(140).join("\n") ?? "")).not.toContain("5h");
 			provider = "openai-codex";
 			config.components.footer.codexQuota = false;

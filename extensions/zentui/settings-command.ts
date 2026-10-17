@@ -632,7 +632,7 @@ function buildAppearanceItems(config: PolishedTuiConfig): SettingItem[] {
 }
 
 const codexQuotaDescription =
-	"Remaining ChatGPT account quota for active openai-codex. Authenticated background refresh roughly every minute while active. Custom templates require $codex_quota; the toggle always gates access.";
+	"Remaining ChatGPT account quota for active openai-codex (authenticated background refresh roughly every minute) or official openai sign-in (passive, from response headers; no extra requests). Custom templates require $codex_quota; the toggle always gates access.";
 
 function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 	const editor = config.components.editor;

@@ -10,7 +10,7 @@ Set `components.footer.styles.starship.format` for complete control over the Sta
 - `$join_sep` conditional field joining
 - `$fill` layout boundaries
 
-A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template. `$codex_quota` is an exception to segment-toggle bypass: it always requires the independent Footer quota consent toggle and active `openai-codex` provider.
+A custom format overrides `components.footer.styles.starship.segments` for the wide layout. Empty or omitted format uses the segment layout. Responsive mode first reflows wide content, then uses the independent `compactFormat` template; compact variables do not follow built-in segment toggles. `compactMaxLines` limits compact rows, not segment selection. No settings toggle rewrites either template. `$codex_quota` is an exception to segment-toggle bypass: it always requires the independent Footer quota consent toggle and an active `openai-codex` or official `openai` provider.
 
 ## Examples
 
@@ -154,7 +154,7 @@ does not enable or configure the independent `$codex_quota` consent toggle.
 
 Set `components.footer.codexQuota: true` and select Starship to opt in. The built-in wide layout and shipped compact default include quota conditionally. Saved custom formats are unchanged; add `($sep$codex_quota)` to `format` and `$wrap_sep($codex_quota)` to `compactFormat` where desired. Templates without the token never have quota appended outside them.
 
-The token is empty when consent is off or the active provider is not exactly `openai-codex`. With consent, missing values use `--`; exhausted quota uses `0%`; retained values after a transient failure carry `stale`. Quota is omitted as a unit if it cannot fit safely. Editor has its own independent consent toggle. See [quota configuration](./configuration.md#codex-account-quota) for background polling, public auth capability requirements, and private-endpoint limitations.
+The token is empty when consent is off or the active provider is not exactly `openai-codex` or `openai` (the latter shows quota only after response headers provide it). With consent, missing values use `--`; exhausted quota uses `0%`; retained values after a transient failure carry `stale`. Quota is omitted as a unit if it cannot fit safely. Editor has its own independent consent toggle. See [quota configuration](./configuration.md#codex-account-quota) for background polling, public auth capability requirements, and private-endpoint limitations.
 
 ### `$cwd` path modes
 

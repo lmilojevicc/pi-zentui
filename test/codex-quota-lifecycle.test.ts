@@ -282,3 +282,121 @@ it("releases quota promptly on a same-ID proxy model selection", async () => {
 	await vi.advanceTimersByTimeAsync(120_000);
 	expect(http).toHaveBeenCalledOnce();
 });
+
+const codexHeaders = {
+	"X-Codex-Primary-Used-Percent": "25",
+	"X-Codex-Primary-Window-Minutes": "300",
+	"X-Codex-Secondary-Used-Percent": "50",
+	"X-Codex-Secondary-Window-Minutes": "10080",
+};
+const emitResponse = async (headers: Record<string, string>) => {
+	for (const handler of handlers.get("after_provider_response") ?? [])
+		await handler({ type: "after_provider_response", status: 200, headers }, ctx);
+};
+const useOfficialOpenAi = () => {
+	Object.assign(ctx, {
+		model: {
+			id: "gpt-5",
+			provider: "openai",
+			contextWindow: 200000,
+			api: "openai-responses",
+			baseUrl: "https://api.openai.com/v1",
+		},
+		modelRegistry: {
+			getProviderAuth: auth,
+			getProvider: () => ({ id: "openai", baseUrl: "https://api.openai.com/v1" }),
+		},
+	});
+};
+
+it("shows header-sourced quota for official openai without auth lookups or network", async () => {
+	Object.assign((settings.config as PolishedTuiConfig).components.footer, {
+		style: "starship",
+		codexQuota: true,
+	});
+	useOfficialOpenAi();
+	await emit("session_start");
+	await flush();
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
+	await emitResponse(codexHeaders);
+	expect(footer?.render(160).join("\n")).toContain("5h 75% | week 50%");
+	await vi.advanceTimersByTimeAsync(300_000);
+	expect(auth).not.toHaveBeenCalled();
+	expect(http).not.toHaveBeenCalled();
+});
+
+it("gates header-sourced quota per surface toggle", async () => {
+	const config = settings.config as PolishedTuiConfig;
+	Object.assign(config.components.footer, { style: "starship", codexQuota: false });
+	useOfficialOpenAi();
+	await emit("session_start");
+	await emitResponse(codexHeaders);
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
+	config.components.footer.codexQuota = true;
+	expect(footer?.render(160).join("\n")).toContain("5h 75% | week 50%");
+	config.components.footer.codexQuota = false;
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
+	expect(auth).not.toHaveBeenCalled();
+	expect(http).not.toHaveBeenCalled();
+});
+
+it("ignores quota headers for other providers and proxy routes", async () => {
+	Object.assign((settings.config as PolishedTuiConfig).components.footer, {
+		style: "starship",
+		codexQuota: true,
+	});
+	useOfficialOpenAi();
+	await emit("session_start");
+	await flush();
+	for (const route of [
+		{ provider: "anthropic" },
+		{ provider: "openai", baseUrl: "https://proxy.example/v1" },
+	]) {
+		Object.assign(ctx.model as object, {
+			provider: "openai",
+			baseUrl: "https://api.openai.com/v1",
+		});
+		Object.assign(ctx.model as object, route);
+		await emitResponse(codexHeaders);
+		Object.assign(ctx.model as object, {
+			provider: "openai",
+			baseUrl: "https://api.openai.com/v1",
+		});
+		expect(footer?.render(160).join("\n")).not.toContain("5h");
+	}
+	expect(http).not.toHaveBeenCalled();
+});
+
+it("clears header-sourced quota on model change to an ineligible provider and on new sessions", async () => {
+	Object.assign((settings.config as PolishedTuiConfig).components.footer, {
+		style: "starship",
+		codexQuota: true,
+	});
+	useOfficialOpenAi();
+	await emit("session_start");
+	await emitResponse(codexHeaders);
+	expect(footer?.render(160).join("\n")).toContain("5h 75%");
+	Object.assign(ctx.model as object, { provider: "anthropic" });
+	await emit("model_select");
+	Object.assign(ctx.model as object, { provider: "openai" });
+	await emit("model_select");
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
+	await emitResponse(codexHeaders);
+	expect(footer?.render(160).join("\n")).toContain("5h 75%");
+	await emit("session_shutdown");
+	await emit("session_start");
+	expect(footer?.render(160).join("\n")).not.toContain("5h");
+	expect(http).not.toHaveBeenCalled();
+});
+
+it("keeps legacy openai-codex polling independent of response headers", async () => {
+	Object.assign((settings.config as PolishedTuiConfig).components.footer, {
+		style: "starship",
+		codexQuota: true,
+	});
+	await emit("session_start");
+	await flush();
+	await emitResponse({ ...codexHeaders, "X-Codex-Primary-Used-Percent": "99" });
+	expect(http).toHaveBeenCalledOnce();
+	expect(footer?.render(160).join("\n")).toContain("5h 80% | week 60%");
+});

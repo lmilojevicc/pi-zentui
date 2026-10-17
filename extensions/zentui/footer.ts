@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { CodexQuota } from "./codex-quota";
+import { type CodexQuota, hasCodexQuotaProvider } from "./codex-quota";
 import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
 import { componentColor } from "./component-colors";
 import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
@@ -262,7 +262,9 @@ export function installFooter(
 				}
 				const statusSnapshot = footerData.getExtensionStatuses();
 				const quota =
-					showQuota && ctx.model?.provider === "openai-codex" ? hooks.getCodexQuota?.() : undefined;
+					showQuota && hasCodexQuotaProvider(ctx.model?.provider)
+						? hooks.getCodexQuota?.()
+						: undefined;
 				const styledQuota = renderCodexQuota(quota, theme, config, "footer");
 				// Include quota-enabled conditional groups when scanning non-quota text.
 				let quotaLabel = styledQuota;
