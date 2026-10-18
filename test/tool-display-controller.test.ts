@@ -505,6 +505,50 @@ describe("tool-display/controller (public resolver only)", () => {
 				.map((line) => line.trimEnd()),
 		).toEqual(["predecessor result"]);
 	});
+	it("paints through the retained slot without content inspection and follows live config", () => {
+		let config = normalizeToolDisplayConfig({ enabled: true, readOutputMode: "summary" });
+		let configReads = 0;
+		const api = {
+			registerToolRenderer: vi.fn<(resolver: ToolRendererResolver) => void>(),
+			getAllTools: vi.fn(() => [
+				{ name: "read", sourceInfo: { source: "builtin", path: "builtin:read" } },
+			]),
+		};
+		const controller = createToolDisplayController(
+			api,
+			() => {
+				configReads++;
+				return config;
+			},
+			{ nativeRenderers: { read: nativeRead } },
+		);
+		const owned = controller.resolver("read", () => nativeRead);
+		const row = { ...ctx, state: {}, toolCallId: "paint" };
+		const component = owned?.renderResult?.(textResult, options, theme, row);
+		const first = component?.render(80);
+		expect(first?.map((line) => line.trimEnd())).toEqual(["↳ loaded 2 lines • Ctrl+O to expand"]);
+		const reads = configReads;
+		const lookups = api.getAllTools.mock.calls.length;
+		expect(lookups).toBeGreaterThan(0);
+		for (let paint = 0; paint < 5; paint++) expect(component?.render(80)).toEqual(first);
+		// Paint reads the config identity only; it never inspects row content.
+		expect(configReads).toBe(reads + 5);
+		expect(api.getAllTools.mock.calls.length).toBe(lookups);
+		// A live config edit reaches the existing row on its next paint, without a rebuild signal.
+		config = normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview" });
+		expect(component?.render(80)?.map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		const rebuilt = api.getAllTools.mock.calls.length;
+		expect(rebuilt).toBeGreaterThan(lookups);
+		expect(component?.render(80)?.map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		expect(api.getAllTools.mock.calls.length).toBe(rebuilt);
+		// Painting stays free of content inspection even across a host invalidate.
+		component?.invalidate();
+		expect(component?.render(80)?.map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		const afterInvalidate = api.getAllTools.mock.calls.length;
+		for (let paint = 0; paint < 3; paint++)
+			expect(component?.render(80)?.map((line) => line.trimEnd())).toEqual(["one", "two"]);
+		expect(api.getAllTools.mock.calls.length).toBe(afterInvalidate);
+	});
 	it("bounds upstream-style Bash progress and releases only owned timers without needing paint", () => {
 		vi.useFakeTimers();
 		try {

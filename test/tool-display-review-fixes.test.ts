@@ -205,6 +205,7 @@ describe("tool-display independent review regressions", () => {
 			const content = value.content;
 			value.content[0].text = "new-text";
 			expect(value.content).toBe(content);
+			row.updateResult(value, true);
 			expect(plain(row.render(110))).toContain("new-text");
 			expect(plain(row.render(110))).not.toContain("old-text");
 			row.invalidate();
@@ -213,6 +214,7 @@ describe("tool-display independent review regressions", () => {
 			expect(row.render(110)).toEqual(unchanged);
 			value.details.truncation.truncated = true;
 			value.details.fullOutputPath = "final.log";
+			row.updateResult(value, true);
 			expect(plain(row.render(110))).toContain("output truncated");
 			expect(plain(row.render(110))).toContain("final.log");
 		} finally {

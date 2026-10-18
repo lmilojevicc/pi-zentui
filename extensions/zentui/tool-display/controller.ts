@@ -155,6 +155,8 @@ export function createToolDisplayController(
 			key: readonly unknown[];
 			inner: Component;
 			wrapper: Component;
+			dirty: boolean;
+			config: unknown;
 		}
 		interface Row {
 			ownedCall?: Slot;
@@ -286,13 +288,15 @@ export function createToolDisplayController(
 				existing.keyFor = key;
 				existing.build = build;
 			}
-			if (existing && !refreshOnCallback && sameKey(existing.key, currentKey))
+			if (existing && !refreshOnCallback && !existing.dirty && sameKey(existing.key, currentKey))
 				return existing.wrapper;
 			const initial = build();
 			if (!initial) return undefined;
 			if (existing) {
 				existing.key = currentKey;
 				existing.inner = initial;
+				existing.dirty = false;
+				existing.config = getConfig();
 				return existing.wrapper;
 			}
 			const slot: Slot = {
@@ -300,16 +304,27 @@ export function createToolDisplayController(
 				build,
 				key: currentKey,
 				inner: initial,
+				dirty: false,
+				config: getConfig(),
 				wrapper: {
 					invalidate() {
 						slot.inner.invalidate();
+						slot.dirty = true;
 					},
 					render(width) {
 						try {
-							const nextKey = slot.keyFor();
-							if (!sameKey(slot.key, nextKey)) {
-								slot.inner = slot.build() ?? slot.inner;
-								slot.key = nextKey;
+							const config = getConfig();
+							if (slot.dirty || slot.config !== config) {
+								slot.dirty = false;
+								slot.config = config;
+								const nextKey = slot.keyFor();
+								if (!sameKey(slot.key, nextKey)) {
+									const rebuilt = slot.build();
+									if (rebuilt) {
+										slot.inner = rebuilt;
+										slot.key = nextKey;
+									}
+								}
 							}
 							return slot.inner.render(width);
 						} catch {

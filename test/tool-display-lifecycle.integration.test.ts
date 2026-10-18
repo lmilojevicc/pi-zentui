@@ -423,10 +423,10 @@ describe("tool-display lifecycle integration", () => {
 					content: "final-target before write\n",
 				});
 				expect(cache.get(id, "write", { path: "s" }, workspace)).toBeUndefined();
+				component.markExecutionStarted();
 				expect(stripVTControlCharacters(component.render(100).join("\n"))).toContain(
 					"final-target before write",
 				);
-				component.markExecutionStarted();
 				writeFileSync(join(workspace, "sample.ts"), args.content);
 				await messageUpdate(args);
 				await h.emit("tool_execution_start", { toolCallId: id, toolName: "write", args });
@@ -478,14 +478,14 @@ describe("tool-display lifecycle integration", () => {
 		await h.emit("session_start");
 		const args = { path: "short.txt", content: "new\n" };
 		const context = row("live", args);
-		const call = required(required(h.resolve("write")).renderCall)(args, theme, context);
-		await h.emit("tool_execution_start", { toolCallId: "live", toolName: "write", args });
-		expect(
-			call
+		const paint = () =>
+			required(required(h.resolve("write")).renderCall)(args, theme, context)
 				.render(80)
 				.map((line) => line.trimEnd())
-				.join("\n"),
-		).toContain("original");
+				.join("\n");
+		paint();
+		await h.emit("tool_execution_start", { toolCallId: "live", toolName: "write", args });
+		expect(paint()).toContain("original");
 		for (const boundary of [
 			"session_before_tree",
 			"session_tree",
@@ -494,12 +494,7 @@ describe("tool-display lifecycle integration", () => {
 			"session_start",
 		]) {
 			await h.emit(boundary);
-			expect(
-				call
-					.render(80)
-					.map((line) => line.trimEnd())
-					.join("\n"),
-			).toContain("no live preimage");
+			expect(paint()).toContain("no live preimage");
 		}
 		required(h.deps.setToolDisplayComponent)({ enabled: false }, h.ctx);
 		await h.emit("tool_execution_start", { toolCallId: "live", toolName: "write", args });
@@ -603,6 +598,36 @@ describe("same-row pending ownership proof", () => {
 			expect(observe).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
+		}
+	});
+
+	it("repaints an already painted row after a live tool display setting change", async () => {
+		save({ enabled: true, readOutputMode: "summary" });
+		const h = runtime();
+		await h.emit("session_start");
+		try {
+			const args = { path: join(workspace, "sample.ts") };
+			const component = new ToolExecutionComponent(
+				"read",
+				"live-read",
+				args,
+				{ showImages: false },
+				h.resolve("read"),
+				{ requestRender() {} } as never,
+				workspace,
+			);
+			component.updateResult({
+				content: [{ type: "text", text: "1|alpha line\n2|beta line" }],
+				details: { lineCount: 2 },
+				isError: false,
+			});
+			const painted = stripVTControlCharacters(component.render(100).join("\n"));
+			expect(painted).not.toContain("alpha line");
+			required(h.deps.setToolDisplayComponent)({ readOutputMode: "preview" }, h.ctx);
+			const repainted = stripVTControlCharacters(component.render(100).join("\n"));
+			expect(repainted).toContain("alpha line");
+		} finally {
+			await h.emit("session_shutdown", { reason: "quit" });
 		}
 	});
 });

@@ -244,18 +244,27 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				}
 			: config;
 	let currentConfig: PolishedTuiConfig = scopeConfig(structuredClone(defaultConfig));
-	const toolDisplay = createToolDisplayController(
-		host.skinOnly ? {} : pi,
-		() => ({
+	// The controller treats a changed identity as "a save needs a rebuild".
+	let toolDisplayConfigKey: PolishedTuiConfig | undefined;
+	let toolDisplayConfigCurrent = false;
+	let toolDisplayConfigValue: ZentuiConfig["components"]["toolDisplay"] | undefined;
+	const toolDisplayConfig = () => {
+		const current = sessionLifecycle.isCurrent();
+		if (toolDisplayConfigKey === currentConfig && toolDisplayConfigCurrent === current)
+			return toolDisplayConfigValue as ZentuiConfig["components"]["toolDisplay"];
+		toolDisplayConfigKey = currentConfig;
+		toolDisplayConfigCurrent = current;
+		toolDisplayConfigValue = {
 			...currentConfig.components.toolDisplay,
-			enabled: sessionLifecycle.isCurrent() && currentConfig.components.toolDisplay.enabled,
-		}),
-		{
-			nativeRenderers: host.skinOnly ? {} : nativeToolRenderers(process.cwd()),
-			pending: new PendingPreimages(),
-			highlighter: host.skinOnly ? undefined : toolDisplayHighlighter,
-		},
-	);
+			enabled: current && currentConfig.components.toolDisplay.enabled,
+		};
+		return toolDisplayConfigValue;
+	};
+	const toolDisplay = createToolDisplayController(host.skinOnly ? {} : pi, toolDisplayConfig, {
+		nativeRenderers: host.skinOnly ? {} : nativeToolRenderers(process.cwd()),
+		pending: new PendingPreimages(),
+		highlighter: host.skinOnly ? undefined : toolDisplayHighlighter,
+	});
 	// Register one neutral resolver before transcript restoration; the live getter is
 	// reloaded synchronously on session_start. No execution registration is replaced.
 	if (!host.skinOnly) toolDisplay.install();
