@@ -247,9 +247,8 @@ describe("independent extension status lifecycle", () => {
 			expect(rows).toContain("Native uses Pi's layout");
 			h.change("off placement"); // Right -> Off, ignoring dormant Starship Off when displaying
 			expect(raw().components.extensionStatuses.visibility).toEqual({ off: "hide" });
-			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({
-				off: "off",
-			});
+			// Off clears the dormant Starship placement: a hidden key never renders.
+			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({});
 			expect(h.provider.has("off")).toBe(false);
 			h.change("Default placement"); // Right -> Off
 			expect(h.provider.has("off")).toBe(false);
@@ -379,7 +378,6 @@ describe("independent extension status lifecycle", () => {
 			for (let i = 0; i < 3; i++) h.change("r placement"); // Left -> Off
 			expect(raw().components.extensionStatuses.hidden.placements).toEqual({
 				l: "left",
-				r: "right",
 			});
 			expect(h.footer()?.render(21)).toEqual(["L M"]);
 			const hidden = raw().components.extensionStatuses.hidden;
