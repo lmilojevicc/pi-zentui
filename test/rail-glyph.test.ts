@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderAccentRailEditorFrame } from "../extensions/zentui/accent-rail-editor";
 import {
 	mergeConfig,
@@ -22,7 +22,10 @@ import {
 	resolveUserMessageRailGlyph,
 } from "../extensions/zentui/rail-glyph";
 import { renderPolishedEditorFrame } from "../extensions/zentui/ui";
-import { renderUserMessageStyle } from "../extensions/zentui/user-message-styles";
+import {
+	renderUserMessageStyle,
+	userMessageStyleCacheKey,
+} from "../extensions/zentui/user-message-styles";
 
 function theme(): Theme {
 	return {
@@ -55,8 +58,6 @@ function withFile(initial: unknown, run: (path: string) => void): void {
 	}
 }
 
-afterEach(() => undefined);
-
 describe("rail glyph normalization", () => {
 	it("keeps single-cell glyphs and rejects everything else", () => {
 		for (const glyph of ["│", "┃", "▎", "▌", "|"]) {
@@ -80,6 +81,13 @@ describe("rail glyph normalization", () => {
 	it("truncates multi-cell glyphs to the single rail cell", () => {
 		expect(normalizeRailGlyph("││")).toBe("│");
 		expect(normalizeRailGlyph("▌▌")).toBe("▌");
+	});
+
+	it("ignores surrounding whitespace instead of rendering a blank rail", () => {
+		expect(normalizeRailGlyph(" ┃")).toBe("┃");
+		expect(normalizeRailGlyph("┃ ")).toBe("┃");
+		expect(normalizeRailGlyph(" │ x ")).toBe("│");
+		expect(normalizeRailGlyph(" ")).toBeUndefined();
 	});
 });
 
@@ -120,6 +128,30 @@ describe("owner-owned rail glyphs", () => {
 		const plain = mergeConfig({ icons: { mode: "ascii" } }, {});
 		expect(resolveEditorFrameRailGlyph(plain)).toBe(DEFAULT_ASCII_RAIL_GLYPH);
 		expect(resolveUserMessageRailGlyph(plain)).toBe(DEFAULT_ASCII_RAIL_GLYPH);
+	});
+
+	it("keeps the Nerd and ASCII rail variants independent per icon mode", () => {
+		const nerd = mergeConfig(
+			{ icons: { mode: "nerd" }, components: { userMessages: { rail: "▌" } } },
+			{},
+		);
+		expect(resolveUserMessageRailGlyph(nerd)).toBe("▌");
+
+		// An explicit canonical rail keeps working when the icon mode is ASCII.
+		const ascii = mergeConfig(
+			{ icons: { mode: "ascii" }, components: { userMessages: { rail: "▌" } } },
+			{},
+		);
+		expect(resolveUserMessageRailGlyph(ascii)).toBe("▌");
+
+		const asciiOverride = mergeConfig(
+			{
+				icons: { mode: "ascii" },
+				components: { userMessages: { rail: "▌", asciiRail: "!" } },
+			},
+			{},
+		);
+		expect(resolveUserMessageRailGlyph(asciiOverride)).toBe("!");
 	});
 
 	it("keeps the accent-rail style rail and lets the canonical editor rail win", () => {
@@ -193,9 +225,11 @@ describe("rail glyph rendering", () => {
 
 	it("invalidates the user-message cache when the rail changes", () => {
 		const current = config();
-		const before = current.components.userMessages.rail;
+		const before = userMessageStyleCacheKey(current);
 		current.components.userMessages.rail = "▌";
-		expect(current.components.userMessages.rail).not.toBe(before);
+		expect(userMessageStyleCacheKey(current)).not.toBe(before);
+		current.components.userMessages.rail = undefined;
+		expect(userMessageStyleCacheKey(current)).toBe(before);
 	});
 });
 

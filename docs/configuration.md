@@ -548,10 +548,10 @@ The vertical rail drawn beside the editor input and beside previous user message
 
 | Owner | Key | Applies to |
 | --- | --- | --- |
-| Editor | `components.editor.rail` | Editor styles that draw a rail (Opencode, Accent Rail) |
-| Editor | `components.editor.asciiRail` | The same rail while the effective icon mode is `ascii` |
-| User messages | `components.userMessages.rail` | `framed` and `compact` previous-message styles |
-| User messages | `components.userMessages.asciiRail` | The same rail while the effective icon mode is `ascii` |
+| Editor | `components.editor.rail` | Editor styles that draw a rail (Opencode, Accent Rail), in every icon mode |
+| Editor | `components.editor.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
+| User messages | `components.userMessages.rail` | `framed` and `compact` previous-message styles, in every icon mode |
+| User messages | `components.userMessages.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
 
 ```json
 {
@@ -564,24 +564,27 @@ The vertical rail drawn beside the editor input and beside previous user message
 
 Common glyphs are `│` (light vertical), `┃` (heavy vertical), `▎` (left one-quarter block), `▌` (left half block), and `|` (ASCII pipe). Block glyphs fill the whole cell, so they keep the rail connected between rows in terminals that draw thin box characters shorter than the line box.
 
-A configured glyph must occupy exactly one terminal cell. Terminal control sequences are stripped, longer values are cut to their first cell, and values that cannot be drawn as one cell (wide characters, empty or blank strings) are ignored so the owner's default is used instead of breaking the layout.
+A configured glyph must occupy exactly one terminal cell. Terminal control sequences are stripped, surrounding whitespace is ignored, longer values are cut to their first cell, and values that cannot be drawn as one cell (wide characters, empty or blank strings) are ignored so the owner's default is used instead of breaking the layout.
 
 `/zentui` exposes the same choices as **Rail glyph** in the Editor and User messages sections. **Default** removes the override and resumes inheritance. The settings control writes both the Nerd and ASCII variants, so the chosen glyph is used in every icon mode.
 
+Each owner has one canonical rail plus an optional ASCII-icon-mode override, mirroring the Accent Rail style's own `rail` / `asciiRail` pair: `rail` applies in every icon mode, and `asciiRail` replaces it while the effective icon mode is `ascii`. An explicit choice therefore keeps working on terminals that the `auto` icon mode resolves to ASCII; set `asciiRail` as well when the ASCII mode needs a different glyph.
+
 Unset keys inherit, in this order:
 
-- Editor: `components.editor.rail` / `asciiRail`, then the Accent Rail style's own `components.editor.styles["accent-rail"].rail` / `asciiRail`, then the shared `icons.rail`.
-- User messages: `components.userMessages.rail` / `asciiRail`, then the shared `icons.rail`.
+- Editor, Opencode style: the canonical glyph, then the shared `icons.rail`.
+- Editor, Accent Rail style: the canonical glyph, then the style's own `components.editor.styles["accent-rail"].rail` (its `asciiRail` in ASCII icon mode), then that style's built-in default (`▎`, or `|` in ASCII icon mode).
+- User messages: the canonical glyph, then the shared `icons.rail`.
 
 `icons.rail` stays a shared historical fallback for both owners; it is not a per-component setting. Prefer the owner keys above when only one surface should change. The new keys are absent from the default configuration.
 
-Minimalist draws a full box frame rather than a rail, so the rail keys leave its border untouched. `framed-copy-friendly` and `labeled` messages draw a box as well and keep their own borders.
+Minimalist draws a full box frame rather than a rail, so the rail keys leave its border untouched. The `opencode-copy-friendly` editor style draws no rail column either. `framed-copy-friendly` and `labeled` messages draw a box as well and keep their own borders.
 
 ## Editor styles
 
 ### Accent Rail
 
-Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. A configured `components.editor.rail` overrides the style-owned glyph for every editor style that draws a rail. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. A configured `components.editor.rail` overrides the style-owned glyph for every editor style that draws a rail; `components.editor.asciiRail` replaces it in ASCII icon mode. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 

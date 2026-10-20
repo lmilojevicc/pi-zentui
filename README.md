@@ -190,7 +190,7 @@ The vertical rail glyph is configurable per surface as well. `components.editor.
 }
 ```
 
-Common glyphs are `│`, `┃`, `▎`, `▌`, and `|`. Each glyph must fit one terminal cell; unusable values fall back to the owner's default. `/zentui` exposes the same choice as **Rail glyph** in the Editor and User messages sections. See [Rail glyphs](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#rail-glyphs).
+Common glyphs are `│`, `┃`, `▎`, `▌`, and `|`. Each glyph must fit one terminal cell; unusable values fall back to the owner's default. `components.editor.asciiRail` and `components.userMessages.asciiRail` override the same rail while the effective icon mode is `ascii`. `/zentui` exposes the same choice as **Rail glyph** in the Editor and User messages sections. See [Rail glyphs](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#rail-glyphs).
 
 To adopt **only User messages**, explicitly leave the other default-enabled surfaces alone:
 

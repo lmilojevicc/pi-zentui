@@ -668,7 +668,7 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "editorRailGlyph",
 			label: "Rail glyph",
 			description:
-				"Vertical rail character drawn beside the editor input, for editor styles that draw a rail (Opencode, Accent Rail). Default keeps each style's own rail. Previous messages keep their own rail.",
+				"Vertical rail character drawn beside the editor input, for editor styles that draw a rail (Opencode, Accent Rail). Default resumes the inherited rail. Previous messages keep their own rail.",
 			currentValue: editor.rail ?? RAIL_GLYPH_INHERIT,
 			values: railGlyphValues,
 		},
@@ -864,7 +864,7 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			id: "userMessagesRailGlyph",
 			label: "Rail glyph",
 			description:
-				"Vertical rail character drawn beside previous messages. Default keeps the shared icon rail. The editor keeps its own rail.",
+				"Vertical rail character drawn beside previous messages (framed, compact). Default keeps the shared icon rail. The editor keeps its own rail.",
 			currentValue: messages.rail ?? RAIL_GLYPH_INHERIT,
 			values: railGlyphValues,
 		},

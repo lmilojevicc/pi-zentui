@@ -4,7 +4,9 @@
  * Each owner resolves its own glyph so a rail choice in one component never
  * rewrites the other. The canonical per-component glyph is validated to
  * exactly one terminal cell; anything wider, empty, or control-bearing falls
- * back safely. The historical shared `icons.rail` fallback stays untouched.
+ * back safely. `asciiRail` is the ASCII-icon-mode override of the same
+ * canonical `rail`, so an explicit `rail` still applies in every icon mode.
+ * The historical shared `icons.rail` fallback stays untouched.
  */
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -39,12 +41,14 @@ function firstCell(value: string): string {
  * Normalize a configured glyph to exactly one terminal cell.
  *
  * Returns undefined when the value cannot be used as a rail: control
- * sequences, empty strings, and wide characters all fail closed.
+ * sequences, empty strings, and wide characters all fail closed. Surrounding
+ * whitespace is dropped so a padded value still selects its glyph instead of
+ * degrading into an invisible blank rail cell.
  */
 export function normalizeRailGlyph(value: string | undefined): string | undefined {
 	if (typeof value !== "string") return undefined;
-	const sanitized = sanitizeEditorMetadataText(value);
-	if (!sanitized.trim()) return undefined;
+	const sanitized = sanitizeEditorMetadataText(value).trim();
+	if (!sanitized) return undefined;
 	const glyph = firstCell(sanitized);
 	return visibleWidth(glyph) === 1 ? glyph : undefined;
 }
@@ -53,14 +57,22 @@ function asciiIconMode(config: ZentuiConfig): boolean {
 	return config.icons.effectiveMode === "ascii";
 }
 
+/**
+ * The canonical owner glyph.
+ *
+ * `asciiRail` is the ASCII-icon-mode override of the same rail, so a
+ * hand-written `rail` keeps working while the effective icon mode is `ascii`.
+ * This mirrors `icons.rail`, where an explicit override wins in every mode and
+ * only the built-in defaults are mode-specific.
+ */
 function canonicalEditorRail(config: ZentuiConfig): string | undefined {
-	return asciiIconMode(config) ? config.components.editor.asciiRail : config.components.editor.rail;
+	const editor = config.components.editor;
+	return asciiIconMode(config) ? (editor.asciiRail ?? editor.rail) : editor.rail;
 }
 
 function canonicalUserMessageRail(config: ZentuiConfig): string | undefined {
-	return asciiIconMode(config)
-		? config.components.userMessages.asciiRail
-		: config.components.userMessages.rail;
+	const messages = config.components.userMessages;
+	return asciiIconMode(config) ? (messages.asciiRail ?? messages.rail) : messages.rail;
 }
 
 /**
