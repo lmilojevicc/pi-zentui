@@ -152,6 +152,50 @@ describe("Off write consistency", () => {
 		expect(saved.components.extensionStatuses.hidden.placements).toEqual({ keep: "left" });
 	});
 
+	it("keeps the dormant Starship placement when Off is chosen under the Native footer", () => {
+		const path = fixture({
+			components: {
+				footer: {
+					style: "native",
+					styles: {
+						starship: { extensionStatuses: { placements: { "pi-cache-stats": "right" } } },
+					},
+				},
+			},
+		});
+		saveExtensionStatusChoice("pi-cache-stats", "off", "native", path);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.components.extensionStatuses.visibility["pi-cache-stats"]).toBe("hide");
+		// Native owns no placement map, so the dormant Starship preference stays untouched.
+		expect(saved.components.footer.styles.starship.extensionStatuses.placements).toEqual({
+			"pi-cache-stats": "right",
+		});
+		const config = mergeConfig(saved);
+		expect(extensionStatusChoice(config, "pi-cache-stats")).toBe("off");
+		expect(getExtensionStatusPlacement(config, "pi-cache-stats")).toBe("off");
+		expect(renderedKeys(config, { "pi-cache-stats": "cache 42%" })).toEqual([]);
+	});
+
+	it("keeps the dormant Hidden placement when Off is chosen under the Starship footer", () => {
+		const path = fixture({
+			components: {
+				footer: {
+					style: "starship",
+					styles: {
+						starship: { extensionStatuses: { placements: { "pi-cache-stats": "right" } } },
+					},
+				},
+				extensionStatuses: { hidden: { placements: { "pi-cache-stats": "left" } } },
+			},
+		});
+		saveExtensionStatusChoice("pi-cache-stats", "off", "starship", path);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.components.extensionStatuses.hidden.placements).toEqual({
+			"pi-cache-stats": "left",
+		});
+		expect(saved.components.footer.styles.starship.extensionStatuses.placements).toEqual({});
+	});
+
 	it("keeps the Starship footer hidden for an Off key saved with a positive placement", () => {
 		const path = fixture({
 			components: {

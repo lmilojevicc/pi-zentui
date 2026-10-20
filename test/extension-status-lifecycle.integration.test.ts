@@ -247,8 +247,11 @@ describe("independent extension status lifecycle", () => {
 			expect(rows).toContain("Native uses Pi's layout");
 			h.change("off placement"); // Right -> Off, ignoring dormant Starship Off when displaying
 			expect(raw().components.extensionStatuses.visibility).toEqual({ off: "hide" });
-			// Off clears the dormant Starship placement: a hidden key never renders.
-			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({});
+			// Off clears only the current mode's placement: Native owns none, so the dormant
+			// Starship preference survives and the per-key Hide hides the status everywhere.
+			expect(raw().components.footer.styles.starship.extensionStatuses.placements).toEqual({
+				off: "off",
+			});
 			expect(h.provider.has("off")).toBe(false);
 			h.change("Default placement"); // Right -> Off
 			expect(h.provider.has("off")).toBe(false);
@@ -267,6 +270,26 @@ describe("independent extension status lifecycle", () => {
 			expect(raw().components.extensionStatuses.hidden).toEqual(hidden);
 			expect(raw().components.footer).toMatchObject({ style: "native", enabled: false });
 			expect(h.ctx.ui.setFooter).not.toHaveBeenCalled();
+		} finally {
+			await h.emit("session_shutdown");
+		}
+	});
+
+	it("keeps a per-key hidden status out of the Starship footer despite a positive placement", async () => {
+		const h = setup("starship");
+		const saved = raw();
+		saved.components.footer.styles.starship.extensionStatuses.placements = {
+			"pi-cache-stats": "right",
+		};
+		saved.components.extensionStatuses = { visibility: { "pi-cache-stats": "hide" } };
+		writeFileSync(disk.path, JSON.stringify(saved));
+		await h.emit("session_start");
+		try {
+			// Publish past the best-effort suppression to prove the render filter hides the key.
+			h.provider.set("pi-cache-stats", "CACHE 42%");
+			expect(h.footer()?.render(200).join("\n")).not.toContain("CACHE 42%");
+			await h.open("extensions");
+			expect(stripVTControlCharacters(h.rows())).toMatch(/pi-cache-stats placement\s+Off/);
 		} finally {
 			await h.emit("session_shutdown");
 		}

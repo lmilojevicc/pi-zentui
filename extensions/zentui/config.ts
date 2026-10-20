@@ -2825,7 +2825,8 @@ export function saveExtensionStatusDefaultChoice(
 /**
  * Default removes both visibility and current-mode placement, shadowing legacy Starship maps.
  * Off removes the current-mode placement as well: a hidden key never renders, so a stale
- * positive placement would only mask the choice later.
+ * positive placement would only mask the choice later. Every other mode keeps its own
+ * saved placement, so one mode's choice never rewrites another mode's preferences.
  */
 export function saveExtensionStatusChoice(
 	key: string,
@@ -2839,11 +2840,10 @@ export function saveExtensionStatusChoice(
 		const hidden = recordValue(owner.hidden);
 		const starship = recordValue(recordValue(recordValue(components.footer).styles).starship);
 		const canonicalStatuses = recordValue(starship.extensionStatuses);
-		const removeCurrentModePlacement = () => {
-			if (style === "hidden") {
-				delete recordValue(hidden.placements)[key];
-				return;
-			}
+		const removeHiddenPlacement = () => {
+			delete recordValue(hidden.placements)[key];
+		};
+		const removeStarshipPlacement = () => {
 			// An empty canonical map must remain to prevent top-level legacy fallback.
 			const placements = {
 				...recordValue(
@@ -2862,14 +2862,20 @@ export function saveExtensionStatusChoice(
 		};
 		if (choice === "default") {
 			delete recordValue(owner.visibility)[key];
-			removeCurrentModePlacement();
+			// Default resumes inheritance in the current mode; Native also drops the dormant
+			// Starship map so a legacy top-level map cannot leak back in.
+			if (style === "hidden") removeHiddenPlacement();
+			else removeStarshipPlacement();
 			return;
 		}
 		record.components = overlayKnown(record.components, {
 			extensionStatuses: { visibility: { [key]: choice === "off" ? "hide" : "show" } },
 		});
 		if (choice === "off") {
-			removeCurrentModePlacement();
+			// Off clears only the current mode's placement. The per-key Hide already wins at
+			// render time, so another mode's saved placement stays untouched.
+			if (style === "hidden") removeHiddenPlacement();
+			else if (style === "starship") removeStarshipPlacement();
 			return;
 		}
 		if (style === "hidden") {
