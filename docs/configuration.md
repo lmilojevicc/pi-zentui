@@ -540,12 +540,48 @@ Role-specific defaults and chains remain intact:
 - Minimalist's built-in `Cache NN%` label and `$cache_hit` use Editor `cacheHit` → optional shared `colors.cacheHit` → Editor `contextNormal` (local, then shared/default). The normal tier stays stable even at warning/error context usage. Configure it through `/zentui` → Editor → **Color overrides** → `cacheHit`; **Reset / inherit** resumes the chain. The selected Editor color source applies throughout; no cache-hit palette is generated or saved, and other owners are unchanged.
 - Thinking levels use their level key then generic `thinking`; Max uses `thinkingMax → thinkingXhigh → thinking`. Static metadata and adaptive borders retain their existing distinct fallback behavior; theme-adaptive borders still defer to Pi's thinking-border callback.
 - Working-line defaults remain theme `dim`, `muted`, `bold accent`, or terminal `bright-black`, `cyan`, `bold cyan`. Both animated rows and summaries consume local overrides. New persisted Turn summaries snapshot the effective high style; when no safe SGR prefix exists (including an unstyled high override), they retain the safe bold-cyan substitute. Existing persisted summaries keep their recorded style; legacy version-1 summaries use current high styling.
+- `components.editor.rail` and `components.userMessages.rail` own the vertical rail glyph of their own surface; neither owner rewrites the other. See [Rail glyphs](#rail-glyphs).
+
+## Rail glyphs
+
+The vertical rail drawn beside the editor input and beside previous user messages is a configurable character. Each owner keeps its own choice, so changing one never rewrites the other.
+
+| Owner | Key | Applies to |
+| --- | --- | --- |
+| Editor | `components.editor.rail` | Editor styles that draw a rail (Opencode, Accent Rail) |
+| Editor | `components.editor.asciiRail` | The same rail while the effective icon mode is `ascii` |
+| User messages | `components.userMessages.rail` | `framed` and `compact` previous-message styles |
+| User messages | `components.userMessages.asciiRail` | The same rail while the effective icon mode is `ascii` |
+
+```json
+{
+  "components": {
+    "editor": { "rail": "┃", "asciiRail": "|" },
+    "userMessages": { "rail": "▌", "asciiRail": "|" }
+  }
+}
+```
+
+Common glyphs are `│` (light vertical), `┃` (heavy vertical), `▎` (left one-quarter block), `▌` (left half block), and `|` (ASCII pipe). Block glyphs fill the whole cell, so they keep the rail connected between rows in terminals that draw thin box characters shorter than the line box.
+
+A configured glyph must occupy exactly one terminal cell. Terminal control sequences are stripped, longer values are cut to their first cell, and values that cannot be drawn as one cell (wide characters, empty or blank strings) are ignored so the owner's default is used instead of breaking the layout.
+
+`/zentui` exposes the same choices as **Rail glyph** in the Editor and User messages sections. **Default** removes the override and resumes inheritance. The settings control writes both the Nerd and ASCII variants, so the chosen glyph is used in every icon mode.
+
+Unset keys inherit, in this order:
+
+- Editor: `components.editor.rail` / `asciiRail`, then the Accent Rail style's own `components.editor.styles["accent-rail"].rail` / `asciiRail`, then the shared `icons.rail`.
+- User messages: `components.userMessages.rail` / `asciiRail`, then the shared `icons.rail`.
+
+`icons.rail` stays a shared historical fallback for both owners; it is not a per-component setting. Prefer the owner keys above when only one surface should change. The new keys are absent from the default configuration.
+
+Minimalist draws a full box frame rather than a rail, so the rail keys leave its border untouched. `framed-copy-friendly` and `labeled` messages draw a box as well and keep their own borders.
 
 ## Editor styles
 
 ### Accent Rail
 
-Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
+Set `components.editor.style` to `accent-rail` or select **Accent Rail** in `/zentui`. Each input row uses its style-owned `rail` glyph (`▎`, or `asciiRail` in ASCII mode), one blank cell before text, and Pi's neutral filled surface. A configured `components.editor.rail` overrides the style-owned glyph for every editor style that draws a rail. By default it has no prompt glyph, metadata, enclosing border, or blank chrome row. Opt-in eligible Codex quota is the sole metadata exception, adding a separate row beneath input when it fits. Viewport counts appear only while content is clipped.
 
 Known autocomplete rows retain Pi's native text, descriptions, and scrolling on the same full-width surface. The selected native `→` becomes the configured rail without replacing Pi's selected-text color. Ambiguous third-party editor layouts fail open using already-rendered native rows.
 
@@ -808,6 +844,7 @@ Missing, non-string, or empty values use `$model  $provider(  $thinking)(  $fast
 - `framed-copy-friendly` keeps full-width horizontal borders and spacer rows, removes the copied rail, and retains a one-cell leading gutter.
 - `compact` uses only an accent rail with no surrounding border or padding rows.
 - `labeled` uses a rounded box with fixed label `User`.
+- The rail of `framed` and `compact` follows `components.userMessages.rail` (or `asciiRail` in ASCII mode) and is independent of the editor rail.
 - Disabling styling delegates to Pi's native renderer; native is not a style ID.
 - Zentui intentionally provides no custom `plain` style.
 

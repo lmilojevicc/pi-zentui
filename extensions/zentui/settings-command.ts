@@ -81,6 +81,7 @@ import {
 	matchingComponentPreset,
 	type PresetId,
 } from "./presets";
+import { RAIL_GLYPH_CHOICES, RAIL_GLYPH_INHERIT } from "./rail-glyph";
 import type { SessionLifecycle } from "./session-lifecycle";
 import { settingsKeys } from "./settings-keys";
 import { selectOwnedSetting } from "./settings-list-selection";
@@ -144,6 +145,7 @@ const footerStyleLabels: Record<FooterStyle, string> = {
 const footerStyleValues = Object.values(footerStyleLabels);
 const completionMenuValues: CompletionMenuStyle[] = ["palette", "native"];
 const accentRailSurfaceValues = ["filled", "transparent"];
+const railGlyphValues = [RAIL_GLYPH_INHERIT, ...RAIL_GLYPH_CHOICES];
 const minimalistPathDisplayValues = ["compact", "project", "full"];
 const minimalistContextFormatValues = ["percent", "percent-total"];
 const minimalistSeparatorValues: MinimalistEditorSeparator[] = ["dash", "dot"];
@@ -227,10 +229,20 @@ type EditorPatch = Partial<
 		| "viewportIndicators"
 		| "codexQuota"
 	>
->;
+> & {
+	/** null removes the rail override and resumes the style's own rail. */
+	rail?: string | null;
+	/** null removes the rail override and resumes the style's own rail. */
+	asciiRail?: string | null;
+};
 type UserMessagesPatch = Partial<
 	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
->;
+> & {
+	/** null removes the rail override and resumes the shared icon rail. */
+	rail?: string | null;
+	/** null removes the rail override and resumes the shared icon rail. */
+	asciiRail?: string | null;
+};
 type FooterPatch = Partial<
 	Pick<FooterComponentConfig, "style" | "colorSource" | "modelLabel" | "codexQuota">
 >;
@@ -652,6 +664,14 @@ function buildEditorItems(config: PolishedTuiConfig): SettingItem[] {
 			currentValue: editorStyleLabel(editor.style),
 			values: editorStyleValues,
 		},
+		{
+			id: "editorRailGlyph",
+			label: "Rail glyph",
+			description:
+				"Vertical rail character drawn beside the editor input, for editor styles that draw a rail (Opencode, Accent Rail). Default keeps each style's own rail. Previous messages keep their own rail.",
+			currentValue: editor.rail ?? RAIL_GLYPH_INHERIT,
+			values: railGlyphValues,
+		},
 		...(editor.style === "accent-rail" ? buildAccentRailEditorStyleItems(config) : []),
 		{
 			id: "editorColorSource",
@@ -839,6 +859,14 @@ function buildUserMessagesItems(config: PolishedTuiConfig): SettingItem[] {
 			description: "Use Pi theme colors or terminal palette styles.",
 			currentValue: messages.colorSource,
 			values: colorSourceValues,
+		},
+		{
+			id: "userMessagesRailGlyph",
+			label: "Rail glyph",
+			description:
+				"Vertical rail character drawn beside previous messages. Default keeps the shared icon rail. The editor keeps its own rail.",
+			currentValue: messages.rail ?? RAIL_GLYPH_INHERIT,
+			values: railGlyphValues,
 		},
 	];
 }
@@ -2053,6 +2081,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											notifyChange("Editor viewport indicators", newValue);
 											return;
 										}
+										if (id === "editorRailGlyph" && railGlyphValues.includes(newValue)) {
+											const glyph = newValue === RAIL_GLYPH_INHERIT ? null : newValue;
+											setEditor({ rail: glyph, asciiRail: glyph }, ctx);
+											settingsList.updateValue(id, glyph ?? RAIL_GLYPH_INHERIT);
+											notifyChange("Editor rail", newValue);
+											return;
+										}
 										if (
 											id === "opencodeCompletionMenu" &&
 											(newValue === "native" || newValue === "palette")
@@ -2149,6 +2184,13 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 											setMessages({ colorSource: newValue }, ctx);
 											settingsList.updateValue(id, newValue);
 											notifyChange("Message colors", newValue);
+											return;
+										}
+										if (id === "userMessagesRailGlyph" && railGlyphValues.includes(newValue)) {
+											const glyph = newValue === RAIL_GLYPH_INHERIT ? null : newValue;
+											setMessages({ rail: glyph, asciiRail: glyph }, ctx);
+											settingsList.updateValue(id, glyph ?? RAIL_GLYPH_INHERIT);
+											notifyChange("Message rail", newValue);
 											return;
 										}
 										if (id.startsWith("toolDisplay")) {

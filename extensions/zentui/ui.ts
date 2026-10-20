@@ -33,6 +33,7 @@ import type { HostTemplateValues } from "./host-template-values";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
 import { minimalistTemplateReferences } from "./minimalist-template";
 import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame";
+import { resolveEditorFrameRailGlyph } from "./rail-glyph";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -446,7 +447,7 @@ function getEditorChromeWidths(
 				config.components.editor.colorSource,
 				chromeColor.color,
 				chromeColor.fallback,
-				config.icons.rail,
+				resolveEditorFrameRailGlyph(config),
 			)}${reset} `;
 	return {
 		prompt,

@@ -9,7 +9,7 @@ import {
 } from "./completion-menu";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import { resolveAccentRailGlyph } from "./rail-glyph";
 import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style";
 
 export const ACCENT_RAIL_CHROME_WIDTH = 2;
@@ -40,12 +40,7 @@ function clampLines(lines: string[], width: number): string[] {
 }
 
 function selectedRail(config: ZentuiConfig): string {
-	const style = config.components.editor.styles["accent-rail"];
-	const fallback = config.icons.effectiveMode === "ascii" ? "|" : "▎";
-	const configured = config.icons.effectiveMode === "ascii" ? style.asciiRail : style.rail;
-	const sanitized = sanitizeEditorMetadataText(configured);
-	const glyph = truncateToWidth(sanitized, 1, "");
-	return visibleWidth(glyph) === 1 ? glyph : fallback;
+	return resolveAccentRailGlyph(config);
 }
 
 function viewportLabel(

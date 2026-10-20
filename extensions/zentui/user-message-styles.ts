@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { componentColor } from "./component-colors";
 import type { ZentuiConfig } from "./config";
+import { resolveUserMessageRailGlyph } from "./rail-glyph";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
@@ -120,7 +121,7 @@ function border(theme: Theme | undefined, config: ZentuiConfig, text: string): s
 }
 
 function renderRail(theme: Theme | undefined, config: ZentuiConfig): string {
-	return `${accent(theme, config, config.icons.rail)} `;
+	return `${accent(theme, config, resolveUserMessageRailGlyph(config))} `;
 }
 
 function renderFramed(input: UserMessageStyleRenderInput): string[] {
@@ -202,7 +203,7 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 				messages.colorSource,
 				componentColor(config, "userMessages", "accent") ?? "<inherit>",
 				componentColor(config, "userMessages", "border") ?? "<inherit>",
-				config.icons.rail,
+				resolveUserMessageRailGlyph(config),
 			].join("\0");
 		case "framed-copy-friendly":
 			return [
@@ -215,7 +216,7 @@ export function userMessageStyleCacheKey(config: ZentuiConfig): string {
 				"compact",
 				messages.colorSource,
 				componentColor(config, "userMessages", "accent") ?? "<inherit>",
-				config.icons.rail,
+				resolveUserMessageRailGlyph(config),
 			].join("\0");
 		case "labeled":
 			return [

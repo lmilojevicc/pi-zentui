@@ -206,6 +206,10 @@ export type EditorComponentConfig = {
 	colors?: ComponentColors<"editor">;
 	customValueColors?: CustomValueColors;
 	enabled: boolean;
+	/** Canonical editor rail glyph; unset inherits the style's own rail. */
+	rail?: string;
+	/** ASCII-mode editor rail glyph; unset inherits the style's own rail. */
+	asciiRail?: string;
 	style: EditorStyle;
 	colorSource: ColorSource;
 	borderColorMode: EditorBorderColorMode;
@@ -227,6 +231,10 @@ export type LabeledUserMessageStyleConfig = Record<string, never>;
 export type UserMessagesComponentConfig = {
 	colors?: ComponentColors<"userMessages">;
 	enabled: boolean;
+	/** Canonical user-message rail glyph; unset inherits the shared icon rail. */
+	rail?: string;
+	/** ASCII-mode user-message rail glyph; unset inherits the shared icon rail. */
+	asciiRail?: string;
 	style: UserMessageStyle;
 	colorSource: ColorSource;
 	styles: {
@@ -1162,6 +1170,11 @@ function parseNonEmptyString(value: unknown, fallback: string): string {
 	return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
+/** Optional single-cell glyph; unset means "inherit the owner's fallback". */
+function parseOptionalGlyph(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
 function resolveContextThresholds(
 	canonical: unknown,
 	legacy: unknown,
@@ -1453,6 +1466,8 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				resolvedValue(editor, "enabled", features, "editor"),
 				defaultComponents.editor.enabled,
 			),
+			rail: parseOptionalGlyph(editor.rail),
+			asciiRail: parseOptionalGlyph(editor.asciiRail),
 			style: resolveEditorStyle(editor, polished, features),
 			colorSource: parseColorSource(
 				resolvedValue(editor, "colorSource", colorSources, "editor"),
@@ -1532,6 +1547,8 @@ function resolveComponents(config: ConfigRecord): ComponentsConfig {
 				: {}),
 			enabled: userMessagesSelection.enabled,
 			style: userMessagesSelection.style,
+			rail: parseOptionalGlyph(userMessages.rail),
+			asciiRail: parseOptionalGlyph(userMessages.asciiRail),
 			colorSource: parseColorSource(
 				resolvedValue(userMessages, "colorSource", colorSources, "userMessages"),
 				defaultComponents.userMessages.colorSource,
@@ -1948,20 +1965,27 @@ export function saveComponentPreset(preset: ComponentPreset, path = configPath):
 	});
 }
 
+export type EditorComponentPatch = Partial<
+	Pick<
+		EditorComponentConfig,
+		| "enabled"
+		| "style"
+		| "colorSource"
+		| "borderColorMode"
+		| "modelLabel"
+		| "viewportIndicators"
+		| "codexQuota"
+	>
+> & {
+	/** null removes the override and resumes the style's own rail. */
+	rail?: string | null;
+	/** null removes the override and resumes the style's own rail. */
+	asciiRail?: string | null;
+};
+
 function applyEditorComponentPatch(
 	component: EditorComponentConfig,
-	patch: Partial<
-		Pick<
-			EditorComponentConfig,
-			| "enabled"
-			| "style"
-			| "colorSource"
-			| "borderColorMode"
-			| "modelLabel"
-			| "viewportIndicators"
-			| "codexQuota"
-		>
-	>,
+	patch: EditorComponentPatch,
 ): void {
 	if (patch.codexQuota !== undefined) component.codexQuota = patch.codexQuota;
 	if (patch.enabled !== undefined) component.enabled = patch.enabled;
@@ -1972,21 +1996,18 @@ function applyEditorComponentPatch(
 	if (patch.viewportIndicators !== undefined) {
 		component.viewportIndicators = patch.viewportIndicators;
 	}
+	if (patch.rail !== undefined) {
+		if (patch.rail === null) delete component.rail;
+		else component.rail = patch.rail;
+	}
+	if (patch.asciiRail !== undefined) {
+		if (patch.asciiRail === null) delete component.asciiRail;
+		else component.asciiRail = patch.asciiRail;
+	}
 }
 
 export function saveEditorComponentPatch(
-	patch: Partial<
-		Pick<
-			EditorComponentConfig,
-			| "enabled"
-			| "style"
-			| "colorSource"
-			| "borderColorMode"
-			| "modelLabel"
-			| "viewportIndicators"
-			| "codexQuota"
-		>
-	>,
+	patch: EditorComponentPatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
@@ -2199,8 +2220,17 @@ export function saveMinimalistEditorStylePatch(
 	);
 }
 
+export type UserMessagesComponentPatch = Partial<
+	Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">
+> & {
+	/** null removes the override and resumes the shared icon rail. */
+	rail?: string | null;
+	/** null removes the override and resumes the shared icon rail. */
+	asciiRail?: string | null;
+};
+
 export function saveUserMessagesComponentPatch(
-	patch: Partial<Pick<UserMessagesComponentConfig, "enabled" | "style" | "colorSource">>,
+	patch: UserMessagesComponentPatch,
 	path = configPath,
 ): PolishedTuiConfig {
 	return saveComponentsMutation(
@@ -2210,6 +2240,14 @@ export function saveUserMessagesComponentPatch(
 			if (patch.enabled !== undefined) component.enabled = patch.enabled;
 			if (patch.style !== undefined) component.style = patch.style;
 			if (patch.colorSource !== undefined) component.colorSource = patch.colorSource;
+			if (patch.rail !== undefined) {
+				if (patch.rail === null) delete component.rail;
+				else component.rail = patch.rail;
+			}
+			if (patch.asciiRail !== undefined) {
+				if (patch.asciiRail === null) delete component.asciiRail;
+				else component.asciiRail = patch.asciiRail;
+			}
 		},
 		path,
 		patch.style !== undefined ? deleteLegacyMessageCopyFriendly : undefined,

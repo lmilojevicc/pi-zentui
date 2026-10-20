@@ -179,6 +179,19 @@ Change only what you need. For example, this changes only the Editor's accent:
 
 Each owner's **Color overrides** action edits raw styles independently. **Reset / inherit** deletes the local key; an empty string intentionally removes styling. Shared `colors` remain live historical fallbacks before **and after** migration. Color sources remain independent too.
 
+The vertical rail glyph is configurable per surface as well. `components.editor.rail` owns the editor rail and `components.userMessages.rail` owns the rail of previous messages; neither rewrites the other:
+
+```json
+{
+  "components": {
+    "editor": { "rail": "┃" },
+    "userMessages": { "rail": "▌" }
+  }
+}
+```
+
+Common glyphs are `│`, `┃`, `▎`, `▌`, and `|`. Each glyph must fit one terminal cell; unusable values fall back to the owner's default. `/zentui` exposes the same choice as **Rail glyph** in the Editor and User messages sections. See [Rail glyphs](https://github.com/lmilojevicc/pi-zentui/blob/main/docs/configuration.md#rail-glyphs).
+
 To adopt **only User messages**, explicitly leave the other default-enabled surfaces alone:
 
 ```json

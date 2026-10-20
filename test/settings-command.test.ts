@@ -569,6 +569,7 @@ describe("component-oriented /zentui settings", () => {
 		expectFocusOrder(component, [
 			"Editor",
 			"Editor style",
+			"Rail glyph",
 			"Editor colors",
 			"Codex quota",
 			"Editor model label",
@@ -585,6 +586,7 @@ describe("component-oriented /zentui settings", () => {
 			"User messages",
 			"Message style",
 			"Message colors",
+			"Rail glyph",
 			"Color overrides",
 		]);
 		component.handleInput("\t");
@@ -733,6 +735,7 @@ describe("component-oriented /zentui settings", () => {
 		expectFocusOrder(component, [
 			"Editor",
 			"Editor style",
+			"Rail glyph",
 			"Editor colors",
 			"Codex quota",
 			"Editor model label",
@@ -758,6 +761,7 @@ describe("component-oriented /zentui settings", () => {
 			"User messages",
 			"Message style",
 			"Message colors",
+			"Rail glyph",
 			"Color overrides",
 		]);
 	});
@@ -977,6 +981,24 @@ describe("component-oriented /zentui settings", () => {
 		expect(harness.calls.editor).toEqual([{ colorSource: "theme" }, { modelLabel: "name" }]);
 		expect(harness.calls.messages).toEqual([{ colorSource: "theme" }]);
 		expect(harness.calls.footer).toEqual([{ colorSource: "theme" }, { modelLabel: "name" }]);
+	});
+
+	it("keeps the editor rail and the user-message rail controls independent", async () => {
+		const harness = createHarness();
+		await harness.command().handler("", harness.ctx);
+		const component = harness.component();
+		goToSection(component, "Editor");
+		selectLabel(component, "Rail glyph");
+		expect(row(component, "Rail glyph")).toContain("Default");
+		component.handleInput(" ");
+		expect(harness.calls.editor).toEqual([{ rail: "│", asciiRail: "│" }]);
+		expect(harness.calls.messages).toEqual([]);
+
+		component.handleInput("\t");
+		selectLabel(component, "Rail glyph");
+		component.handleInput(" ");
+		expect(harness.calls.messages).toEqual([{ rail: "│", asciiRail: "│" }]);
+		expect(harness.calls.editor).toEqual([{ rail: "│", asciiRail: "│" }]);
 	});
 
 	it("rebuilds failed persistence with effective values and attempted-row focus", async () => {

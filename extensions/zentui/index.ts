@@ -13,6 +13,7 @@ import {
 	type ContextStyle,
 	defaultConfig,
 	type EditorComponentConfig,
+	type EditorComponentPatch,
 	type ExtensionStatusChoice,
 	type ExtensionStatusColorMode,
 	type ExtensionStatusPlacement,
@@ -56,6 +57,7 @@ import {
 	saveWorkingLineComponentPatch,
 	type ThinkingStepsComponentConfig,
 	type UserMessagesComponentConfig,
+	type UserMessagesComponentPatch,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
 } from "./config";
@@ -1748,7 +1750,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				reason: result && !result.ok ? result.reason : undefined,
 			};
 		},
-		setEditorComponent(patch: Partial<EditorComponentConfig>, ctx: ExtensionContext, options) {
+		setEditorComponent(patch: EditorComponentPatch, ctx: ExtensionContext, options) {
 			currentConfig = scopeConfig(saveEditorComponentPatch(patch));
 			let result: EditorChangeResult | undefined;
 			if (patch.enabled !== undefined && isTuiContext(ctx) && !options?.deferEditor) {
@@ -1798,7 +1800,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			);
 			refresh();
 		},
-		setUserMessagesComponent(patch: Partial<UserMessagesComponentConfig>, _ctx: ExtensionContext) {
+		setUserMessagesComponent(patch: UserMessagesComponentPatch, _ctx: ExtensionContext) {
 			currentConfig = scopeConfig(saveUserMessagesComponentPatch(patch));
 			if (patch.enabled !== undefined || patch.style !== undefined) reconcileUserMessages();
 			refresh();
