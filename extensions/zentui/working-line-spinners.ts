@@ -1,4 +1,4 @@
-import type { WorkingLineSpinner } from "./config";
+import type { WorkingLineSpinner } from "./config.ts";
 
 /*
  * Pulse frames adapted from Funky UI's animations.ts:

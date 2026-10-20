@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import type { HostTemplateValues } from "./host-template-values";
+import type { HostTemplateValues } from "./host-template-values.ts";
 
 export type OmpLookupContext = {
 	session: object;

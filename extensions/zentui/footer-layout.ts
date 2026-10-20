@@ -1,8 +1,8 @@
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { CompactFooterMaxLines } from "./config";
-import type { CompactBoundaryKind } from "./footer-format";
-import { truncateFooterText } from "./footer-text";
+import type { CompactFooterMaxLines } from "./config.ts";
+import type { CompactBoundaryKind } from "./footer-format.ts";
+import { truncateFooterText } from "./footer-text.ts";
 
 export type FooterZones = {
 	left: string;

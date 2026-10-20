@@ -1,5 +1,5 @@
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
 
 /** New roles have no legacy shared-color key; consumers supply their existing safe fallback. */
 export function liveMetadataColor(

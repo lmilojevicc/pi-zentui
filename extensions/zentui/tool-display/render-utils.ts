@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 import { homedir } from "node:os";
-import { sanitizeAnsiForThemedOutput } from "./ansi-utils.js";
+import { sanitizeAnsiForThemedOutput } from "./ansi-utils.ts";
 
 export { sanitizeAnsiForThemedOutput };
 

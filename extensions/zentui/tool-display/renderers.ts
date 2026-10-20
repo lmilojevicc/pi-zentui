@@ -23,27 +23,27 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { type BashProgress, createBashProgress } from "./bash-display.js";
-import { type CodeHighlighter, safeWidth } from "./bounds.js";
-import { renderWriteDiffResult } from "./diff-renderer.js";
-import type { ToolRenderers } from "./host-contract.js";
-import { type PendingPreimages, projectPending } from "./pending.js";
-import { PresentationText as Text } from "./presentation-text.js";
-import { record } from "./presets.js";
+import { type BashProgress, createBashProgress } from "./bash-display.ts";
+import { type CodeHighlighter, safeWidth } from "./bounds.ts";
+import { renderWriteDiffResult } from "./diff-renderer.ts";
+import type { ToolRenderers } from "./host-contract.ts";
+import { type PendingPreimages, projectPending } from "./pending.ts";
+import { PresentationText as Text } from "./presentation-text.ts";
+import { record } from "./presets.ts";
 import {
 	extractTextOutputInfo,
 	sanitizeTerminalControls,
 	shortenPath,
 	splitLinesInfo,
-} from "./render-utils.js";
+} from "./render-utils.ts";
 import {
 	graphemePrefix,
 	MAX_PREVIEW_LINE_CHARS,
 	type PresentationMetadata,
-} from "./source-bounds.js";
-import * as presentation from "./tool-presentation.js";
-import type { CustomToolDisplayConfig, ToolDisplayConfig } from "./types.js";
-import { getWriteContentMetadata, shouldRenderWriteCallSummary } from "./write-display-utils.js";
+} from "./source-bounds.ts";
+import * as presentation from "./tool-presentation.ts";
+import type { CustomToolDisplayConfig, ToolDisplayConfig } from "./types.ts";
+import { getWriteContentMetadata, shouldRenderWriteCallSummary } from "./write-display-utils.ts";
 export type ToolDisplayRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 export function hasOnlyTextContent(result: unknown): boolean {
 	const content = record(result).content;

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ZentuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
-import { minimalistTemplateReferences } from "./minimalist-template";
+import type { ZentuiConfig } from "./config.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format.ts";
+import { minimalistTemplateReferences } from "./minimalist-template.ts";
 
 const INTERVAL = 60_000;
 const TIMEOUT = 10_000;

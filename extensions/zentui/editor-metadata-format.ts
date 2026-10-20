@@ -1,20 +1,20 @@
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { CodexQuota } from "./codex-quota";
-import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
-import { componentColor, editorShellColor } from "./component-colors";
-import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config";
-import { renderCustomValue } from "./custom-value-colors";
-import { normalizeTemplateVariables } from "./custom-variable-format";
+import type { CodexQuota } from "./codex-quota.ts";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display.ts";
+import { componentColor, editorShellColor } from "./component-colors.ts";
+import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config.ts";
+import { renderCustomValue } from "./custom-value-colors.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
 import {
 	parseFooterFormat,
 	type ReadonlyFormatToken,
 	renderJoinedTokenFields,
-} from "./footer-format";
-import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
-import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
-import { liveMetadataColor } from "./live-metadata-display";
-import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
+} from "./footer-format.ts";
+import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format.ts";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values.ts";
+import { liveMetadataColor } from "./live-metadata-display.ts";
+import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style.ts";
 
 export type EditorMetadataValues = {
 	codexQuota?: CodexQuota;

@@ -1,4 +1,4 @@
-import type { HostTemplateValues } from "./host-template-values";
+import type { HostTemplateValues } from "./host-template-values.ts";
 
 export type OmpTemplateModeObserver = {
 	read(

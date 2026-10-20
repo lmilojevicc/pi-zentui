@@ -21,15 +21,15 @@ import {
 	type ComponentColors,
 	componentColorKeys,
 	normalizeComponentColors,
-} from "./component-colors";
+} from "./component-colors.ts";
 import {
 	type CustomValueColors,
 	customValueColor,
 	normalizeCustomValueColors,
-} from "./custom-value-colors";
-import { normalizeTemplateVariables } from "./custom-variable-format";
-import { MAX_CUSTOM_VARIABLES } from "./custom-variables";
-import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
+} from "./custom-value-colors.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
+import { MAX_CUSTOM_VARIABLES } from "./custom-variables.ts";
+import { HOST_TEMPLATE_VARIABLES } from "./host-template-values.ts";
 import {
 	ICON_GLYPH_KEYS,
 	type IconEnvironment,
@@ -38,28 +38,28 @@ import {
 	normalizeIconMode,
 	type ResolvedIcons,
 	resolveConfiguredIcons,
-} from "./icons";
+} from "./icons.ts";
 import {
 	MINIMALIST_FORMAT_SLOTS,
 	type MinimalistFormats,
 	normalizeMinimalistFormats,
 	normalizeMinimalistVariables,
-} from "./minimalist-template";
-import type { ComponentPreset } from "./presets";
-import { isSupportedColorSpec } from "./style";
-import { normalizeToolDisplayConfig } from "./tool-display/presets";
+} from "./minimalist-template.ts";
+import type { ComponentPreset } from "./presets.ts";
+import { isSupportedColorSpec } from "./style.ts";
+import { normalizeToolDisplayConfig } from "./tool-display/presets.ts";
 import type {
 	BuiltinToolName,
 	CustomToolDisplayConfig,
 	ToolDisplayConfig,
-} from "./tool-display/types";
-import { DEFAULT_TURN_SUMMARY_FORMAT, normalizeTurnSummaryFormat } from "./turn-summary-format";
-import { normalizeWorkingLineMessages } from "./working-line";
-import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
+} from "./tool-display/types.ts";
+import { DEFAULT_TURN_SUMMARY_FORMAT, normalizeTurnSummaryFormat } from "./turn-summary-format.ts";
+import { normalizeWorkingLineMessages } from "./working-line.ts";
+import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages.ts";
 
 export type ColorSpec = string;
 export type ColorSource = "theme" | "terminal";
-export type { IconMode } from "./icons";
+export type { IconMode } from "./icons.ts";
 
 export type ContextStyle = "text" | "gauge" | "text+gauge";
 export type SeparatorStyle = "pipe" | "dot" | "chevron" | "none";

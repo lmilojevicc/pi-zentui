@@ -1,13 +1,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry.ts";
 import {
 	EDITOR_BORDER_FALLBACK,
 	renderEditorBorder,
 	renderStyleForSourceOrFallback,
-} from "./style";
+} from "./style.ts";
 
 type PatchableSelectorPrototype = {
 	render: (width: number) => string[];

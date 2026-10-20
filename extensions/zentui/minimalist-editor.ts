@@ -1,12 +1,12 @@
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { CodexQuota } from "./codex-quota";
-import { renderCodexQuota } from "./codex-quota-display";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { renderCustomValue } from "./custom-value-colors";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import type { CodexQuota } from "./codex-quota.ts";
+import { renderCodexQuota } from "./codex-quota-display.ts";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { renderCustomValue } from "./custom-value-colors.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
 import {
 	bashModeLabel,
 	buildContextGauge,
@@ -16,17 +16,17 @@ import {
 	formatCount,
 	formatCwdLabel,
 	formatElapsedDuration,
-} from "./format";
-import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
-import { liveMetadataColor } from "./live-metadata-display";
+} from "./format.ts";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values.ts";
+import { liveMetadataColor } from "./live-metadata-display.ts";
 import {
 	type MinimalistFormatSlot,
 	minimalistExplicitCustomKeys,
 	normalizeMinimalistVariables,
 	renderMinimalistTemplate,
-} from "./minimalist-template";
+} from "./minimalist-template.ts";
 
-export { formatElapsedDuration } from "./format";
+export { formatElapsedDuration } from "./format.ts";
 
 import {
 	EDITOR_ACCENT_FALLBACK,
@@ -34,7 +34,7 @@ import {
 	renderStyleForSource,
 	renderStyleForSourceOrFallback,
 	safeThemeFg,
-} from "./style";
+} from "./style.ts";
 
 const MINIMALIST_MODEL_FALLBACK = {
 	theme: "syntaxKeyword",

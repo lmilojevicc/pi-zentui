@@ -1,4 +1,4 @@
-import type { ExtensionStatusPlacement, ZentuiConfig } from "./config";
+import type { ExtensionStatusPlacement, ZentuiConfig } from "./config.ts";
 
 export const extensionStatusChoiceLabels: Record<ExtensionStatusPlacement, string> = {
 	off: "Off",

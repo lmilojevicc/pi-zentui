@@ -21,9 +21,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import { boundedContentMetadata } from "./source-bounds.js";
+import { boundedContentMetadata } from "./source-bounds.ts";
 
-export { boundedContentMetadata as getWriteContentMetadata } from "./source-bounds.js";
+export { boundedContentMetadata as getWriteContentMetadata } from "./source-bounds.ts";
 
 export interface WriteCallSummaryOptions {
 	hasContent: boolean;

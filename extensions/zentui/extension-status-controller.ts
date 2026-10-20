@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { ExtensionStatusVisibilityConfig } from "./config";
+import type { ExtensionStatusVisibilityConfig } from "./config.ts";
 
 type StatusUi = Pick<ExtensionUIContext, "setStatus">;
 type Publication = { receiver: unknown; args: Parameters<StatusUi["setStatus"]> };

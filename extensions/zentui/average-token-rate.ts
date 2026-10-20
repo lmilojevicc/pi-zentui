@@ -1,5 +1,5 @@
-import { type MessageEndResult, parseAssistantMessageTokens } from "./interaction-summary";
-import type { TokenRateMessage } from "./token-rate";
+import { type MessageEndResult, parseAssistantMessageTokens } from "./interaction-summary.ts";
+import type { TokenRateMessage } from "./token-rate.ts";
 
 type FinalMessage = TokenRateMessage & { stopReason?: unknown };
 type CompletedWork = { output: number; elapsedMs: number; unknown: boolean };

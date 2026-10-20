@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ModelLabelSource } from "./config";
+import type { ModelLabelSource } from "./config.ts";
 import {
 	buildCacheReadLabel,
 	buildCacheWriteLabel,
@@ -9,11 +9,11 @@ import {
 	formatProviderLabel,
 	getUsageTotals,
 	type UsageTotals,
-} from "./format";
-import type { GitStatusSummary } from "./git";
-import type { PackageVersionResult } from "./package-version";
-import type { RuntimeInfo } from "./runtime";
-import type { FooterTelemetry } from "./telemetry";
+} from "./format.ts";
+import type { GitStatusSummary } from "./git.ts";
+import type { PackageVersionResult } from "./package-version.ts";
+import type { RuntimeInfo } from "./runtime.ts";
+import type { FooterTelemetry } from "./telemetry.ts";
 
 export type FooterState = GitStatusSummary & {
 	modelLabel: string;

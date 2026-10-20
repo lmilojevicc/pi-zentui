@@ -8,16 +8,16 @@ import type {
 	ExtensionStatusPlacement,
 	HiddenExtensionStatusPlacement,
 	ZentuiConfig,
-} from "./config";
+} from "./config.ts";
 import {
 	getExtensionStatusColorMode,
 	getExtensionStatusPlacement,
 	getHiddenExtensionStatusColorMode,
 	getHiddenExtensionStatusPlacement,
 	isExtensionStatusPlacement,
-} from "./config";
-import { truncateFooterText } from "./footer-text";
-import { safeThemeFg } from "./style";
+} from "./config.ts";
+import { truncateFooterText } from "./footer-text.ts";
+import { safeThemeFg } from "./style.ts";
 
 export type ExtensionStatusSegment = {
 	key: string;

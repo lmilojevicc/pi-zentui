@@ -1,16 +1,16 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { CodexQuota } from "./codex-quota";
-import { renderCodexQuota } from "./codex-quota-display";
+import type { CodexQuota } from "./codex-quota.ts";
+import { renderCodexQuota } from "./codex-quota-display.ts";
 import {
 	applyOwnedSurfaceBackground,
 	fillTerminalLine,
 	renderCompletionRows,
-} from "./completion-menu";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { resolveAccentRailGlyph } from "./rail-glyph";
-import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style";
+} from "./completion-menu.ts";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { resolveAccentRailGlyph } from "./rail-glyph.ts";
+import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style.ts";
 
 export const ACCENT_RAIL_CHROME_WIDTH = 2;
 

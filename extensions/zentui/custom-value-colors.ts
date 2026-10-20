@@ -1,10 +1,10 @@
-import type { ColorSource, ColorSpec } from "./config";
+import type { ColorSource, ColorSpec } from "./config.ts";
 import {
 	type CustomVariableColorMode,
 	MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS,
 	sanitizeCustomVariableText,
-} from "./custom-variables";
-import { isSupportedColorSpec, renderStyleForSource, type ThemeLike } from "./style";
+} from "./custom-variables.ts";
+import { isSupportedColorSpec, renderStyleForSource, type ThemeLike } from "./style.ts";
 
 export type CustomValueColors = Readonly<Record<string, ColorSpec>>;
 

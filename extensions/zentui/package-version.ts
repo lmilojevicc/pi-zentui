@@ -33,7 +33,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ProjectDiscovery } from "./project-discovery.js";
+import { ProjectDiscovery } from "./project-discovery.ts";
 
 export type PackageVersionResult = {
 	/** Starship ecosystem key — matches `runtimeMetadata[].name` where it exists. */

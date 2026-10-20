@@ -1,6 +1,6 @@
-import { AverageTokenRateTracker } from "./average-token-rate";
-import type { MessageEndResult } from "./interaction-summary";
-import type { TokenRateMessage } from "./token-rate";
+import { AverageTokenRateTracker } from "./average-token-rate.ts";
+import type { MessageEndResult } from "./interaction-summary.ts";
+import type { TokenRateMessage } from "./token-rate.ts";
 
 /** Passive summary-only accounting: no UI demand, model identity, sampling or timers. */
 export class TurnSummaryRateTracker {

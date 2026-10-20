@@ -4,7 +4,7 @@ import {
 	hasUnsupportedComponentStyle,
 	type UserMessagesComponentConfig,
 	type ZentuiConfig,
-} from "./config";
+} from "./config.ts";
 
 export type PresetId = "opencode" | "opencode-copy-friendly" | "rail" | "minimalist";
 export type ComponentPreset = Readonly<{

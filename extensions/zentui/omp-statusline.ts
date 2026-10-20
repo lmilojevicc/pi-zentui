@@ -2,7 +2,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { ExtensionUIContext as PiUI } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { TUI } from "@oh-my-pi/pi-tui";
-import type { HostTemplateValues } from "./host-template-values";
+import type { HostTemplateValues } from "./host-template-values.ts";
 
 export type OmpStatuslineOptions = {
 	statusLinePrototype?: object;

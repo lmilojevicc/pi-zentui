@@ -1,12 +1,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { MinimalistEditorStylePatch, ZentuiConfig } from "./config";
-import { prepareEditorTextForCustomUi } from "./editor-transfer";
+import type { MinimalistEditorStylePatch, ZentuiConfig } from "./config.ts";
+import { prepareEditorTextForCustomUi } from "./editor-transfer.ts";
 import {
 	effectiveMinimalistFormats,
 	MINIMALIST_FORMAT_SLOTS,
 	normalizeMinimalistVariables,
-} from "./minimalist-template";
-import type { SessionLifecycle } from "./session-lifecycle";
+} from "./minimalist-template.ts";
+import type { SessionLifecycle } from "./session-lifecycle.ts";
 
 type MinimalistSettingsDeps = {
 	sessionLifecycle: SessionLifecycle;

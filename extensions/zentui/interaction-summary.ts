@@ -1,17 +1,17 @@
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { workingLineColor } from "./component-colors";
+import { workingLineColor } from "./component-colors.ts";
 import type {
 	ColorSource,
 	ColorSpec,
 	PolishedTuiColors,
 	WorkingLineComponentConfig,
-} from "./config";
-import { formatCount, formatElapsedDuration } from "./format";
-import { isSafeSgrStylePrefix } from "./style";
-import { normalizeTurnSummaryFormat, renderTurnSummaryFormat } from "./turn-summary-format";
-import { renderWorkingLineHigh } from "./working-line";
+} from "./config.ts";
+import { formatCount, formatElapsedDuration } from "./format.ts";
+import { isSafeSgrStylePrefix } from "./style.ts";
+import { normalizeTurnSummaryFormat, renderTurnSummaryFormat } from "./turn-summary-format.ts";
+import { renderWorkingLineHigh } from "./working-line.ts";
 
 export const TURN_SUMMARY_ENTRY_TYPE = "zentui-turn-summary";
 const TURN_SUMMARY_VERSION = 4;

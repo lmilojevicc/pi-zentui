@@ -10,7 +10,7 @@ import {
 	TOOL_DISPLAY_STYLES,
 	type ToolDisplayConfig,
 	type ToolDisplayPreset,
-} from "./types.js";
+} from "./types.ts";
 
 export function toolDisplayPresetPatch(
 	style: ToolDisplayPreset,

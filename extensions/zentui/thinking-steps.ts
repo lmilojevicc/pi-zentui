@@ -1,4 +1,4 @@
-import { sanitizeSgrOnlySourceText } from "./user-message-osc";
+import { sanitizeSgrOnlySourceText } from "./user-message-osc.ts";
 
 /**
  * Parsing is line-incremental: complete lines are committed once and only the open last line is

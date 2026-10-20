@@ -1,14 +1,14 @@
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { createBashProgress } from "./bash-display.js";
-import type { ToolRendererResolver, ToolRenderers } from "./host-contract.js";
-import { record } from "./presets.js";
+import { createBashProgress } from "./bash-display.ts";
+import type { ToolRendererResolver, ToolRenderers } from "./host-contract.ts";
+import { record } from "./presets.ts";
 import {
 	createToolDisplayRenderers,
 	hasSupportedContent,
 	type RendererResources,
-} from "./renderers.js";
-import { MAX_PRESENTATION_SOURCE_BYTES } from "./source-bounds.js";
-import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.js";
+} from "./renderers.ts";
+import { MAX_PRESENTATION_SOURCE_BYTES } from "./source-bounds.ts";
+import { type BuiltinToolName, isBuiltinToolName, type ToolDisplayConfig } from "./types.ts";
 
 /** Modern Pi catches callback failures and invokes its own generic slot fallback.
  * This signal must never escape from Component.render or be used on unsupported hosts.

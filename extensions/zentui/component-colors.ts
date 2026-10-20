@@ -1,9 +1,9 @@
-import type { ColorSpec, PolishedTuiColors, ZentuiConfig } from "./config";
+import type { ColorSpec, PolishedTuiColors, ZentuiConfig } from "./config.ts";
 import {
 	EDITOR_SHELL_RAIL_FALLBACK,
 	isSupportedColorSpec,
 	type SourceStyleFallback,
-} from "./style";
+} from "./style.ts";
 
 export const componentColorKeys = {
 	footer: [

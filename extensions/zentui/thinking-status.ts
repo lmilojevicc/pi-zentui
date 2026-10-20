@@ -1,4 +1,4 @@
-import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config";
+import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config.ts";
 
 export type ThinkingStatusState = Readonly<{
 	active: boolean;

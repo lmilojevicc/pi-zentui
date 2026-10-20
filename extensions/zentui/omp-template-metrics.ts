@@ -1,8 +1,8 @@
 import { hostname } from "node:os";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { calculateTokensPerSecond } from "@oh-my-pi/pi-coding-agent/utils/token-rate";
-import { formatElapsedDuration } from "./format";
-import type { HostTemplateValues, HostTemplateVariable } from "./host-template-values";
+import { formatElapsedDuration } from "./format.ts";
+import type { HostTemplateValues, HostTemplateVariable } from "./host-template-values.ts";
 
 export type OmpTemplateMetricsSource = {
 	receiver: object;

@@ -1,18 +1,18 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type ColorOwner, type ComponentColorKey, componentColorKeys } from "./component-colors";
+import { type ColorOwner, type ComponentColorKey, componentColorKeys } from "./component-colors.ts";
 import {
 	FOOTER_FORMAT_ALIASES,
 	FOOTER_FORMAT_VARIABLES,
 	OPENCODE_FORMAT_VARIABLES,
 	type WorkingLineComponentPatch,
 	type ZentuiConfig,
-} from "./config";
-import { customValueColor } from "./custom-value-colors";
-import { normalizeTemplateVariables } from "./custom-variable-format";
-import { prepareEditorTextForCustomUi } from "./editor-transfer";
-import { normalizeMinimalistVariables } from "./minimalist-template";
-import type { SessionLifecycle } from "./session-lifecycle";
-import { isSupportedColorSpec } from "./style";
+} from "./config.ts";
+import { customValueColor } from "./custom-value-colors.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
+import { prepareEditorTextForCustomUi } from "./editor-transfer.ts";
+import { normalizeMinimalistVariables } from "./minimalist-template.ts";
+import type { SessionLifecycle } from "./session-lifecycle.ts";
+import { isSupportedColorSpec } from "./style.ts";
 
 export type ComponentSettingsDeps = {
 	sessionLifecycle: SessionLifecycle;

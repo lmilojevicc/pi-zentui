@@ -4,12 +4,12 @@ import {
 	hasUnsupportedComponentStyle,
 	OPENCODE_FORMAT_VARIABLES,
 	type ZentuiConfig,
-} from "./config";
-import { editorMetadataReferences } from "./custom-variable-demand";
-import { normalizeTemplateVariables } from "./custom-variable-format";
-import { compiledFooterFormat } from "./footer-format";
-import { isHostTemplateVariable } from "./host-template-values";
-import { normalizeMinimalistVariables } from "./minimalist-template";
+} from "./config.ts";
+import { editorMetadataReferences } from "./custom-variable-demand.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
+import { compiledFooterFormat } from "./footer-format.ts";
+import { isHostTemplateVariable } from "./host-template-values.ts";
+import { normalizeMinimalistVariables } from "./minimalist-template.ts";
 
 export function editorHostReferences(config: ZentuiConfig): ReadonlySet<string> {
 	const editor = config.components.editor;

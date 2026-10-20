@@ -1,5 +1,5 @@
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { ColorSource, ColorSpec } from "./config";
+import type { ColorSource, ColorSpec } from "./config.ts";
 
 type ThemeLike = {
 	fg(color: string, text: string): string;

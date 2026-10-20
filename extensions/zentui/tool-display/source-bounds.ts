@@ -1,10 +1,10 @@
-import { sanitizeTerminalControls } from "./render-utils.js";
+import { sanitizeTerminalControls } from "./render-utils.ts";
 
 export const MAX_PRESENTATION_SOURCE_BYTES = 1024 * 1024;
 
-import { MAX_PREVIEW_LINE_CHARS } from "./bounds.js";
+import { MAX_PREVIEW_LINE_CHARS } from "./bounds.ts";
 
-export { MAX_PREVIEW_LINE_CHARS } from "./bounds.js";
+export { MAX_PREVIEW_LINE_CHARS } from "./bounds.ts";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 

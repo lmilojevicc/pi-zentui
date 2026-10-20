@@ -10,36 +10,39 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor";
-import type { CodexQuota } from "./codex-quota";
-import { renderCodexQuota } from "./codex-quota-display";
-import { omitTrailingNativeCompletionCountRow, renderCompletionPalette } from "./completion-menu";
-import { componentColor, editorShellColor } from "./component-colors";
-import type { EditorStyle, ZentuiConfig } from "./config";
+import { ACCENT_RAIL_CHROME_WIDTH, renderAccentRailEditorFrame } from "./accent-rail-editor.ts";
+import type { CodexQuota } from "./codex-quota.ts";
+import { renderCodexQuota } from "./codex-quota-display.ts";
+import {
+	omitTrailingNativeCompletionCountRow,
+	renderCompletionPalette,
+} from "./completion-menu.ts";
+import { componentColor, editorShellColor } from "./component-colors.ts";
+import type { EditorStyle, ZentuiConfig } from "./config.ts";
 import {
 	type EditorMetadataZones,
 	renderEditorMetadataFormatSplit,
 	sanitizeEditorMetadataText,
-} from "./editor-metadata-format";
+} from "./editor-metadata-format.ts";
 import {
 	EditorMouseForwarder,
 	type EditorMouseHandler,
 	editorMouseCells,
 	rememberEditorMouseLayout,
-} from "./editor-mouse";
-import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
-import { bashModeLabel } from "./format";
-import type { HostTemplateValues } from "./host-template-values";
-import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor";
-import { minimalistTemplateReferences } from "./minimalist-template";
-import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame";
-import { resolveEditorFrameRailGlyph } from "./rail-glyph";
+} from "./editor-mouse.ts";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format.ts";
+import { bashModeLabel } from "./format.ts";
+import type { HostTemplateValues } from "./host-template-values.ts";
+import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor.ts";
+import { minimalistTemplateReferences } from "./minimalist-template.ts";
+import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame.ts";
+import { resolveEditorFrameRailGlyph } from "./rail-glyph.ts";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallback,
 	safeThemeFg,
-} from "./style";
+} from "./style.ts";
 
 // Reserve at least four label cells beside Minimalist metadata.
 const MIN_WORKING_LINE_BORDER_WIDTH = 16;

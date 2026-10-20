@@ -2,7 +2,7 @@ import type { EventBus } from "@earendil-works/pi-coding-agent";
 import {
 	sanitizeExtensionStatusOriginalText,
 	sanitizeExtensionStatusText,
-} from "./extension-status";
+} from "./extension-status.ts";
 
 export const ZENTUI_VARIABLE_CAPABILITY_EVENT = "zentui:variable-capability";
 export const ZENTUI_VARIABLE_EVENT = "zentui:variable";

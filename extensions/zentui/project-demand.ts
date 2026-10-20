@@ -1,5 +1,5 @@
-import type { ZentuiConfig } from "./config";
-import { minimalistTemplateReferences } from "./minimalist-template";
+import type { ZentuiConfig } from "./config.ts";
+import { minimalistTemplateReferences } from "./minimalist-template.ts";
 
 /** References include both wide and responsive compact formats, but only owned surfaces. */
 export function projectDemand(

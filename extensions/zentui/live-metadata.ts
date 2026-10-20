@@ -1,15 +1,15 @@
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
-import { AverageTokenRateTracker, formatAverageTokenRate } from "./average-token-rate";
+import { AverageTokenRateTracker, formatAverageTokenRate } from "./average-token-rate.ts";
 import {
 	type GithubContext,
 	type GithubExec,
 	GithubStatusCollector,
 	githubTemplateValues,
-} from "./github-status";
-import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
-import type { MessageEndResult } from "./interaction-summary";
-import type { LiveMetadataDemand } from "./live-metadata-demand";
-import { formatTokenRate, type TokenRateMessage, TokenRateTracker } from "./token-rate";
+} from "./github-status.ts";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values.ts";
+import type { MessageEndResult } from "./interaction-summary.ts";
+import type { LiveMetadataDemand } from "./live-metadata-demand.ts";
+import { formatTokenRate, type TokenRateMessage, TokenRateTracker } from "./token-rate.ts";
 
 /** Session resources and demand live outside render; reads are entirely passive. */
 export class LiveMetadataController {

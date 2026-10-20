@@ -1,5 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS, MAX_CUSTOM_VARIABLES } from "./custom-variables";
+import { MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS, MAX_CUSTOM_VARIABLES } from "./custom-variables.ts";
 
 /** Owner-local aliases reserve builtins, except the backward-compatible ci alias. */
 export function normalizeTemplateVariables(

@@ -9,13 +9,13 @@ import {
 	shouldSendServiceTier,
 } from "@oh-my-pi/pi-ai";
 import type { ExtensionContext, ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
-import { HostProjectChanges } from "./extensions/zentui/host-project-changes";
-import zentui from "./extensions/zentui/index";
-import { observeOmpHookStatuses } from "./extensions/zentui/omp-statusline";
-import { OmpTemplateLookups } from "./extensions/zentui/omp-template-lookups";
-import { readOmpTemplateMetrics } from "./extensions/zentui/omp-template-metrics";
-import { observeOmpTemplateModes } from "./extensions/zentui/omp-template-modes";
-import { createOmpUiAdapter, type OmpUiAdapter } from "./extensions/zentui/omp-ui";
+import { HostProjectChanges } from "./extensions/zentui/host-project-changes.ts";
+import zentui from "./extensions/zentui/index.ts";
+import { observeOmpHookStatuses } from "./extensions/zentui/omp-statusline.ts";
+import { OmpTemplateLookups } from "./extensions/zentui/omp-template-lookups.ts";
+import { readOmpTemplateMetrics } from "./extensions/zentui/omp-template-metrics.ts";
+import { observeOmpTemplateModes } from "./extensions/zentui/omp-template-modes.ts";
+import { createOmpUiAdapter, type OmpUiAdapter } from "./extensions/zentui/omp-ui.ts";
 
 /** Focused OMP skin: editors, user messages, and the native status-line slot. */
 const extension: ExtensionFactory = (pi) => {

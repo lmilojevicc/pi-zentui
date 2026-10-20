@@ -10,8 +10,8 @@
  */
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ZentuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import type { ZentuiConfig } from "./config.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
 
 /** Nerd-mode fallback used when a configured rail is missing or unusable. */
 export const DEFAULT_RAIL_GLYPH = "│";

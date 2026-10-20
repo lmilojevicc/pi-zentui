@@ -34,31 +34,31 @@ import {
 	filterSgrSequences,
 	readSgrColorSequence,
 	toSgrParams,
-} from "./ansi-utils.js";
-import { boundedWrap, type CodeHighlighter } from "./bounds.js";
+} from "./ansi-utils.ts";
+import { boundedWrap, type CodeHighlighter } from "./bounds.ts";
 import {
 	buildDiffSummaryText,
 	type DiffPresentationMode,
 	normalizeDiffRenderWidth,
 	resolveDiffPresentationMode,
-} from "./diff-presentation.js";
+} from "./diff-presentation.ts";
 import {
 	buildCollapsedDiffHintText,
 	clampRenderedLinesToWidth,
 	clampRenderedLineToWidth,
-} from "./line-width-safety.js";
-import { PresentationText as Text } from "./presentation-text.js";
+} from "./line-width-safety.ts";
+import { PresentationText as Text } from "./presentation-text.ts";
 import {
 	pluralize,
 	sanitizeAnsiForThemedOutput,
 	sanitizeTerminalControls,
-} from "./render-utils.js";
-import { boundedPresentationSource } from "./source-bounds.js";
+} from "./render-utils.ts";
+import { boundedPresentationSource } from "./source-bounds.ts";
 import {
 	DEFAULT_TOOL_DISPLAY_CONFIG,
 	type DiffIndicatorMode,
 	type ToolDisplayConfig,
-} from "./types.js";
+} from "./types.ts";
 
 interface DiffTheme {
 	fg(color: string, text: string): string;

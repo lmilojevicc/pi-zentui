@@ -1,8 +1,8 @@
-import type { GitReadResult } from "./git";
-import { emptyGitStatus } from "./git";
-import type { PackageVersionReadResult } from "./package-version";
-import type { RuntimeReadResult } from "./runtime";
-import type { FooterState } from "./state";
+import type { GitReadResult } from "./git.ts";
+import { emptyGitStatus } from "./git.ts";
+import type { PackageVersionReadResult } from "./package-version.ts";
+import type { RuntimeReadResult } from "./runtime.ts";
+import type { FooterState } from "./state.ts";
 
 /** Value snapshot of project fields, excluding unrelated session/telemetry state. */
 export function projectStateSnapshot(

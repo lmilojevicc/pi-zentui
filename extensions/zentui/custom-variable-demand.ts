@@ -4,13 +4,13 @@ import {
 	OPENCODE_FORMAT_VARIABLES,
 	type TemplateVariableConfig,
 	type ZentuiConfig,
-} from "./config";
-import { normalizeTemplateVariables } from "./custom-variable-format";
-import { compiledFooterFormat } from "./footer-format";
+} from "./config.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
+import { compiledFooterFormat } from "./footer-format.ts";
 import {
 	minimalistDemandsCustomVariable,
 	minimalistTemplateReferences,
-} from "./minimalist-template";
+} from "./minimalist-template.ts";
 
 /** Configuration demand only; callers separately prove current surface ownership. */
 export function editorMetadataReferences(config: ZentuiConfig): ReadonlySet<string> {

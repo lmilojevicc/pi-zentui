@@ -38,10 +38,10 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { ANSI_SGR_PATTERN } from "./ansi-utils.js";
-import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
-import { PresentationText as Text } from "./presentation-text.js";
-import { record as toRecord } from "./presets.js";
+import { ANSI_SGR_PATTERN } from "./ansi-utils.ts";
+import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.ts";
+import { PresentationText as Text } from "./presentation-text.ts";
+import { record as toRecord } from "./presets.ts";
 import {
 	compactOutputLines,
 	countNonEmptyLines,
@@ -53,8 +53,8 @@ import {
 	sanitizeTerminalControls,
 	shortenPath,
 	splitLines,
-} from "./render-utils.js";
-import type { ToolDisplayConfig as OwnedConfig } from "./types.js";
+} from "./render-utils.ts";
+import type { ToolDisplayConfig as OwnedConfig } from "./types.ts";
 export type PresentationConfig = OwnedConfig & { showRtkCompactionHints: boolean };
 type ToolDisplayConfig = PresentationConfig;
 type ConfigGetter = () => ToolDisplayConfig;
@@ -80,14 +80,14 @@ interface ToolRenderContextLike {
 	expanded?: boolean;
 }
 
-import { boundedWrap, type CodeHighlighter, safeWidth } from "./bounds.js";
+import { boundedWrap, type CodeHighlighter, safeWidth } from "./bounds.ts";
 import {
 	boundedContentMetadata,
 	graphemePrefix,
 	MAX_PRESENTATION_SOURCE_BYTES,
 	MAX_PREVIEW_LINE_CHARS,
 	type PresentationMetadata,
-} from "./source-bounds.js";
+} from "./source-bounds.ts";
 
 interface ToolDisplayAdapter {
 	highlighter?: CodeHighlighter;

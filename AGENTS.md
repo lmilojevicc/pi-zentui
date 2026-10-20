@@ -79,6 +79,7 @@ Use sparse `components.<owner>.colors` for owner-local Starship-style strings, h
 - Runtime color values should follow Starship's terminal style strings.
 - `user-message.ts` intentionally patches `UserMessageComponent`; treat it as fragile and avoid changing it unless necessary.
 - Silent fallbacks are intentional for git/runtime/config failures so the UI does not break the session.
+- Relative imports under `extensions/` must use explicit `.ts` specifiers (e.g. `./config.ts`). Pi loads this package through jiti, and extensionless or `.js` specifiers make it probe many candidate paths per import, which slows every session start. `test/import-specifiers.test.ts` guards this.
 
 ## Development
 

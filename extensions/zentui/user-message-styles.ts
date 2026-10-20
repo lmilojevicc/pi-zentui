@@ -6,18 +6,18 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { resolveUserMessageRailGlyph } from "./rail-glyph";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { resolveUserMessageRailGlyph } from "./rail-glyph.ts";
 import {
 	EDITOR_ACCENT_FALLBACK,
 	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallbackStrict,
-} from "./style";
+} from "./style.ts";
 import {
 	sanitizeRenderedUserMessageLines,
 	sanitizeUserMessageSourceText,
-} from "./user-message-osc";
+} from "./user-message-osc.ts";
 
 export type UserMessageStyleRenderInput = {
 	text: string;

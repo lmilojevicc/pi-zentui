@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import { normalizeDiffRenderWidth } from "./diff-presentation.js";
-import { pluralize } from "./render-utils.js";
+import { normalizeDiffRenderWidth } from "./diff-presentation.ts";
+import { pluralize } from "./render-utils.ts";
 
 export interface WidthMeasurementOps {
 	measure(text: string): number;

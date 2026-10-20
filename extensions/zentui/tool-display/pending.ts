@@ -8,7 +8,7 @@ import {
 	realpathSync,
 } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { record } from "./presets.js";
+import { record } from "./presets.ts";
 
 export const PREIMAGE_MAX_BYTES = 256 * 1024;
 const CACHE_MAX_BYTES = 1024 * 1024;

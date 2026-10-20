@@ -10,14 +10,14 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { type ColorOwner, componentColor } from "./component-colors";
+import { type ColorOwner, componentColor } from "./component-colors.ts";
 import {
 	type ComponentSettingsDeps,
 	confirmComponentMigration,
 	editComponentColors,
 	editCustomValueColors,
 	editTurnSummaryFormat,
-} from "./component-settings";
+} from "./component-settings.ts";
 import {
 	type AccentRailEditorStyleConfig,
 	type ColorSource,
@@ -65,36 +65,36 @@ import {
 	type WorkingLinePlacement,
 	type WorkingLineSpinner,
 	type WorkingLineTextAnimation,
-} from "./config";
-import { prepareEditorTextForCustomUi } from "./editor-transfer";
-import { sanitizeExtensionStatusText } from "./extension-status";
+} from "./config.ts";
+import { prepareEditorTextForCustomUi } from "./editor-transfer.ts";
+import { sanitizeExtensionStatusText } from "./extension-status.ts";
 import {
 	extensionStatusChoice,
 	extensionStatusChoiceLabels,
 	extensionStatusDefaultChoice,
-} from "./extension-status-settings";
-import { isIconMode } from "./icons";
-import { editMinimalistTemplates, editMinimalistVariables } from "./minimalist-settings";
+} from "./extension-status-settings.ts";
+import { isIconMode } from "./icons.ts";
+import { editMinimalistTemplates, editMinimalistVariables } from "./minimalist-settings.ts";
 import {
 	componentPresets,
 	getComponentPreset,
 	matchingComponentPreset,
 	type PresetId,
-} from "./presets";
-import { RAIL_GLYPH_CHOICES, RAIL_GLYPH_INHERIT } from "./rail-glyph";
-import type { SessionLifecycle } from "./session-lifecycle";
-import { settingsKeys } from "./settings-keys";
-import { selectOwnedSetting } from "./settings-list-selection";
+} from "./presets.ts";
+import { RAIL_GLYPH_CHOICES, RAIL_GLYPH_INHERIT } from "./rail-glyph.ts";
+import type { SessionLifecycle } from "./session-lifecycle.ts";
+import { settingsKeys } from "./settings-keys.ts";
+import { selectOwnedSetting } from "./settings-list-selection.ts";
 import {
 	renderEditorSettingsPreview,
 	renderThinkingStepsSettingsPreview,
 	renderUserMessageSettingsPreview,
 	SETTINGS_PREVIEW_MAX_WIDTH,
-} from "./settings-previews";
-import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
-import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
-import type { ToolDisplayStatus } from "./tool-display/controller";
-import { toolDisplayPresetPatch } from "./tool-display/presets";
+} from "./settings-previews.ts";
+import { EDITOR_BORDER_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style.ts";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status.ts";
+import type { ToolDisplayStatus } from "./tool-display/controller.ts";
+import { toolDisplayPresetPatch } from "./tool-display/presets.ts";
 import {
 	BASH_OUTPUT_MODES,
 	BUILTIN_TOOL_NAMES,
@@ -105,13 +105,13 @@ import {
 	SEARCH_OUTPUT_MODES,
 	TOOL_DISPLAY_PRESETS,
 	type ToolDisplayConfig,
-} from "./tool-display/types";
+} from "./tool-display/types.ts";
 import {
 	buildWorkingLinePreviewFrames,
 	normalizeWorkingLineMessages,
 	remapWorkingLineTextTick,
 	type WorkingLineFrames,
-} from "./working-line";
+} from "./working-line.ts";
 
 const colorSourceValues: ColorSource[] = ["theme", "terminal"];
 const extensionStatusPlacementValues = ["Left", "Middle", "Right", "Off"];

@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { ProjectDiscovery } from "./project-discovery.js";
+import { ProjectDiscovery } from "./project-discovery.ts";
 
 const execFileAsync = promisify(execFile);
 const VERSION_TIMEOUT_MS = 2500;

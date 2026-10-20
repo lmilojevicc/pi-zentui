@@ -1,15 +1,15 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { renderAccentRailEditorFrame } from "./accent-rail-editor";
-import type { PolishedTuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { renderMinimalistFrame } from "./minimalist-editor";
-import { safeThemeFg } from "./style";
-import { createThinkingStepsRows } from "./thinking-experimental";
-import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
-import { parseThinkingSteps } from "./thinking-steps";
-import { renderPolishedEditorFrame } from "./ui";
-import { makeMarkdownTheme, renderUserMessageStyle } from "./user-message-styles";
+import { renderAccentRailEditorFrame } from "./accent-rail-editor.ts";
+import type { PolishedTuiConfig } from "./config.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
+import { renderMinimalistFrame } from "./minimalist-editor.ts";
+import { safeThemeFg } from "./style.ts";
+import { createThinkingStepsRows } from "./thinking-experimental.ts";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status.ts";
+import { parseThinkingSteps } from "./thinking-steps.ts";
+import { renderPolishedEditorFrame } from "./ui.ts";
+import { makeMarkdownTheme, renderUserMessageStyle } from "./user-message-styles.ts";
 
 export const SETTINGS_PREVIEW_MAX_WIDTH = 72;
 export const SETTINGS_PREVIEW_MAX_ROWS = 10;

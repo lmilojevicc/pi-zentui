@@ -1,27 +1,27 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { type CodexQuota, hasCodexQuotaProvider } from "./codex-quota";
-import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
-import { componentColor } from "./component-colors";
-import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config";
-import { FOOTER_FORMAT_ALIASES, FOOTER_FORMAT_VARIABLES } from "./config";
-import { renderCustomValue } from "./custom-value-colors";
-import { AtomicTemplateValues, normalizeTemplateVariables } from "./custom-variable-format";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import { type CodexQuota, hasCodexQuotaProvider } from "./codex-quota.ts";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display.ts";
+import { componentColor } from "./component-colors.ts";
+import type { ExtensionStatusComponentConfig, SeparatorStyle, ZentuiConfig } from "./config.ts";
+import { FOOTER_FORMAT_ALIASES, FOOTER_FORMAT_VARIABLES } from "./config.ts";
+import { renderCustomValue } from "./custom-value-colors.ts";
+import { AtomicTemplateValues, normalizeTemplateVariables } from "./custom-variable-format.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
 import {
 	collectExtensionStatusSegments,
 	type ExtensionStatusSegment,
 	renderExtensionStatusLine,
 	sanitizeExtensionStatusText,
-} from "./extension-status";
+} from "./extension-status.ts";
 import {
 	type CompiledCompactChunk,
 	compiledFooterFormat,
 	renderFormatSplit,
 	renderFormatTokens,
 	stripOrphanSeparators,
-} from "./footer-format";
+} from "./footer-format.ts";
 import {
 	type CompactLayoutChunk,
 	compactChunkBudget,
@@ -29,8 +29,8 @@ import {
 	packCompactChunks,
 	packCompactZones,
 	reflowFullFooter,
-} from "./footer-layout";
-import { truncateFooterText } from "./footer-text";
+} from "./footer-layout.ts";
+import { truncateFooterText } from "./footer-text.ts";
 import {
 	buildContextDisplayLabel,
 	buildSessionDurationLabel,
@@ -46,13 +46,13 @@ import {
 	formatTimeLabel,
 	formatUsernameHostLabel,
 	resolveContextUsage,
-} from "./format";
-import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values";
-import { resolveRuntimeSymbol } from "./icons";
-import type { LiveContextOverride } from "./live-context";
-import { liveMetadataColor } from "./live-metadata-display";
-import { type FooterState, modelLabelFor } from "./state";
-import { renderStyleForSource } from "./style";
+} from "./format.ts";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values.ts";
+import { resolveRuntimeSymbol } from "./icons.ts";
+import type { LiveContextOverride } from "./live-context.ts";
+import { liveMetadataColor } from "./live-metadata-display.ts";
+import { type FooterState, modelLabelFor } from "./state.ts";
+import { renderStyleForSource } from "./style.ts";
 
 const separatorText: Record<SeparatorStyle, string> = {
 	pipe: " | ",

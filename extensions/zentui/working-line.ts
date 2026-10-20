@@ -1,25 +1,25 @@
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { workingLineColor } from "./component-colors";
+import { workingLineColor } from "./component-colors.ts";
 import type {
 	ColorSpec,
 	PolishedTuiColors,
 	WorkingLineComponentConfig,
 	WorkingLineTextAnimation,
 	ZentuiConfig,
-} from "./config";
-import { formatCount } from "./format";
+} from "./config.ts";
+import { formatCount } from "./format.ts";
 import {
 	isSafeSgrStylePrefix,
 	isSupportedColorSpec,
 	renderStyleForSourceOrFallback,
 	type SourceStyleFallback,
 	type ThemeLike,
-} from "./style";
-import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
-import { WORKING_LINE_SPINNERS } from "./working-line-spinners";
+} from "./style.ts";
+import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages.ts";
+import { WORKING_LINE_SPINNERS } from "./working-line-spinners.ts";
 
-export { WORKING_LINE_SPINNERS } from "./working-line-spinners";
+export { WORKING_LINE_SPINNERS } from "./working-line-spinners.ts";
 
 export const BUILT_IN_WORKING_LINE_MESSAGES = PI_WORKING_LINE_MESSAGES;
 export const WORKING_LINE_FALLBACK_MESSAGE = "Working…";

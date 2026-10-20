@@ -41,6 +41,7 @@ Please follow the conventions already in this repo. The most important ones:
 - **Silent fallbacks are intentional.** Git, runtime detection, and config lookups fail silently so that a broken environment does not break the session. Do not add throws or noisy errors for these paths without a strong reason.
 - **`user-message.ts` patches `UserMessageComponent`.** Treat it as fragile and avoid changes unless they are necessary.
 - **Runtime color values follow Starship's terminal style strings** (e.g. `bold purple`, `fg:202`, `bg:blue`).
+- **Use explicit `.ts` import specifiers for relative imports** (e.g. `./config.ts`). Pi loads these sources through jiti, which probes many candidate paths for extensionless or `.js` specifiers; explicit specifiers cut the module-resolution cost of every session start. `test/import-specifiers.test.ts` enforces this.
 
 ## Pull request expectations
 

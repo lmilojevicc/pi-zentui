@@ -1,5 +1,5 @@
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
-import { InteractionMetricsTracker, parseAssistantMessageTokens } from "./interaction-summary";
+import { InteractionMetricsTracker, parseAssistantMessageTokens } from "./interaction-summary.ts";
 
 export type TokenRateMessage = {
 	role?: string;

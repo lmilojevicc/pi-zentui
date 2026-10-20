@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ExtensionUIContext as PiUI } from "@earendil-works/pi-coding-agent";
 import type { ExtensionUIContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { TUI } from "@oh-my-pi/pi-tui";
-import type { HostTemplateValues } from "./host-template-values";
-import { createOmpStatusline, type OmpStatuslineOptions } from "./omp-statusline";
+import type { HostTemplateValues } from "./host-template-values.ts";
+import { createOmpStatusline, type OmpStatuslineOptions } from "./omp-statusline.ts";
 
 export type OmpUiAdapterOptions = OmpStatuslineOptions;
 

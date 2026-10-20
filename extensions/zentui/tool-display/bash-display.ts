@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import { bashCommandHighlighter } from "./host.js";
-import { PresentationText as Text } from "./presentation-text.js";
+import { bashCommandHighlighter } from "./host.ts";
+import { PresentationText as Text } from "./presentation-text.ts";
 
 const BASH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const BASH_SPINNER_INTERVAL_MS = 200;

@@ -1,7 +1,7 @@
-import { formatAverageTokenRate } from "./average-token-rate";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { compiledFooterFormat, renderFormatTokens } from "./footer-format";
-import { formatCount, formatElapsedDuration } from "./format";
+import { formatAverageTokenRate } from "./average-token-rate.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
+import { compiledFooterFormat, renderFormatTokens } from "./footer-format.ts";
+import { formatCount, formatElapsedDuration } from "./format.ts";
 
 export const DEFAULT_TURN_SUMMARY_FORMAT =
 	"Turn took $turn_duration$join_sep(thought for $thought_duration)$join_sep(↑$input_tokens ↓$output_tokens)$join_sep$token_rate";

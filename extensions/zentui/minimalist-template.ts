@@ -1,13 +1,13 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { MinimalistEditorStyleConfig } from "./config";
-import { MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS, MAX_CUSTOM_VARIABLES } from "./custom-variables";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
+import type { MinimalistEditorStyleConfig } from "./config.ts";
+import { MAX_CUSTOM_VARIABLE_KEY_CODE_UNITS, MAX_CUSTOM_VARIABLES } from "./custom-variables.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
 import {
 	compiledFooterFormat,
 	type ReadonlyFormatToken,
 	renderFormatTokens,
-} from "./footer-format";
-import { HOST_TEMPLATE_VARIABLES } from "./host-template-values";
+} from "./footer-format.ts";
+import { HOST_TEMPLATE_VARIABLES } from "./host-template-values.ts";
 
 export const MINIMALIST_FORMAT_SLOTS = [
 	"topLeft",

@@ -11,20 +11,20 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config";
+import type { ThinkingStepsComponentConfig, ThinkingStepsMode } from "./config.ts";
 import {
 	installPrototypePatch,
 	isPrototypePatchCurrent,
 	type PrototypePatchRegistration,
-} from "./prototype-patch-registry";
-import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status";
+} from "./prototype-patch-registry.ts";
+import { formatThinkingStatus, thinkingStatusLabels } from "./thinking-status.ts";
 import {
 	THINKING_STEPS_MAX_RETAINED_SOURCE_LENGTH,
 	type ThinkingStep,
 	type ThinkingStepsParseResult,
 	ThinkingStepsParser,
 	type ThinkingStepsRejection,
-} from "./thinking-steps";
+} from "./thinking-steps.ts";
 
 /*
  * The rendered-row folding and lifecycle below are adapted from

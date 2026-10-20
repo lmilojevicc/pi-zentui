@@ -1,5 +1,5 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import type { SessionLifecycle } from "./session-lifecycle";
+import type { SessionLifecycle } from "./session-lifecycle.ts";
 
 export type LiveContextOverride = {
 	tokens: number;

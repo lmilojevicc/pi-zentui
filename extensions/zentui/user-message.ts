@@ -1,17 +1,17 @@
 import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { type Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { ZentuiConfig } from "./config";
-import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
+import type { ZentuiConfig } from "./config.ts";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry.ts";
 import {
 	sanitizeRenderedUserMessageLines,
 	sanitizeRenderedUserMessageText,
 	sanitizeUserMessageSourceText,
-} from "./user-message-osc";
+} from "./user-message-osc.ts";
 import {
 	renderUserMessageStyle,
 	type UserMessageStyleRenderInput,
 	userMessageStyleCacheKey,
-} from "./user-message-styles";
+} from "./user-message-styles.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";

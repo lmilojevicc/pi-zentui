@@ -1,7 +1,7 @@
 import * as host from "@earendil-works/pi-coding-agent";
-import type { CodeHighlighter } from "./bounds.js";
-import type { ToolRenderers } from "./host-contract.js";
-import { BUILTIN_TOOL_NAMES, type BuiltinToolName } from "./types.js";
+import type { CodeHighlighter } from "./bounds.ts";
+import type { ToolRenderers } from "./host-contract.ts";
+import { BUILTIN_TOOL_NAMES, type BuiltinToolName } from "./types.ts";
 
 /** Public factory identities from this host's module mapping; older hosts fail open. */
 export function nativeToolRenderers(cwd: string): Partial<Record<BuiltinToolName, ToolRenderers>> {

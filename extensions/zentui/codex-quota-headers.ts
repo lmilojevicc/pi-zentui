@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CodexQuota } from "./codex-quota";
+import type { CodexQuota } from "./codex-quota.ts";
 
 const OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1";
 /** Headers only arrive with responses, so idle sessions get a far longer horizon than polling. */

@@ -1,8 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { CodexQuota } from "./codex-quota";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { renderStyleForSourceOrFallback } from "./style";
+import type { CodexQuota } from "./codex-quota.ts";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { renderStyleForSourceOrFallback } from "./style.ts";
 
 export function codexQuotaText(quota: CodexQuota | undefined): string {
 	if (!quota) return "";
