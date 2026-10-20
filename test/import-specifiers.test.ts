@@ -57,7 +57,7 @@ describe("explicit ts import specifiers", () => {
 		expect(relative).toBeGreaterThan(100);
 	});
 
-	it("keeps package specifiers untouched", () => {
+	it("keeps bare package specifiers intact", () => {
 		const bare = /(?:\bfrom\s*|\bimport\s*|\bexport\s*\*\s*from\s*)(["'])([^."'][^"']*)\1/g;
 		const found = new Set<string>();
 		for (const file of sourceFiles) {
@@ -65,6 +65,10 @@ describe("explicit ts import specifiers", () => {
 			for (const match of source.matchAll(bare)) found.add(match[2]);
 		}
 		expect(found.has("@earendil-works/pi-coding-agent")).toBe(true);
-		for (const specifier of found) expect(specifier.startsWith(".")).toBe(false);
+		expect(found.has("@earendil-works/pi-tui")).toBe(true);
+		for (const specifier of found) {
+			expect(specifier.startsWith(".")).toBe(false);
+			expect(specifier.endsWith(".ts")).toBe(false);
+		}
 	});
 });
