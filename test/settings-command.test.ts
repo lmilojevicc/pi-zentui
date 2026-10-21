@@ -50,6 +50,7 @@ const toolDisplayRowLabels = [
 	"Search output",
 	"MCP output",
 	"Bash output",
+	"Bash syntax",
 	"Preview lines",
 	"Bash collapsed lines",
 	"Expanded preview limit",
@@ -3292,6 +3293,7 @@ describe("native Tool display settings", () => {
 			"Search output",
 			"MCP output",
 			"Bash output",
+			"Bash syntax",
 			"Diff layout",
 			"Diff indicators",
 			"Diff word wrap",
@@ -3307,6 +3309,7 @@ describe("native Tool display settings", () => {
 			{ searchOutputMode: "count" },
 			{ mcpOutputMode: "summary" },
 			{ bashOutputMode: "summary" },
+			{ bashSyntax: "pi" },
 			{ diffViewMode: "split" },
 			{ diffIndicatorMode: "classic" },
 			{ diffWordWrap: false },
@@ -3316,6 +3319,17 @@ describe("native Tool display settings", () => {
 		]);
 		expect(h.config.components.toolDisplay.builtinRendererOverrides).toEqual({});
 		expect(h.config.components.toolDisplay.registerToolOverrides.write).toBe(true);
+	});
+	it("offers a color-only, theme-following Bash syntax choice", async () => {
+		const h = createHarness();
+		await h.command().handler("tool-display", h.ctx);
+		expect(row(h.component(), "Bash syntax")).toContain("Semantic");
+		selectLabel(h.component(), "Bash syntax");
+		expect(h.component().render(200).join("\n")).toContain("color-only");
+		h.component().handleInput(" ");
+		expect(h.config.components.toolDisplay.bashSyntax).toBe("pi");
+		expect(row(h.component(), "Bash syntax")).toContain("Host");
+		expect(h.calls.toolDisplay).toEqual([{ bashSyntax: "pi" }]);
 	});
 	it("shows truthful unsupported API status while allowing owner-local preferences", async () => {
 		const h = createHarness(cloneConfig(), {

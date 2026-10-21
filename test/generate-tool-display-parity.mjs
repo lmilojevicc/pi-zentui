@@ -1087,7 +1087,7 @@ const provenance = {
 		rows: bashSyntaxRows,
 		unchangedVectors: cases.length - bashSyntaxVectors,
 		rationale:
-			"Foreground-only command syntax via public host highlightCode(display, bash), inserted into unchanged upstream call rendering. Original complete upstreamBashRows retained; every stripped row, width and line count checked. No output/status/layout changes.",
+			"Semantic foreground-only Bash command syntax (shipped default `bashSyntax: 'semantic'`): the owned tokenizer/painter resolves role colors from the live theme and replaces the accent row, and the `pi` mode keeps public host highlightCode(display, bash). `bashSyntaxColorOnly` marks the Bash fixtures whose rows differ from upstream rendering only in foreground SGR bytes. Rows are the declared Bash rows; `upstreamBashRows` retains the complete upstream (host highlightCode) rendering, and every stripped row, width and line count is checked against it. No output/status/layout changes.",
 	},
 	rendererDomains: {
 		directMcp:

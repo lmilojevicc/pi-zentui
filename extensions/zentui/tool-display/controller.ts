@@ -98,7 +98,17 @@ export function createToolDisplayController(
 	getConfig: () => ToolDisplayConfig,
 	options: ToolDisplayControllerOptions,
 ) {
-	const progress = options.progress ?? createBashProgress();
+	const progress =
+		options.progress ??
+		createBashProgress(undefined, {
+			getMode: () => {
+				try {
+					return getConfig().bashSyntax;
+				} catch {
+					return "semantic";
+				}
+			},
+		});
 	let installed = false;
 	let disposed = false;
 	let failure: string | undefined;
@@ -219,6 +229,7 @@ export function createToolDisplayController(
 				config.searchOutputMode,
 				config.mcpOutputMode,
 				config.bashOutputMode,
+				config.bashSyntax,
 				config.previewLines,
 				config.expandedPreviewMaxLines,
 				config.bashCollapsedLines,

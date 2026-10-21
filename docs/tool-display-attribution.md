@@ -135,21 +135,60 @@ real-preimage writes.
 
 ## User-approved Bash syntax foreground colors
 
-Owned Bash command/prefix text uses public `highlightCode(display, "bash")`, retaining
-all upstream characters, wrapping, prompt/suffix/status/output colors and backgrounds.
-The independently generated `bashSyntaxColorOnly` domain retains complete original
-`upstreamBashRows`; its 486 vectors/486 changed rows have identical stripped content,
-widths and line counts. All other 20880 vectors remain byte-identical to the preceding
-fixture. Full-ANSI replay remains mandatory for every candidate card.
+`bashSyntax` has two modes over the same owned `$ <command>` row. The default
+`semantic` mode uses the package's own lexical tokenizer and palette variant A:
+tokens are classified without filesystem, PATH, alias/function or execution
+access, and each non-base role is painted with exactly one foreground SGR;
+`arg`/`space` stay at the terminal default and adjacent same-role tokens share a
+run. The command prefix is rendered separately in muted text and is not part of
+the tokenized command. This is the user-approved semantic look; it is not the
+host highlighter. `pi` (`Host`) keeps public `highlightCode(display, "bash")`,
+retaining all upstream characters, wrapping, prompt/suffix/status/output colors
+and backgrounds plus the historical outer accent wrapper.
+
+The independently generated `bashSyntaxColorOnly` domain was captured through the
+`pi` highlighter and retains complete original `upstreamBashRows`; its 486
+vectors/486 changed rows have identical stripped content, widths and line counts.
+It remains the geometry oracle for the semantic mode too, whose rows must match
+those stripped bytes, widths and counts. The semantic domain additionally pins its
+own palette: for a command with two or more roles, the rendered row must carry the
+exact role colors `resolveBashPalette` resolves from that fixture's live theme, so
+neither the `pi` highlighter nor an accent-only fallback can satisfy the check. The
+recorded rows are the `pi` highlighter's, so `upstreamBashRows` is the semantic
+mode's geometry oracle rather than its color oracle. All other 20880
+vectors remain byte-identical to the preceding fixture. Full-ANSI replay remains
+mandatory for every candidate card.
 
 The public highlighter uses Pi's active theme, as do real tool-render callbacks. This
 is an integration constraint, not a promise to honor artificial callback themes.
-No global theme mutation occurs. A bounded 16-entry input/live-syntax-palette cache
-refreshes through Pi's stable theme proxy on theme swaps without re-lexing unchanged
-spinner ticks. Ingress sanitization/source caps run first. Only foreground SGR with
-exactly preserved text is accepted; missing, throwing, oversized or invalid output
-falls back to the original accent row. Explicit non-Bash shell paths use that same
-fallback (only default, `bash` and `sh` paths opt into Bash grammar). No arbitrary tool
+No global theme mutation occurs. In `pi` mode, a bounded 16-entry
+input/live-syntax-palette cache refreshes through Pi's stable theme proxy on theme
+swaps without re-lexing unchanged spinner ticks. Semantic mode uses the session
+`bash-display` caches instead: 2 MiB of packed token offsets and 8 MiB of painted
+ANSI, 2048 sampled-eviction entries each, plus a one-row transient cache for
+streaming calls; tokens survive theme/mode revisions while painted rows are
+cleared. Both caches throttle admission while they are full: a first-touch miss is
+admitted one time in eight (one in 32 during a sequential scan over rows that were
+never cached) and a second visit is admitted at once, so a scan-back keeps a
+partially warm window instead of flushing it. Ingress sanitization/source caps run
+first in both modes. The declared charges (96 B/entry + 16 B/token + 2 B/command
+byte; 96 B + 2 B/painted byte) bound the working set to roughly 2,000 short or
+≈950 two-KB painted rows; a full rescan of 1,000 two-KB rows hits 98%, and older
+rows are re-highlighted when they scroll back in.rows are re-highlighted when they scroll back in.
+
+Only foreground SGR with exactly preserved text is accepted. Semantic mode
+validates each cache miss with a foreground-strip equality pass (strict SGR
+forms, length caps, no SGR inside CRLF) and an exact grapheme-boundary scan for
+non-ASCII rows. The painter emits colour changes only at word starts, so a run
+never spans whitespace and no reset lands in front of a space; that keeps every
+pi-tui whitespace token escape-free, which is what makes painted rows wrap
+exactly like the uncolored row. Each run covers its whole word, so every visible
+grapheme carries its role colour. Rows over 1,024 characters with more than 256 tokens drop
+low-signal roles and stop painting after 96 SGR spans, so pathological operator or
+short-flag chains cannot multiply ANSI spans. Missing,
+throwing, oversized or invalid output falls back to the `pi` highlighter and then
+to the original accent row. Explicit non-Bash shell paths use that same fallback
+(only default, `bash` and `sh` paths opt into Bash grammar). No arbitrary tool
 output is highlighted and no ownership/configuration/execution changes are made.
 
 ## Ownership and safety boundaries

@@ -23,11 +23,18 @@ describe("PresentationText layout cache", () => {
 		const setText = vi.spyOn(Text.prototype, "setText");
 		const text = new PresentationText("stable text");
 		const first = text.render(80);
+		// Unbounded rows take the single native wrap; the bounded pre-pass is skipped.
+		expect(scan).toHaveBeenCalledTimes(1);
+		expect(wrap).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(setText).toHaveBeenCalledTimes(1);
 		for (let paint = 0; paint < 100; paint++) expect(text.render(80)).toEqual(first);
 		// Negative control: the uncached implementation repeats all four operations
 		// 101 times, despite producing identical rows. No timing threshold is needed.
-		for (const operation of [scan, wrap, render, setText])
-			expect(operation).toHaveBeenCalledTimes(1);
+		expect(scan).toHaveBeenCalledTimes(1);
+		expect(wrap).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(setText).toHaveBeenCalledTimes(1);
 	});
 
 	it("rebuilds on setters, width changes and explicit invalidation", () => {

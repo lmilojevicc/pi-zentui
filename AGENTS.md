@@ -59,6 +59,8 @@ Zentui is a set of independently selectable TUI components, not a bundled UI mod
 - `extensions/zentui/git.ts` — git porcelain parsing and status summary.
 - `extensions/zentui/runtime.ts` — runtime/language detection and version lookup.
 - `extensions/zentui/settings-command.ts` — `/zentui` settings UI for color-source preferences.
+- `extensions/zentui/tool-display/bash-highlight.ts` — lexical Bash tokenizer, palette variant A (`semantic` Bash row colors), and the foreground-only painter.
+- `extensions/zentui/tool-display/bash-display.ts` — `$ <command>` call row, session-stable token/paint caches, paint validation, and spinner.
 - `extensions/zentui/ui.ts` — custom editor frame.
 - `extensions/zentui/user-message.ts` — prompt-box-style user message rendering.
 
@@ -70,7 +72,7 @@ User config is created at:
 ~/.pi/agent/zentui.json
 ```
 
-Use sparse `components.<owner>.colors` for owner-local Starship-style strings, hex/256-color values, or Pi theme tokens; shared `colors` remain historical fallbacks. Reset deletes an override to resume inheritance. Ordinary saves snapshot only the edited owner. `/zentui migrate` is the separate confirmed all-owner selection snapshot; it never disables shared color inheritance or copies generated palettes. Canonical color-source ownership is independent through `components.editor.colorSource`, `components.userMessages.colorSource`, `components.selectorBorders.colorSource`, and `components.footer.colorSource`. `/zentui` exposes separate controls for Editor, previous User messages, selector borders, and—while Starship is selected—the Footer; changing one does not change the others.
+Use sparse `components.<owner>.colors` for owner-local Starship-style strings, hex/256-color values, or Pi theme tokens; shared `colors` remain historical fallbacks. Reset deletes an override to resume inheritance. Ordinary saves snapshot only the edited owner. `/zentui migrate` is the separate confirmed all-owner selection snapshot; it never disables shared color inheritance or copies generated palettes. Canonical color-source ownership is independent through `components.editor.colorSource`, `components.userMessages.colorSource`, `components.selectorBorders.colorSource`, and `components.footer.colorSource`. `components.toolDisplay.bashSyntax` independently selects the owned Bash command-row colors: `semantic` (default, lexical palette variant A) or `pi`/Host (public host `highlightCode`). `/zentui` exposes separate controls for Editor, previous User messages, selector borders, and—while Starship is selected—the Footer; changing one does not change the others.
 
 ## Things to preserve
 

@@ -1,5 +1,6 @@
 import {
 	BASH_OUTPUT_MODES,
+	BASH_SYNTAX_MODES,
 	BUILTIN_TOOL_NAMES,
 	DEFAULT_TOOL_DISPLAY_CONFIG,
 	DIFF_INDICATOR_MODES,
@@ -66,6 +67,8 @@ export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 		searchOutputMode: choice(raw.searchOutputMode, SEARCH_OUTPUT_MODES, modes.searchOutputMode),
 		mcpOutputMode: choice(raw.mcpOutputMode, READ_OUTPUT_MODES, modes.mcpOutputMode),
 		bashOutputMode: choice(raw.bashOutputMode, BASH_OUTPUT_MODES, modes.bashOutputMode),
+		// Unknown values fall back to semantic; presets never change this choice.
+		bashSyntax: choice(raw.bashSyntax, BASH_SYNTAX_MODES, "semantic"),
 		previewLines: integer(raw.previewLines, modes.previewLines, 1, 80),
 		expandedPreviewMaxLines: integer(
 			raw.expandedPreviewMaxLines,

@@ -129,12 +129,13 @@ Inline generic calls, the superseding OpenCode-style MCP layout/output modes,
 write wording and search spacing are declared, counted upstream parity divergences. Disabled/native/delegated rows
 and unrelated surfaces remain unchanged.
 
-## Diff and preview controls
+## Preview, diff, and Bash controls
 
 | Field | Default | Accepted values |
 | --- | --- | --- |
 | `previewLines` | 8 | 1–80 |
 | `bashCollapsedLines` | 10 | 0–80 |
+| `bashSyntax` | semantic | semantic, pi |
 | `expandedPreviewMaxLines` | 4000 | 0–20000; 0 uses the safety cap |
 | `diffViewMode` | auto | auto, split, unified |
 | `diffIndicatorMode` | bars | bars, classic, none |
@@ -184,6 +185,124 @@ Text updates (even identical text), changed safety budgets, padding/background
 setters, and explicit `invalidate()` clear the cache. Theme-dependent background
 callbacks must be invalidated when their captured theme changes. Failed renders
 are not cached; safety caps and omission notices remain unchanged.
+
+## Bash command syntax
+
+`bashSyntax` chooses how the `$ <command>` call row is colored. `semantic` (the
+default) tokenizes the command lexically and paints commands, builtins, keywords,
+strings, numbers, options, paths/globs, variables, operators, redirections and
+comments with palette variant A. `pi` (labeled `Host`) keeps the host
+`highlightCode(display, "bash")` output, including its historical accent wrapper.
+Unknown values fall back to `semantic`; presets never change this choice, and
+enabling or changing it never touches another surface or the command's execution.
+
+Semantic highlighting is color-only and foreground-only. The command's prompt
+prefix (`$`, `PS>`, `user@host:~$`) is rendered once in muted text and is never
+tokenized with the command, so the verb color always lands on the real command.
+It never inserts, removes, or reorders visible bytes; plain `arg`/`space` tokens
+stay at the terminal default with no SGR. Colour changes are emitted at the start
+of a word and never between a word and the whitespace that follows it: pi-tui
+attaches an escape that directly precedes a space to that whitespace token, which
+turns the space into a zero-width word and shifts wrap boundaries or inserts a
+zero-width escape-only row. Keeping every whitespace token escape-free is what
+makes painted rows wrap exactly like the uncolored command, and one foreground run
+covers one whole whitespace-delimited colored word, so no visible grapheme is left
+unpainted. A row that ends while a colour is open closes it after its last byte,
+exactly like the `pi` accent wrapper. A host-level `wrapSingleLine` artifact can
+still insert a whitespace-only row when a token breaks exactly at the row width;
+the legacy accent row produces the same artifact, and the production
+`PresentationText` component drops such rows.
+
+Rows over 1,024 characters with more than 256 tokens degrade gracefully:
+low-signal tokens (options, numbers, operators, redirections, substitution
+delimiters, arithmetic, continuations, here-doc terminators) drop out, and the row
+stops painting after 96 SGR spans (48 colored words), so ANSI growth and host
+wrapping stay bounded for 12K–16K option-dense input. Ordinary command rows sit far
+below both bounds and keep the full palette. Classification is purely lexical: no `PATH`
+lookup, no filesystem stat, no alias/function resolution, and no command
+execution, so the row never blocks on the host and never reads project files.
+Invalid or unavailable painting fails open to the `pi` highlighter, then to the
+plain accent row; a theme that resolves no role also fails open instead of
+dropping the command color.
+
+Raw SGR sequences already present in the model-supplied command text are
+pre-existing host behavior: ingress sanitization keeps `ESC[…m`, the semantic
+painter neither escapes nor removes it, and validation compares visible bytes
+after stripping only foreground SGR. A raw background/attribute SGR therefore
+passes through unchanged, exactly as the `pi` and native rows always did; this
+feature neither widens nor closes that host behavior.
+
+Command paint is memoized per progress session: a 2 MiB packed-token cache and an
+8 MiB painted-ANSI cache, each capped at 2048 entries, cleared on dispose. Both are
+byte-budgeted and evict a sampled entry rather than strictly the oldest, so a
+rescan that overruns the window keeps a partially warm one instead of evicting
+exactly the row it needs next (a strict LRU rescan misses 100%). While a cache is
+full, a row that was never seen is admitted on one miss in eight (one in 32 during
+a long miss run, i.e. a sequential scan over rows that were never cached) and a
+row that already missed once is admitted immediately, so a scan-back cannot flush
+the retained window while the live session keeps entering the cache. Measured on
+1,000 distinct 2,000-character commands: the fill costs ≈134 ms, a full second
+sequential pass costs ≈6 ms and hits 98% of rows, and re-rendering 300 two-KB rows
+re-tokenizes nothing. The retained window follows directly from the charges (96 B
+per entry + 16 B per token + 2 B per command byte for tokens; 96 B + 2 B per
+painted byte): roughly 2,000 short commands, or ≈950 × 2,000-character commands
+for painted rows (a 2 KB row paints to ≈4.2 KB). A theme change clears painted
+rows once; tokens survive. It is a working set, not the whole session
+history; older rows are highlighted again when they scroll back in. Measured heap
+tracks those charges within about 1.5× (a full token cache is ≈1.5 MiB, and the
+painted charge is conservative for ASCII), so the pair's real ceiling is ≈5 MiB
+rather than an open-ended scroll history. Scroll, resize, and host invalidate
+inside that window are cache hits: no tokenize, palette resolution, or validation
+runs. A theme revision clears every painted row (they encode colors), so the first
+render after a theme change repaints the window from the surviving tokens; the
+token cache is small enough that most of those repaints also re-tokenize.
+A streaming (not yet committed) call is painted through a one-row transient
+cache and is not admitted into either session cache, so a long streamed command
+cannot evict completed rows. Cache misses validate foreground-only SGR
+(hand-parsed: `39`, `30`–`37`, `90`–`97`, `38;5;N`, `38;2;R;G;B`), exact
+strip equality, length caps, and no SGR inside a CRLF pair in one
+foreground-strip equality pass; non-ASCII rows add the exact grapheme-boundary
+scan, and the whitespace relocation that keeps native wrapping geometry is
+opt-in because both owned painters already guarantee no SGR next to
+whitespace. Validation runs only on a cache miss. Pi's stable theme proxy is
+probed through `theme.colors` identity (falling back to sampling only the tokens
+actually used); a theme or mode revision clears painted rows while tokens
+survive.
+
+Semantic output is wrapped by the same production `PresentationText` as every
+other owned row. Because the painter never leaves an active SGR at a whitespace
+token, semantic rows need no filtering at all: raw pi-tui `Text` already produces
+row-for-row identical output to the uncolored command at every width (a
+10–200-column sweep over agent-typical commands with long options, paths, globs
+and URLs is pinned by the test suite). `PresentationText` still drops pi-tui's
+escape-only wrap row (a zero-width row a colored line can produce when a space
+fills a row exactly and the next token is wider than the row), which the `pi`
+highlighter and the plain accent row can still produce; that is a host wrapping
+fix, not a semantic-only filter.
+
+On a color-poor theme, a role's candidate color that is already owned by the base
+text or a higher-priority role is skipped. Variant A declares no merge groups:
+redirect and quiet may borrow the resolved structural color, and otherwise a role
+stays unpainted (terminal default) rather than silently repeating another color.
+`variable` falls through to `syntaxVariable`/`mdLink`/`syntaxString`/`error` so
+builtin light themes keep strings and variables readable (the builtin light theme
+resolves no role to terminal default), and here-doc bodies use the literal color
+while their terminators stay quiet.
+
+Here-doc bodies and terminators render as one token per line, with quote-aware
+delimiters, `$var` delimiters, `<<-` tab stripping, and CRLF-tolerant
+terminators; they are never tokenized as commands. `[[ … ]]` comparisons,
+`case` patterns, `for ((…))` headers, array literals and wrapper chains
+(`sudo … env`, `time nice`, `timeout … xargs`) keep their real command word
+armed so the verb color is accurate.
+
+```json
+{
+  "components": {
+    "toolDisplay": { "enabled": true, "bashSyntax": "semantic" }
+  }
+}
+```
 
 ## Ownership and advanced JSON
 

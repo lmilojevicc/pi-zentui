@@ -142,7 +142,8 @@ export function createToolDisplayRenderers(
 	resources: RendererResources = {},
 	custom?: CustomToolDisplayConfig,
 ): ToolRenderers {
-	const progress = resources.progress ?? createBashProgress();
+	const progress =
+		resources.progress ?? createBashProgress(undefined, { getMode: () => getConfig().bashSyntax });
 	const config = (): presentation.PresentationConfig => ({
 		...getConfig(),
 		showRtkCompactionHints: false,
