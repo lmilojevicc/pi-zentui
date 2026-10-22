@@ -23,10 +23,20 @@ npm run pi:dev              # runs pi with only this extension loaded
 npm run pi:install-local    # installs the local checkout into your pi extensions
 ```
 
-If your `pi` binary is not at the default path, override it:
+`pi` is resolved from `PATH`, so the same commands work on macOS, Linux and Windows.
+Override the binary when it is not on `PATH`, and forward any Pi flags after `--`:
 
 ```bash
 PI_BIN=/absolute/path/to/pi npm run pi:dev
+npm run pi:dev -- --model provider/model
+```
+
+Extensions are isolated by default (`--no-extensions -e ./extensions/zentui/index.ts`).
+Add `--keep-extensions` when the session needs an extension-provided provider or model,
+or when resuming a session that used one:
+
+```bash
+npm run pi:dev -- --keep-extensions -- --session <id>
 ```
 
 Manual testing is required for any change that affects the footer, editor, user-message styling, runtime/git detection, colors, or `/zentui` settings.

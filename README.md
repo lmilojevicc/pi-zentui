@@ -264,10 +264,19 @@ Install the checkout as a local Pi package:
 npm run pi:install-local
 ```
 
-Override the globally installed Pi binary when needed:
+`pi` is resolved from `PATH` (macOS, Linux, Windows). Override it, or pass extra Pi
+flags, when needed:
 
 ```bash
 PI_BIN=/path/to/pi npm run pi:dev
+npm run pi:dev -- --model provider/model
+```
+
+Add `--keep-extensions` to load the checkout alongside your installed extensions, for
+example to resume a session that used an extension-provided model:
+
+```bash
+npm run pi:dev -- --keep-extensions -- --session <id>
 ```
 
 See [CONTRIBUTING.md](https://github.com/lmilojevicc/pi-zentui/blob/main/CONTRIBUTING.md) for manual UI-test and pull-request expectations.
