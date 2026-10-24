@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { validateBashPaint } from "../extensions/zentui/tool-display/bash-display.js";
 import {
 	BASH_KIND_ROLES,
 	BASH_ROLE_BORROWS,
@@ -11,6 +12,7 @@ import {
 	type BashToken,
 	type BashTokenKind,
 	paintBash,
+	paintBashBatch,
 	resolveBashPalette,
 	tokenizeBash,
 	tokenizeBashBatch,
@@ -424,6 +426,40 @@ describe("bash-highlight tokenizer", () => {
 			],
 		],
 		[
+			`PATH=$PATH:/usr/local/go/bin go build`,
+			[
+				["assignmentName", "PATH"],
+				["assignmentOp", "="],
+				["variable", "$PATH"],
+				["path", ":/usr/local/go/bin"],
+				["command", "go"],
+				["arg", "build"],
+			],
+		],
+		[
+			`A=$B/c cmd --x`,
+			[
+				["assignmentName", "A"],
+				["assignmentOp", "="],
+				["variable", "$B"],
+				["path", "/c"],
+				["command", "cmd"],
+				["option", "--x"],
+			],
+		],
+		[
+			`FOO=bar>baz cmd --x`,
+			[
+				["assignmentName", "FOO"],
+				["assignmentOp", "="],
+				["arg", "bar"],
+				["redirection", ">"],
+				["arg", "baz"],
+				["command", "cmd"],
+				["option", "--x"],
+			],
+		],
+		[
 			`FOO= cmd --flag`,
 			[
 				["assignmentName", "FOO"],
@@ -459,6 +495,66 @@ describe("bash-highlight tokenizer", () => {
 				["option", "-u"],
 				["arg", "root"],
 				["command", "env"],
+				["assignmentName", "FOO"],
+				["assignmentOp", "="],
+				["number", "1"],
+				["command", "cmd"],
+			],
+		],
+		[
+			`sudo VAR=value cmd`,
+			[
+				["command", "sudo"],
+				["assignmentName", "VAR"],
+				["assignmentOp", "="],
+				["arg", "value"],
+				["command", "cmd"],
+			],
+		],
+		[
+			`time VAR=value cmd`,
+			[
+				["keyword", "time"],
+				["assignmentName", "VAR"],
+				["assignmentOp", "="],
+				["arg", "value"],
+				["command", "cmd"],
+			],
+		],
+		[
+			`sudo -iu deploy psql`,
+			[
+				["command", "sudo"],
+				["option", "-iu"],
+				["arg", "deploy"],
+				["command", "psql"],
+			],
+		],
+		[
+			`sudoedit /etc/hosts`,
+			[
+				["command", "sudoedit"],
+				["path", "/etc/hosts"],
+			],
+		],
+		[
+			// GNU sudo/env still accept NAME=VALUE after `--`, so `--` ends option parsing
+			// but not assignment parsing.
+			`sudo -- FOO=1 cmd`,
+			[
+				["command", "sudo"],
+				["option", "--"],
+				["assignmentName", "FOO"],
+				["assignmentOp", "="],
+				["number", "1"],
+				["command", "cmd"],
+			],
+		],
+		[
+			`env -- FOO=1 cmd`,
+			[
+				["command", "env"],
+				["option", "--"],
 				["assignmentName", "FOO"],
 				["assignmentOp", "="],
 				["number", "1"],
@@ -528,6 +624,42 @@ describe("bash-highlight tokenizer", () => {
 			],
 		],
 		[
+			`files=(\n src/a.ts\n src/b.ts\n)\nls`,
+			[
+				["assignmentName", "files"],
+				["assignmentOp", "="],
+				["operator", "("],
+				["path", "src/a.ts"],
+				["path", "src/b.ts"],
+				["operator", ")"],
+				["command", "ls"],
+			],
+		],
+		[
+			`arr=(one\ntwo three)`,
+			[
+				["assignmentName", "arr"],
+				["assignmentOp", "="],
+				["operator", "("],
+				["arg", "one"],
+				["arg", "two"],
+				["arg", "three"],
+				["operator", ")"],
+			],
+		],
+		[
+			`local -a arr=(\n a b\n)`,
+			[
+				["builtin", "local"],
+				["option", "-a"],
+				["arg", "arr="],
+				["operator", "("],
+				["arg", "a"],
+				["arg", "b"],
+				["operator", ")"],
+			],
+		],
+		[
 			`local -a arr=(a b)`,
 			[
 				["builtin", "local"],
@@ -553,17 +685,90 @@ describe("bash-highlight tokenizer", () => {
 			],
 		],
 		[
-			`case x in esac) echo y;; esac`,
+			`coproc cat`,
+			[
+				["keyword", "coproc"],
+				["command", "cat"],
+			],
+		],
+		[
+			// Cosmetic limit: the coprocess name occupies the command word slot.
+			`coproc NAME { cat; }`,
+			[
+				["keyword", "coproc"],
+				["command", "NAME"],
+				["operator", "{"],
+				["command", "cat"],
+				["operator", ";"],
+				["operator", "}"],
+			],
+		],
+		[
+			// A case-pattern `)` must not close the surrounding `$(`. The second pattern and
+			// its assignment are the discriminator: before the fix `b` was a command.
+			`v=$(case $k in a) x=1;; b) x=2;; esac); echo $v`,
+			[
+				["assignmentName", "v"],
+				["assignmentOp", "="],
+				["substDelim", "$("],
+				["keyword", "case"],
+				["variable", "$k"],
+				["keyword", "in"],
+				["arg", "a"],
+				["operator", ")"],
+				["assignmentName", "x"],
+				["assignmentOp", "="],
+				["number", "1"],
+				["operator", ";;"],
+				["arg", "b"],
+				["operator", ")"],
+				["assignmentName", "x"],
+				["assignmentOp", "="],
+				["number", "2"],
+				["operator", ";;"],
+				["keyword", "esac"],
+				["substDelim", ")"],
+				["operator", ";"],
+				["builtin", "echo"],
+				["variable", "$v"],
+			],
+		],
+		[
+			// Bash rejects `esac)` at the start of a pattern list, but `a|esac)` is a legal
+			// alternation whose second pattern is the word `esac`.
+			`case x in a|esac) echo y;; esac`,
 			[
 				["keyword", "case"],
 				["arg", "x"],
 				["keyword", "in"],
+				["arg", "a"],
+				["operator", "|"],
 				["arg", "esac"],
 				["operator", ")"],
 				["builtin", "echo"],
 				["arg", "y"],
 				["operator", ";;"],
 				["keyword", "esac"],
+			],
+		],
+		[
+			// Bash rejects `esac)` at the start of a pattern list, so `esac` closes the case
+			// and the following `)` closes the substitution: `foo` is an argument, not a verb.
+			`echo $(case x in a) echo a;; esac) foo`,
+			[
+				["builtin", "echo"],
+				["substDelim", "$("],
+				["keyword", "case"],
+				["arg", "x"],
+				["keyword", "in"],
+				["arg", "a"],
+				["operator", ")"],
+				["builtin", "echo"],
+				["arg", "a"],
+				["operator", ";;"],
+				["keyword", "esac"],
+				["substDelim", ")"],
+				["arg", "foo"],
 			],
 		],
 		[
@@ -575,6 +780,85 @@ describe("bash-highlight tokenizer", () => {
 				["command", "rm"],
 				["arg", "{}"],
 				["arg", "\\;"],
+			],
+		],
+		[
+			`echo "$(date)"#tail && rm -rf /tmp/x`,
+			[
+				["builtin", "echo"],
+				["string", '"'],
+				["substDelim", "$("],
+				["command", "date"],
+				["substDelim", ")"],
+				["string", '"'],
+				["arg", "#tail"],
+				["operator", "&&"],
+				["command", "rm"],
+				["option", "-rf"],
+				["path", "/tmp/x"],
+			],
+		],
+		[
+			`echo $(date)#x`,
+			[
+				["builtin", "echo"],
+				["substDelim", "$("],
+				["command", "date"],
+				["substDelim", ")"],
+				["arg", "#x"],
+			],
+		],
+		[
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion.
+			"echo ${x}#y",
+			[
+				["builtin", "echo"],
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion.
+				["variable", "${x}"],
+				["arg", "#y"],
+			],
+		],
+		[
+			`echo 'hi'#x`,
+			[
+				["builtin", "echo"],
+				["string", "'hi'"],
+				["arg", "#x"],
+			],
+		],
+		[
+			`echo \`date\`#x`,
+			[
+				["builtin", "echo"],
+				["substDelim", "`"],
+				["command", "date"],
+				["substDelim", "`"],
+				["arg", "#x"],
+			],
+		],
+		[
+			`cat <<E'O'F\nbody\nEOF\nls`,
+			[
+				["command", "cat"],
+				["redirection", "<<"],
+				["arg", "E"],
+				["string", "'O'"],
+				["arg", "F"],
+				["heredocBody", "body\n"],
+				["heredocEnd", "EOF\n"],
+				["command", "ls"],
+			],
+		],
+		[
+			`cat <<"E"OF\nbody\nEOF\nls`,
+			[
+				["command", "cat"],
+				["redirection", "<<"],
+				["string", '"E"'],
+				["arg", "OF"],
+				["heredocBody", "body\n"],
+				["heredocEnd", "EOF\n"],
+				["command", "ls"],
 			],
 		],
 		[
@@ -627,6 +911,88 @@ describe("bash-highlight tokenizer", () => {
 		// Quadratic lookahead made 100K take ~4x the 50K time; linear stays near 2x.
 		expect(large).toBeLessThan(Math.max(80, small * 3));
 		expect(tokenizeBash("{v}>out").map((token) => token.kind)).toEqual(["redirection", "arg"]);
+	});
+	it("bounds the assignment subscript lookahead", () => {
+		for (const [command, expected] of [
+			[
+				"a[1]=x",
+				[
+					["assignmentName", "a[1]"],
+					["assignmentOp", "="],
+					["arg", "x"],
+				],
+			],
+			[
+				"a[$i]=x",
+				[
+					["assignmentName", "a[$i]"],
+					["assignmentOp", "="],
+					["arg", "x"],
+				],
+			],
+			[
+				"a[i+1]=x",
+				[
+					["assignmentName", "a[i+1]"],
+					["assignmentOp", "="],
+					["arg", "x"],
+				],
+			],
+			[
+				'm["k y"]=v cmd',
+				[
+					["assignmentName", 'm["k y"]'],
+					["assignmentOp", "="],
+					["arg", "v"],
+					["command", "cmd"],
+				],
+			],
+			[
+				"arr[$(x)]=1 cmd",
+				[
+					["assignmentName", "arr[$(x)]"],
+					["assignmentOp", "="],
+					["number", "1"],
+					["command", "cmd"],
+				],
+			],
+			[
+				"declare -A m=([k]=v)",
+				[
+					["builtin", "declare"],
+					["option", "-A"],
+					["arg", "m="],
+					["operator", "("],
+					["glob", "[k]=v"],
+					["operator", ")"],
+				],
+			],
+		] as const)
+			expect(kinds(command)).toEqual(expected);
+		expect(kinds(`a[${"x".repeat(50)}]=1`)).toEqual([
+			["assignmentName", `a[${"x".repeat(50)}]`],
+			["assignmentOp", "="],
+			["number", "1"],
+		]);
+		// Past the lookahead window the word degrades to one plain command token.
+		expect(kinds(`a[${"x".repeat(200)}]=1`)).toEqual([["command", `a[${"x".repeat(200)}]=1`]]);
+	});
+	it("keeps subscript lookahead linear on unclosed-bracket input", () => {
+		const measure = (length: number) => {
+			const input = `${"a[;".repeat(length / 3)}b`;
+			const start = performance.now();
+			tokenizeBashBatch(input);
+			return performance.now() - start;
+		};
+		measure(1_000);
+		const median = (length: number) =>
+			[measure(length), measure(length), measure(length)].sort(
+				(first, second) => first - second,
+			)[1];
+		const small = median(100_000);
+		const large = median(200_000);
+		// Unbounded subscript scans made 200K take ~3.9x the 100K time; linear stays near 2x.
+		expect(large).toBeLessThan(Math.max(60, small * 3));
 	});
 	it("keeps a 100KB pathological line linear and lossless", () => {
 		const huge = `echo ${"a/b ".repeat(20_000)}`;
@@ -766,6 +1132,67 @@ describe("bash-highlight palette and paint", () => {
 		for (const role of BASH_ROLE_ORDER) {
 			const ansi = palette.roles[role].ansi;
 			expect(ansi === undefined || /^\x1b\[(?:38;5;\d{1,3})m$/.test(ansi)).toBe(true);
+		}
+	});
+});
+
+describe("bash-display paint validation", () => {
+	it.each([
+		"e\u0301",
+		"👩‍💻",
+		"🇯🇵🇺🇸",
+		"\u1100\u1161",
+		"界 👩‍💻 e\u0301",
+		" \u0e33",
+		"\u0600x",
+		"👍🏽",
+		"a\r\nb",
+		"x\u0308\u0301y",
+	])("accepts an inserted SGR exactly at a grapheme boundary: %j", (text) => {
+		const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+		const boundaries = new Set([0, text.length]);
+		for (const segment of segmenter.segment(text)) boundaries.add(segment.index);
+		for (let index = 0; index <= text.length; index++) {
+			const painted = `${text.slice(0, index)}\x1b[38;5;1m${text.slice(index)}`;
+			expect(validateBashPaint(text, painted) !== undefined).toBe(boundaries.has(index));
+		}
+	});
+	it("rejects an SGR inside a cluster but accepts it between clusters", () => {
+		expect(validateBashPaint("e\u0301", "e\x1b[38;5;1m\u0301")).toBeUndefined();
+		expect(validateBashPaint(" \u0e33", " \x1b[38;5;1m\u0e33")).toBeUndefined();
+		expect(validateBashPaint("\u0600x", "\u0600\x1b[38;5;1mx")).toBeUndefined();
+		expect(validateBashPaint("x — y", "x \x1b[38;5;1m— y")).toBeDefined();
+		// Relocation is opt-in: moving a valid leading SGR over the space would put it
+		// inside the spacing-mark cluster and corrupt the row.
+		expect(validateBashPaint(" \u0e33", "\x1b[38;5;1m \u0e33")).toBeDefined();
+		expect(validateBashPaint(" \u0e33", "\x1b[38;5;1m \u0e33", { relocate: true })).toBeUndefined();
+	});
+	it.each(["ab", "éab"])("bounds 256-color channels above 255 for %j", (display) => {
+		expect(validateBashPaint(display, `\x1b[38;5;256m${display}\x1b[39m`)).toBeUndefined();
+		expect(validateBashPaint(display, `\x1b[38;5;259m${display}\x1b[39m`)).toBeUndefined();
+		expect(validateBashPaint(display, `\x1b[38;5;255m${display}\x1b[39m`)).toBe(
+			`\x1b[38;5;255m${display}\x1b[39m`,
+		);
+		expect(validateBashPaint(display, `\x1b[38;5;0m${display}\x1b[39m`)).toBe(
+			`\x1b[38;5;0m${display}\x1b[39m`,
+		);
+	});
+	it("validates a cold non-ASCII row with one segmenter pass and few lookups", () => {
+		const palette = resolveBashPalette(tokenTheme(CATPPUCCIN));
+		const command = `echo 界界界 ${"a".repeat(1800)} — 界 tail`;
+		const painted = paintBashBatch(tokenizeBashBatch(command), palette);
+		expect(stripSgr(painted)).toBe(command);
+		const segmentsPrototype = Object.getPrototypeOf(
+			new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment("ab"),
+		);
+		const containing = vi.spyOn(segmentsPrototype, "containing");
+		const segment = vi.spyOn(Intl.Segmenter.prototype, "segment");
+		try {
+			expect(validateBashPaint(command, painted)).toBeDefined();
+			expect(segment.mock.calls.length).toBeLessThanOrEqual(1);
+			expect(containing.mock.calls.length).toBeLessThanOrEqual(2);
+		} finally {
+			vi.restoreAllMocks();
 		}
 	});
 });

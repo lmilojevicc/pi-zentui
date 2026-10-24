@@ -9,6 +9,8 @@
  * per token.
  */
 const MAX_DEPTH = 32;
+/** Bounded `name[...]` lookahead: a 33-byte bound would reject `m["a longer key"]`. */
+const MAX_SUBSCRIPT_LOOKAHEAD = 64;
 
 export const BASH_TOKEN_KINDS = [
 	"command",
@@ -67,9 +69,9 @@ const KIND_COUNT = 21;
 const DEGRADE_MIN_TOKENS = 256;
 const DEGRADE_MIN_CHARS = 1024;
 /**
- * Hard per-row SGR budget. Every colored word costs two spans (its opening color and its
- * reset), so this caps a long dense row at 48 colored words. A row past the budget keeps
- * the color of its leading words and leaves the rest at the terminal default: the host's
+ * Hard per-row budget of 96 opening foreground SGRs plus their resets (≤ 193 SGRs total,
+ * since a row can also close with one reset). A long dense row keeps the color of its
+ * leading words and the tail after the budget stays at the terminal default: the host's
  * ANSI-aware wrapping then stays linear in the row's visible width, and one pathological
  * command can never multiply every repaint of the card. Rows under the degrade threshold
  * never reach this bound.
@@ -240,7 +242,16 @@ const KEYWORDS = new Set([
 	"select",
 	"coproc",
 ]);
-const KEYWORDS_RESUME_COMMAND = new Set(["if", "then", "else", "elif", "while", "until", "do"]);
+const KEYWORDS_RESUME_COMMAND = new Set([
+	"if",
+	"then",
+	"else",
+	"elif",
+	"while",
+	"until",
+	"do",
+	"coproc",
+]);
 const BUILTINS = new Set([
 	"[",
 	"alias",
@@ -333,33 +344,37 @@ function defineWrapper(
 ): void {
 	WRAPPERS.set(name, { optsWithValue: new Set(optsWithValue), positionals, assignments });
 }
-defineWrapper("sudo", [
-	"-u",
-	"-g",
-	"-h",
-	"-p",
-	"-C",
-	"-D",
-	"-r",
-	"-t",
-	"-T",
-	"-U",
-	"-R",
-	"--user",
-	"--group",
-	"--host",
-	"--prompt",
-	"--role",
-	"--type",
-	"--other-user",
-	"--chdir",
-	"--chroot",
-	"--close-from",
-	"--command-timeout",
-]);
-defineWrapper("sudoedit", ["-u", "-g", "-h", "-p", "-C"]);
+defineWrapper(
+	"sudo",
+	[
+		"-u",
+		"-g",
+		"-h",
+		"-p",
+		"-C",
+		"-D",
+		"-r",
+		"-t",
+		"-T",
+		"-U",
+		"-R",
+		"--user",
+		"--group",
+		"--host",
+		"--prompt",
+		"--role",
+		"--type",
+		"--other-user",
+		"--chdir",
+		"--chroot",
+		"--close-from",
+		"--command-timeout",
+	],
+	0,
+	true,
+);
 defineWrapper("doas", ["-u", "-C"]);
-defineWrapper("time", []);
+defineWrapper("time", [], 0, true);
 defineWrapper("env", ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"], 0, true);
 defineWrapper("timeout", ["-s", "-k", "--signal", "--kill-after"], 1);
 defineWrapper("nice", ["-n", "--adjustment"]);
@@ -667,8 +682,17 @@ function scanAssignment(text: string, start: number): number {
 		else break;
 	}
 	if (text.charCodeAt(index) === 91) {
-		// Array subscript: name[...]=
-		const close = text.indexOf("]", index + 1);
+		// Array subscript: name[...]=. The lookahead is bounded, so an `a[` run that never
+		// closes costs a constant scan per byte instead of a quadratic one; past the window
+		// the word degrades to a plain command/glob, which is accepted.
+		const limit = Math.min(length, index + MAX_SUBSCRIPT_LOOKAHEAD);
+		let close = -1;
+		for (let scan = index + 1; scan < limit; scan++) {
+			if (text.charCodeAt(scan) === 93) {
+				close = scan;
+				break;
+			}
+		}
 		if (close < 0) return -1;
 		index = close + 1;
 	}
@@ -769,17 +793,6 @@ function isGlobTokenStart(text: string, index: number): boolean {
 		previous === 60 ||
 		previous === 62
 	);
-}
-
-/** First byte of the next word, skipping spaces and tabs (not newlines). */
-function nextWordByte(text: string, start: number, end: number): number {
-	let index = start;
-	while (index < end) {
-		const code = text.charCodeAt(index);
-		if (code !== 32 && code !== 9) return code;
-		index++;
-	}
-	return -1;
 }
 
 interface Heredoc {
@@ -998,6 +1011,11 @@ function scanCommand(
 	let expectRedirectionTarget = false;
 	let expectHeredocDelimiter = false;
 	let heredocStripTabs = false;
+	// Accumulated heredoc delimiter parts: `<<E'O'F` registers `EOF`, not `E`.
+	let heredocDelimiter = "";
+	// Index where the last word part ended, so a `#` glued to a quote/expansion is a word
+	// byte and not a comment start.
+	let wordPartEnd = -1;
 	let parenDepth = 0;
 	let assignmentParenDepth = 0;
 	let execPending = false;
@@ -1012,19 +1030,20 @@ function scanCommand(
 		afterAssignmentOp = false;
 		expectRedirectionTarget = false;
 		expectHeredocDelimiter = false;
+		heredocDelimiter = "";
 		execPending = false;
 		assignmentParenDepth = 0;
 	};
 	const registerHeredoc = (terminator: string): void => {
 		context.heredocs.push({ terminator, stripTabs: heredocStripTabs });
 		expectHeredocDelimiter = false;
+		heredocDelimiter = "";
 	};
 	/** A quoted/variable/substitution word consumes the command or assignment value slot. */
 	const settleWord = (): void => {
-		if (afterAssignmentOp) {
-			afterAssignmentOp = false;
-			return;
-		}
+		// A quoted, variable or substitution part is part of the assignment value: the
+		// value ends at whitespace, an operator, a `(` or a redirection, not after one part.
+		if (afterAssignmentOp) return;
 		if (expectRedirectionTarget) {
 			expectRedirectionTarget = false;
 			return;
@@ -1053,9 +1072,21 @@ function scanCommand(
 	while (index < length) {
 		const code = text.charCodeAt(index);
 
+		// The delimiter word ends at whitespace or a metacharacter; register the parts
+		// accumulated so far (`<<E'O'F` is the delimiter `EOF`).
+		if (expectHeredocDelimiter && heredocDelimiter !== "" && endsHeredocWord(code))
+			registerHeredoc(heredocDelimiter);
+
 		if (stop !== STOP_NONE) {
 			if (stop === STOP_BACKTICK && code === 96) return index;
-			if (stop === STOP_PAREN && code === 41 && parenDepth === 0) return index;
+			// A `)` that closes a case pattern (`a)`) does not end a `$( … )`.
+			if (
+				stop === STOP_PAREN &&
+				code === 41 &&
+				parenDepth === 0 &&
+				(caseStack.length === 0 || caseStack[caseStack.length - 1] !== CASE_PATTERN)
+			)
+				return index;
 		}
 
 		if (code === 92) {
@@ -1093,12 +1124,15 @@ function scanCommand(
 				const lineEnd = newline + 1;
 				push(K_SPACE, index);
 				index = consumeHeredocs(text, lineEnd, context, push);
-				resetCommand();
+				if (assignmentParenDepth === 0) resetCommand();
 				continue;
 			}
 			push(K_SPACE, index);
 			index = next;
-			if (newline >= 0) resetCommand();
+			// A newline inside an array literal does not end the command word list.
+			if (newline >= 0) {
+				if (assignmentParenDepth === 0) resetCommand();
+			}
 			// An empty assignment value (`FOO= cmd`) ends at the whitespace; a value
 			// can never be separated from `=` by a space.
 			else if (afterAssignmentOp) afterAssignmentOp = false;
@@ -1149,8 +1183,14 @@ function scanCommand(
 			continue;
 		}
 
-		if (code === 35 && !afterAssignmentOp && !expectRedirectionTarget && !expectHeredocDelimiter) {
-			// Reaching `#` in the main loop means it starts a word, so it is a comment.
+		if (
+			code === 35 &&
+			index !== wordPartEnd &&
+			!afterAssignmentOp &&
+			!expectRedirectionTarget &&
+			!expectHeredocDelimiter
+		) {
+			// A `#` at a fresh word boundary is a comment; glued to a word part it is a word.
 			let end = text.indexOf("\n", index);
 			if (end < 0) end = length;
 			push(K_COMMENT, index);
@@ -1171,8 +1211,9 @@ function scanCommand(
 			const end = close < 0 ? length : close + 1;
 			push(K_STRING, tokenStart);
 			index = end;
+			wordPartEnd = end;
 			if (expectHeredocDelimiter) {
-				registerHeredoc(text.slice(tokenStart + 1, close < 0 ? length : close));
+				heredocDelimiter += text.slice(tokenStart + 1, close < 0 ? length : close);
 				continue;
 			}
 			settleWord();
@@ -1197,8 +1238,9 @@ function scanCommand(
 			push(K_STRING, tokenStart);
 			const closed = text.charCodeAt(end - 1) === 39;
 			index = end;
+			wordPartEnd = end;
 			if (expectHeredocDelimiter) {
-				registerHeredoc(text.slice(tokenStart + 2, closed ? end - 1 : end));
+				heredocDelimiter += text.slice(tokenStart + 2, closed ? end - 1 : end);
 				continue;
 			}
 			settleWord();
@@ -1209,8 +1251,9 @@ function scanCommand(
 			const end = scanDoubleQuotes(text, index, depth, context, push);
 			const closed = end > tokenStart + 1 && text.charCodeAt(end - 1) === 34;
 			index = end;
+			wordPartEnd = end;
 			if (expectHeredocDelimiter) {
-				registerHeredoc(text.slice(tokenStart + 1, closed ? end - 1 : end));
+				heredocDelimiter += text.slice(tokenStart + 1, closed ? end - 1 : end);
 				continue;
 			}
 			settleWord();
@@ -1225,8 +1268,10 @@ function scanCommand(
 				push(K_SUBST_DELIM, index);
 				index++;
 			}
+			wordPartEnd = index;
 			if (expectHeredocDelimiter) {
 				expectHeredocDelimiter = false;
+				heredocDelimiter = "";
 				continue;
 			}
 			settleWord();
@@ -1242,8 +1287,11 @@ function scanCommand(
 				push(K_SUBST_DELIM, index);
 				index++;
 			}
-			if (expectHeredocDelimiter) expectHeredocDelimiter = false;
-			else settleWord();
+			wordPartEnd = index;
+			if (expectHeredocDelimiter) {
+				expectHeredocDelimiter = false;
+				heredocDelimiter = "";
+			} else settleWord();
 			continue;
 		}
 
@@ -1252,9 +1300,10 @@ function scanCommand(
 			const end = scanDollar(text, tokenStart, depth, context, push);
 			if (end !== null) {
 				index = end;
+				wordPartEnd = end;
 				if (expectHeredocDelimiter) {
 					// `<<$X` uses the literal expansion text as the delimiter.
-					registerHeredoc(text.slice(tokenStart, end));
+					heredocDelimiter += text.slice(tokenStart, end);
 					continue;
 				}
 				settleWord();
@@ -1262,6 +1311,7 @@ function scanCommand(
 			}
 			push(K_ARG, tokenStart);
 			index++;
+			wordPartEnd = index;
 			settleWord();
 			continue;
 		}
@@ -1280,6 +1330,7 @@ function scanCommand(
 			const stopIndex = end < 0 ? length : end;
 			push(K_GLOB, index);
 			index = stopIndex;
+			wordPartEnd = stopIndex;
 			settleWord();
 			continue;
 		}
@@ -1312,11 +1363,14 @@ function scanCommand(
 			(isDigitCode(code) && isRedirectionFd(text, index)) ||
 			(code === 123 && isBraceRedirection(text, index));
 		if (fdStart) {
+			// A redirection ends any assignment value (`FOO=bar>baz cmd`).
+			afterAssignmentOp = false;
 			const redirection = scanRedirection(text, index);
 			push(K_REDIRECTION, index);
 			index = redirection.end;
 			if (redirection.heredoc) {
 				expectHeredocDelimiter = true;
+				heredocDelimiter = "";
 				heredocStripTabs = redirection.stripTabs;
 				expectRedirectionTarget = false;
 			} else if (redirection.target) {
@@ -1430,6 +1484,8 @@ function scanCommand(
 		}
 
 		if (
+			// `env -- FOO=1 cmd` and `sudo -- VAR=x cmd` still assign after `--`, so the
+			// end-of-options marker does not end assignment parsing.
 			(commandPosition || wrapper?.assignments) &&
 			assignmentParenDepth === 0 &&
 			!afterAssignmentOp &&
@@ -1480,18 +1536,19 @@ function scanCommand(
 			continue;
 		}
 		index = wordEnd;
+		wordPartEnd = wordEnd;
 
 		if (assignmentParenDepth > 0) {
 			push(classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
 		if (expectHeredocDelimiter) {
-			registerHeredoc(normalizeHeredocWord(text.slice(wordStart, wordEnd)));
+			heredocDelimiter += normalizeHeredocWord(text.slice(wordStart, wordEnd));
 			push(K_ARG, wordStart);
 			continue;
 		}
 		if (afterAssignmentOp) {
-			afterAssignmentOp = false;
+			// A plain word continues the assignment value (`PATH=$PATH:/go/bin go build`).
 			push(classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
@@ -1524,10 +1581,7 @@ function scanCommand(
 					push(K_KEYWORD, wordStart);
 					caseStack[caseStack.length - 1] = CASE_PATTERN;
 					commandPosition = false;
-				} else if (
-					equalsAt(text, wordStart, wordEnd, "esac") &&
-					!isCasePatternWord(text, wordEnd)
-				) {
+				} else if (equalsAt(text, wordStart, wordEnd, "esac")) {
 					push(K_KEYWORD, wordStart);
 					caseStack.pop();
 					commandPosition = false;
@@ -1535,8 +1589,9 @@ function scanCommand(
 				continue;
 			}
 			if (phase === CASE_PATTERN) {
-				// `case x in esac) …` is a pattern named `esac`, not the terminator.
-				if (equalsAt(text, wordStart, wordEnd, "esac") && !isCasePatternWord(text, wordEnd)) {
+				// Only `a|esac)` keeps `esac` as a pattern; everywhere else it closes the case
+				// (bash rejects `esac)` at the start of a pattern list).
+				if (equalsAt(text, wordStart, wordEnd, "esac") && !isCasePatternWord(text, wordStart)) {
 					push(K_KEYWORD, wordStart);
 					caseStack.pop();
 					commandPosition = false;
@@ -1600,6 +1655,9 @@ function scanCommand(
 					} else {
 						push(K_OPTION, wordStart);
 						if (wrapper.optsWithValue.has(text.slice(wordStart, wordEnd)))
+							wrapper.pendingValue = true;
+						// A short cluster whose last letter takes a value (`sudo -iu deploy psql`).
+						else if (wordEnd - wordStart > 2 && wrapper.optsWithValue.has(`-${text[wordEnd - 1]}`))
 							wrapper.pendingValue = true;
 					}
 				}
@@ -1736,10 +1794,36 @@ function scanCommand(
 	return index;
 }
 
-/** `esac)` / `esac|a)` in a case pattern list is a pattern, not the terminator. */
-function isCasePatternWord(text: string, wordEnd: number): boolean {
-	const byte = nextWordByte(text, wordEnd, text.length);
-	return byte === 41 || byte === 124;
+/** Bytes that end an unquoted heredoc delimiter word (or continue past it). */
+function endsHeredocWord(code: number): boolean {
+	return (
+		isSpaceCode(code) ||
+		code === 59 ||
+		code === 124 ||
+		code === 38 ||
+		code === 40 ||
+		code === 41 ||
+		code === 60 ||
+		code === 62
+	);
+}
+
+/**
+ * `a|esac)` is an alternation whose second pattern is the word `esac`, so the word is a
+ * pattern only directly after a pattern `|`. At the start of a pattern list bash rejects
+ * `esac)`/`esac|a)` as a syntax error, so there `esac` always terminates the case.
+ */
+function isCasePatternWord(text: string, wordStart: number): boolean {
+	let index = wordStart - 1;
+	while (index >= 0) {
+		const code = text.charCodeAt(index);
+		if (code === 32 || code === 9) {
+			index--;
+			continue;
+		}
+		return code === 124;
+	}
+	return false;
 }
 
 function isRedirectionFd(text: string, start: number): boolean {
@@ -1810,7 +1894,7 @@ export function tokenizeBash(text: string): BashToken[] {
 	return tokens;
 }
 
-const SGR_CHANNEL = "(?:2[0-5][0-9]|1?[0-9]{1,2})";
+const SGR_CHANNEL = "(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})";
 // Keep the accepted palette form identical to what the display validator accepts.
 const FOREGROUND_SGR = new RegExp(
 	`^(?:\\x1b\\[(?:3[0-7]|9[0-7]|38;5;${SGR_CHANNEL}|38;2;${SGR_CHANNEL};${SGR_CHANNEL};${SGR_CHANNEL})m)+$`,
@@ -1940,7 +2024,24 @@ function resolveBashPaletteUncached(theme: BashPaletteTheme): BashPalette {
 const RESET_FOREGROUND = "\x1b[39m";
 
 function isPaintSpace(code: number): boolean {
-	return code === 32 || code === 9 || code === 10 || code === 13;
+	return (
+		code === 32 ||
+		code === 9 ||
+		code === 10 ||
+		code === 13 ||
+		(code >= 128 && isUnicodePaintSpace(code))
+	);
+}
+/**
+ * Whitespace exactly as `String.prototype.trim` sees it beyond ASCII. pi-tui treats a
+ * token as whitespace with `token.trim() === ""`, so an SGR directly before one of these
+ * is attached to the whitespace token and shifts the wrap geometry.
+ */
+function isUnicodePaintSpace(code: number): boolean {
+	if (code === 0xa0 || code === 0x1680) return true;
+	if (code >= 0x2000 && code <= 0x200a) return true;
+	if (code === 0x2028 || code === 0x2029 || code === 0x202f || code === 0x205f) return true;
+	return code === 0x3000 || code === 0xfeff;
 }
 
 /**
@@ -1960,7 +2061,8 @@ function isPaintSpace(code: number): boolean {
  * Adjacent visible bytes of one role share a run (few spans means the host's ANSI-aware
  * wrapping stays cheap), base `arg`/`space` text keeps the terminal default, and a long
  * dense row degrades gracefully: low-signal roles drop out and the row stops painting
- * once it has spent its span budget.
+ * once it has spent its span budget, returning the rest of the row to the terminal
+ * default.
  */
 export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): string {
 	const { source, kinds, starts } = batch;
@@ -1980,7 +2082,11 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 	// boundaries (or inserts an escape-only row). Deferring the reset to the next word keeps
 	// every whitespace token escape-free, so painted rows wrap exactly like plain text.
 	let active: string | undefined;
-	for (let index = 0; index < count && spans < spanBudget; index++) {
+	// Stops the row once the span budget is spent. The run that exhausts the budget is
+	// closed on its own word, so the rest of the row returns to the terminal default
+	// instead of inheriting the last role colour and without a zero-width opener/reset.
+	let budgetClosed = false;
+	outer: for (let index = 0; index < count && spans < spanBudget; index++) {
 		const kind = kinds[index];
 		const degraded = degrade && LOW_SIGNAL_KIND[kind] === 1;
 		const color = degraded ? undefined : kindAnsi[kind];
@@ -1997,6 +2103,9 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 				wordEnd++;
 			}
 			if (color !== active) {
+				// Opening this colour spends the last budget slot, so paint just this word and
+				// close it here rather than leaving an empty run for the tail reset.
+				const exhausts = color !== undefined && spans >= spanBudget - 1;
 				if (cursor < wordStart) output += source.slice(cursor, wordStart);
 				cursor = wordStart;
 				if (color === undefined) {
@@ -2006,14 +2115,27 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 					spans++;
 				}
 				active = color;
+				if (exhausts) {
+					output += source.slice(wordStart, wordEnd);
+					output += RESET_FOREGROUND;
+					cursor = wordEnd;
+					active = undefined;
+					budgetClosed = true;
+					break outer;
+				}
 			}
-			if (spans >= spanBudget - 1) break;
 			wordStart = wordEnd;
 		}
 	}
-	if (cursor < length) output += source.slice(cursor);
-	// A colour still open at the end of the row is closed after the last byte, which can only
-	// touch trailing whitespace the same way the legacy accent wrapper does.
+	if (cursor < length) {
+		if (budgetClosed && active !== undefined) {
+			output += RESET_FOREGROUND;
+			active = undefined;
+		}
+		output += source.slice(cursor);
+	}
+	// A colour still open at the end of a natural row is closed after its last byte, which
+	// can only touch trailing whitespace the same way the legacy accent wrapper does.
 	if (active !== undefined) output += RESET_FOREGROUND;
 	return output;
 }

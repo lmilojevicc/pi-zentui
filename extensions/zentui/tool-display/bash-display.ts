@@ -41,14 +41,20 @@ const BASH_SPINNER_TOOL_CALL_ID_KEY = "__piToolDisplayBashSpinnerToolCallId";
 
 /**
  * Session-stable byte budgets: 2 MiB of packed token text, 8 MiB of painted ANSI, and a
- * 2048-entry cap. The painted budget is the one that decides whether scrolling back
- * re-tokenizes: a 2 KB command paints to roughly 4.2 KB (≈8.6 KB charged), so 8 MiB holds
- * about a thousand of them, and several thousand ordinary short commands. Measured heap
- * runs ≈1.3x the charge, so the pair tops out near 13 MiB and is fully released on dispose.
+ * 2048-entry cap. The charges are deliberate upper bounds, so the pair is 10 MiB charged
+ * and fully released on dispose. The painted budget is the one that decides whether
+ * scrolling back re-tokenizes: a 2 KB command paints to roughly 4.2 KB (≈8.6 KB charged),
+ * so 8 MiB holds about a thousand of them, and several thousand ordinary short commands.
  */
 export const BASH_TOKEN_CACHE_BYTES = 2_097_152;
 export const BASH_PAINTED_CACHE_BYTES = 8_388_608;
 export const BASH_CACHE_MAX_ENTRIES = 2048;
+/**
+ * Pre-execution streams that can be in flight at once. message_end completes args once
+ * per assistant message, so a multi-tool-call message legitimately streams call 1 with
+ * complete args while call 2 is still growing; one slot would ping-pong between them.
+ */
+const BASH_TRANSIENT_MAX_ENTRIES = 16;
 
 interface BashCallArgs {
 	command?: string;
@@ -75,6 +81,8 @@ interface BashSpinnerState {
 	frameIndex: number;
 	startedAt?: number;
 	timer?: ReturnType<typeof setInterval>;
+	/** Admission decision of the render that started the spinner; ticks reuse it. */
+	admit?: boolean;
 }
 
 interface BashSpinnerStateCarrier {
@@ -136,7 +144,11 @@ function commandText(args: BashCallArgs): string {
 	return "...";
 }
 
-/** The shell prompt prefix (`$`, `PS>`, `user@host:~$`), trimmed without a copy when clean. */
+/**
+ * The `commandPrefix` the host prepends to the executed script (Pi's
+ * `BashToolOptions.commandPrefix`: shell setup commands joined with a newline), trimmed
+ * without a copy when clean. It is not part of Pi's builtin bash tool arguments.
+ */
 function prefixText(args: BashCallArgs): string {
 	const raw = args.commandPrefix;
 	if (typeof raw !== "string" || raw.length === 0) return "";
@@ -190,7 +202,7 @@ function buildBashCallText(
 
 // Only foreground SGR is permitted: resets/backgrounds/styles could change the host card.
 // Channel values above 255 are rejected exactly like the historical strict filter.
-const FOREGROUND_CHANNEL = "(?:2[0-5][0-9]|1?[0-9]{1,2})";
+const FOREGROUND_CHANNEL = "(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})";
 const FOREGROUND_SGR_SOURCE = `(?:3[0-7]|9[0-7]|39|38;5;${FOREGROUND_CHANNEL}|38;2;${FOREGROUND_CHANNEL};${FOREGROUND_CHANNEL};${FOREGROUND_CHANNEL})`;
 const FOREGROUND_SGR_ALL = new RegExp(`\\x1b\\[(?:${FOREGROUND_SGR_SOURCE})m`, "g");
 const ANY_SGR = /\x1b\[[0-9;]*m/g;
@@ -267,9 +279,18 @@ function foregroundSgrEnd(text: string, start: number): number {
 
 /**
  * Every inserted SGR must land on an extended-grapheme boundary. ASCII rows take a
- * code-unit fast path (only CRLF spans two code units); anything non-ASCII uses the
- * exact segmenter, but only on a cache miss.
+ * code-unit fast path (only CRLF spans two code units); anything non-ASCII asks the exact
+ * segmenter lazily, and only about the offsets that actually received an escape.
  */
+function isGraphemeBoundaryAt(segments: Intl.Segments, text: string, index: number): boolean {
+	if (index <= 0 || index >= text.length) return true;
+	const previous = text.charCodeAt(index - 1);
+	const next = text.charCodeAt(index);
+	// CRLF is the only ASCII cluster that spans two code units. A non-ASCII Prepend
+	// (U+0600, …) can absorb an ASCII neighbour, so this shortcut needs both ASCII.
+	if (previous < 0x80 && next < 0x80) return !(previous === 13 && next === 10);
+	return segments.containing(index)?.index === index;
+}
 function preservesGraphemes(display: string, colored: string): boolean {
 	if (!NON_ASCII.test(display)) {
 		if (display.indexOf("\r") < 0) return true;
@@ -287,11 +308,10 @@ function preservesGraphemes(display: string, colored: string): boolean {
 		}
 		return true;
 	}
-	const boundaries = new Set([display.length]);
-	for (const segment of commandGraphemes.segment(display)) boundaries.add(segment.index);
+	const segments = commandGraphemes.segment(display);
 	let escapes = 0;
 	for (const match of colored.matchAll(ANY_SGR)) {
-		if (!boundaries.has((match.index as number) - escapes)) return false;
+		if (!isGraphemeBoundaryAt(segments, display, (match.index as number) - escapes)) return false;
 		escapes += match[0].length;
 	}
 	return true;
@@ -356,9 +376,9 @@ export function validateBashPaint(
 		const normalized = painted.replace(WHITESPACE_RELOCATION, "$2$1");
 		return preservesGraphemes(display, normalized) ? normalized : undefined;
 	}
-	const graphemeBoundaries = NON_ASCII.test(display) ? ([] as number[]) : undefined;
 	const hasCarriageReturn = display.indexOf("\r") >= 0;
 	const length = painted.length;
+	let segments: Intl.Segments | undefined;
 	let pi = 0;
 	let di = 0;
 	let relocate = false;
@@ -375,7 +395,10 @@ export function validateBashPaint(
 				display.charCodeAt(di) === 10
 			)
 				return undefined;
-			if (graphemeBoundaries) graphemeBoundaries.push(di);
+			if (di > 0 && di < display.length) {
+				segments ??= commandGraphemes.segment(display);
+				if (!isGraphemeBoundaryAt(segments, display, di)) return undefined;
+			}
 			const next = painted.charCodeAt(end);
 			if (next === 32 || next === 9 || next === 10 || next === 13) relocate = true;
 			pi = end;
@@ -387,12 +410,9 @@ export function validateBashPaint(
 	}
 	// Equality already proves the line count: SGR sequences never contain a newline.
 	if (di !== display.length) return undefined;
-	if (graphemeBoundaries) {
-		const boundaries = new Set([display.length]);
-		for (const segment of commandGraphemes.segment(display)) boundaries.add(segment.index);
-		for (const index of graphemeBoundaries) if (!boundaries.has(index)) return undefined;
-	}
-	if (!relocate) return painted;
+	// Relocation is opt-in, exactly like the ASCII path: an owned row never emits an SGR
+	// before whitespace, so moving one would corrupt a valid row.
+	if (!relocate || options?.relocate !== true) return painted;
 	// Pi Text identifies whitespace tokens with raw trim(). Keeping syntax SGR off
 	// spaces preserves the original word-wrap geometry.
 	const normalized = painted.replace(WHITESPACE_RELOCATION, "$2$1");
@@ -401,8 +421,10 @@ export function validateBashPaint(
 }
 
 /**
- * Token cache charge: two packed SMI arrays (8 bytes per element), headers, and the
- * source string the offsets point into (the map key keeps that string alive).
+ * Token cache charge: 96 bytes of entry overhead, 8 bytes per token per array (two
+ * arrays), and 2 bytes per source char (the map key keeps that string alive). It is a
+ * deliberate upper bound, not an under-charge: ASCII sources are one byte per char and V8
+ * stores 4–8 byte SMI elements.
  */
 function tokenCacheBytes(batch: BashTokenBatch): number {
 	return 96 + batch.kinds.length * 16 + batch.source.length * 2;
@@ -570,9 +592,11 @@ export function createBashProgress(
 		BASH_PAINTED_CACHE_BYTES,
 		BASH_CACHE_MAX_ENTRIES,
 	);
-	// One-row cache for a streaming (not yet committed) call: ticks stay cheap without
-	// pushing transient prefixes into the session caches and evicting completed rows.
-	let transient: PaintedCommand | undefined;
+	// Bounded per-row cache for pre-execution streaming calls: ticks stay cheap without
+	// pushing transient prefixes into the session caches and evicting completed rows. It is
+	// checked before the token cache, so an unchanged prefix never re-tokenizes, and it is
+	// insertion-order LRU, cleared with the other caches.
+	const transient = new Map<string, PaintedCommand>();
 	let lastColors: object | undefined;
 	let lastColorMode: string | undefined;
 	let lastMode: BashSyntaxMode | undefined;
@@ -589,7 +613,7 @@ export function createBashProgress(
 			// Theme or mode revision: painted rows are stale, tokens survive. Reading the
 			// stable theme proxy's `colors` identity is the whole warm-path probe.
 			paintedCache.clear();
-			transient = undefined;
+			transient.clear();
 			lastMode = syntaxMode;
 			lastColors = colors;
 			lastColorMode = colorMode;
@@ -636,8 +660,18 @@ export function createBashProgress(
 				colors === undefined ? bashThemeSignature(theme, result.signatureTokens) : undefined,
 			signatureTokens: result.signatureTokens,
 		};
-		if (admit) paintedCache.set(key, entry, result.text.length * 2 + 96);
-		else transient = entry;
+		if (admit) {
+			transient.delete(key);
+			paintedCache.set(key, entry, result.text.length * 2 + 96);
+		} else {
+			transient.delete(key);
+			transient.set(key, entry);
+			while (transient.size > BASH_TRANSIENT_MAX_ENTRIES) {
+				const oldest = transient.keys().next().value;
+				if (oldest === undefined) break;
+				transient.delete(oldest);
+			}
+		}
 		return result.text;
 	}
 
@@ -736,7 +770,7 @@ export function createBashProgress(
 		// keys on the command reference alone so the prompt never hashes on a warm hit.
 		const key = syntaxMode === "semantic" ? command : prefix ? `${prefix} ${command}` : command;
 		const cached = cachedPainted(
-			admit ? paintedCache.get(key) : transient,
+			admit ? paintedCache.get(key) : transient.get(key),
 			key,
 			syntaxMode,
 			theme,
@@ -750,8 +784,11 @@ export function createBashProgress(
 		}
 
 		// Legacy `pi` rows never need tokens: the host highlighter owns classification.
+		// A command that already carries raw escape bytes is never tokenized: the
+		// tokenizer sees `;` inside an SGR parameter list as an operator, so such a row
+		// keeps the existing pi -> accent fallback and its raw bytes untouched.
 		let batch: BashTokenBatch | undefined;
-		if (syntaxMode === "semantic") {
+		if (syntaxMode === "semantic" && command.indexOf("\x1b") < 0) {
 			batch = tokenCache.get(key);
 			if (batch === undefined || batch.source !== key) {
 				try {
@@ -767,21 +804,25 @@ export function createBashProgress(
 				) {
 					return theme.fg("accent", buildCommandDisplay(args));
 				}
-				tokenCache.set(key, batch, tokenCacheBytes(batch));
+				// Only committed rows enter the session token cache; a streaming prefix
+				// would otherwise evict completed rows' tokens with throwaway text.
+				if (admit) tokenCache.set(key, batch, tokenCacheBytes(batch));
 			}
 		}
 
-		// Fail-open semantic -> legacy highlightCode -> plain accent row.
+		// Fail-open semantic -> legacy highlightCode -> plain accent row. Semantic rows
+		// paint the command alone: the prefix is prepended once, muted, below, so a
+		// fallback can never duplicate it or leak one call's prefix into another.
+		const fallback = syntaxMode === "semantic" ? command : key;
 		const semantic = batch ? paintSemantic(batch, theme, colors, colorMode) : undefined;
-		const painted =
-			semantic ?? paintLegacy(syntaxMode === "semantic" ? buildCommandDisplay(args) : key, theme);
+		const painted = semantic ?? paintLegacy(fallback, theme);
 		const segment =
 			painted !== undefined
 				? cachePainted(key, painted, theme, syntaxMode, colors, colorMode, admit)
 				: cachePainted(
 						key,
 						{
-							text: theme.fg("accent", buildCommandDisplay(args)),
+							text: theme.fg("accent", fallback),
 							signatureTokens: ["accent"],
 						},
 						theme,
@@ -875,9 +916,16 @@ export function createBashProgress(
 		const toolCallId = getToolCallId(context);
 		const spinnerState = getOrCreateSpinnerState(toolCallId, carrier);
 		const shouldSpin = context.executionStarted && context.isPartial;
-		// Streaming prefixes must not flush the session caches; the paint itself still
-		// uses the one-row transient cache so spinner ticks stay cheap.
-		const admit = !(context.isPartial || context.argsComplete === false);
+		// Only pre-execution argument streaming stays transient. Pi builds a call three
+		// ways: message_update streams partial args (isPartial=true, no execution yet),
+		// message_end + tool_execution_start executes it (an executing row can skip
+		// message_update, and message_end completes args once per assistant message, so a
+		// later tool call in the same message is still partial), and renderSessionItems
+		// rebuilds restored rows, which never see setArgsComplete. Executing and restored
+		// rows are admitted; only the growing, not-yet-executed args use the transient cache.
+		const streaming =
+			context.isPartial && context.argsComplete !== true && !context.executionStarted;
+		const admit = !streaming;
 
 		if (!shouldSpin) {
 			stopSpinner(toolCallId, spinnerState);
@@ -889,6 +937,7 @@ export function createBashProgress(
 
 		if (spinnerState) {
 			spinnerState.target = { text, args, theme, invalidate: context.invalidate };
+			spinnerState.admit = admit;
 			spinnerState.startedAt ??= Date.now();
 			if (!spinnerState.timer && typeof context.invalidate === "function") {
 				const timer = setInterval(() => {
@@ -901,7 +950,7 @@ export function createBashProgress(
 							target.theme,
 							BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 							Date.now() - (spinnerState.startedAt ?? Date.now()),
-							commandSegment(target.args, target.theme, false),
+							commandSegment(target.args, target.theme, spinnerState.admit === true),
 						),
 					);
 					target.invalidate?.();
@@ -914,7 +963,7 @@ export function createBashProgress(
 		const elapsedMs =
 			spinnerState?.startedAt !== undefined ? Date.now() - spinnerState.startedAt : undefined;
 		text.setText(
-			buildBashCallText(args, theme, spinnerFrame, elapsedMs, commandSegment(args, theme, false)),
+			buildBashCallText(args, theme, spinnerFrame, elapsedMs, commandSegment(args, theme, admit)),
 		);
 		return text;
 	}
@@ -929,7 +978,7 @@ export function createBashProgress(
 			for (const [id, state] of spinnerStatesByToolCallId) stopSpinner(id, state);
 			tokenCache.clear();
 			paintedCache.clear();
-			transient = undefined;
+			transient.clear();
 			paletteMemo = undefined;
 			lastColors = undefined;
 			lastColorMode = undefined;

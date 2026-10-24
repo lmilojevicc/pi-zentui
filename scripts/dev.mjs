@@ -3,16 +3,20 @@
  * Universal dev launcher for local Pi/OMP runs.
  *
  * Resolves the CLI from PATH instead of a hard-coded Homebrew prefix, keeps the
- * historical `PI_BIN` / `OMP_BIN` overrides, and forwards extra arguments (so
- * `npm run pi:dev -- --model provider/model` keeps working on every platform).
+ * historical `PI_BIN` / `OMP_BIN` overrides (including values that carry arguments),
+ * and forwards extra arguments (so `npm run pi:dev -- --model provider/model`
+ * keeps working on every platform). The launcher never consumes a Pi flag: only
+ * `--bin`, `--entry`, `--keep-extensions`, `--dry-run`, `--help` and `--` are its own.
  *
  * Usage:
  *   node scripts/dev.mjs --bin pi --entry ./extensions/zentui/index.ts [-- <args>]
  *   node scripts/dev.mjs --bin omp -- plugin link ./
- *   node scripts/dev.mjs --bin pi --entry ./extensions/zentui/index.ts --print
+ *   node scripts/dev.mjs --bin pi --entry ./extensions/zentui/index.ts --dry-run
  *   npm run pi:dev -- --keep-extensions -- --session <id>
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { buildInvocation } from "./dev-command.mjs";
 
 const BIN_FLAGS = { pi: "PI_BIN", omp: "OMP_BIN" };
 
@@ -20,7 +24,7 @@ function usage(message) {
 	if (message) process.stderr.write(`dev: ${message}\n`);
 	process.stderr.write(
 		[
-			"Usage: node scripts/dev.mjs --bin <pi|omp> [--entry <path>] [--print] [-- <args...>]",
+			"Usage: node scripts/dev.mjs --bin <pi|omp> [--entry <path>] [--dry-run] [-- <args...>]",
 			"",
 			"  --bin <name>     CLI to launch (default: pi). Env override: PI_BIN / OMP_BIN.",
 			"  --entry <path>   Add -e <path> (an isolated dev session unless --keep-extensions).",
@@ -28,7 +32,7 @@ function usage(message) {
 			"                   Load <entry> alongside the installed extensions. Needed when the",
 			"                   session depends on an extension-provided model/provider (e.g.",
 			"                   commandcode) or when resuming a session that used one.",
-			"  --print          Print the resolved command instead of running it.",
+			"  --dry-run        Print the resolved command instead of running it.",
 			"  --               Everything after this is forwarded unchanged.",
 			"",
 			"Examples:",
@@ -43,7 +47,7 @@ function usage(message) {
 const argv = process.argv.slice(2);
 let bin = "pi";
 let entry;
-let print = false;
+let dryRun = false;
 let keepExtensions = false;
 const forwarded = [];
 
@@ -53,8 +57,8 @@ for (let index = 0; index < argv.length; index++) {
 		forwarded.push(...argv.slice(index + 1));
 		break;
 	}
-	if (arg === "--print") {
-		print = true;
+	if (arg === "--dry-run") {
+		dryRun = true;
 		continue;
 	}
 	if (arg === "--keep-extensions") {
@@ -75,38 +79,33 @@ for (let index = 0; index < argv.length; index++) {
 
 if (bin !== "pi" && bin !== "omp" && !BIN_FLAGS[bin]) usage(`unknown --bin ${bin}`);
 
-// Environment wins over PATH so existing PI_BIN/OMP_BIN workflows keep working.
-const override = BIN_FLAGS[bin];
-const executable = (override ? process.env[override] : undefined) || bin;
-// `--no-extensions -e <entry>` is the isolated dev session; install/plugin commands
-// take their own arguments and must not inherit it. `--keep-extensions` keeps the
-// installed packages so extension-provided providers/models stay available.
-const args = [
-	...(entry ? [...(keepExtensions ? [] : ["--no-extensions"]), "-e", entry] : []),
-	...forwarded,
-];
+const invocation = buildInvocation({
+	bin,
+	env: process.env,
+	platform: process.platform,
+	entry,
+	keepExtensions,
+	forwarded,
+	exists: existsSync,
+});
 
-if (print) {
-	process.stdout.write(`${[executable, ...args].map(quote).join(" ")}\n`);
+if (dryRun) {
+	process.stdout.write(`${invocation.line}\n`);
 	process.exit(0);
 }
 
-const result = spawnSync(executable, args, {
-	stdio: "inherit",
-	// Windows resolves `pi`/`omp` through .cmd shims only with a shell.
-	shell: process.platform === "win32",
-});
+// No shell: a real executable is spawned directly and a `.cmd`/`.bat` shim is wrapped
+// in `cmd /d /s /c` with correctly quoted arguments (see scripts/dev-command.mjs).
+const result = spawnSync(invocation.file, invocation.args, { stdio: "inherit" });
 
 if (result.error) {
+	const override = BIN_FLAGS[bin];
 	const hint = override ? `${override}=/absolute/path/to/${bin}` : `${bin} must be on PATH`;
 	process.stderr.write(
-		`dev: could not launch "${executable}" (${result.error.message}). ${hint}\n`,
+		`dev: could not launch "${invocation.file}" (${result.error.message}). ${hint}\n`,
 	);
 	process.exit(127);
 }
 
+// A shim that cmd found but could not run reports its own status; pass it through.
 process.exit(result.status ?? (result.signal ? 1 : 0));
-
-function quote(value) {
-	return /[\s"'\\$`]/.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
-}

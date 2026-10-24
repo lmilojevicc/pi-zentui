@@ -196,27 +196,35 @@ comments with palette variant A. `pi` (labeled `Host`) keeps the host
 Unknown values fall back to `semantic`; presets never change this choice, and
 enabling or changing it never touches another surface or the command's execution.
 
-Semantic highlighting is color-only and foreground-only. The command's prompt
-prefix (`$`, `PS>`, `user@host:~$`) is rendered once in muted text and is never
-tokenized with the command, so the verb color always lands on the real command.
+Semantic highlighting is color-only and foreground-only. Pi's `commandPrefix`
+(`BashToolOptions.commandPrefix`: shell setup commands joined with a newline before
+execution, and not part of Pi's builtin bash tool arguments) is rendered once in
+muted text and is never tokenized with the command, so the verb color always lands
+on the real command. A semantic fallback therefore repaints the command alone; the
+muted prefix is prepended exactly once, so a fail-open row can never duplicate it.
 It never inserts, removes, or reorders visible bytes; plain `arg`/`space` tokens
 stay at the terminal default with no SGR. Colour changes are emitted at the start
 of a word and never between a word and the whitespace that follows it: pi-tui
-attaches an escape that directly precedes a space to that whitespace token, which
-turns the space into a zero-width word and shifts wrap boundaries or inserts a
-zero-width escape-only row. Keeping every whitespace token escape-free is what
-makes painted rows wrap exactly like the uncolored command, and one foreground run
-covers one whole whitespace-delimited colored word, so no visible grapheme is left
-unpainted. A row that ends while a colour is open closes it after its last byte,
-exactly like the `pi` accent wrapper. A host-level `wrapSingleLine` artifact can
-still insert a whitespace-only row when a token breaks exactly at the row width;
-the legacy accent row produces the same artifact, and the production
-`PresentationText` component drops such rows.
+attaches an escape that directly precedes a whitespace token to that token, which
+turns the whitespace into a zero-width word and shifts wrap boundaries or inserts
+a zero-width escape-only row. "Whitespace token" means exactly what
+`String.prototype.trim` removes, so Unicode spaces (NBSP, IDEOGRAPHIC SPACE,
+U+2000–U+200A, …) are covered by the same rule. Keeping every whitespace token
+escape-free is what makes painted rows wrap exactly like the uncolored command, and
+one foreground run covers one whole whitespace-delimited colored word, so no
+visible grapheme is left unpainted. A row that ends while a colour is open closes
+it after its last byte, exactly like the `pi` accent wrapper; a row that runs out of
+span budget closes the last run at the next word start and leaves the whole tail at
+the terminal default. A host-level
+`wrapSingleLine` artifact can still insert a whitespace-only row when a token
+breaks exactly at the row width; the legacy accent row produces the same artifact,
+and the production `PresentationText` component drops such rows.
 
 Rows over 1,024 characters with more than 256 tokens degrade gracefully:
 low-signal tokens (options, numbers, operators, redirections, substitution
 delimiters, arithmetic, continuations, here-doc terminators) drop out, and the row
-stops painting after 96 SGR spans (48 colored words), so ANSI growth and host
+stops painting after 96 opening foreground SGRs plus their resets (≤ 193 SGRs in
+total), with the remaining tail at the terminal default, so ANSI growth and host
 wrapping stay bounded for 12K–16K option-dense input. Ordinary command rows sit far
 below both bounds and keep the full palette. Classification is purely lexical: no `PATH`
 lookup, no filesystem stat, no alias/function resolution, and no command
@@ -225,12 +233,12 @@ Invalid or unavailable painting fails open to the `pi` highlighter, then to the
 plain accent row; a theme that resolves no role also fails open instead of
 dropping the command color.
 
-Raw SGR sequences already present in the model-supplied command text are
-pre-existing host behavior: ingress sanitization keeps `ESC[…m`, the semantic
-painter neither escapes nor removes it, and validation compares visible bytes
-after stripping only foreground SGR. A raw background/attribute SGR therefore
-passes through unchanged, exactly as the `pi` and native rows always did; this
-feature neither widens nor closes that host behavior.
+A command that already carries raw SGR bytes is pre-existing host behavior (ingress
+sanitization keeps `ESC[…m`) and is never tokenized: the tokenizer would read the
+`;` inside an SGR parameter list as an operator and split the sequence. Such a row
+keeps the existing `pi` -> accent fallback and its raw escape bytes unchanged,
+exactly as the `pi` and native rows always did; this feature neither widens nor
+closes that host behavior.
 
 Command paint is memoized per progress session: a 2 MiB packed-token cache and an
 8 MiB painted-ANSI cache, each capped at 2048 entries, cleared on dispose. Both are
@@ -244,21 +252,23 @@ the retained window while the live session keeps entering the cache. Measured on
 1,000 distinct 2,000-character commands: the fill costs ≈134 ms, a full second
 sequential pass costs ≈6 ms and hits 98% of rows, and re-rendering 300 two-KB rows
 re-tokenizes nothing. The retained window follows directly from the charges (96 B
-per entry + 16 B per token + 2 B per command byte for tokens; 96 B + 2 B per
-painted byte): roughly 2,000 short commands, or ≈950 × 2,000-character commands
-for painted rows (a 2 KB row paints to ≈4.2 KB). A theme change clears painted
-rows once; tokens survive. It is a working set, not the whole session
-history; older rows are highlighted again when they scroll back in. Measured heap
-tracks those charges within about 1.5× (a full token cache is ≈1.5 MiB, and the
-painted charge is conservative for ASCII), so the pair's real ceiling is ≈5 MiB
-rather than an open-ended scroll history. Scroll, resize, and host invalidate
+per entry + 8 B per token per array, two arrays, + 2 B per command byte for tokens;
+96 B + 2 B per painted byte): roughly 2,000 short commands, or ≈950 ×
+2,000-character commands for painted rows (a 2 KB row paints to ≈4.2 KB). Those
+charges are deliberate upper bounds (ASCII sources are one byte per char and V8
+stores 4–8 byte SMI elements), and they add up to 10 MiB charged in total: 2 MiB of
+packed tokens plus 8 MiB of painted ANSI, 2048 entries each, all cleared on dispose.
+A theme change clears painted rows once; tokens survive. It is a working set, not
+the whole session history; older rows are highlighted again when they scroll back
+in. Scroll, resize, and host invalidate
 inside that window are cache hits: no tokenize, palette resolution, or validation
 runs. A theme revision clears every painted row (they encode colors), so the first
 render after a theme change repaints the window from the surviving tokens; the
 token cache is small enough that most of those repaints also re-tokenize.
-A streaming (not yet committed) call is painted through a one-row transient
-cache and is not admitted into either session cache, so a long streamed command
-cannot evict completed rows. Cache misses validate foreground-only SGR
+A pre-execution streaming call is painted through a bounded 16-entry transient
+cache and is not admitted into either session cache (executing and restored rows
+are), so long streamed prefixes cannot evict completed rows and concurrent streams
+do not thrash one slot. Cache misses validate foreground-only SGR
 (hand-parsed: `39`, `30`–`37`, `90`–`97`, `38;5;N`, `38;2;R;G;B`), exact
 strip equality, length caps, and no SGR inside a CRLF pair in one
 foreground-strip equality pass; non-ASCII rows add the exact grapheme-boundary
@@ -270,15 +280,14 @@ actually used); a theme or mode revision clears painted rows while tokens
 survive.
 
 Semantic output is wrapped by the same production `PresentationText` as every
-other owned row. Because the painter never leaves an active SGR at a whitespace
-token, semantic rows need no filtering at all: raw pi-tui `Text` already produces
-row-for-row identical output to the uncolored command at every width (a
-10–200-column sweep over agent-typical commands with long options, paths, globs
-and URLs is pinned by the test suite). `PresentationText` still drops pi-tui's
-escape-only wrap row (a zero-width row a colored line can produce when a space
-fills a row exactly and the next token is wider than the row), which the `pi`
-highlighter and the plain accent row can still produce; that is a host wrapping
-fix, not a semantic-only filter.
+other owned row. The painter's no-escape-before-whitespace rule keeps the painted
+rows' wrap geometry identical to the uncolored command, but pi-tui can still emit
+one escape-only wrap row for a colored line (a zero-width row produced when a
+space fills a row exactly and the next token is wider than the row). That row is
+an upstream `wrapSingleLine` artifact the `pi` highlighter and the plain accent
+row produce as well, so `PresentationText` drops it: it removes rows only where
+the uncolored wrap has a visible row, which leaves every real blank line in place.
+That is a host wrapping fix, not a semantic-only filter.
 
 On a color-poor theme, a role's candidate color that is already owned by the base
 text or a higher-priority role is skipped. Variant A declares no merge groups:
@@ -336,7 +345,11 @@ choice can be set in JSON:
 
 This advanced choice may replace another extension's rendering of native Bash.
 Switch **Override Bash renderer** off or omit/delete the key to resume conservative delegation. Other builtin renderer-consent flags remain JSON-only. It never authorizes
-replacement of foreign execution, parameters, or prompts.
+replacement of foreign execution, parameters, or prompts. A dev session started with
+`npm run pi:dev -- --keep-extensions` also loads an installed `pi-zentui`, so two
+copies claim these surfaces; extension render resolvers compose in load order (the
+first-loaded is outermost) and only that copy owns the `$` row. Disable the installed
+copy, or use `npm run pi:install-local`, when verifying row changes.
 
 Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matching:
 

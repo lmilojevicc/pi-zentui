@@ -169,25 +169,36 @@ describe("bash-display long-session caches", () => {
 			paint: calls.paint,
 			validate: calls.validate,
 		});
-		const completed = commands(40);
+		// (1) 150 distinct ~2 KB completed rows fill both session caches.
+		const completed = longCommands(150);
 		for (const command of completed) progress.renderCall({ command }, theme, context(command));
-		expect(calls.tokenize).toHaveBeenCalledTimes(40);
+		expect(calls.tokenize).toHaveBeenCalledTimes(150);
+		// (2) One ~8 KB command streams pre-execution in 50-character deltas; its prefixes
+		// alone would charge far more than the whole token budget if they were admitted.
 		const big = `echo ${"a/b ".repeat(4000)}`;
 		for (let length = 50; length <= big.length; length += 50) {
 			progress.renderCall({ command: big.slice(0, length) }, theme, {
 				...context("stream"),
-				executionStarted: true,
+				executionStarted: false,
 				isPartial: true,
 				argsComplete: false,
 			});
 		}
-		// Every completed row still hits the painted cache: streaming only used the
-		// one-row transient slot.
+		// Same theme: every completed row is still a painted-cache hit.
 		calls.tokenize.mockClear();
 		calls.paint.mockClear();
 		for (const command of completed) progress.renderCall({ command }, theme, context(command));
 		expect(calls.tokenize).not.toHaveBeenCalled();
 		expect(calls.paint).not.toHaveBeenCalled();
+		// (3) A theme revision clears painted rows but keeps tokens.
+		progress.renderCall({ command: "echo theme-revision" }, night, context("revision"));
+		// (4) The 150 completed rows only repaint: their tokens were never evicted by the
+		// streamed prefixes.
+		calls.tokenize.mockClear();
+		calls.paint.mockClear();
+		for (const command of completed) progress.renderCall({ command }, night, context(command));
+		expect(calls.tokenize).not.toHaveBeenCalled();
+		expect(calls.paint).toHaveBeenCalledTimes(150);
 		progress.dispose();
 	});
 
@@ -223,6 +234,43 @@ describe("bash-display long-session caches", () => {
 		progress.dispose();
 	});
 
+	it("admits restored transcript rows that never see setArgsComplete", () => {
+		const calls = counters();
+		const progress = createBashProgress(undefined, {
+			getMode: () => "semantic",
+			tokenize: calls.tokenize,
+			paint: calls.paint,
+			validate: calls.validate,
+		});
+		const list = longCommands(40);
+		// renderSessionItems rebuilds restored rows from the message; they never observe
+		// setArgsComplete, so argsComplete stays false while the row is not partial.
+		const restored = (toolCallId: string) => ({
+			...context(toolCallId),
+			executionStarted: false,
+			isPartial: false,
+			argsComplete: false,
+		});
+		for (const command of list) progress.renderCall({ command }, theme, restored(command));
+		expect(calls.tokenize).toHaveBeenCalledTimes(40);
+		expect(calls.paint).toHaveBeenCalledTimes(40);
+		expect(calls.validate).toHaveBeenCalledTimes(40);
+		// A width change and a host setText round-trip re-render every restored row.
+		for (const command of list) {
+			progress.renderCall({ command }, theme, restored(command)).render(33);
+		}
+		for (const command of list) {
+			const component = progress.renderCall({ command }, theme, restored(command));
+			component.setText("");
+			component.render(80);
+			progress.renderCall({ command }, theme, restored(command)).render(80);
+		}
+		expect(calls.tokenize).toHaveBeenCalledTimes(40);
+		expect(calls.paint).toHaveBeenCalledTimes(40);
+		expect(calls.validate).toHaveBeenCalledTimes(40);
+		progress.dispose();
+	});
+
 	it("keeps spinner ticks on a streaming row to one paint", () => {
 		const calls = counters();
 		const progress = createBashProgress(undefined, {
@@ -243,6 +291,48 @@ describe("bash-display long-session caches", () => {
 			progress.renderCall({ command: growing }, theme, streaming);
 		}
 		expect(calls.tokenize).toHaveBeenCalledTimes(1);
+		expect(calls.paint).toHaveBeenCalledTimes(1);
+		progress.dispose();
+	});
+
+	it("keeps concurrent pre-execution streams apart", () => {
+		const calls = counters();
+		const progress = createBashProgress(undefined, {
+			getMode: () => "semantic",
+			tokenize: calls.tokenize,
+			paint: calls.paint,
+			validate: calls.validate,
+		});
+		const prefixes = ["alpha", "beta", "gamma"].map(
+			(suffix) => `echo ${"a/b ".repeat(400)} #${suffix}`,
+		);
+		const streaming = (index: number) => ({
+			...context(`interleaved-${index}`),
+			executionStarted: false,
+			isPartial: true,
+			argsComplete: false,
+		});
+		for (let round = 0; round < 10; round++) {
+			for (const [index, command] of prefixes.entries())
+				progress.renderCall({ command }, theme, streaming(index));
+		}
+		// One paint per in-flight stream, not one per stream per round.
+		expect([
+			calls.tokenize.mock.calls.length,
+			calls.paint.mock.calls.length,
+			calls.validate.mock.calls.length,
+		]).toEqual([3, 3, 3]);
+		// The transient cache is bounded: after 20 distinct streamed prefixes the oldest is
+		// repainted while the most recent is still a hit.
+		for (let index = 0; index < 20; index++) {
+			progress.renderCall({ command: `echo transient-${index}` }, theme, streaming(0));
+		}
+		calls.paint.mockClear();
+		progress.renderCall({ command: "echo transient-0" }, theme, streaming(0));
+		expect(calls.paint).toHaveBeenCalledTimes(1);
+		progress.renderCall({ command: "echo transient-0" }, theme, streaming(0));
+		expect(calls.paint).toHaveBeenCalledTimes(1);
+		progress.renderCall({ command: "echo transient-19" }, theme, streaming(0));
 		expect(calls.paint).toHaveBeenCalledTimes(1);
 		progress.dispose();
 	});

@@ -177,6 +177,18 @@ describe("tool-display/bash-display semantic syntax", () => {
 		expect(new Set(row.match(/\x1b\[38;2;\d+;\d+;\d+m/g)).size).toBeGreaterThan(4);
 		progress.dispose();
 	});
+	it("paints the real command after a multi-part assignment value", () => {
+		const progress = createBashProgress(undefined, { getMode: () => "semantic" });
+		for (const [input, verb] of [
+			[`PATH=$PATH:/usr/local/go/bin go build`, "go"],
+			[`PYTHONPATH=. pytest -q`, "pytest"],
+		] as const) {
+			const row = progress.renderCall({ command: input }, catTheme, ctx()).render(200).join("");
+			expect(paintedWord(row, verb, openSgr("#a6e3a1"))).toBe(true);
+			expect(strip(row)).toContain(input);
+		}
+		progress.dispose();
+	});
 	it("renders the shell prompt separately so the real command keeps the verb color", () => {
 		const progress = createBashProgress(undefined, { getMode: () => "semantic" });
 		const row = progress
@@ -192,6 +204,27 @@ describe("tool-display/bash-display semantic syntax", () => {
 		expect(row).toContain(`${openSgr("#a6adc8")}user@host:~/project$ \x1b[39m`);
 		expect(paintedWord(row, "git", openSgr("#a6e3a1"))).toBe(true);
 		expect(row).not.toContain(`${openSgr("#a6e3a1")}user@host`);
+		progress.dispose();
+	});
+	it("fails open on the command alone so a prefix is printed exactly once", () => {
+		// No role resolves a color and the host highlighter sees the command only: the
+		// accent fallback is deterministic and the muted prefix is prepended once.
+		const monochrome = { fg: (_token: string, text: string) => text, bold: (text: string) => text };
+		const highlight = vi.fn((text: string) => [text]);
+		const progress = createBashProgress(highlight, { getMode: () => "semantic" });
+		const render = (commandPrefix: string) =>
+			progress
+				.renderCall({ command: "git status", commandPrefix }, monochrome, ctx())
+				.render(80)
+				.map((row) => strip(row).trimEnd())
+				.join("");
+		expect(render("PS>")).toBe("$ PS> git status");
+		// A different prefix on the same command must not reuse the previous prefix.
+		expect(render("ALICE>")).toBe("$ ALICE> git status");
+		expect(render("PS>")).toBe("$ PS> git status");
+		// The semantic painted cache is keyed by the command, so only the cold row painted.
+		expect(highlight).toHaveBeenCalledTimes(1);
+		expect(highlight).toHaveBeenCalledWith("git status");
 		progress.dispose();
 	});
 	it("keeps the legacy pi path byte-identical to the old accent-wrapped rows", () => {
@@ -227,6 +260,38 @@ describe("tool-display/bash-display semantic syntax", () => {
 			).toBe(true);
 		}
 		expect(highlight).toHaveBeenCalledTimes(1);
+		progress.dispose();
+	});
+	it("keeps a real blank line in pi mode while dropping only the wrap artifact", () => {
+		const highlight = (text: string) => text.split("\n").map((line) => `\x1b[31m${line}\x1b[39m`);
+		const progress = createBashProgress(highlight, { getMode: () => "pi" });
+		const input = `git commit -m 'Subject line\n\nLong body\n\nFooter'`;
+		const old = new Text(
+			`${flatTheme.fg("toolTitle", flatTheme.bold("$"))} ${flatTheme.fg("accent", highlight(input).join("\n"))}`,
+			0,
+			0,
+		);
+		const row = progress.renderCall({ command: input }, flatTheme, ctx());
+		const plain = new PresentationText(`$ ${input}`, 0, 0);
+		let droppedArtifacts = 0;
+		for (let width = 3; width <= 60; width++) {
+			const native = old.render(width);
+			const rows = row.render(width);
+			const plainRows = plain.render(width);
+			// The explicit blank lines survive with the uncolored row's geometry.
+			expect(rows.map(strip)).toEqual(plainRows.map(strip));
+			expect(rows.map(visibleWidth)).toEqual(plainRows.map(visibleWidth));
+			const blank = (line: string) => strip(line).trim() === "";
+			const plainBlank = plainRows.filter(blank).length;
+			const rowBlank = rows.filter(blank).length;
+			const nativeBlank = native.filter(blank).length;
+			// Every blank row of the uncolored row is kept; the native colored row can only
+			// add zero-width artifacts, and those are exactly the rows the component drops.
+			expect(rowBlank).toBe(plainBlank);
+			expect(native.length - rows.length).toBe(nativeBlank - rowBlank);
+			droppedArtifacts += nativeBlank - rowBlank;
+		}
+		expect(droppedArtifacts).toBeGreaterThan(0);
 		progress.dispose();
 	});
 	it("fails open semantic -> pi -> accent", () => {
@@ -314,6 +379,26 @@ describe("tool-display/bash-display semantic syntax", () => {
 		const semantic = progress.renderCall({ command }, catTheme, ctx()).render(160).join("\n");
 		expect(semantic).not.toBe(accentText(catTheme, command).render(160).join("\n"));
 		expect(strip(semantic)).toBe(strip(accentText(catTheme, command).render(160).join("\n")));
+		progress.dispose();
+	});
+	it.each([
+		`git commit -m 'Subject line\n\nLong body\n\nFooter'`,
+		`cat <<'EOF' > notes.txt\nfirst\n\n${"x".repeat(26)} ${"y".repeat(26)}\nEOF`,
+		`printf 'a\n\nb'\n\necho ${"x".repeat(10)}`,
+		`echo\n\n${"x".repeat(26)} ${"y".repeat(26)}`,
+		`\t'q' && ls`,
+		`\tgit status`,
+		`   echo hi`,
+	])("keeps wrap geometry on narrow rows without an extra blank line: %j", (input) => {
+		const progress = createBashProgress(undefined, { getMode: () => "semantic" });
+		const row = progress.renderCall({ command: input }, catTheme, ctx());
+		// Stripped comparison: a kept real blank row is a padded escape-only row, not "".
+		const plain = new PresentationText(`$ ${input}`, 0, 0);
+		for (let width = 1; width <= 60; width++) {
+			const rows = row.render(width);
+			expect(rows.map(strip)).toEqual(plain.render(width).map(strip));
+			expect(rows.map(visibleWidth)).toEqual(plain.render(width).map(visibleWidth));
+		}
 		progress.dispose();
 	});
 	it("drops pi-tui's escape-only wrap row while keeping real blank rows", () => {
@@ -417,6 +502,44 @@ describe("tool-display/bash-display semantic syntax", () => {
 			const plainCost = measure(input);
 			expect(paintedCost).toBeLessThan(plainCost * 6);
 		}
+	});
+	it("returns a budget-closed tail to the terminal default", () => {
+		const palette = resolveBashPalette(catTheme);
+		const input = "x;".repeat(1000);
+		const painted = paintBashBatch(tokenizeBashBatch(input), palette);
+		expect(strip(painted)).toBe(input);
+		// Simulate the SGR stream: the visible bytes emitted while a foreground is open
+		// must stay bounded, and the tail after the final reset must be at the default.
+		let active = false;
+		let escapes = 0;
+		let openVisible = 0;
+		let lastReset = -1;
+		for (let index = 0; index < painted.length; ) {
+			if (painted.charCodeAt(index) === 27) {
+				const match = /^\x1b\[([0-9;]*)m/.exec(painted.slice(index));
+				if (!match) throw new Error("unexpected escape");
+				escapes++;
+				if (match[1] === "39") {
+					active = false;
+					lastReset = index;
+				} else active = true;
+				index += match[0].length;
+				continue;
+			}
+			if (active) openVisible++;
+			index++;
+		}
+		expect(openVisible).toBeLessThanOrEqual(100);
+		// The budget stops before an opener it cannot close, so the row carries no
+		// zero-width opener/reset pair and every opener is matched by one close.
+		const openings = (painted.match(/\x1b\[38;[0-9;]*m/g) ?? []).length;
+		expect(openings).toBeLessThanOrEqual(96);
+		expect(escapes).toBe(openings * 2);
+		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m\x1b\[39m/);
+		expect(painted.length - (lastReset + 5)).toBeGreaterThan(500);
+		expect(painted.slice(lastReset + 5)).not.toMatch(/\x1b/);
+		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m[ \t\n]/);
+		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m$/);
 	});
 	it("keeps semantic colors on CRLF rows and never splits a CRLF pair with an SGR", () => {
 		const inputs = [
@@ -563,6 +686,20 @@ describe("tool-display/bash-display semantic syntax", () => {
 			progress.dispose();
 		},
 	);
+	it.each(["ls \u00a0 foo bar", "ls \u3000 foo bar", "ls \u2003 foo bar baz", "echo a\u00a0b c d"])(
+		"keeps pi-tui's whitespace definition for %j",
+		(input) => {
+			const progress = createBashProgress(undefined, { getMode: () => "semantic" });
+			const row = progress.renderCall({ command: input }, catTheme, ctx());
+			const plain = new PresentationText(`$ ${input}`, 0, 0);
+			for (let width = 3; width <= 40; width++) {
+				const rows = row.render(width);
+				expect(rows.map(strip)).toEqual(plain.render(width).map(strip));
+				expect(rows.map(visibleWidth)).toEqual(plain.render(width).map(visibleWidth));
+			}
+			progress.dispose();
+		},
+	);
 	it("rejects syntax ANSI inside a grapheme", () => {
 		const source = "echo é 👩‍💻";
 		const progress = createBashProgress(null, {
@@ -572,6 +709,19 @@ describe("tool-display/bash-display semantic syntax", () => {
 		expect(progress.renderCall({ command: source }, catTheme, ctx()).render(7)).toEqual(
 			accentText(catTheme, source).render(7),
 		);
+		progress.dispose();
+	});
+	it("never tokenizes a command that already carries raw SGR", () => {
+		const tokenize = vi.fn((text: string) => tokenizeBashBatch(text));
+		const progress = createBashProgress(null, { getMode: () => "semantic", tokenize });
+		const input = `echo \x1b[1;31mERROR\x1b[0m: build failed && make test`;
+		const rows = progress.renderCall({ command: input }, catTheme, ctx()).render(200);
+		const row = rows.join("\n");
+		expect(tokenize).not.toHaveBeenCalled();
+		// The raw sequence stays contiguous: no role SGR is inserted inside it.
+		expect(row).toContain("\x1b[1;31mERROR");
+		expect(row).not.toMatch(/\x1b\[1\x1b\[/);
+		expect(rows.map((line) => strip(line).trimEnd()).join("")).toBe(`$ ${strip(input).trimEnd()}`);
 		progress.dispose();
 	});
 	it("keeps semantic colors when the public highlighter is missing", () => {
@@ -591,6 +741,8 @@ describe("tool-display/bash-display semantic syntax", () => {
 		(text: string) => [`\x1b[1m${text}\x1b[22m`],
 		(text: string) => [`\x1b]0;title\x07${text}`],
 		(text: string) => [`\x1b[38;2;999;0;0m${text}`],
+		// Channel 258 used to pass the loose strip filter; only 0..255 is a foreground color.
+		(text: string) => [`\x1b[38;5;258m${text}\x1b[39m`],
 		(text: string) => [`${text}changed`],
 		(text: string) => [`${"\x1b[31m".repeat(10000)}${text}`],
 	])("falls back byte-for-byte in pi mode for invalid/throwing highlighting", (highlight) => {
@@ -599,6 +751,82 @@ describe("tool-display/bash-display semantic syntax", () => {
 			accentText(flatTheme, command).render(80),
 		);
 		progress.dispose();
+	});
+	it.each([
+		{ name: "message_end executing rows", argsComplete: true },
+		{ name: "tool_execution_start rows", argsComplete: false },
+	])("admits each executing row once instead of repainting every tick ($name)", (spec) => {
+		vi.useFakeTimers();
+		try {
+			const tokenize = vi.fn((text: string) => tokenizeBashBatch(text));
+			const paint = vi.fn((batch: BashTokenBatch, palette: BashPalette) =>
+				paintBashBatch(batch, palette),
+			);
+			const validate = vi.fn((display: string, painted: string) =>
+				validateBashPaint(display, painted),
+			);
+			const progress = createBashProgress(undefined, {
+				getMode: () => "semantic",
+				tokenize,
+				paint,
+				validate,
+			});
+			const streaming = (suffix: string) => {
+				const context = {
+					...ctx(),
+					toolCallId: `tick-${suffix}`,
+					state: {},
+					executionStarted: true,
+					isPartial: true,
+					argsComplete: spec.argsComplete,
+					invalidate: vi.fn(),
+				};
+				return { context, command: `printf '%s\\n' "${"界".repeat(200)}${suffix}"` };
+			};
+			const rows = [streaming("one"), streaming("two")];
+			let components = rows.map((row) =>
+				progress.renderCall({ command: row.command }, catTheme, row.context),
+			);
+			for (let tick = 0; tick < 10; tick++) {
+				vi.advanceTimersByTime(200);
+				components = rows.map((row, index) =>
+					progress.renderCall({ command: row.command }, catTheme, {
+						...row.context,
+						lastComponent: components[index],
+					}),
+				);
+			}
+			// One paint per row for the whole spinner run, not one per tick and row.
+			expect([
+				tokenize.mock.calls.length,
+				paint.mock.calls.length,
+				validate.mock.calls.length,
+			]).toEqual([2, 2, 2]);
+			expect(vi.getTimerCount()).toBe(2);
+			progress.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+
+			// The pi path is admitted the same way: ticks do not call the host highlighter.
+			const highlight = vi.fn((text: string) => [`\x1b[31m${text}\x1b[39m`]);
+			const piProgress = createBashProgress(highlight, { getMode: () => "pi" });
+			const piRows = [streaming("one"), streaming("two")];
+			let piComponents = piRows.map((row) =>
+				piProgress.renderCall({ command: row.command }, catTheme, row.context),
+			);
+			for (let tick = 0; tick < 10; tick++) {
+				vi.advanceTimersByTime(200);
+				piComponents = piRows.map((row, index) =>
+					piProgress.renderCall({ command: row.command }, catTheme, {
+						...row.context,
+						lastComponent: piComponents[index],
+					}),
+				);
+			}
+			expect(highlight).toHaveBeenCalledTimes(2);
+			piProgress.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 	it("retains pi highlights on paints/ticks, refreshes command and live palette, disposes timers", () => {
 		vi.useFakeTimers();

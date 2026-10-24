@@ -39,6 +39,12 @@ or when resuming a session that used one:
 npm run pi:dev -- --keep-extensions -- --session <id>
 ```
 
+`--keep-extensions` also loads an installed `pi-zentui`, so the session contains two
+copies of this extension. Extension render resolvers compose in load order (Pi's
+`resolveToolRenderers` makes the first-loaded resolver outermost) and both copies claim
+the `$` row when `builtinRendererOverrides.bash` is true, so only the first-loaded one
+owns it; the copies also compete for `/zentui`, the footer and the editor. Disable the
+installed copy, or use `npm run pi:install-local`, when verifying row changes.
 Manual testing is required for any change that affects the footer, editor, user-message styling, runtime/git detection, colors, or `/zentui` settings.
 
 ## Coding expectations

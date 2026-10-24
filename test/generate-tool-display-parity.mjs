@@ -993,6 +993,9 @@ try {
 			enabled: true,
 			builtinRendererOverrides: { bash: true },
 			...fixture.config,
+			// Stored Bash rows are the pi/host-highlightCode rows, never the semantic
+			// default; mirror the replay so a clean generation run reproduces the fixture.
+			...(fixture.name === "bash" ? { bashSyntax: "pi" } : {}),
 			customToolOverrides: fixture.kind
 				? {
 						[fixture.name]: {
@@ -1006,6 +1009,8 @@ try {
 					}
 				: {},
 		});
+		if (fixture.name === "bash" && config.bashSyntax !== "pi")
+			throw new Error("Bash parity fixtures must render through the host highlightCode path");
 		const pending = new pendingModule.PendingPreimages();
 		pending.get = () => fixture.preimage;
 		const native = fixture.kind
@@ -1087,7 +1092,7 @@ const provenance = {
 		rows: bashSyntaxRows,
 		unchangedVectors: cases.length - bashSyntaxVectors,
 		rationale:
-			"Semantic foreground-only Bash command syntax (shipped default `bashSyntax: 'semantic'`): the owned tokenizer/painter resolves role colors from the live theme and replaces the accent row, and the `pi` mode keeps public host highlightCode(display, bash). `bashSyntaxColorOnly` marks the Bash fixtures whose rows differ from upstream rendering only in foreground SGR bytes. Rows are the declared Bash rows; `upstreamBashRows` retains the complete upstream (host highlightCode) rendering, and every stripped row, width and line count is checked against it. No output/status/layout changes.",
+			"Bash rows are the `pi` mode rows: the host highlightCode(display, 'bash') output, i.e. an accent wrapper around the inner SGR. `upstreamBashRows` retains the pre-syntax plain accent rows, and `bashSyntaxColorOnly` marks the Bash fixtures whose rows have identical stripped text, width and line count and differ from upstream only in foreground SGR bytes. The shipped `semantic` default is covered by a declared geometry+palette contract in the test suite (stripped rows, widths and grapheme-safe foreground-only SGR against the same uncolored wrap), not by stored semantic rows. No output/status/layout changes.",
 	},
 	rendererDomains: {
 		directMcp:

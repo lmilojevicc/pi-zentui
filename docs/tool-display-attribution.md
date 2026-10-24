@@ -161,31 +161,34 @@ mandatory for every candidate card.
 
 The public highlighter uses Pi's active theme, as do real tool-render callbacks. This
 is an integration constraint, not a promise to honor artificial callback themes.
-No global theme mutation occurs. In `pi` mode, a bounded 16-entry
-input/live-syntax-palette cache refreshes through Pi's stable theme proxy on theme
-swaps without re-lexing unchanged spinner ticks. Semantic mode uses the session
-`bash-display` caches instead: 2 MiB of packed token offsets and 8 MiB of painted
-ANSI, 2048 sampled-eviction entries each, plus a one-row transient cache for
-streaming calls; tokens survive theme/mode revisions while painted rows are
-cleared. Both caches throttle admission while they are full: a first-touch miss is
-admitted one time in eight (one in 32 during a sequential scan over rows that were
-never cached) and a second visit is admitted at once, so a scan-back keeps a
-partially warm window instead of flushing it. Ingress sanitization/source caps run
-first in both modes. The declared charges (96 B/entry + 16 B/token + 2 B/command
-byte; 96 B + 2 B/painted byte) bound the working set to roughly 2,000 short or
-≈950 two-KB painted rows; a full rescan of 1,000 two-KB rows hits 98%, and older
-rows are re-highlighted when they scroll back in.rows are re-highlighted when they scroll back in.
+No global theme mutation occurs. In `pi` mode the session painted cache holds the
+host highlighter's rows; after the admission gate an executing or restored row is
+admitted on its first render, so spinner ticks hit that cache. Semantic mode uses
+the session `bash-display` caches: 2 MiB of packed token offsets and 8 MiB of
+painted ANSI, 2048 sampled-eviction entries each, plus a bounded 16-entry transient
+cache for pre-execution streaming calls; tokens survive theme/mode revisions while
+painted rows are cleared. Both caches throttle admission while they are full: a
+first-touch miss is admitted one time in eight (one in 32 during a sequential scan
+over rows that were never cached) and a second visit is admitted at once, so a
+scan-back keeps a partially warm window instead of flushing it. Ingress
+sanitization/source caps run first in both modes. The declared charges (96 B/entry
++ 8 B per token per array, two arrays, + 2 B/command byte; 96 B + 2 B/painted byte)
+are deliberate upper bounds and charge 10 MiB in total; they bound the working set
+to roughly 2,000 short or ≈950 two-KB painted rows. A full rescan of 1,000 two-KB
+rows hits 98%, and older rows are re-highlighted when they scroll back in.
 
 Only foreground SGR with exactly preserved text is accepted. Semantic mode
 validates each cache miss with a foreground-strip equality pass (strict SGR
 forms, length caps, no SGR inside CRLF) and an exact grapheme-boundary scan for
-non-ASCII rows. The painter emits colour changes only at word starts, so a run
-never spans whitespace and no reset lands in front of a space; that keeps every
-pi-tui whitespace token escape-free, which is what makes painted rows wrap
-exactly like the uncolored row. Each run covers its whole word, so every visible
-grapheme carries its role colour. Rows over 1,024 characters with more than 256 tokens drop
-low-signal roles and stop painting after 96 SGR spans, so pathological operator or
-short-flag chains cannot multiply ANSI spans. Missing,
+non-ASCII rows. The painter emits a colour change at a word start and never
+directly before whitespace; a run may include the trailing space(s), which keeps
+every pi-tui whitespace token free of a directly preceding escape and is what makes
+painted rows wrap exactly like the uncolored row. Each run covers its whole word, so
+every visible grapheme carries its role colour. Rows over 1,024 characters with more
+than 256 tokens drop low-signal roles and stop painting after 96 opening foreground
+SGRs plus their resets (≤ 193 SGRs in total); the tail after the budget stays at the
+terminal default, so pathological operator or short-flag chains cannot multiply ANSI
+spans. Missing,
 throwing, oversized or invalid output falls back to the `pi` highlighter and then
 to the original accent row. Explicit non-Bash shell paths use that same fallback
 (only default, `bash` and `sh` paths opt into Bash grammar). No arbitrary tool
@@ -195,7 +198,9 @@ output is highlighted and no ownership/configuration/execution changes are made.
 
 Default disabled/native delegates unchanged. Native provenance, stable renderer
 identities, explicit ambiguous-Bash consent and exact-name custom consent remain
-required. No Thinking/User messages, upstream configuration or execution registration
+required. Loading the dev entry with `--keep-extensions` also loads an installed
+`pi-zentui`, so two copies compete for the same surfaces; render resolvers compose in
+load order (the first-loaded is outermost) and only that copy owns the `$` row. No Thinking/User messages, upstream configuration or execution registration
 is installed. New owned rows use upstream default card framing. Existing constructed
 edit/custom-self outer shells need public rebuild/reload to restore predecessor
 framing; callback/component cleanup and sticky release are still preserved.
