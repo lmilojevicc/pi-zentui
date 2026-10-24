@@ -71,6 +71,15 @@ export function win32Invocation({ file, args, comspec }) {
 }
 
 /**
+ * Spawn options for a resolved invocation. `windowsVerbatimArguments` must travel with
+ * the `cmd /d /s /c` wrapper: without it libuv re-quotes the payload with backslash
+ * escapes that cmd does not understand, and the shim is never launched.
+ */
+export function spawnOptions(invocation) {
+	return { stdio: "inherit", windowsVerbatimArguments: invocation.verbatim === true };
+}
+
+/**
  * Resolve the launcher's arguments into the exact process to spawn and the line
  * `--dry-run` prints. Environment wins over PATH so existing PI_BIN/OMP_BIN workflows
  * keep working, including values that carry their own arguments.

@@ -16,7 +16,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { buildInvocation } from "./dev-command.mjs";
+import { buildInvocation, spawnOptions } from "./dev-command.mjs";
 
 const BIN_FLAGS = { pi: "PI_BIN", omp: "OMP_BIN" };
 
@@ -96,11 +96,7 @@ if (dryRun) {
 
 // No shell: a real executable is spawned directly and a `.cmd`/`.bat` shim is wrapped
 // in `cmd /d /s /c` with correctly quoted arguments (see scripts/dev-command.mjs).
-const result = spawnSync(invocation.file, invocation.args, {
-	stdio: "inherit",
-	// `cmd /d /s /c "<quoted command>"` must reach cmd exactly as built.
-	windowsVerbatimArguments: invocation.verbatim === true,
-});
+const result = spawnSync(invocation.file, invocation.args, spawnOptions(invocation));
 
 if (result.error) {
 	const override = BIN_FLAGS[bin];

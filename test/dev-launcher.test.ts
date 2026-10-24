@@ -45,6 +45,10 @@ const devCommand = (await import(devCommandUrl)) as {
 		exists?: (value: string) => boolean;
 		comspec?: string;
 	}): { file: string; args: string[]; verbatim: boolean; line: string };
+	spawnOptions(invocation: { verbatim: boolean }): {
+		stdio: string;
+		windowsVerbatimArguments: boolean;
+	};
 };
 
 describe("scripts/dev.mjs", () => {
@@ -209,6 +213,18 @@ describe("scripts/dev-command.mjs", () => {
 		// The /c payload must reach cmd verbatim; libuv would otherwise escape its quotes
 		// with backslashes, which cmd does not understand.
 		expect(invocation.verbatim).toBe(true);
+	});
+
+	it("forwards the verbatim flag into the spawn options", () => {
+		// The wrapper only works if libuv is told not to re-quote the `/c` payload.
+		expect(devCommand.spawnOptions({ verbatim: true })).toEqual({
+			stdio: "inherit",
+			windowsVerbatimArguments: true,
+		});
+		expect(devCommand.spawnOptions({ verbatim: false })).toEqual({
+			stdio: "inherit",
+			windowsVerbatimArguments: false,
+		});
 	});
 
 	it("resolves the entry and forwarded arguments per platform", () => {

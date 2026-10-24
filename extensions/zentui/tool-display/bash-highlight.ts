@@ -1589,8 +1589,8 @@ function scanCommand(
 				continue;
 			}
 			if (phase === CASE_PATTERN) {
-				// Only `a|esac)` keeps `esac` as a pattern; everywhere else it closes the case
-				// (bash rejects `esac)` at the start of a pattern list).
+				// Only `a|esac)` and `(esac)` keep `esac` as a pattern; everywhere else it closes
+				// the case (bash rejects `esac)` at the start of a pattern list).
 				if (equalsAt(text, wordStart, wordEnd, "esac") && !isCasePatternWord(text, wordStart)) {
 					push(K_KEYWORD, wordStart);
 					caseStack.pop();
@@ -2048,7 +2048,8 @@ function isUnicodePaintSpace(code: number): boolean {
 /**
  * Paint one foreground run per colored *word*. Colors only switch at a visible byte and a
  * run always covers its whole word, so every visible character carries the role the
- * tokenizer gave it; a reset lands after the word, immediately before whitespace.
+ * tokenizer gave it. A colour change or reset lands at the start of the next visible
+ * word, never directly before whitespace.
  *
  * pi-tui's wrapper attaches an SGR that precedes a space to the whitespace token and then
  * re-opens the tracker's active color at the start of the next row, so a row that breaks
@@ -2083,9 +2084,10 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 	// boundaries (or inserts an escape-only row). Deferring the reset to the next word keeps
 	// every whitespace token escape-free, so painted rows wrap exactly like plain text.
 	let active: string | undefined;
-	// Stops the row once the span budget is spent. The run that exhausts the budget is
-	// closed on its own word, so the rest of the row returns to the terminal default
-	// instead of inheriting the last role colour and without a zero-width opener/reset.
+	// Stops the row once the span budget is spent. The run that exhausts the budget paints
+	// its word and closes at the first non-space byte after it, so the tail returns to the
+	// terminal default instead of inheriting the last role colour, and no zero-width
+	// opener/reset pair is left behind.
 	let budgetClosed = false;
 	outer: for (let index = 0; index < count && spans < spanBudget; index++) {
 		const kind = kinds[index];
