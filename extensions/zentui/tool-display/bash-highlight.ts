@@ -462,6 +462,81 @@ for (const word of WRAPPERS.keys()) {
 		defineCommandClass(word, BUILTINS.has(word) ? K_BUILTIN : K_COMMAND, CMD_WRAPPER);
 }
 
+/**
+ * Command-position word classification: single-byte/long-word fast paths, the `[[`/
+ * `case`/`esac` keywords, and the `COMMAND_CLASS` lookup that resolves a builtin,
+ * keyword, or wrapper. Caller must check `state.commandPosition` truthy before calling.
+ */
+function scanCommandPositionWord(
+	text: string,
+	wordStart: number,
+	wordEnd: number,
+	caseStack: number[],
+	state: ScanState,
+	push: TokenPush,
+): void {
+	const wordLength = wordEnd - wordStart;
+	// Most command words are plain binaries; skip the keyword/wrapper/builtin
+	// lookups and the substring for single-byte and long words.
+	if (wordLength === 1) {
+		push(text.charCodeAt(wordStart) === 91 ? K_BUILTIN : K_COMMAND, wordStart);
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		return;
+	}
+	if (wordLength > MAX_KEYWORD_LENGTH) {
+		push(K_COMMAND, wordStart);
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		return;
+	}
+	if (equalsAt(text, wordStart, wordEnd, "[[")) {
+		push(K_KEYWORD, wordStart);
+		state.inConditional = true;
+		state.commandPosition = false;
+		return;
+	}
+	if (equalsAt(text, wordStart, wordEnd, "case")) {
+		push(K_KEYWORD, wordStart);
+		caseStack.push(CASE_SUBJECT);
+		state.commandPosition = false;
+		return;
+	}
+	if (equalsAt(text, wordStart, wordEnd, "esac")) {
+		push(K_KEYWORD, wordStart);
+		state.commandPosition = false;
+		return;
+	}
+	const word = text.slice(wordStart, wordEnd);
+	const commandClass = COMMAND_CLASS.get(word);
+	if (commandClass === undefined) {
+		push(K_COMMAND, wordStart);
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		return;
+	}
+	push(commandClass >> 3, wordStart);
+	const action = commandClass & 7;
+	if (action === 0) {
+		state.commandPosition = false;
+	} else if (action === CMD_RESUME) {
+		state.commandPosition = true;
+	} else if (action === CMD_FOR_HEADER) {
+		state.forHeader = true;
+		state.commandPosition = true;
+	} else if (action === CMD_WRAPPER) {
+		state.wrapper = newWrapper(word);
+		state.commandPosition = false;
+		state.endOfOptions = false;
+	} else if (action === CMD_TIME) {
+		state.wrapper = newWrapper("time");
+		state.commandPosition = false;
+		state.endOfOptions = false;
+	} else {
+		state.commandPosition = true;
+	}
+}
+
 const STOP_NONE = 0;
 const STOP_BACKTICK = 1;
 const STOP_PAREN = 2;
@@ -664,6 +739,96 @@ function newWrapper(name: string): WrapperState | null {
 		: null;
 }
 
+/**
+ * Wrapper consumption: precommand options, option values, assignment pass-through
+ * positionals, and the resolved command word. Receives the current wrapper (the caller
+ * has already checked it is non-null) and returns the wrapper that should replace it —
+ * the same instance while still consuming the wrapper's own options/positionals, a fresh
+ * one when the resolved word is itself a wrapper (`sudo env A=1 cmd` keeps painting the
+ * real command as the verb), or `null` once the wrapper's command word is resolved.
+ */
+function scanWrapperWord(
+	text: string,
+	wordStart: number,
+	wordEnd: number,
+	wrapper: WrapperState,
+	state: ScanState,
+	push: TokenPush,
+): WrapperState | null {
+	if (wrapper.pendingValue) {
+		wrapper.pendingValue = false;
+		push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+		return wrapper;
+	}
+	const first = text.charCodeAt(wordStart);
+	if (!state.endOfOptions && equalsAt(text, wordStart, wordEnd, "--")) {
+		push(K_OPTION, wordStart);
+		state.endOfOptions = true;
+		return wrapper;
+	}
+	if (!state.endOfOptions && first === 45 && wordEnd - wordStart > 1) {
+		// Any `-...` word in wrapper state is an option; glued values stay with it.
+		if (text.charCodeAt(wordStart + 1) === 45) {
+			let equals = -1;
+			for (let scan = wordStart + 2; scan < wordEnd; scan++) {
+				if (text.charCodeAt(scan) === 61) {
+					equals = scan;
+					break;
+				}
+			}
+			if (equals > wordStart + 2) {
+				push(K_OPTION, wordStart);
+				push(K_ASSIGNMENT_OP, equals);
+				if (equals + 1 < wordEnd) push(classifyValueAt(text, equals + 1, wordEnd), equals + 1);
+			} else {
+				push(K_OPTION, wordStart);
+				if (wrapper.optsWithValue.has(text.slice(wordStart, wordEnd))) wrapper.pendingValue = true;
+			}
+		} else {
+			const prefix = text.slice(wordStart, wordStart + 2);
+			if (wordEnd - wordStart > 2 && wrapper.optsWithValue.has(prefix)) {
+				let valueStart = wordStart + 2;
+				if (text.charCodeAt(valueStart) === 61) valueStart++;
+				push(K_OPTION, wordStart);
+				if (valueStart < wordEnd) push(classifyValueAt(text, valueStart, wordEnd), valueStart);
+			} else {
+				push(K_OPTION, wordStart);
+				if (wrapper.optsWithValue.has(text.slice(wordStart, wordEnd))) wrapper.pendingValue = true;
+				// A short cluster whose last letter takes a value (`sudo -iu deploy psql`).
+				else if (wordEnd - wordStart > 2 && wrapper.optsWithValue.has(`-${text[wordEnd - 1]}`))
+					wrapper.pendingValue = true;
+			}
+		}
+		return wrapper;
+	}
+	if (wrapper.positionals > 0) {
+		wrapper.positionals--;
+		push(
+			isNumberRange(text, wordStart, wordEnd)
+				? K_NUMBER
+				: classifyValueAt(text, wordStart, wordEnd),
+			wordStart,
+		);
+		return wrapper;
+	}
+	// The wrapper's command word. A wrapper word re-arms the next wrapper so
+	// `sudo … env A=1 cmd`, `time nice -n 10 cmd`, and `timeout 5 xargs …` keep
+	// painting the real command as the verb.
+	const wordLength = wordEnd - wordStart;
+	if (wordLength > MAX_WRAPPER_NAME_LENGTH) {
+		push(K_COMMAND, wordStart);
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		return null;
+	}
+	const word = text.slice(wordStart, wordEnd);
+	const commandClass = COMMAND_CLASS.get(word);
+	push(commandClass === undefined ? K_COMMAND : commandClass >> 3, wordStart);
+	state.commandPosition = false;
+	state.endOfOptions = false;
+	return word === "time" ? newWrapper("time") : newWrapper(word);
+}
+
 /** Returns the index after `name(+)=`, or -1 when no assignment starts here. */
 function scanAssignment(text: string, start: number): number {
 	const length = text.length;
@@ -795,6 +960,35 @@ function isGlobTokenStart(text: string, index: number): boolean {
 	);
 }
 
+/** A word: stops only at shell metacharacters, honoring backslash escapes and extglob parens. */
+function scanWordEnd(text: string, wordStart: number, length: number): number {
+	let wordEnd = wordStart;
+	while (wordEnd < length) {
+		const inner = text.charCodeAt(wordEnd);
+		if (inner < 128) {
+			if (WORD_STOP[inner] === 0) {
+				wordEnd++;
+				continue;
+			}
+			if (inner === 40) {
+				if (wordEnd > wordStart && isExtglobPrefix(text.charCodeAt(wordEnd - 1))) {
+					const close = findMatchingParen(text, wordEnd + 1);
+					wordEnd = close < 0 ? length : close;
+					continue;
+				}
+				break;
+			}
+			if (inner === 92) {
+				wordEnd += text.charCodeAt(wordEnd + 1) === 13 ? 3 : 2;
+				continue;
+			}
+			break;
+		}
+		wordEnd++;
+	}
+	return wordEnd;
+}
+
 interface Heredoc {
 	terminator: string;
 	stripTabs: boolean;
@@ -808,6 +1002,89 @@ const CASE_SUBJECT = 0;
 const CASE_IN = 1;
 const CASE_PATTERN = 2;
 const CASE_BODY = 3;
+
+/** Top of the case-construct stack, or -1 when no `case` is open. */
+function caseStackTop(caseStack: readonly number[]): number {
+	return caseStack.length > 0 ? caseStack[caseStack.length - 1] : -1;
+}
+
+/** `;;`, `;;&`, `;&`: the byte shape that ends a case item (caller gates this on phase). */
+function isCaseItemTerminator(text: string, operatorStart: number, operatorEnd: number): boolean {
+	return (
+		operatorEnd - operatorStart >= 2 &&
+		text.charCodeAt(operatorStart) === 59 &&
+		(text.charCodeAt(operatorStart + 1) === 59 || text.charCodeAt(operatorStart + 1) === 38)
+	);
+}
+
+/** A `)` closing a parenthesized pattern list (`(foo|bar)`) enters the case item's body. */
+function tryCloseCasePatternList(caseStack: number[]): boolean {
+	if (caseStackTop(caseStack) !== CASE_PATTERN) return false;
+	caseStack[caseStack.length - 1] = CASE_BODY;
+	return true;
+}
+
+/** A case subject word (`case "$x" in`) moves the stack from subject to pattern-matching mode. */
+function trySettleCaseSubject(caseStack: number[], state: ScanState): boolean {
+	if (caseStackTop(caseStack) !== CASE_SUBJECT) return false;
+	caseStack[caseStack.length - 1] = CASE_IN;
+	state.commandPosition = false;
+	return true;
+}
+
+/**
+ * Case-construct word dispatch: subject, `in`, pattern-list, and body-`esac` transitions.
+ * Returns false only in body phase when the word isn't a command-position `esac`, so the
+ * caller falls through to ordinary word handling for case-body commands.
+ */
+function tryScanCaseWord(
+	text: string,
+	wordStart: number,
+	wordEnd: number,
+	caseStack: number[],
+	state: ScanState,
+	push: TokenPush,
+): boolean {
+	if (caseStack.length === 0) return false;
+	const phase = caseStack[caseStack.length - 1];
+	if (phase === CASE_SUBJECT) {
+		push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+		caseStack[caseStack.length - 1] = CASE_IN;
+		state.commandPosition = false;
+		return true;
+	}
+	if (phase === CASE_IN) {
+		if (equalsAt(text, wordStart, wordEnd, "in")) {
+			push(K_KEYWORD, wordStart);
+			caseStack[caseStack.length - 1] = CASE_PATTERN;
+			state.commandPosition = false;
+		} else if (equalsAt(text, wordStart, wordEnd, "esac")) {
+			push(K_KEYWORD, wordStart);
+			caseStack.pop();
+			state.commandPosition = false;
+		} else push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+		return true;
+	}
+	if (phase === CASE_PATTERN) {
+		// Only `a|esac)` and `(esac)` keep `esac` as a pattern; everywhere else it closes
+		// the case (bash rejects `esac)` at the start of a pattern list).
+		if (equalsAt(text, wordStart, wordEnd, "esac") && !isCasePatternWord(text, wordStart)) {
+			push(K_KEYWORD, wordStart);
+			caseStack.pop();
+			state.commandPosition = false;
+		} else push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+		return true;
+	}
+	// Body words are ordinary arguments unless esac starts a command.
+	if (equalsAt(text, wordStart, wordEnd, "esac") && state.commandPosition) {
+		push(K_KEYWORD, wordStart);
+		caseStack.pop();
+		state.commandPosition = false;
+		return true;
+	}
+	return false;
+}
+
 function consumeHeredocs(
 	text: string,
 	start: number,
@@ -993,6 +1270,311 @@ function normalizeHeredocWord(word: string): string {
 	return continued.replace(/\\(.)/g, "$1");
 }
 
+/** Delimiter accumulation for a `<<`/`<<-`/`<<<` seen but not yet fully parsed. */
+interface HeredocPending {
+	expect: boolean;
+	delimiter: string;
+	stripTabs: boolean;
+}
+
+/** No delimiter is being accumulated; a fresh command word list starts clean. */
+function resetHeredocPending(pending: HeredocPending): void {
+	pending.expect = false;
+	pending.delimiter = "";
+}
+
+/** `<<`/`<<-`/`<<<` just matched: arm delimiter accumulation for the word that follows. */
+function startHeredocPending(pending: HeredocPending, stripTabs: boolean): void {
+	pending.expect = true;
+	pending.delimiter = "";
+	pending.stripTabs = stripTabs;
+}
+
+/** Appends one quoted/unquoted/expanded part of a still-open heredoc delimiter word. */
+function appendHeredocDelimiterPart(pending: HeredocPending, part: string): void {
+	pending.delimiter += part;
+}
+
+/** Delimiter word is complete: queue it so `consumeHeredocs` can match it after the newline. */
+function registerPendingHeredoc(pending: HeredocPending, context: ScanContext): void {
+	context.heredocs.push({ terminator: pending.delimiter, stripTabs: pending.stripTabs });
+	resetHeredocPending(pending);
+}
+
+/** An unquoted delimiter word ends at whitespace or a metacharacter; register it there. */
+function maybeTerminateHeredocDelimiter(
+	pending: HeredocPending,
+	context: ScanContext,
+	code: number,
+): void {
+	if (pending.expect && pending.delimiter !== "" && endsHeredocWord(code))
+		registerPendingHeredoc(pending, context);
+}
+
+/**
+ * Cross-cutting dispatch flags that the per-word/per-construct scanners below read and
+ * write. One instance lives for a whole `scanCommand` call (never per token), so helpers
+ * can receive and update it by reference without allocating on the per-token hot path.
+ */
+interface ScanState {
+	commandPosition: boolean;
+	endOfOptions: boolean;
+	wrapper: WrapperState | null;
+	forHeader: boolean;
+	afterAssignmentOp: boolean;
+	expectRedirectionTarget: boolean;
+	execPending: boolean;
+	inConditional: boolean;
+	/** Subshell `(…)` nesting depth, tracked so a `)` closing one never leaks into the other. */
+	parenDepth: number;
+	/** `name=(…)`/`name+=(…)` array-literal nesting depth; zero means "not inside one." */
+	assignmentParenDepth: number;
+}
+
+/** Resets the per-command-word dispatch flags for a fresh word list (not inside `name=(...)`). */
+function resetCommandState(state: ScanState, heredocPending: HeredocPending): void {
+	state.commandPosition = true;
+	state.endOfOptions = false;
+	state.wrapper = null;
+	state.forHeader = false;
+	state.afterAssignmentOp = false;
+	state.expectRedirectionTarget = false;
+	resetHeredocPending(heredocPending);
+	state.execPending = false;
+	state.assignmentParenDepth = 0;
+}
+
+/** A quoted/variable/substitution word consumes the command or assignment value slot. */
+function settleWord(caseStack: number[], state: ScanState): void {
+	// A quoted, variable or substitution part is part of the assignment value: the
+	// value ends at whitespace, an operator, a `(` or a redirection, not after one part.
+	if (state.afterAssignmentOp) return;
+	if (state.expectRedirectionTarget) {
+		state.expectRedirectionTarget = false;
+		return;
+	}
+	if (state.inConditional) return;
+	if (trySettleCaseSubject(caseStack, state)) return;
+	if (state.wrapper) {
+		if (state.wrapper.pendingValue) {
+			state.wrapper.pendingValue = false;
+			return;
+		}
+		state.wrapper = null;
+		state.commandPosition = false;
+		return;
+	}
+	if (state.commandPosition) state.commandPosition = false;
+}
+
+/**
+ * Tab/newline/CR runs (plain space has its own fast path in the dispatcher). A newline
+ * inside an array literal keeps the word list open; outside one it starts a fresh
+ * command, and a newline that terminates pending heredocs also consumes their bodies.
+ */
+function scanWhitespace(
+	text: string,
+	index: number,
+	length: number,
+	context: ScanContext,
+	state: ScanState,
+	heredocPending: HeredocPending,
+	push: TokenPush,
+): number {
+	let next = index;
+	let newline = -1;
+	while (next < length && isSpaceCode(text.charCodeAt(next))) {
+		if (text.charCodeAt(next) === 10 && newline < 0) newline = next;
+		next++;
+	}
+	if (context.heredocs.length > 0 && newline >= 0) {
+		// Only the newline terminating the command line starts the bodies.
+		const lineEnd = newline + 1;
+		push(K_SPACE, index);
+		const after = consumeHeredocs(text, lineEnd, context, push);
+		if (state.assignmentParenDepth === 0) resetCommandState(state, heredocPending);
+		return after;
+	}
+	push(K_SPACE, index);
+	// A newline inside an array literal does not end the command word list.
+	if (newline >= 0) {
+		if (state.assignmentParenDepth === 0) resetCommandState(state, heredocPending);
+	}
+	// An empty assignment value (`FOO= cmd`) ends at the whitespace; a value
+	// can never be separated from `=` by a space.
+	else if (state.afterAssignmentOp) state.afterAssignmentOp = false;
+	return next;
+}
+
+/** Redirection target/heredoc dispatch once `scanRedirection` has found the operator's extent. */
+function scanRedirectionToken(
+	text: string,
+	index: number,
+	state: ScanState,
+	heredocPending: HeredocPending,
+	push: TokenPush,
+): number {
+	// A redirection ends any assignment value (`FOO=bar>baz cmd`).
+	state.afterAssignmentOp = false;
+	const redirection = scanRedirection(text, index);
+	push(K_REDIRECTION, index);
+	if (redirection.heredoc) {
+		startHeredocPending(heredocPending, redirection.stripTabs);
+		state.expectRedirectionTarget = false;
+	} else {
+		state.expectRedirectionTarget = redirection.target;
+	}
+	return redirection.end;
+}
+
+/** `(` opens a subshell, or (after `name=`/`name+=`) an array literal of plain values. */
+function scanOpenParen(text: string, postIndex: number, state: ScanState): number {
+	if (state.assignmentParenDepth > 0) {
+		state.assignmentParenDepth++;
+		return postIndex;
+	}
+	// `name=(...)` / `name+=(...)`: an array literal, not a subshell. Its
+	// elements are values, so the first element never arms command position.
+	if (state.afterAssignmentOp || (postIndex > 1 && text.charCodeAt(postIndex - 2) === 61)) {
+		state.assignmentParenDepth = 1;
+		state.afterAssignmentOp = false;
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		state.wrapper = null;
+		state.expectRedirectionTarget = false;
+		state.execPending = false;
+		return postIndex;
+	}
+	state.parenDepth++;
+	state.commandPosition = true;
+	state.endOfOptions = false;
+	state.wrapper = null;
+	state.afterAssignmentOp = false;
+	state.expectRedirectionTarget = false;
+	state.execPending = false;
+	return postIndex;
+}
+
+/** `)` closes a subshell, an array literal, or (via the case stack) a pattern list. */
+function scanCloseParen(state: ScanState, caseStack: number[]): void {
+	if (state.assignmentParenDepth > 0) {
+		state.assignmentParenDepth--;
+		state.commandPosition = false;
+		state.endOfOptions = false;
+		state.wrapper = null;
+		return;
+	}
+	state.parenDepth = Math.max(0, state.parenDepth - 1);
+	state.commandPosition = tryCloseCasePatternList(caseStack);
+	state.endOfOptions = false;
+	state.wrapper = null;
+}
+
+/**
+ * A standalone `{`/`}` word is a brace-group operator; glued to other bytes it's a word.
+ * Returns the index after the operator, or -1 for the caller to fall through to word
+ * scanning.
+ */
+function tryScanBraceOperator(text: string, index: number, code: number, state: ScanState): number {
+	const next = text.charCodeAt(index + 1);
+	const operator =
+		Number.isNaN(next) ||
+		isSpaceCode(next) ||
+		next === 59 ||
+		next === 124 ||
+		next === 38 ||
+		next === 40 ||
+		next === 41 ||
+		next === 60 ||
+		next === 62;
+	if (!operator) return -1;
+	state.commandPosition = code === 123;
+	state.endOfOptions = false;
+	state.wrapper = null;
+	state.expectRedirectionTarget = false;
+	return index + 1;
+}
+
+/**
+ * `!` negates a command word at word-start, or is `!`/`!=` inside `[[ ]]`; elsewhere it's
+ * an ordinary word byte. Returns the index after the token, or -1 to fall through.
+ */
+function tryScanBang(text: string, index: number, state: ScanState, push: TokenPush): number {
+	if (state.inConditional) {
+		if (text.charCodeAt(index + 1) === 61) {
+			push(K_OPERATOR, index);
+			return index + 2;
+		}
+		push(K_OPERATOR, index);
+		return index + 1;
+	}
+	const previous = index === 0 ? -1 : text.charCodeAt(index - 1);
+	const atWordStart =
+		index === 0 ||
+		isSpaceCode(previous) ||
+		previous === 59 ||
+		previous === 124 ||
+		previous === 38 ||
+		previous === 40 ||
+		previous === 41 ||
+		previous === 123 ||
+		previous === 125 ||
+		previous === 60 ||
+		previous === 62;
+	// `!` negates only a command word; elsewhere it is an ordinary word byte.
+	if (state.commandPosition && atWordStart) {
+		push(K_OPERATOR, index);
+		return index + 1;
+	}
+	return -1;
+}
+
+/**
+ * Bottom of the word-dispatch chain: `find -exec`'s resolved command, the `--` end-of-
+ * options marker, flag-shaped words (with glued `=value` and `-exec`/`-execdir` arming),
+ * and the plain value fallback.
+ */
+function scanOrdinaryWord(
+	text: string,
+	wordStart: number,
+	wordEnd: number,
+	state: ScanState,
+	push: TokenPush,
+): void {
+	if (state.execPending) {
+		state.execPending = false;
+		push(BUILTINS.has(text.slice(wordStart, wordEnd)) ? K_BUILTIN : K_COMMAND, wordStart);
+		return;
+	}
+	if (!state.endOfOptions && equalsAt(text, wordStart, wordEnd, "--")) {
+		push(K_OPTION, wordStart);
+		state.endOfOptions = true;
+		return;
+	}
+	if (!state.endOfOptions && looksLikeOptionRange(text, wordStart, wordEnd)) {
+		let equals = -1;
+		for (let scan = wordStart + 1; scan < wordEnd; scan++) {
+			if (text.charCodeAt(scan) === 61) {
+				equals = scan;
+				break;
+			}
+		}
+		if (equals > wordStart + 1) {
+			push(K_OPTION, wordStart);
+			push(K_ASSIGNMENT_OP, equals);
+			if (equals + 1 < wordEnd) push(classifyValueAt(text, equals + 1, wordEnd), equals + 1);
+		} else push(K_OPTION, wordStart);
+		// Guard the substring allocation: exec options are a tiny prefix class.
+		if (wordEnd - wordStart >= 3 && text.charCodeAt(wordStart) === 45) {
+			const second = text.charCodeAt(wordStart + 1);
+			if ((second === 101 || second === 111) && EXEC_OPTIONS.has(text.slice(wordStart, wordEnd)))
+				state.execPending = true;
+		}
+		return;
+	}
+	push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+}
+
 function scanCommand(
 	text: string,
 	start: number,
@@ -1003,69 +1585,24 @@ function scanCommand(
 ): number {
 	const length = text.length;
 	let index = start;
-	let commandPosition = true;
-	let endOfOptions = false;
-	let wrapper: WrapperState | null = null;
-	let forHeader = false;
-	let afterAssignmentOp = false;
-	let expectRedirectionTarget = false;
-	let expectHeredocDelimiter = false;
-	let heredocStripTabs = false;
+	const state: ScanState = {
+		commandPosition: true,
+		endOfOptions: false,
+		wrapper: null,
+		forHeader: false,
+		afterAssignmentOp: false,
+		expectRedirectionTarget: false,
+		execPending: false,
+		inConditional: false,
+		parenDepth: 0,
+		assignmentParenDepth: 0,
+	};
 	// Accumulated heredoc delimiter parts: `<<E'O'F` registers `EOF`, not `E`.
-	let heredocDelimiter = "";
+	const heredocPending: HeredocPending = { expect: false, delimiter: "", stripTabs: false };
 	// Index where the last word part ended, so a `#` glued to a quote/expansion is a word
 	// byte and not a comment start.
 	let wordPartEnd = -1;
-	let parenDepth = 0;
-	let assignmentParenDepth = 0;
-	let execPending = false;
-	let inConditional = false;
 	const caseStack: number[] = [];
-
-	const resetCommand = (): void => {
-		commandPosition = true;
-		endOfOptions = false;
-		wrapper = null;
-		forHeader = false;
-		afterAssignmentOp = false;
-		expectRedirectionTarget = false;
-		expectHeredocDelimiter = false;
-		heredocDelimiter = "";
-		execPending = false;
-		assignmentParenDepth = 0;
-	};
-	const registerHeredoc = (terminator: string): void => {
-		context.heredocs.push({ terminator, stripTabs: heredocStripTabs });
-		expectHeredocDelimiter = false;
-		heredocDelimiter = "";
-	};
-	/** A quoted/variable/substitution word consumes the command or assignment value slot. */
-	const settleWord = (): void => {
-		// A quoted, variable or substitution part is part of the assignment value: the
-		// value ends at whitespace, an operator, a `(` or a redirection, not after one part.
-		if (afterAssignmentOp) return;
-		if (expectRedirectionTarget) {
-			expectRedirectionTarget = false;
-			return;
-		}
-		if (inConditional) return;
-		const phase = caseStack.length > 0 ? caseStack[caseStack.length - 1] : -1;
-		if (phase === CASE_SUBJECT) {
-			caseStack[caseStack.length - 1] = CASE_IN;
-			commandPosition = false;
-			return;
-		}
-		if (wrapper) {
-			if (wrapper.pendingValue) {
-				wrapper.pendingValue = false;
-				return;
-			}
-			wrapper = null;
-			commandPosition = false;
-			return;
-		}
-		if (commandPosition) commandPosition = false;
-	};
 
 	// Nested commands past the safety depth emit one ARG token for the remainder.
 	const tooDeep = depth > MAX_DEPTH;
@@ -1074,8 +1611,7 @@ function scanCommand(
 
 		// The delimiter word ends at whitespace or a metacharacter; register the parts
 		// accumulated so far (`<<E'O'F` is the delimiter `EOF`).
-		if (expectHeredocDelimiter && heredocDelimiter !== "" && endsHeredocWord(code))
-			registerHeredoc(heredocDelimiter);
+		maybeTerminateHeredocDelimiter(heredocPending, context, code);
 
 		if (stop !== STOP_NONE) {
 			if (stop === STOP_BACKTICK && code === 96) return index;
@@ -1083,8 +1619,8 @@ function scanCommand(
 			if (
 				stop === STOP_PAREN &&
 				code === 41 &&
-				parenDepth === 0 &&
-				(caseStack.length === 0 || caseStack[caseStack.length - 1] !== CASE_PATTERN)
+				state.parenDepth === 0 &&
+				caseStackTop(caseStack) !== CASE_PATTERN
 			)
 				return index;
 		}
@@ -1109,33 +1645,11 @@ function scanCommand(
 			while (text.charCodeAt(next) === 32) next++;
 			push(K_SPACE, index);
 			index = next;
-			if (afterAssignmentOp) afterAssignmentOp = false;
+			if (state.afterAssignmentOp) state.afterAssignmentOp = false;
 			continue;
 		}
 		if (isSpaceCode(code)) {
-			let next = index;
-			let newline = -1;
-			while (next < length && isSpaceCode(text.charCodeAt(next))) {
-				if (text.charCodeAt(next) === 10 && newline < 0) newline = next;
-				next++;
-			}
-			if (context.heredocs.length > 0 && newline >= 0) {
-				// Only the newline terminating the command line starts the bodies.
-				const lineEnd = newline + 1;
-				push(K_SPACE, index);
-				index = consumeHeredocs(text, lineEnd, context, push);
-				if (assignmentParenDepth === 0) resetCommand();
-				continue;
-			}
-			push(K_SPACE, index);
-			index = next;
-			// A newline inside an array literal does not end the command word list.
-			if (newline >= 0) {
-				if (assignmentParenDepth === 0) resetCommand();
-			}
-			// An empty assignment value (`FOO= cmd`) ends at the whitespace; a value
-			// can never be separated from `=` by a space.
-			else if (afterAssignmentOp) afterAssignmentOp = false;
+			index = scanWhitespace(text, index, length, context, state, heredocPending, push);
 			continue;
 		}
 
@@ -1158,37 +1672,34 @@ function scanCommand(
 				index++;
 			}
 			push(K_OPERATOR, operatorStart);
-			const phase = caseStack.length > 0 ? caseStack[caseStack.length - 1] : -1;
+			const phase = caseStackTop(caseStack);
 			// `;;`, `;;&`, `;&` end a case item; compare bytes instead of allocating the
 			// operator substring on every `;`/`|`/`&` (operator-dense rows are common).
 			const caseTerminator =
-				phase === CASE_BODY &&
-				index - operatorStart >= 2 &&
-				text.charCodeAt(operatorStart) === 59 &&
-				(text.charCodeAt(operatorStart + 1) === 59 || text.charCodeAt(operatorStart + 1) === 38);
+				phase === CASE_BODY && isCaseItemTerminator(text, operatorStart, index);
 			if (caseTerminator) {
 				caseStack[caseStack.length - 1] = CASE_PATTERN;
-				commandPosition = true;
-			} else if (inConditional || phase === CASE_PATTERN) {
-				commandPosition = false;
+				state.commandPosition = true;
+			} else if (state.inConditional || phase === CASE_PATTERN) {
+				state.commandPosition = false;
 			} else {
-				commandPosition = true;
+				state.commandPosition = true;
 			}
-			endOfOptions = false;
-			wrapper = null;
-			forHeader = false;
-			afterAssignmentOp = false;
-			expectRedirectionTarget = false;
-			execPending = false;
+			state.endOfOptions = false;
+			state.wrapper = null;
+			state.forHeader = false;
+			state.afterAssignmentOp = false;
+			state.expectRedirectionTarget = false;
+			state.execPending = false;
 			continue;
 		}
 
 		if (
 			code === 35 &&
 			index !== wordPartEnd &&
-			!afterAssignmentOp &&
-			!expectRedirectionTarget &&
-			!expectHeredocDelimiter
+			!state.afterAssignmentOp &&
+			!state.expectRedirectionTarget &&
+			!heredocPending.expect
 		) {
 			// A `#` at a fresh word boundary is a comment; glued to a word part it is a word.
 			let end = text.indexOf("\n", index);
@@ -1212,11 +1723,14 @@ function scanCommand(
 			push(K_STRING, tokenStart);
 			index = end;
 			wordPartEnd = end;
-			if (expectHeredocDelimiter) {
-				heredocDelimiter += text.slice(tokenStart + 1, close < 0 ? length : close);
+			if (heredocPending.expect) {
+				appendHeredocDelimiterPart(
+					heredocPending,
+					text.slice(tokenStart + 1, close < 0 ? length : close),
+				);
 				continue;
 			}
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 		if (code === 36 && text.charCodeAt(index + 1) === 39) {
@@ -1239,11 +1753,14 @@ function scanCommand(
 			const closed = text.charCodeAt(end - 1) === 39;
 			index = end;
 			wordPartEnd = end;
-			if (expectHeredocDelimiter) {
-				heredocDelimiter += text.slice(tokenStart + 2, closed ? end - 1 : end);
+			if (heredocPending.expect) {
+				appendHeredocDelimiterPart(
+					heredocPending,
+					text.slice(tokenStart + 2, closed ? end - 1 : end),
+				);
 				continue;
 			}
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 		if (code === 34) {
@@ -1252,11 +1769,14 @@ function scanCommand(
 			const closed = end > tokenStart + 1 && text.charCodeAt(end - 1) === 34;
 			index = end;
 			wordPartEnd = end;
-			if (expectHeredocDelimiter) {
-				heredocDelimiter += text.slice(tokenStart + 1, closed ? end - 1 : end);
+			if (heredocPending.expect) {
+				appendHeredocDelimiterPart(
+					heredocPending,
+					text.slice(tokenStart + 1, closed ? end - 1 : end),
+				);
 				continue;
 			}
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 		if (code === 96) {
@@ -1269,12 +1789,11 @@ function scanCommand(
 				index++;
 			}
 			wordPartEnd = index;
-			if (expectHeredocDelimiter) {
-				expectHeredocDelimiter = false;
-				heredocDelimiter = "";
+			if (heredocPending.expect) {
+				resetHeredocPending(heredocPending);
 				continue;
 			}
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 
@@ -1288,10 +1807,9 @@ function scanCommand(
 				index++;
 			}
 			wordPartEnd = index;
-			if (expectHeredocDelimiter) {
-				expectHeredocDelimiter = false;
-				heredocDelimiter = "";
-			} else settleWord();
+			if (heredocPending.expect) {
+				resetHeredocPending(heredocPending);
+			} else settleWord(caseStack, state);
 			continue;
 		}
 
@@ -1301,22 +1819,22 @@ function scanCommand(
 			if (end !== null) {
 				index = end;
 				wordPartEnd = end;
-				if (expectHeredocDelimiter) {
+				if (heredocPending.expect) {
 					// `<<$X` uses the literal expansion text as the delimiter.
-					heredocDelimiter += text.slice(tokenStart, end);
+					appendHeredocDelimiterPart(heredocPending, text.slice(tokenStart, end));
 					continue;
 				}
-				settleWord();
+				settleWord(caseStack, state);
 				continue;
 			}
 			push(K_ARG, tokenStart);
 			index++;
 			wordPartEnd = index;
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 
-		if (inConditional && (code === 60 || code === 62)) {
+		if (state.inConditional && (code === 60 || code === 62)) {
 			push(K_OPERATOR, index);
 			index++;
 			continue;
@@ -1331,27 +1849,27 @@ function scanCommand(
 			push(K_GLOB, index);
 			index = stopIndex;
 			wordPartEnd = stopIndex;
-			settleWord();
+			settleWord(caseStack, state);
 			continue;
 		}
 
 		if (
 			code === 40 &&
 			text.charCodeAt(index + 1) === 40 &&
-			(commandPosition || forHeader || inConditional)
+			(state.commandPosition || state.forHeader || state.inConditional)
 		) {
 			// Arithmetic command and `for ((...))` header stay one token.
 			const end = findArithmeticEnd(text, index + 2);
 			const stopIndex = text.startsWith("))", end) ? end + 2 : end;
 			push(K_ARITH, index);
 			index = stopIndex;
-			if (forHeader) {
-				forHeader = false;
-				commandPosition = true;
-			} else if (afterAssignmentOp) {
-				afterAssignmentOp = false;
+			if (state.forHeader) {
+				state.forHeader = false;
+				state.commandPosition = true;
+			} else if (state.afterAssignmentOp) {
+				state.afterAssignmentOp = false;
 			} else {
-				commandPosition = !inConditional;
+				state.commandPosition = !state.inConditional;
 			}
 			continue;
 		}
@@ -1363,122 +1881,33 @@ function scanCommand(
 			(isDigitCode(code) && isRedirectionFd(text, index)) ||
 			(code === 123 && isBraceRedirection(text, index));
 		if (fdStart) {
-			// A redirection ends any assignment value (`FOO=bar>baz cmd`).
-			afterAssignmentOp = false;
-			const redirection = scanRedirection(text, index);
-			push(K_REDIRECTION, index);
-			index = redirection.end;
-			if (redirection.heredoc) {
-				expectHeredocDelimiter = true;
-				heredocDelimiter = "";
-				heredocStripTabs = redirection.stripTabs;
-				expectRedirectionTarget = false;
-			} else if (redirection.target) {
-				expectRedirectionTarget = true;
-			} else {
-				expectRedirectionTarget = false;
-			}
+			index = scanRedirectionToken(text, index, state, heredocPending, push);
 			continue;
 		}
 
 		if (code === 40) {
 			push(K_OPERATOR, index);
-			index++;
-			if (assignmentParenDepth > 0) {
-				assignmentParenDepth++;
-				continue;
-			}
-			// `name=(...)` / `name+=(...)`: an array literal, not a subshell. Its
-			// elements are values, so the first element never arms command position.
-			if (afterAssignmentOp || (index > 1 && text.charCodeAt(index - 2) === 61)) {
-				assignmentParenDepth = 1;
-				afterAssignmentOp = false;
-				commandPosition = false;
-				endOfOptions = false;
-				wrapper = null;
-				expectRedirectionTarget = false;
-				execPending = false;
-				continue;
-			}
-			parenDepth++;
-			commandPosition = true;
-			endOfOptions = false;
-			wrapper = null;
-			afterAssignmentOp = false;
-			expectRedirectionTarget = false;
-			execPending = false;
+			index = scanOpenParen(text, index + 1, state);
 			continue;
 		}
 		if (code === 41) {
 			push(K_OPERATOR, index);
 			index++;
-			if (assignmentParenDepth > 0) {
-				assignmentParenDepth--;
-				commandPosition = false;
-				endOfOptions = false;
-				wrapper = null;
-				continue;
-			}
-			parenDepth = Math.max(0, parenDepth - 1);
-			const phase = caseStack.length > 0 ? caseStack[caseStack.length - 1] : -1;
-			if (phase === CASE_PATTERN) {
-				caseStack[caseStack.length - 1] = CASE_BODY;
-				commandPosition = true;
-			} else commandPosition = false;
-			endOfOptions = false;
-			wrapper = null;
+			scanCloseParen(state, caseStack);
 			continue;
 		}
 		if (code === 123 || code === 125) {
-			const next = text.charCodeAt(index + 1);
-			const operator =
-				Number.isNaN(next) ||
-				isSpaceCode(next) ||
-				next === 59 ||
-				next === 124 ||
-				next === 38 ||
-				next === 40 ||
-				next === 41 ||
-				next === 60 ||
-				next === 62;
-			if (operator) {
+			const next = tryScanBraceOperator(text, index, code, state);
+			if (next >= 0) {
 				push(K_OPERATOR, index);
-				index++;
-				commandPosition = code === 123;
-				endOfOptions = false;
-				wrapper = null;
-				expectRedirectionTarget = false;
+				index = next;
 				continue;
 			}
 		}
 		if (code === 33) {
-			if (inConditional) {
-				if (text.charCodeAt(index + 1) === 61) {
-					push(K_OPERATOR, index);
-					index += 2;
-				} else {
-					push(K_OPERATOR, index);
-					index++;
-				}
-				continue;
-			}
-			const previous = index === 0 ? -1 : text.charCodeAt(index - 1);
-			const atWordStart =
-				index === 0 ||
-				isSpaceCode(previous) ||
-				previous === 59 ||
-				previous === 124 ||
-				previous === 38 ||
-				previous === 40 ||
-				previous === 41 ||
-				previous === 123 ||
-				previous === 125 ||
-				previous === 60 ||
-				previous === 62;
-			// `!` negates only a command word; elsewhere it is an ordinary word byte.
-			if (commandPosition && atWordStart) {
-				push(K_OPERATOR, index);
-				index++;
+			const next = tryScanBang(text, index, state, push);
+			if (next >= 0) {
+				index = next;
 				continue;
 			}
 		}
@@ -1486,11 +1915,11 @@ function scanCommand(
 		if (
 			// `env -- FOO=1 cmd` and `sudo -- VAR=x cmd` still assign after `--`, so the
 			// end-of-options marker does not end assignment parsing.
-			(commandPosition || wrapper?.assignments) &&
-			assignmentParenDepth === 0 &&
-			!afterAssignmentOp &&
-			!expectRedirectionTarget &&
-			!expectHeredocDelimiter
+			(state.commandPosition || state.wrapper?.assignments) &&
+			state.assignmentParenDepth === 0 &&
+			!state.afterAssignmentOp &&
+			!state.expectRedirectionTarget &&
+			!heredocPending.expect
 		) {
 			const assignmentEnd = scanAssignment(text, index);
 			if (assignmentEnd > 0) {
@@ -1498,37 +1927,13 @@ function scanCommand(
 				push(K_ASSIGNMENT_NAME, index);
 				push(K_ASSIGNMENT_OP, plus ? assignmentEnd - 2 : assignmentEnd - 1);
 				index = assignmentEnd;
-				afterAssignmentOp = true;
+				state.afterAssignmentOp = true;
 				continue;
 			}
 		}
 
-		// A word: stop only at shell metacharacters, honoring backslash escapes.
 		const wordStart = index;
-		let wordEnd = index;
-		while (wordEnd < length) {
-			const inner = text.charCodeAt(wordEnd);
-			if (inner < 128) {
-				if (WORD_STOP[inner] === 0) {
-					wordEnd++;
-					continue;
-				}
-				if (inner === 40) {
-					if (wordEnd > wordStart && isExtglobPrefix(text.charCodeAt(wordEnd - 1))) {
-						const close = findMatchingParen(text, wordEnd + 1);
-						wordEnd = close < 0 ? length : close;
-						continue;
-					}
-					break;
-				}
-				if (inner === 92) {
-					wordEnd += text.charCodeAt(wordEnd + 1) === 13 ? 3 : 2;
-					continue;
-				}
-				break;
-			}
-			wordEnd++;
-		}
+		const wordEnd = scanWordEnd(text, wordStart, length);
 		if (wordEnd === wordStart) {
 			// Unhandled single byte (for example a stray backslash): never loop.
 			push(K_ARG, index);
@@ -1538,255 +1943,57 @@ function scanCommand(
 		index = wordEnd;
 		wordPartEnd = wordEnd;
 
-		if (assignmentParenDepth > 0) {
+		if (state.assignmentParenDepth > 0) {
 			push(classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
-		if (expectHeredocDelimiter) {
-			heredocDelimiter += normalizeHeredocWord(text.slice(wordStart, wordEnd));
+		if (heredocPending.expect) {
+			appendHeredocDelimiterPart(
+				heredocPending,
+				normalizeHeredocWord(text.slice(wordStart, wordEnd)),
+			);
 			push(K_ARG, wordStart);
 			continue;
 		}
-		if (afterAssignmentOp) {
+		if (state.afterAssignmentOp) {
 			// A plain word continues the assignment value (`PATH=$PATH:/go/bin go build`).
 			push(classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
-		if (expectRedirectionTarget) {
-			expectRedirectionTarget = false;
+		if (state.expectRedirectionTarget) {
+			state.expectRedirectionTarget = false;
 			push(classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
-		if (inConditional) {
+		if (state.inConditional) {
 			if (equalsAt(text, wordStart, wordEnd, "]]")) {
 				push(K_KEYWORD, wordStart);
-				inConditional = false;
-				commandPosition = false;
+				state.inConditional = false;
+				state.commandPosition = false;
 				continue;
 			}
 			const operator = COMPARISON_OPERATORS.has(text.slice(wordStart, wordEnd));
 			push(operator ? K_OPERATOR : classifyValueAt(text, wordStart, wordEnd), wordStart);
 			continue;
 		}
-		if (caseStack.length > 0) {
-			const phase = caseStack[caseStack.length - 1];
-			if (phase === CASE_SUBJECT) {
-				push(classifyValueAt(text, wordStart, wordEnd), wordStart);
-				caseStack[caseStack.length - 1] = CASE_IN;
-				commandPosition = false;
-				continue;
-			}
-			if (phase === CASE_IN) {
-				if (equalsAt(text, wordStart, wordEnd, "in")) {
-					push(K_KEYWORD, wordStart);
-					caseStack[caseStack.length - 1] = CASE_PATTERN;
-					commandPosition = false;
-				} else if (equalsAt(text, wordStart, wordEnd, "esac")) {
-					push(K_KEYWORD, wordStart);
-					caseStack.pop();
-					commandPosition = false;
-				} else push(classifyValueAt(text, wordStart, wordEnd), wordStart);
-				continue;
-			}
-			if (phase === CASE_PATTERN) {
-				// Only `a|esac)` and `(esac)` keep `esac` as a pattern; everywhere else it closes
-				// the case (bash rejects `esac)` at the start of a pattern list).
-				if (equalsAt(text, wordStart, wordEnd, "esac") && !isCasePatternWord(text, wordStart)) {
-					push(K_KEYWORD, wordStart);
-					caseStack.pop();
-					commandPosition = false;
-				} else push(classifyValueAt(text, wordStart, wordEnd), wordStart);
-				continue;
-			}
-			// Body words are ordinary arguments unless esac starts a command.
-			if (equalsAt(text, wordStart, wordEnd, "esac") && commandPosition) {
-				push(K_KEYWORD, wordStart);
-				caseStack.pop();
-				commandPosition = false;
-				continue;
-			}
-		}
-		if (forHeader) {
+		if (tryScanCaseWord(text, wordStart, wordEnd, caseStack, state, push)) continue;
+		if (state.forHeader) {
 			if (equalsAt(text, wordStart, wordEnd, "in")) {
 				push(K_KEYWORD, wordStart);
-				forHeader = false;
-				commandPosition = false;
+				state.forHeader = false;
+				state.commandPosition = false;
 			} else push(K_VARIABLE, wordStart);
 			continue;
 		}
-		if (wrapper) {
-			if (wrapper.pendingValue) {
-				wrapper.pendingValue = false;
-				push(classifyValueAt(text, wordStart, wordEnd), wordStart);
-				continue;
-			}
-			const first = text.charCodeAt(wordStart);
-			if (!endOfOptions && equalsAt(text, wordStart, wordEnd, "--")) {
-				push(K_OPTION, wordStart);
-				endOfOptions = true;
-				continue;
-			}
-			if (!endOfOptions && first === 45 && wordEnd - wordStart > 1) {
-				// Any `-...` word in wrapper state is an option; glued values stay with it.
-				if (text.charCodeAt(wordStart + 1) === 45) {
-					let equals = -1;
-					for (let scan = wordStart + 2; scan < wordEnd; scan++) {
-						if (text.charCodeAt(scan) === 61) {
-							equals = scan;
-							break;
-						}
-					}
-					if (equals > wordStart + 2) {
-						push(K_OPTION, wordStart);
-						push(K_ASSIGNMENT_OP, equals);
-						if (equals + 1 < wordEnd) push(classifyValueAt(text, equals + 1, wordEnd), equals + 1);
-					} else {
-						push(K_OPTION, wordStart);
-						if (wrapper.optsWithValue.has(text.slice(wordStart, wordEnd)))
-							wrapper.pendingValue = true;
-					}
-				} else {
-					const prefix = text.slice(wordStart, wordStart + 2);
-					if (wordEnd - wordStart > 2 && wrapper.optsWithValue.has(prefix)) {
-						let valueStart = wordStart + 2;
-						if (text.charCodeAt(valueStart) === 61) valueStart++;
-						push(K_OPTION, wordStart);
-						if (valueStart < wordEnd) push(classifyValueAt(text, valueStart, wordEnd), valueStart);
-					} else {
-						push(K_OPTION, wordStart);
-						if (wrapper.optsWithValue.has(text.slice(wordStart, wordEnd)))
-							wrapper.pendingValue = true;
-						// A short cluster whose last letter takes a value (`sudo -iu deploy psql`).
-						else if (wordEnd - wordStart > 2 && wrapper.optsWithValue.has(`-${text[wordEnd - 1]}`))
-							wrapper.pendingValue = true;
-					}
-				}
-				continue;
-			}
-			if (wrapper.positionals > 0) {
-				wrapper.positionals--;
-				push(
-					isNumberRange(text, wordStart, wordEnd)
-						? K_NUMBER
-						: classifyValueAt(text, wordStart, wordEnd),
-					wordStart,
-				);
-				continue;
-			}
-			// The wrapper's command word. A wrapper word re-arms the next wrapper so
-			// `sudo … env A=1 cmd`, `time nice -n 10 cmd`, and `timeout 5 xargs …` keep
-			// painting the real command as the verb.
-			const wordLength = wordEnd - wordStart;
-			if (wordLength > MAX_WRAPPER_NAME_LENGTH) {
-				push(K_COMMAND, wordStart);
-				wrapper = null;
-				commandPosition = false;
-				endOfOptions = false;
-				continue;
-			}
-			const word = text.slice(wordStart, wordEnd);
-			const commandClass = COMMAND_CLASS.get(word);
-			push(commandClass === undefined ? K_COMMAND : commandClass >> 3, wordStart);
-			wrapper = word === "time" ? newWrapper("time") : newWrapper(word);
-			commandPosition = false;
-			endOfOptions = false;
+		if (state.wrapper) {
+			state.wrapper = scanWrapperWord(text, wordStart, wordEnd, state.wrapper, state, push);
 			continue;
 		}
-		if (commandPosition) {
-			const wordLength = wordEnd - wordStart;
-			// Most command words are plain binaries; skip the keyword/wrapper/builtin
-			// lookups and the substring for single-byte and long words.
-			if (wordLength === 1) {
-				push(text.charCodeAt(wordStart) === 91 ? K_BUILTIN : K_COMMAND, wordStart);
-				commandPosition = false;
-				endOfOptions = false;
-				continue;
-			}
-			if (wordLength > MAX_KEYWORD_LENGTH) {
-				push(K_COMMAND, wordStart);
-				commandPosition = false;
-				endOfOptions = false;
-				continue;
-			}
-			if (equalsAt(text, wordStart, wordEnd, "[[")) {
-				push(K_KEYWORD, wordStart);
-				inConditional = true;
-				commandPosition = false;
-				continue;
-			}
-			if (equalsAt(text, wordStart, wordEnd, "case")) {
-				push(K_KEYWORD, wordStart);
-				caseStack.push(CASE_SUBJECT);
-				commandPosition = false;
-				continue;
-			}
-			if (equalsAt(text, wordStart, wordEnd, "esac")) {
-				push(K_KEYWORD, wordStart);
-				commandPosition = false;
-				continue;
-			}
-			const word = text.slice(wordStart, wordEnd);
-			const commandClass = COMMAND_CLASS.get(word);
-			if (commandClass === undefined) {
-				push(K_COMMAND, wordStart);
-				commandPosition = false;
-				endOfOptions = false;
-				continue;
-			}
-			push(commandClass >> 3, wordStart);
-			const action = commandClass & 7;
-			if (action === 0) {
-				commandPosition = false;
-			} else if (action === CMD_RESUME) {
-				commandPosition = true;
-			} else if (action === CMD_FOR_HEADER) {
-				forHeader = true;
-				commandPosition = true;
-			} else if (action === CMD_WRAPPER) {
-				wrapper = newWrapper(word);
-				commandPosition = false;
-				endOfOptions = false;
-			} else if (action === CMD_TIME) {
-				wrapper = newWrapper("time");
-				commandPosition = false;
-				endOfOptions = false;
-			} else {
-				commandPosition = true;
-			}
+		if (state.commandPosition) {
+			scanCommandPositionWord(text, wordStart, wordEnd, caseStack, state, push);
 			continue;
 		}
-		if (execPending) {
-			execPending = false;
-			push(BUILTINS.has(text.slice(wordStart, wordEnd)) ? K_BUILTIN : K_COMMAND, wordStart);
-			continue;
-		}
-		if (!endOfOptions && equalsAt(text, wordStart, wordEnd, "--")) {
-			push(K_OPTION, wordStart);
-			endOfOptions = true;
-			continue;
-		}
-		if (!endOfOptions && looksLikeOptionRange(text, wordStart, wordEnd)) {
-			let equals = -1;
-			for (let scan = wordStart + 1; scan < wordEnd; scan++) {
-				if (text.charCodeAt(scan) === 61) {
-					equals = scan;
-					break;
-				}
-			}
-			if (equals > wordStart + 1) {
-				push(K_OPTION, wordStart);
-				push(K_ASSIGNMENT_OP, equals);
-				if (equals + 1 < wordEnd) push(classifyValueAt(text, equals + 1, wordEnd), equals + 1);
-			} else push(K_OPTION, wordStart);
-			// Guard the substring allocation: exec options are a tiny prefix class.
-			if (wordEnd - wordStart >= 3 && text.charCodeAt(wordStart) === 45) {
-				const second = text.charCodeAt(wordStart + 1);
-				if ((second === 101 || second === 111) && EXEC_OPTIONS.has(text.slice(wordStart, wordEnd)))
-					execPending = true;
-			}
-			continue;
-		}
-		push(classifyValueAt(text, wordStart, wordEnd), wordStart);
+		scanOrdinaryWord(text, wordStart, wordEnd, state, push);
 	}
 
 	// EOF: pending heredocs never started; every byte was already emitted.
