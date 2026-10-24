@@ -58,7 +58,8 @@ export class PresentationText extends Text {
 	 * newline produces) always survives.
 	 */
 	private settleRows(rows: string[], source: string, width: number): string[] {
-		if (this.hasCustomBg || !rows.some(isEscapeOnlyRow)) return rows;
+		// An uncolored source cannot produce the wrap artifact, so skip the reference wrap.
+		if (this.hasCustomBg || source.indexOf("\x1b") < 0 || !rows.some(isEscapeOnlyRow)) return rows;
 		const paddingX = Math.min(this.paddingXValue, Math.max(0, Math.floor((width - 1) / 2)));
 		const contentWidth = Math.max(1, width - paddingX * 2);
 		const plainText = source.replace(/\x1b\[[0-9;]*m/g, "");

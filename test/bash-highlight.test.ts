@@ -752,6 +752,28 @@ describe("bash-highlight tokenizer", () => {
 			],
 		],
 		[
+			// `(esac)` opens a pattern list whose entry is the word `esac`.
+			`case x in (esac) echo y;; b) z=1;; esac`,
+			[
+				["keyword", "case"],
+				["arg", "x"],
+				["keyword", "in"],
+				["operator", "("],
+				["arg", "esac"],
+				["operator", ")"],
+				["builtin", "echo"],
+				["arg", "y"],
+				["operator", ";;"],
+				["arg", "b"],
+				["operator", ")"],
+				["assignmentName", "z"],
+				["assignmentOp", "="],
+				["number", "1"],
+				["operator", ";;"],
+				["keyword", "esac"],
+			],
+		],
+		[
 			// Bash rejects `esac)` at the start of a pattern list, so `esac` closes the case
 			// and the following `)` closes the substitution: `foo` is an argument, not a verb.
 			`echo $(case x in a) echo a;; esac) foo`,

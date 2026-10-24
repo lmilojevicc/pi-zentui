@@ -541,6 +541,26 @@ describe("tool-display/bash-display semantic syntax", () => {
 		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m[ \t\n]/);
 		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m$/);
 	});
+	it("keeps degraded whitespace-dense rows wrap-identical and free of pre-whitespace SGR", () => {
+		// The span budget stops painting part-way through a long row. Its closing reset must
+		// still land on a visible byte: an escape directly before a space is attached to that
+		// whitespace token by pi-tui and shifts the wrap geometry.
+		const palette = resolveBashPalette(catTheme);
+		const input = 'if [ "s" ] ; then echo 1 $x ; fi ; '.repeat(200);
+		const painted = paintBashBatch(tokenizeBashBatch(input), palette);
+		expect(strip(painted)).toBe(input);
+		expect(painted).not.toMatch(/\x1b\[39m[ \t\n]/);
+		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m[ \t\n]/);
+		expect(painted).not.toMatch(/\x1b\[38;[0-9;]*m\x1b\[39m/);
+		const progress = createBashProgress(undefined, { getMode: () => "semantic" });
+		const row = progress.renderCall({ command: input }, catTheme, ctx());
+		const plain = new PresentationText(`$ ${input}`, 0, 0);
+		for (let width = 10; width <= 200; width++) {
+			expect(row.render(width).map(strip)).toEqual(plain.render(width).map(strip));
+			expect(row.render(width).map(visibleWidth)).toEqual(plain.render(width).map(visibleWidth));
+		}
+		progress.dispose();
+	});
 	it("keeps semantic colors on CRLF rows and never splits a CRLF pair with an SGR", () => {
 		const inputs = [
 			`cat <<'EOF'\r\nhello $x\r\nEOF\r\necho done`,

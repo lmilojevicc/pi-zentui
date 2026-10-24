@@ -339,12 +339,6 @@ function stripForegroundOnly(candidate: string): string {
 	return candidate.replace(FOREGROUND_SGR_ALL, "");
 }
 
-/**
- * Foreground-only equality, line count, length cap, grapheme boundaries and the host
- * word-wrap relocation. ASCII rows (the overwhelming majority) prove the invariant by
- * foreground-strip equality in one native pass; non-ASCII rows keep the per-span scan
- * because only they can split a grapheme cluster.
- */
 export interface ValidateBashPaintOptions {
 	/**
 	 * Move an SGR that precedes whitespace after the whitespace. The owned painters

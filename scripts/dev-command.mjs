@@ -55,13 +55,16 @@ function isBareName(file) {
 export function win32Invocation({ file, args, comspec }) {
 	const command = [file, ...args].map(quoteWin32Arg).join(" ");
 	if (!/\.(?:cmd|bat)$/i.test(file) && !isBareName(file)) {
-		return { file, args: [...args], line: command };
+		return { file, args: [...args], verbatim: false, line: command };
 	}
 	const shell = comspec || process.env.ComSpec || "cmd.exe";
 	const shellArgs = ["/d", "/s", "/c", `"${command}"`];
 	return {
 		file: shell,
 		args: shellArgs,
+		// Without this, libuv re-quotes the `/c` payload with backslash escapes that cmd
+		// does not understand, so the shim is never launched.
+		verbatim: true,
 		// The `/c` payload already is one quoted command line; quote only the prefix.
 		line: `${[shell, ...shellArgs.slice(0, -1)].map(quoteWin32Arg).join(" ")} ${shellArgs[3]}`,
 	};
@@ -93,5 +96,10 @@ export function buildInvocation({
 		...forwarded,
 	];
 	if (platform === "win32") return win32Invocation({ file: resolved.file, args, comspec });
-	return { file: resolved.file, args, line: [resolved.file, ...args].map(quotePosix).join(" ") };
+	return {
+		file: resolved.file,
+		args,
+		verbatim: false,
+		line: [resolved.file, ...args].map(quotePosix).join(" "),
+	};
 }

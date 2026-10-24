@@ -32,6 +32,7 @@ const devCommand = (await import(devCommandUrl)) as {
 	win32Invocation(input: { file: string; args: string[]; comspec?: string }): {
 		file: string;
 		args: string[];
+		verbatim: boolean;
 		line: string;
 	};
 	buildInvocation(input: {
@@ -43,7 +44,7 @@ const devCommand = (await import(devCommandUrl)) as {
 		forwarded?: string[];
 		exists?: (value: string) => boolean;
 		comspec?: string;
-	}): { file: string; args: string[]; line: string };
+	}): { file: string; args: string[]; verbatim: boolean; line: string };
 };
 
 describe("scripts/dev.mjs", () => {
@@ -186,6 +187,7 @@ describe("scripts/dev-command.mjs", () => {
 			// `cmd /s /c` strips the outer pair; the shim keeps its own quotes.
 			'""C:\\Program Files\\pi\\pi.cmd" --no-extensions -e ./extensions/zentui/index.ts"',
 		]);
+		expect(invocation.verbatim).toBe(true);
 		expect(invocation.line).toBe(
 			'C:\\Windows\\system32\\cmd.exe /d /s /c ""C:\\Program Files\\pi\\pi.cmd" --no-extensions -e ./extensions/zentui/index.ts"',
 		);
@@ -204,6 +206,9 @@ describe("scripts/dev-command.mjs", () => {
 		// must go through the interpreter instead of failing with ENOENT.
 		expect(invocation.file).toBe("C:\\Windows\\system32\\cmd.exe");
 		expect(invocation.args[3]).toBe('"pi --no-extensions -e ./extensions/zentui/index.ts"');
+		// The /c payload must reach cmd verbatim; libuv would otherwise escape its quotes
+		// with backslashes, which cmd does not understand.
+		expect(invocation.verbatim).toBe(true);
 	});
 
 	it("resolves the entry and forwarded arguments per platform", () => {

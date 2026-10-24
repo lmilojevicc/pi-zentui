@@ -1809,9 +1809,10 @@ function endsHeredocWord(code: number): boolean {
 }
 
 /**
- * `a|esac)` is an alternation whose second pattern is the word `esac`, so the word is a
- * pattern only directly after a pattern `|`. At the start of a pattern list bash rejects
- * `esac)`/`esac|a)` as a syntax error, so there `esac` always terminates the case.
+ * `a|esac)` and `(esac)` are pattern lists whose entry is the word `esac`, so the word is
+ * a pattern directly after a pattern `|` or after the `(` that opens a pattern list. At
+ * the start of a list bash rejects `esac)`/`esac|a)` as a syntax error, so there `esac`
+ * always terminates the case (and, inside `$( … )`, the following `)` closes it).
  */
 function isCasePatternWord(text: string, wordStart: number): boolean {
 	let index = wordStart - 1;
@@ -1821,7 +1822,7 @@ function isCasePatternWord(text: string, wordStart: number): boolean {
 			index--;
 			continue;
 		}
-		return code === 124;
+		return code === 124 || code === 40;
 	}
 	return false;
 }
@@ -2116,10 +2117,11 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 				}
 				active = color;
 				if (exhausts) {
+					// Paint the word, but leave the run open: its reset is deferred to the first
+					// non-space byte in the tail, because an escape immediately before whitespace
+					// is attached to that whitespace token by pi-tui and shifts wrap geometry.
 					output += source.slice(wordStart, wordEnd);
-					output += RESET_FOREGROUND;
 					cursor = wordEnd;
-					active = undefined;
 					budgetClosed = true;
 					break outer;
 				}
@@ -2129,10 +2131,15 @@ export function paintBashBatch(batch: BashTokenBatch, palette: BashPalette): str
 	}
 	if (cursor < length) {
 		if (budgetClosed && active !== undefined) {
+			// Same placement rule as an ordinary run: cross the whitespace first, then close
+			// the colour at a visible byte so every whitespace token stays escape-free.
+			let gap = cursor;
+			while (gap < length && isPaintSpace(source.charCodeAt(gap))) gap++;
+			output += source.slice(cursor, gap);
 			output += RESET_FOREGROUND;
 			active = undefined;
-		}
-		output += source.slice(cursor);
+			output += source.slice(gap);
+		} else output += source.slice(cursor);
 	}
 	// A colour still open at the end of a natural row is closed after its last byte, which
 	// can only touch trailing whitespace the same way the legacy accent wrapper does.
@@ -2153,7 +2160,6 @@ export function paintBash(tokens: readonly BashToken[], palette: BashPalette): s
 	return paintBashBatch({ source, kinds, starts }, palette);
 }
 
-/** Stable non-object revision signature for hosts without `theme.colors`. */
 /**
  * Stable non-object revision signature for hosts without `theme.colors`. It compares
  * raw theme samples instead of resolving/validating a palette color: the signature only

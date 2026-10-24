@@ -96,7 +96,11 @@ if (dryRun) {
 
 // No shell: a real executable is spawned directly and a `.cmd`/`.bat` shim is wrapped
 // in `cmd /d /s /c` with correctly quoted arguments (see scripts/dev-command.mjs).
-const result = spawnSync(invocation.file, invocation.args, { stdio: "inherit" });
+const result = spawnSync(invocation.file, invocation.args, {
+	stdio: "inherit",
+	// `cmd /d /s /c "<quoted command>"` must reach cmd exactly as built.
+	windowsVerbatimArguments: invocation.verbatim === true,
+});
 
 if (result.error) {
 	const override = BIN_FLAGS[bin];
