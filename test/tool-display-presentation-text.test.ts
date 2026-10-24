@@ -23,11 +23,18 @@ describe("PresentationText layout cache", () => {
 		const setText = vi.spyOn(Text.prototype, "setText");
 		const text = new PresentationText("stable text");
 		const first = text.render(80);
+		// Unbounded rows take the single native wrap; the bounded pre-pass is skipped.
+		expect(scan).toHaveBeenCalledTimes(1);
+		expect(wrap).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(setText).toHaveBeenCalledTimes(1);
 		for (let paint = 0; paint < 100; paint++) expect(text.render(80)).toEqual(first);
 		// Negative control: the uncached implementation repeats all four operations
 		// 101 times, despite producing identical rows. No timing threshold is needed.
-		for (const operation of [scan, wrap, render, setText])
-			expect(operation).toHaveBeenCalledTimes(1);
+		expect(scan).toHaveBeenCalledTimes(1);
+		expect(wrap).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(setText).toHaveBeenCalledTimes(1);
 	});
 
 	it("rebuilds on setters, width changes and explicit invalidation", () => {
@@ -107,6 +114,39 @@ describe("PresentationText layout cache", () => {
 		expect(text.render(80).join("\n")).not.toContain("omitted");
 	});
 
+	it.each([
+		{ name: "2,600 x 600", rows: 2_600, chars: 600, width: 80, expected: 20_001 },
+		{ name: "2,000 x 2,000", rows: 2_000, chars: 2_000, width: 120, expected: 20_001 },
+		{ name: "1,500 x 600", rows: 1_500, chars: 600, width: 80, expected: 12_000 },
+	])("caps the fast path on $name instead of trusting the estimate", (spec) => {
+		const source = Array.from({ length: spec.rows }, () => "x".repeat(spec.chars)).join("\n");
+		const text = new PresentationText(source);
+		const rows = text.render(spec.width);
+		expect(rows).toHaveLength(spec.expected);
+		const last = rows[rows.length - 1].replace(/\x1b\[[0-9;]*m/g, "").trim();
+		if (spec.expected > 20_000) expect(last).toBe("… (preview output omitted)");
+		else expect(last).not.toContain("omitted");
+		for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(spec.width);
+		// The row count is stable on the warm path.
+		expect(text.render(spec.width)).toHaveLength(spec.expected);
+	});
+	it("keeps the single native wrap for ordinary multi-line output", () => {
+		const scan = vi.spyOn(bounds, "boundedContentLines");
+		const wrap = vi.spyOn(bounds, "boundedWrap");
+		const render = vi.spyOn(Text.prototype, "render");
+		const source = Array.from(
+			{ length: 40 },
+			(_, index) => `line ${index} ${"word ".repeat(8)}`,
+		).join("\n");
+		const text = new PresentationText(source);
+		const rows = text.render(80);
+		expect(rows.length).toBeGreaterThanOrEqual(40);
+		expect(wrap).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(text.render(80)).toEqual(rows);
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(scan).toHaveBeenCalledTimes(1);
+	});
 	it.skipIf(!nativeSetPaddingX)("honors invalidation from inherited setPaddingX", () => {
 		if (!nativeSetPaddingX) throw new Error("Native padding setter unavailable");
 		const text = new PresentationText("alpha beta\ngamma", 0, 1);

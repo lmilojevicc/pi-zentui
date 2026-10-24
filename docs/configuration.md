@@ -259,6 +259,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
       "searchOutputMode": "hidden",
       "mcpOutputMode": "hidden",
       "bashOutputMode": "opencode",
+      "bashSyntax": "semantic",
       "previewLines": 8,
       "expandedPreviewMaxLines": 4000,
       "bashCollapsedLines": 10,
@@ -440,7 +441,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 - `components.editor` owns Editor enablement, `opencode | opencode-copy-friendly | accent-rail | minimalist` style selection, color source, border mode, model label, viewport indicators, and all four style configurations.
 - Editor `modelLabel` uses `id` by default; `name` uses the display name with ID fallback. Footer has an independent `modelLabel` control.
 - `components.userMessages` owns User-message enablement, `framed | framed-copy-friendly | compact | labeled` style selection, and color source. Disabling it delegates byte-for-byte to Pi's native renderer.
-- `components.toolDisplay` independently owns opt-in tool-call/result rendering. Disabled or `style: "native"` delegates unchanged. Unsupported hosts stay native; saved preferences remain dormant. Only this owner is persisted by its settings edits, and no pi-tool-display config is read or written. See [Tool display modes, ownership and limits](./tool-display.md).
+- `components.toolDisplay` independently owns opt-in tool-call/result rendering. `bashSyntax` (`semantic | pi`, default `semantic`) colors the Bash command row only; presets never change it. Disabled or `style: "native"` delegates unchanged. Unsupported hosts stay native; saved preferences remain dormant. Only this owner is persisted by its settings edits, and no pi-tool-display config is read or written. See [Tool display modes, ownership and limits](./tool-display.md).
 - `components.thinkingSteps` independently owns opt-in **Thinking (Experimental)** display. It defaults to `{ "enabled": false, "mode": "tree" }`; canonical modes are `rail | tree | streaming`. The former persisted `streaming-experimental` value is accepted only as a migration alias and is normalized to `streaming` on save.
 - All three modes decorate Pi's private host renderer and are tested on exact Pi versions 1.0.0 and 1.0.3. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after live disable require restart; live disable restores native thinking. Disabled mode changes only preconfigure.
 - `components.workingLine.enabled` is the sole Working-line ownership switch. Thinking (Experimental) never enables, configures, or owns the Working line and leaves the existing **Thinking time** option unchanged.

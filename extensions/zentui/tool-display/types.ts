@@ -28,6 +28,8 @@ export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
 export const TOOL_DISPLAY_PRESETS = ["opencode", "balanced", "verbose"] as const;
 export type ToolDisplayPreset = (typeof TOOL_DISPLAY_PRESETS)[number];
 export const TOOL_DISPLAY_STYLES = ["native", ...TOOL_DISPLAY_PRESETS] as const;
+export const BASH_SYNTAX_MODES = ["semantic", "pi"] as const;
+export type BashSyntaxMode = (typeof BASH_SYNTAX_MODES)[number];
 export const READ_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
 export const SEARCH_OUTPUT_MODES = ["hidden", "count", "preview"] as const;
 export const MCP_OUTPUT_MODES = READ_OUTPUT_MODES;
@@ -55,6 +57,8 @@ export interface ToolDisplayConfig {
 	searchOutputMode: (typeof SEARCH_OUTPUT_MODES)[number];
 	mcpOutputMode: OutputMode;
 	bashOutputMode: (typeof BASH_OUTPUT_MODES)[number];
+	/** Command-row syntax colors: semantic lexical palette or the host highlighter. */
+	bashSyntax: BashSyntaxMode;
 	previewLines: number;
 	expandedPreviewMaxLines: number;
 	bashCollapsedLines: number;
@@ -83,6 +87,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	searchOutputMode: "hidden",
 	mcpOutputMode: "hidden",
 	bashOutputMode: "opencode",
+	bashSyntax: "semantic",
 	previewLines: 8,
 	expandedPreviewMaxLines: 4000,
 	bashCollapsedLines: 10,

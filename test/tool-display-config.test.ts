@@ -57,6 +57,17 @@ describe("Tool display owner configuration", () => {
 		expect(b.customToolOverrides.mcp_example.enabled).toBe(true);
 		expect(b.customToolOverrides.mcp_example.outputMode).toBe("summary");
 	});
+	it("persists Bash syntax and never rewrites it through presets", () =>
+		fixture((path) => {
+			writeFileSync(path, JSON.stringify({ components: { toolDisplay: {} } }));
+			let result = saveToolDisplayComponentPatch({ bashSyntax: "pi" }, path);
+			expect(result.components.toolDisplay.bashSyntax).toBe("pi");
+			result = saveToolDisplayComponentPatch(toolDisplayPresetPatch("verbose"), path);
+			expect(result.components.toolDisplay.bashSyntax).toBe("pi");
+			expect(result.components.toolDisplay.style).toBe("verbose");
+			result = saveToolDisplayComponentPatch({ bashSyntax: "semantic" }, path);
+			expect(result.components.toolDisplay.bashSyntax).toBe("semantic");
+		}));
 	it.each(TOOL_DISPLAY_PRESETS)(
 		"roundtrips %s enable/edit/disable/native without touching another config",
 		(preset) =>

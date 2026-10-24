@@ -23,12 +23,28 @@ npm run pi:dev              # runs pi with only this extension loaded
 npm run pi:install-local    # installs the local checkout into your pi extensions
 ```
 
-If your `pi` binary is not at the default path, override it:
+`pi` is resolved from `PATH`, so the same commands work on macOS, Linux and Windows.
+Override the binary when it is not on `PATH`, and forward any Pi flags after `--`:
 
 ```bash
 PI_BIN=/absolute/path/to/pi npm run pi:dev
+npm run pi:dev -- --model provider/model
 ```
 
+Extensions are isolated by default (`--no-extensions -e ./extensions/zentui/index.ts`).
+Add `--keep-extensions` when the session needs an extension-provided provider or model,
+or when resuming a session that used one:
+
+```bash
+npm run pi:dev -- --keep-extensions -- --session <id>
+```
+
+`--keep-extensions` also loads an installed `pi-zentui`, so the session contains two
+copies of this extension. Extension render resolvers compose in load order (Pi's
+`resolveToolRenderers` makes the first-loaded resolver outermost) and both copies claim
+the `$` row when `builtinRendererOverrides.bash` is true, so only the first-loaded one
+owns it; the copies also compete for `/zentui`, the footer and the editor. Disable the
+installed copy, or use `npm run pi:install-local`, when verifying row changes.
 Manual testing is required for any change that affects the footer, editor, user-message styling, runtime/git detection, colors, or `/zentui` settings.
 
 ## Coding expectations

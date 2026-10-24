@@ -97,6 +97,7 @@ import type { ToolDisplayStatus } from "./tool-display/controller.ts";
 import { toolDisplayPresetPatch } from "./tool-display/presets.ts";
 import {
 	BASH_OUTPUT_MODES,
+	BASH_SYNTAX_MODES,
 	BUILTIN_TOOL_NAMES,
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
@@ -1040,6 +1041,7 @@ type ToolDisplayOptionKey = Exclude<
 	keyof ToolDisplayConfig,
 	"enabled" | "style" | "registerToolOverrides" | "builtinRendererOverrides" | "customToolOverrides"
 >;
+const bashSyntaxLabels = { semantic: "Semantic", pi: "Host" } as const;
 const toolDisplayOptions: Array<{
 	key: ToolDisplayOptionKey;
 	label: string;
@@ -1070,6 +1072,13 @@ const toolDisplayOptions: Array<{
 		description:
 			"Opencode collapses; summary counts; preview shows lines. Native Bash needs Override Bash renderer consent.",
 		values: BASH_OUTPUT_MODES,
+	},
+	{
+		key: "bashSyntax",
+		label: "Bash syntax",
+		description:
+			"Semantic paints the $ command row lexically by token type; color-only, follows the theme. Host uses the host Bash highlighter. Needs an owned Bash row (Override Bash renderer consent).",
+		values: BASH_SYNTAX_MODES.map((mode) => bashSyntaxLabels[mode]),
 	},
 	{
 		key: "previewLines",
@@ -1177,7 +1186,12 @@ function buildToolDisplayItems(
 		},
 		...toolDisplayOptions.map(({ key, label, description, values }) => {
 			const value = owner[key];
-			const currentValue = typeof value === "boolean" ? featureValue(value) : String(value);
+			const currentValue =
+				key === "bashSyntax"
+					? bashSyntaxLabels[owner.bashSyntax]
+					: typeof value === "boolean"
+						? featureValue(value)
+						: String(value);
 			return {
 				id: `toolDisplayOption:${key}`,
 				label,
@@ -2217,20 +2231,28 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 													({ key }) => id === `toolDisplayOption:${key}`,
 												);
 												if (!option) return;
-												const current = deps.getConfig().components.toolDisplay[option.key];
-												const validValues =
-													typeof current === "number"
-														? [...option.values, String(current)]
-														: option.values;
-												if (!validValues.includes(newValue)) return;
-												patch = {
-													[option.key]:
-														typeof current === "boolean"
-															? enabled
-															: typeof current === "number"
-																? Number(newValue)
-																: newValue,
-												};
+												if (option.key === "bashSyntax") {
+													const selected = BASH_SYNTAX_MODES.find(
+														(mode) => bashSyntaxLabels[mode] === newValue,
+													);
+													if (!selected) return;
+													patch = { bashSyntax: selected };
+												} else {
+													const current = deps.getConfig().components.toolDisplay[option.key];
+													const validValues =
+														typeof current === "number"
+															? [...option.values, String(current)]
+															: option.values;
+													if (!validValues.includes(newValue)) return;
+													patch = {
+														[option.key]:
+															typeof current === "boolean"
+																? enabled
+																: typeof current === "number"
+																	? Number(newValue)
+																	: newValue,
+													};
+												}
 											}
 											const result = deps.setToolDisplayComponent(patch, ctx);
 											settingsList = makeSettingsList(id);

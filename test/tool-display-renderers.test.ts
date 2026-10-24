@@ -10,8 +10,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createToolDisplayController } from "../extensions/zentui/tool-display/controller.js";
 import type { ToolRenderers } from "../extensions/zentui/tool-display/host-contract.js";
 import { PendingPreimages } from "../extensions/zentui/tool-display/pending.js";
+import { PresentationText } from "../extensions/zentui/tool-display/presentation-text.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
 import {
+	boundedComponent,
 	createToolDisplayRenderers,
 	hasOnlyTextContent,
 	type ToolDisplayRenderContext,
@@ -787,5 +789,26 @@ describe("tool-display/renderers", () => {
 		for (let index = 0; index < 12; index++)
 			expect(output).toContain(`custom ${index + 1}: ${args.message}`);
 		controller.dispose();
+	});
+});
+
+describe("tool-display/renderers boundedComponent", () => {
+	it("passes PresentationText rows through without a per-frame truncation map", () => {
+		const text = new PresentationText("x".repeat(500), 0, 0);
+		const rows = boundedComponent(text, 20).render(120);
+		expect(rows).toEqual(text.render(120));
+		for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(120);
+	});
+	it("still truncates and caps any other component", () => {
+		const stub = { invalidate() {}, render: () => ["x".repeat(500)] };
+		const rows = boundedComponent(stub, 20).render(120);
+		expect(rows).toHaveLength(1);
+		expect(visibleWidth(rows[0])).toBe(120);
+		expect(rows[0].replace(/\x1b\[[0-9;]*m/g, "")).toBe("x".repeat(120));
+	});
+	it("keeps PresentationText's own row cap and omission note", () => {
+		const rows = boundedComponent(new PresentationText("x\n".repeat(20_001), 0, 0), 3).render(80);
+		expect(rows).toHaveLength(4);
+		expect(rows[3].replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).toBe("… (preview output omitted)");
 	});
 });

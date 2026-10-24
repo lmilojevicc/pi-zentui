@@ -7,11 +7,18 @@ import { gunzipSync } from "node:zlib";
 import * as host from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
+import {
+	BASH_KIND_ROLES,
+	BASH_TOKEN_KINDS,
+	resolveBashPalette,
+	tokenizeBashBatch,
+} from "../extensions/zentui/tool-display/bash-highlight.js";
 import { createToolDisplayController } from "../extensions/zentui/tool-display/controller.js";
 import { toolDisplayHighlighter } from "../extensions/zentui/tool-display/host.js";
 import type { ToolRenderers } from "../extensions/zentui/tool-display/host-contract.js";
 import { PendingPreimages, type Preimage } from "../extensions/zentui/tool-display/pending.js";
 import { normalizeToolDisplayConfig } from "../extensions/zentui/tool-display/presets.js";
+import { createToolDisplayRenderers } from "../extensions/zentui/tool-display/renderers.js";
 import type { ToolDisplayConfig } from "../extensions/zentui/tool-display/types.js";
 
 interface Fixture {
@@ -107,6 +114,7 @@ const data = JSON.parse(
 };
 // Real public-card assertions require the modern renderer contract, not older native hosts.
 const exports = host as unknown as Record<string, unknown>;
+
 const currentVersion: unknown = JSON.parse(
 	readFileSync(
 		new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")),
@@ -317,6 +325,8 @@ describe("tool-display pinned complete public-card parity", () => {
 						enabled: true,
 						builtinRendererOverrides: { bash: true },
 						...fixture.config,
+						// Stored rows were generated through the host highlightCode path.
+						...(fixture.name === "bash" ? { bashSyntax: "pi" as const } : {}),
 						customToolOverrides: fixture.kind
 							? {
 									[fixture.name]: {
@@ -427,6 +437,90 @@ describe("tool-display pinned complete public-card parity", () => {
 				host.initTheme("dark", false);
 				rmSync(agent, { recursive: true, force: true });
 				expect(tui.getCapabilities()).toBe(previousCapabilities);
+			}
+		},
+		60000,
+	);
+	(modern ? it : it.skip)(
+		"declares the semantic Bash domain: geometry matches upstream and role colors replace the accent row",
+		async () => {
+			const tui = await import("@earendil-works/pi-tui");
+			const previousCapabilities = tui.getCapabilities();
+			const changed = data.cases.filter((item) => item.name === "bash" && item.bashSyntaxColorOnly);
+			expect(changed).toHaveLength(data.provenance.bashSyntaxColorOnly.vectors);
+			tui.setCapabilities({ ...previousCapabilities, trueColor: true });
+			vi.useFakeTimers();
+			try {
+				for (const fixture of changed) {
+					vi.setSystemTime(fixture.clock);
+					host.initTheme(fixture.theme, false);
+					const cfg = normalizeToolDisplayConfig({
+						enabled: true,
+						builtinRendererOverrides: { bash: true },
+						...fixture.config,
+						bashSyntax: "semantic",
+					});
+					const baseRenderers = createToolDisplayRenderers("bash", () => cfg, {});
+					const baseRenderCall = baseRenderers.renderCall;
+					if (!baseRenderCall) throw new Error("bash renderer has no renderCall");
+					// Capture the live theme so the semantic palette for this fixture can be
+					// resolved without a second render.
+					const captured: { theme?: host.Theme } = {};
+					const renderers: ToolRenderers = {
+						...baseRenderers,
+						renderCall(args, theme, ctx) {
+							captured.theme = theme;
+							return baseRenderCall(args, theme, ctx);
+						},
+					};
+					const row = new host.ToolExecutionComponent(
+						"bash",
+						"fixture",
+						fixture.args,
+						{ showImages: false },
+						renderers,
+						{ requestRender() {} } as unknown as TUI,
+						"/sandbox",
+					);
+					row.updateResult({ ...fixture.result, isError: fixture.error === true }, fixture.partial);
+					if (fixture.argsComplete) row.setArgsComplete();
+					row.setExpanded(fixture.expanded);
+					if (fixture.started) row.markExecutionStarted();
+					if (fixture.elapsed) vi.advanceTimersByTime(fixture.elapsed);
+					const upstream = fixture.upstreamBashRows as string[];
+					const semantic = row.render(fixture.width);
+					const stripAnsi = (row: string) => row.replace(/\x1b\[[0-9;]*m/g, "");
+					expect(semantic).toHaveLength(upstream.length);
+					expect(semantic.map(stripAnsi)).toEqual(upstream.map(stripAnsi));
+					expect(semantic.map(tui.visibleWidth)).toEqual(upstream.map(tui.visibleWidth));
+					// Semantic evidence, not an accent-only fallback or the `pi` host grammar:
+					// the row must carry the colors this fixture's own semantic palette
+					// resolved for the roles in the command.
+					const painted = semantic.join("\n");
+					const openings = new Set(
+						painted.match(/\x1b\[(?:38;[25];[0-9;]+|3[0-7]|9[0-7])m/g) ?? [],
+					);
+					const command = typeof fixture.args.command === "string" ? fixture.args.command : "";
+					const roles = new Set(
+						tokenizeBashBatch(command)
+							.kinds.map((kind) => BASH_KIND_ROLES[BASH_TOKEN_KINDS[kind]])
+							.filter((role) => role !== null),
+					);
+					if (roles.size >= 2) {
+						expect(openings.size).toBeGreaterThanOrEqual(2);
+						const palette = resolveBashPalette(captured.theme as never);
+						const expectedRoles = [...roles]
+							.map((role) => palette.roles[role].ansi)
+							.filter((ansi): ansi is string => ansi !== undefined);
+						expect(expectedRoles.length).toBeGreaterThanOrEqual(2);
+						for (const ansi of expectedRoles) expect(openings.has(ansi)).toBe(true);
+					}
+				}
+			} finally {
+				vi.clearAllTimers();
+				vi.useRealTimers();
+				tui.setCapabilities(previousCapabilities);
+				host.initTheme("dark", false);
 			}
 		},
 		60000,

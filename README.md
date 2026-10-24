@@ -264,12 +264,27 @@ Install the checkout as a local Pi package:
 npm run pi:install-local
 ```
 
-Override the globally installed Pi binary when needed:
+`pi` is resolved from `PATH` (macOS, Linux, Windows). Override it, or pass extra Pi
+flags, when needed:
 
 ```bash
 PI_BIN=/path/to/pi npm run pi:dev
+npm run pi:dev -- --model provider/model
 ```
 
+Add `--keep-extensions` to load the checkout alongside your installed extensions, for
+example to resume a session that used an extension-provided model:
+
+```bash
+npm run pi:dev -- --keep-extensions -- --session <id>
+```
+
+`--keep-extensions` also loads any installed `pi-zentui`, so that session runs two copies
+of the extension. Extension render resolvers compose in load order (Pi's
+`resolveToolRenderers` makes the first-loaded resolver outermost) and both copies claim
+the `$` row when `builtinRendererOverrides.bash` is true, so only the first-loaded one
+owns it; the two copies also compete for `/zentui`, the footer and the editor. Disable
+the installed copy, or use `npm run pi:install-local`, when verifying row changes.
 See [CONTRIBUTING.md](https://github.com/lmilojevicc/pi-zentui/blob/main/CONTRIBUTING.md) for manual UI-test and pull-request expectations.
 
 ## Inspiration and credits

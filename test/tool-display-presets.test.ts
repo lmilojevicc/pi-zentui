@@ -19,11 +19,21 @@ describe("tool-display/presets", () => {
 			expect(patch).not.toHaveProperty("enabled");
 			expect(patch).not.toHaveProperty("registerToolOverrides");
 			expect(patch).not.toHaveProperty("customToolOverrides");
+			expect(patch).not.toHaveProperty("bashSyntax");
 			const config = normalizeToolDisplayConfig({ style });
 			expect(config).toMatchObject(patch);
 			expect(config.enabled).toBe(false);
 		},
 	);
+	it("defaults Bash syntax to semantic and never changes it with presets", () => {
+		expect(DEFAULT_TOOL_DISPLAY_CONFIG.bashSyntax).toBe("semantic");
+		for (const style of ["native", "opencode", "balanced", "verbose"] as const) {
+			expect(normalizeToolDisplayConfig({ style }).bashSyntax).toBe("semantic");
+			expect(normalizeToolDisplayConfig({ style, bashSyntax: "pi" }).bashSyntax).toBe("pi");
+		}
+		for (const value of ["wrong", 1, null, {}, []])
+			expect(normalizeToolDisplayConfig({ bashSyntax: value }).bashSyntax).toBe("semantic");
+	});
 	it("clamps finite limits, rejects invalid modes and keeps exact-name overrides safe", () => {
 		const config = normalizeToolDisplayConfig({
 			enabled: true,

@@ -73,7 +73,7 @@ export interface RendererResources {
 	progress?: BashProgress;
 	mcpNamespaceName?: string;
 }
-function boundedComponent(component: Component, safetyRows: number): Component {
+export function boundedComponent(component: Component, safetyRows: number): Component {
 	if (component instanceof Text) component.setSafetyRows(safetyRows);
 	return {
 		invalidate() {
@@ -83,6 +83,9 @@ function boundedComponent(component: Component, safetyRows: number): Component {
 			const width = safeWidth(rawWidth);
 			if (!width) return [];
 			const rows = component.render(width);
+			// PresentationText already truncates every row it returns and caps its own row
+			// count with the omission notice, so the per-frame map would be all cost.
+			if (component instanceof Text) return rows;
 			// Normal upstream rows pass through byte-for-byte; hard output guard is safety-only.
 			if (rows.length <= 20_000)
 				return rows.map((line) =>
@@ -142,7 +145,8 @@ export function createToolDisplayRenderers(
 	resources: RendererResources = {},
 	custom?: CustomToolDisplayConfig,
 ): ToolRenderers {
-	const progress = resources.progress ?? createBashProgress();
+	const progress =
+		resources.progress ?? createBashProgress(undefined, { getMode: () => getConfig().bashSyntax });
 	const config = (): presentation.PresentationConfig => ({
 		...getConfig(),
 		showRtkCompactionHints: false,
