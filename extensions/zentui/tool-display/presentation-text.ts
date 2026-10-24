@@ -89,10 +89,11 @@ export class PresentationText extends Text {
 	setPaddingX(paddingX: number): void {
 		this.paddingXValue = paddingX;
 		this.layout = undefined;
-		const nativeSetPaddingX = (super.setPaddingX as ((value: number) => void) | undefined)?.bind(
-			this,
-		);
-		nativeSetPaddingX?.(paddingX);
+		// Older supported Pi versions have no native setter, so look it up defensively
+		// instead of extending the base signature.
+		const nativeSetPaddingX = (Text.prototype as Text & { setPaddingX?: (value: number) => void })
+			.setPaddingX;
+		nativeSetPaddingX?.call(this, paddingX);
 	}
 	invalidate(): void {
 		this.layout = undefined;

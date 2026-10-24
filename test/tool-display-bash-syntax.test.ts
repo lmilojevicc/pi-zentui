@@ -470,37 +470,28 @@ describe("tool-display/bash-display semantic syntax", () => {
 			if (artifactCases > 0) expect(accentArtifact).toBe(true);
 		}
 	});
-	it("bounds a painted row's ANSI spans and its host setText+render cost", () => {
-		// A running command calls setText on every spinner tick and every output update, so
-		// the painted row's span count is a per-repaint cost the host pays. The semantic
-		// painter caps it deterministically, which keeps ANSI-aware wrapping close to the
-		// legacy accent row instead of the ~330-span blowup a flag-dense 2 KB row used to
-		// produce (that was ~2.8x the legacy wrap cost).
+	it("bounds a painted row's ANSI spans without paying per-character wrap cost", () => {
+		// A running command calls setText on every spinner tick and every output update, so the
+		// painted row's span count is a per-repaint cost the host pays: pi-tui re-wraps the row
+		// and its ANSI-aware tokenizer walks one token per SGR run. The span budget makes the
+		// added cost depend on the run count, not on the row length, so these assertions are
+		// deterministic instead of wall-clock (a timing ratio flakes on slow CI runners).
 		const palette = resolveBashPalette(catTheme);
 		const rows = [
 			`git log --oneline --all --decorate --graph --simplify-by-decoration && rg -n 'toolDisplay|presentation' extensions/zentui/tool-display --glob '*.ts'`,
 			`echo ${"a/b ".repeat(400)}`,
 		];
-		const measure = (text: string): number => {
-			const target = new Text("", 0, 0);
-			const start = performance.now();
-			for (let tick = 0; tick < 20; tick++) {
-				target.setText(text);
-				target.render(120);
-			}
-			return (performance.now() - start) / 20;
-		};
 		for (const input of rows) {
 			const painted = paintBashBatch(tokenizeBashBatch(input), palette);
 			expect(strip(painted)).toBe(input);
 			const spans = (painted.match(/\x1b\[[0-9;]*m/g) ?? []).length;
 			expect(spans).toBeLessThanOrEqual(96);
-			// Warm both paths, then compare the painted host wrap cost to the plain row.
-			measure(painted);
-			measure(input);
-			const paintedCost = measure(painted);
-			const plainCost = measure(input);
-			expect(paintedCost).toBeLessThan(plainCost * 6);
+			// The host wrap still sees the same rows and the same visible text.
+			expect(new Text(painted, 0, 0).render(120).map(strip)).toEqual(
+				new Text(input, 0, 0).render(120).map(strip),
+			);
+			// ANSI growth stays bounded by the span budget, not by the row length.
+			expect(painted.length - input.length).toBeLessThanOrEqual(spans * 20);
 		}
 	});
 	it("returns a budget-closed tail to the terminal default", () => {
