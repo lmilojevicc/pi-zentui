@@ -6,6 +6,8 @@ import {
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
 	isBuiltinToolName,
+	MAX_COMPATIBLE_TOOL_SOURCE_LENGTH,
+	MAX_COMPATIBLE_TOOL_SOURCES,
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
 	TOOL_DISPLAY_STYLES,
@@ -49,6 +51,24 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
 		? Math.min(max, Math.max(min, Math.floor(value)))
 		: fallback;
 }
+/** Distinct non-empty source strings; synthetic `builtin:` paths are never extensions. */
+function compatibleSources(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const sources = new Set<string>();
+	for (const entry of value) {
+		if (typeof entry !== "string") continue;
+		const source = entry.trim();
+		if (
+			!source ||
+			source.length > MAX_COMPATIBLE_TOOL_SOURCE_LENGTH ||
+			source.startsWith("builtin:")
+		)
+			continue;
+		sources.add(source);
+		if (sources.size === MAX_COMPATIBLE_TOOL_SOURCES) break;
+	}
+	return [...sources];
+}
 /** Normalize owner-local input only. Presets never toggle ownership or other surfaces. */
 export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 	const raw = record(value);
@@ -57,11 +77,13 @@ export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 	const modes = style === "native" ? d : toolDisplayPresetPatch(style);
 	const owned = record(raw.registerToolOverrides);
 	const overrides = record(raw.builtinRendererOverrides);
+	const compatible = record(raw.compatibleToolSources);
 	const config: ToolDisplayConfig = {
 		enabled: raw.enabled === true,
 		style,
 		registerToolOverrides: { ...d.registerToolOverrides },
 		builtinRendererOverrides: {},
+		compatibleToolSources: {},
 		customToolOverrides: {},
 		readOutputMode: choice(raw.readOutputMode, READ_OUTPUT_MODES, modes.readOutputMode),
 		searchOutputMode: choice(raw.searchOutputMode, SEARCH_OUTPUT_MODES, modes.searchOutputMode),
@@ -88,6 +110,8 @@ export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 		if (typeof owned[name] === "boolean") config.registerToolOverrides[name] = owned[name];
 		if (typeof overrides[name] === "boolean")
 			config.builtinRendererOverrides[name] = overrides[name];
+		const sources = compatibleSources(compatible[name]);
+		if (sources.length > 0) config.compatibleToolSources[name] = sources;
 	}
 	for (const [name, value] of Object.entries(record(raw.customToolOverrides)).slice(0, 100)) {
 		if (

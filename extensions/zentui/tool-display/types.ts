@@ -51,6 +51,12 @@ export interface ToolDisplayConfig {
 	registerToolOverrides: Record<BuiltinToolName, boolean>;
 	/** Explicit rendering-only consent for an ambiguous native builtin renderer. */
 	builtinRendererOverrides: Partial<Record<BuiltinToolName, boolean>>;
+	/**
+	 * Extensions whose replacement of a builtin tool keeps its contract (arguments and
+	 * result shape), named by extension path or one of its path segments. Listing one is
+	 * explicit consent to render that extension's tool like the native builtin.
+	 */
+	compatibleToolSources: Partial<Record<BuiltinToolName, string[]>>;
 	/** Exact names only; no automatic MCP/extension tool takeover. */
 	customToolOverrides: Record<string, CustomToolDisplayConfig>;
 	readOutputMode: OutputMode;
@@ -82,6 +88,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		ls: true,
 	},
 	builtinRendererOverrides: {},
+	compatibleToolSources: {},
 	customToolOverrides: {},
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",
@@ -98,6 +105,9 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	diffWordWrap: true,
 	showTruncationHints: false,
 };
+/** Most sources one builtin tool may list, and the longest source accepted. */
+export const MAX_COMPATIBLE_TOOL_SOURCES = 20;
+export const MAX_COMPATIBLE_TOOL_SOURCE_LENGTH = 400;
 export function isBuiltinToolName(name: string): name is BuiltinToolName {
 	return (BUILTIN_TOOL_NAMES as readonly string[]).includes(name);
 }

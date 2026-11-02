@@ -351,6 +351,34 @@ copies claim these surfaces; extension render resolvers compose in load order (t
 first-loaded is outermost) and only that copy owns the `$` row. Disable the installed
 copy, or use `npm run pi:install-local`, when verifying row changes.
 
+### Compatible replacements of builtin tools
+
+An extension can replace a builtin tool while keeping its contract: the same arguments
+and result shape, with only execution changed (for example a `bash` that keeps long
+commands running in the background). Its tool no longer has native builtin provenance,
+so Tool display delegates to the extension's own renderer, and Bash loses its semantic
+`$` row. `compatibleToolSources` names such extensions per builtin tool:
+
+```json
+{
+  "components": {
+    "toolDisplay": {
+      "compatibleToolSources": { "bash": ["bash-improved"] }
+    }
+  }
+}
+```
+
+An entry matches the tool's source path exactly, or is one whole segment of it
+(`bash-improved` matches `~/.pi/agent/extensions/bash-improved/index.ts`; `bash` and
+`extensions/bash-improved` do not). A matching tool is rendered like the native builtin,
+including its owned Bash row, preview modes and spinner. Listing an extension is the
+consent to replace that tool's own renderer, so `builtinRendererOverrides` is not needed
+for it; `registerToolOverrides.<tool>: false` and a disabled Tool display still delegate.
+Every other replacement keeps delegating as before. Only list extensions whose arguments
+and results really match the builtin's: Tool display reads them as the builtin's. The
+setting is JSON-only, takes at most 20 entries per tool, and ignores `builtin:` paths.
+
 Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matching:
 
 ```json
