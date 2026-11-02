@@ -254,6 +254,7 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
         "grep": true, "find": true, "ls": true
       },
       "builtinRendererOverrides": {},
+      "compatibleToolSources": {},
       "customToolOverrides": {},
       "readOutputMode": "hidden",
       "searchOutputMode": "hidden",

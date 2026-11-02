@@ -6,6 +6,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { createBashProgress } from "../extensions/zentui/tool-display/bash-display.js";
 import {
+	compatibleSource,
 	createToolDisplayController,
 	type ToolDisplayRendererAPI,
 } from "../extensions/zentui/tool-display/controller.js";
@@ -124,6 +125,53 @@ describe("tool-display/controller (public resolver only)", () => {
 				.render(80)
 				.map((line) => line.trimEnd()),
 		).toEqual(["predecessor result"]);
+	});
+	it("a listed compatible source renders like the builtin; other sources keep delegating", () => {
+		const path = "/home/me/.pi/agent/extensions/bash-improved/index.ts";
+		const own = (raw: unknown, toolPath = path) => {
+			const api = {
+				registerToolRenderer: vi.fn<(resolver: ToolRendererResolver) => void>(),
+				getAllTools: vi.fn(() => [
+					{ name: "bash", sourceInfo: { source: "local", path: toolPath } },
+				]),
+			};
+			const controller = createToolDisplayController(api, () => normalizeToolDisplayConfig(raw), {
+				nativeRenderers: {},
+			});
+			return controller.resolver("bash", () => predecessor);
+		};
+		const listed = { enabled: true, compatibleToolSources: { bash: ["bash-improved"] } };
+		const owned = own(listed);
+		expect(owned).not.toBe(predecessor);
+		expect(owned?.renderShell).toBe("default");
+		expect(own({ ...listed, compatibleToolSources: { bash: [path] } })).not.toBe(predecessor);
+		// Not listed, listed for another tool, a partial name, or Bash ownership switched off.
+		expect(own({ enabled: true })).toBe(predecessor);
+		expect(own({ enabled: true, compatibleToolSources: { read: ["bash-improved"] } })).toBe(
+			predecessor,
+		);
+		expect(own({ enabled: true, compatibleToolSources: { bash: ["bash"] } })).toBe(predecessor);
+		expect(own({ ...listed, registerToolOverrides: { bash: false } })).toBe(predecessor);
+		expect(own({ ...listed, enabled: false })).toBe(predecessor);
+		expect(own(listed, "/home/me/.pi/agent/extensions/other-bash/index.ts")).toBe(predecessor);
+	});
+	it("compatible sources match an exact path or one whole path segment, never builtin paths", () => {
+		const path = "/a/extensions/bash-improved/index.ts";
+		expect(compatibleSource(path, ["bash-improved"])).toBe(true);
+		expect(compatibleSource(path, [path])).toBe(true);
+		expect(compatibleSource("C:\\pi\\bash-improved\\index.ts", ["bash-improved"])).toBe(true);
+		expect(compatibleSource(path, ["improved"])).toBe(false);
+		expect(compatibleSource(path, ["extensions/bash-improved"])).toBe(false);
+		expect(compatibleSource("builtin:bash", ["builtin:bash"])).toBe(false);
+		expect(compatibleSource(undefined, ["bash-improved"])).toBe(false);
+		expect(
+			normalizeToolDisplayConfig({
+				compatibleToolSources: {
+					bash: [" bash-improved ", "bash-improved", "", 3, "builtin:bash"],
+					nope: ["x"],
+				},
+			}).compatibleToolSources,
+		).toEqual({ bash: ["bash-improved"] });
 	});
 	it("foreign definitions are skipped even when advanced rendering consent is true", () => {
 		const { controller } = setup(

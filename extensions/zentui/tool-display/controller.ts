@@ -92,6 +92,22 @@ function rendererIdentityMatches(
 		actual.renderShell === native.renderShell
 	);
 }
+/**
+ * Whether a tool's source path is one of the listed compatible sources: the exact path,
+ * or a listed name that is one whole segment of it (`bash-improved` matches
+ * `/home/me/.pi/agent/extensions/bash-improved/index.ts`).
+ */
+export function compatibleSource(
+	path: string | undefined,
+	sources: readonly string[] | undefined,
+): boolean {
+	if (!path || !sources?.length || path.startsWith("builtin:")) return false;
+	const segments = path.split(/[\\/]/);
+	return sources.some(
+		(source) => source === path || (!/[\\/]/.test(source) && segments.includes(source)),
+	);
+}
+
 /** One runtime-scoped resolver. Pi returns void; disposal makes the closure delegate forever. */
 export function createToolDisplayController(
 	api: ToolDisplayRendererAPI,
@@ -140,6 +156,9 @@ export function createToolDisplayController(
 			} catch {
 				return false;
 			}
+			// An extension the user listed as keeping the builtin's contract is rendered like
+			// it; listing it is the consent to replace that tool's own renderer.
+			if (compatibleSource(source?.path, config.compatibleToolSources[name])) return true;
 			if (source?.source !== "builtin" || source.path !== `builtin:${name}`) return false;
 			return (
 				!previous ||
