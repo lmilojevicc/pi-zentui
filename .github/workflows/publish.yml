@@ -8,22 +8,27 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  # Everything that runs dependency code happens here, with no publish token.
+  verify:
     runs-on: ubuntu-latest
-    environment: npm-publish
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install dependencies
@@ -35,18 +40,47 @@ jobs:
       - name: Dry-run pack
         run: npm run pack:check
 
+  # Holds the OIDC publish permission, so it installs nothing and runs no package
+  # scripts: the package ships its TypeScript sources as-is.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
       - name: Check tag matches package version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TAG="${GITHUB_REF_NAME#v}"
           test "$VERSION" = "$TAG"
 
+      - name: Dry-run pack
+        run: npm run pack:check
+
+      # --ignore-scripts: prepublishOnly would re-run the verify job's work here,
+      # beside the token.
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --ignore-scripts
 
   release:
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
 
@@ -54,8 +88,8 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          REPO="${{ github.repository }}"
           if gh release view "${GITHUB_REF_NAME}" --repo "$REPO" >/dev/null 2>&1; then
             echo "Release ${GITHUB_REF_NAME} already exists; skipping."
           else

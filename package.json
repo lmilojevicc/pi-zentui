@@ -29,7 +29,7 @@
 		"docs/tool-display-attribution.md"
 	],
 	"scripts": {
-		"lint": "biome check .",
+		"lint": "oxlint --type-aware",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run --testTimeout=30000",
 		"test:behavior-compatibility": "node test/behavior-compatibility.mjs",
@@ -39,9 +39,9 @@
 		"pi:install-local": "node scripts/dev.mjs --bin pi -- install ./ -l",
 		"omp:dev": "node scripts/dev.mjs --bin omp --entry ./omp.ts",
 		"omp:install-local": "node scripts/dev.mjs --bin omp -- plugin link ./",
-		"fmt": "biome format --write .",
-		"fmt:check": "biome format .",
-		"verify": "npm run lint && npm run typecheck && npm run test",
+		"fmt": "oxfmt",
+		"fmt:check": "oxfmt --check",
+		"verify": "npm run lint && npm run fmt:check && npm run typecheck && npm run test",
 		"pack:check": "node test/package-contents.mjs",
 		"prepublishOnly": "npm run verify && npm run pack:check"
 	},
@@ -88,7 +88,6 @@
 		"access": "public"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.14",
 		"@earendil-works/pi-ai": "^1.0.3",
 		"@earendil-works/pi-coding-agent": "^1.0.3",
 		"@earendil-works/pi-tui": "^1.0.3",
@@ -96,6 +95,9 @@
 		"@oh-my-pi/pi-coding-agent": "18.8.9",
 		"@oh-my-pi/pi-tui": "18.8.9",
 		"@types/node": "^26.6.2",
+		"oxfmt": "0.75.0",
+		"oxlint": "1.90.0",
+		"oxlint-tsgolint": "7.0.2005",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.1"
 	}
