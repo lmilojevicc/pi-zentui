@@ -507,7 +507,13 @@ function configWithLowRailStyle(lowRail: boolean): PolishedTuiConfig {
 }
 
 function stripPromptMarks(line: string): string {
-	return line.replaceAll(/\x1b]133;[ABC]\x07/g, "").replaceAll(/\x1b\[[0-9;]*m/g, "");
+	return (
+		line
+			.replaceAll(/\x1b]133;[ABC]\x07/g, "")
+			.replaceAll(/\x1b\[[0-9;]*m/g, "")
+			// Pi 1.4+ fake-cursor markers (zero width).
+			.replaceAll(/\x1b_pi:\/?fc\x07/g, "")
+	);
 }
 
 function expectSinglePromptZone(rendered: string): void {
@@ -7184,6 +7190,14 @@ describe("three-state Footer lifecycle", () => {
 describe("component preset lifecycle", () => {
 	type EditorFactory = NonNullable<Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0]>;
 	type SettingsComponent = { handleInput(data: string): void; render(width: number): string[] };
+	/** Pi's own dialog-stack methods, on the versions that have them. */
+	function dialogStackMethods(): Record<string, unknown> {
+		const proto = InteractiveMode.prototype as unknown as Record<string, unknown>;
+		const names = ["pushExtensionDialog", "removeExtensionDialog", "showTopExtensionDialog"];
+		return Object.fromEntries(
+			names.filter((name) => typeof proto[name] === "function").map((name) => [name, proto[name]]),
+		);
+	}
 	function presetMenuHost() {
 		initTheme(undefined, false);
 		let focused: unknown;
@@ -7207,6 +7221,11 @@ describe("component preset lifecycle", () => {
 			ui: tui,
 			keybindings: { matches: () => false },
 			disposeActiveSelector() {},
+			// Pi 1.4+ shows custom panels through a dialog stack; earlier Pi swaps the
+			// editor slot directly and never reads these.
+			extensionDialogs: [] as unknown[],
+			programStatus: { setBlocked() {} },
+			...dialogStackMethods(),
 		};
 		// Exercise Pi's actual custom-panel restoration and editor replacement contracts.
 		const methods = InteractiveMode.prototype as unknown as {

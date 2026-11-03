@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import * as host from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
@@ -127,6 +127,35 @@ const modern =
 	(major > 1 || (major === 1 && (minor > 0 || patch >= 3))) &&
 	typeof exports.createReadToolDefinition === "function" &&
 	typeof exports.ToolExecutionComponent === "function";
+// pi-tui 1.5 wraps words without leaving a space or blank row where a wrap lands
+// on whitespace. On those hosts the cards it reflows are compared exactly with
+// a snapshot taken there, and must keep the oracle's words, order and widths.
+// Refresh it with ZENTUI_UPDATE_WRAP_SNAPSHOT=1 on pi-tui 1.5+.
+const tuiVersion = String(
+	JSON.parse(
+		readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-tui")), "utf8"),
+	).version,
+);
+const [tuiMajor, tuiMinor] = tuiVersion.split(".").map(Number);
+const reflowingWrap = tuiMajor > 1 || (tuiMajor === 1 && tuiMinor >= 5);
+const wrapSnapshotUrl = new URL(
+	"./fixtures/tool-display-parity-pi-tui-1.5-wrap.json.gz",
+	import.meta.url,
+);
+const updateWrapSnapshot = reflowingWrap && process.env.ZENTUI_UPDATE_WRAP_SNAPSHOT === "1";
+const wrapSnapshot: Record<string, string[]> =
+	reflowingWrap && !updateWrapSnapshot
+		? JSON.parse(gunzipSync(readFileSync(wrapSnapshotUrl)).toString("utf8"))
+		: {};
+const sgrPattern = /\x1b\[[0-9;]*m/g;
+const visibleWords = (rows: string[]) =>
+	rows
+		.map((row) => row.replace(sgrPattern, ""))
+		.join(" ")
+		.split(/\s+/)
+		.filter(Boolean);
+const visibleWidths = (rows: string[]) => rows.map((row) => row.replace(sgrPattern, "").length);
+
 describe("tool-display pinned complete public-card parity", () => {
 	it("records unchanged upstream provenance and real reference palette", () => {
 		expect(data.provenance.commit).toBe("91cef7580078371f8dc49a8607222807ad6a424d");
@@ -318,6 +347,7 @@ describe("tool-display pinned complete public-card parity", () => {
 				tui.setCapabilities({ ...previousCapabilities, trueColor: true });
 				expect(data.provenance.liveTheme.mode).toBe("truecolor");
 				expect(tui.getCapabilities().trueColor).toBe(true);
+				const reflowed: Record<number, string[]> = {};
 				for (const [index, fixture] of data.cases.entries()) {
 					vi.setSystemTime(fixture.clock);
 					host.initTheme(fixture.theme, false);
@@ -417,10 +447,21 @@ describe("tool-display pinned complete public-card parity", () => {
 					row.setExpanded(fixture.expanded);
 					if (fixture.started) row.markExecutionStarted();
 					if (fixture.elapsed) vi.advanceTimersByTime(fixture.elapsed);
-					expect(
-						row.render(fixture.width),
-						`fixture${index} ${fixture.name}/${fixture.theme}/${fixture.width} ${JSON.stringify(fixture.config)}`,
-					).toEqual(fixture.rows);
+					const rendered = row.render(fixture.width);
+					const label = `fixture${index} ${fixture.name}/${fixture.theme}/${fixture.width} ${JSON.stringify(fixture.config)}`;
+					if (updateWrapSnapshot) {
+						if (JSON.stringify(rendered) !== JSON.stringify(fixture.rows))
+							reflowed[index] = rendered;
+					} else if (reflowingWrap && wrapSnapshot[index]) {
+						expect(rendered, label).toEqual(wrapSnapshot[index]);
+						expect(visibleWords(rendered), label).toEqual(visibleWords(fixture.rows));
+						expect(rendered.length, label).toBeLessThanOrEqual(fixture.rows.length);
+						expect(Math.max(...visibleWidths(rendered)), label).toBeLessThanOrEqual(
+							Math.max(...visibleWidths(fixture.rows)),
+						);
+					} else {
+						expect(rendered, label).toEqual(fixture.rows);
+					}
 					for (const output of row.render(fixture.width))
 						expect(Buffer.from(output, "utf8").toString("utf8")).toBe(output);
 					if (fixture.unicodeCorrected) expect(fixture.rows).not.toEqual(fixture.unchangedRows);
@@ -428,6 +469,8 @@ describe("tool-display pinned complete public-card parity", () => {
 					controller.dispose();
 					expect(vi.getTimerCount()).toBe(0);
 				}
+				if (updateWrapSnapshot)
+					writeFileSync(wrapSnapshotUrl, gzipSync(JSON.stringify(reflowed), { level: 9 }));
 			} finally {
 				tui.setCapabilities(previousCapabilities);
 				vi.useRealTimers();
