@@ -11,9 +11,9 @@ and model-facing prompt metadata remain unchanged.
 
 ```json
 {
-  "components": {
-    "toolDisplay": { "enabled": true, "style": "balanced" }
-  }
+	"components": {
+		"toolDisplay": { "enabled": true, "style": "balanced" }
+	}
 }
 ```
 
@@ -31,11 +31,11 @@ preview/Bash line counts; it never enables the component or changes ownership
 consent, diff settings, or another surface. Missing modes/counts in hand-written
 JSON inherit the selected preset. Explicit values win.
 
-| Preset | Read | Grep/find/ls | Opted-in MCP | Bash | Preview lines | Bash lines |
-| --- | --- | --- | --- | --- | --- | --- |
-| Opencode | hidden | hidden | hidden | opencode | 8 | 10 |
-| Balanced | summary | count | summary | summary | 8 | 10 |
-| Verbose | preview | preview | preview | preview | 12 | 20 |
+| Preset   | Read    | Grep/find/ls | Opted-in MCP | Bash     | Preview lines | Bash lines |
+| -------- | ------- | ------------ | ------------ | -------- | ------------- | ---------- |
+| Opencode | hidden  | hidden       | hidden       | opencode | 8             | 10         |
+| Balanced | summary | count        | summary      | summary  | 8             | 10         |
+| Verbose  | preview | preview      | preview      | preview  | 12            | 20         |
 
 Custom is a derived menu label when these fields differ from their preset; it
 is not a saved style or selectable profile. The menu displays nonstandard saved
@@ -89,11 +89,11 @@ omitted from the payload. Search/describe extras remain visible as `[limit=8]` o
 
 ### MCP output modes
 
-| MCP mode | Collapsed | Expanded |
-| --- | --- | --- |
+| MCP mode                | Collapsed                                                                | Expanded                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | `preview` (recommended) | Call args + `• Ctrl+O to expand` when text output exists; no result text | Same call, blank line, `output:` on its own line, then every result line, subject to documented safety/expanded-preview caps |
-| `summary` | Call args + the same hint when text output exists; no result text/count | Same call, blank line, `output:`, then `↳ N lines returned` (nonempty logical lines, before wrapping); no result text |
-| `hidden` | Call args only, no output hint | Same call; no output, even errors |
+| `summary`               | Call args + the same hint when text output exists; no result text/count  | Same call, blank line, `output:`, then `↳ N lines returned` (nonempty logical lines, before wrapping); no result text        |
+| `hidden`                | Call args only, no output hint                                           | Same call; no output, even errors                                                                                            |
 
 An empty Preview expansion shows `output:` followed by `↳ (no output)`; Summary
 shows zero lines returned. No hint is added for empty text output or Hidden mode.
@@ -131,18 +131,18 @@ and unrelated surfaces remain unchanged.
 
 ## Preview, diff, and Bash controls
 
-| Field | Default | Accepted values |
-| --- | --- | --- |
-| `previewLines` | 8 | 1–80 |
-| `bashCollapsedLines` | 10 | 0–80 |
-| `bashSyntax` | semantic | semantic, pi |
-| `expandedPreviewMaxLines` | 4000 | 0–20000; 0 uses the safety cap |
-| `diffViewMode` | auto | auto, split, unified |
-| `diffIndicatorMode` | bars | bars, classic, none |
-| `diffSplitMinWidth` | 120 | 70–240 columns |
-| `diffCollapsedLines` | 24 | 4–240 visual rows |
-| `diffWordWrap` | true | boolean |
-| `showTruncationHints` | false | optional backend truncation hints |
+| Field                     | Default  | Accepted values                   |
+| ------------------------- | -------- | --------------------------------- |
+| `previewLines`            | 8        | 1–80                              |
+| `bashCollapsedLines`      | 10       | 0–80                              |
+| `bashSyntax`              | semantic | semantic, pi                      |
+| `expandedPreviewMaxLines` | 4000     | 0–20000; 0 uses the safety cap    |
+| `diffViewMode`            | auto     | auto, split, unified              |
+| `diffIndicatorMode`       | bars     | bars, classic, none               |
+| `diffSplitMinWidth`       | 120      | 70–240 columns                    |
+| `diffCollapsedLines`      | 24       | 4–240 visual rows                 |
+| `diffWordWrap`            | true     | boolean                           |
+| `showTruncationHints`     | false    | optional backend truncation hints |
 
 Finite numbers are floored and clamped; invalid values use defaults (preset
 counts where applicable). Auto diffs prefer split above the threshold. Narrow
@@ -307,9 +307,9 @@ armed so the verb color is accurate.
 
 ```json
 {
-  "components": {
-    "toolDisplay": { "enabled": true, "bashSyntax": "semantic" }
-  }
+	"components": {
+		"toolDisplay": { "enabled": true, "bashSyntax": "semantic" }
+	}
 }
 ```
 
@@ -335,11 +335,11 @@ choice can be set in JSON:
 
 ```json
 {
-  "components": {
-    "toolDisplay": {
-      "builtinRendererOverrides": { "bash": true }
-    }
-  }
+	"components": {
+		"toolDisplay": {
+			"builtinRendererOverrides": { "bash": true }
+		}
+	}
 }
 ```
 
@@ -361,11 +361,11 @@ so Tool display delegates to the extension's own renderer, and Bash loses its se
 
 ```json
 {
-  "components": {
-    "toolDisplay": {
-      "compatibleToolSources": { "bash": ["bash-improved"] }
-    }
-  }
+	"components": {
+		"toolDisplay": {
+			"compatibleToolSources": { "bash": ["bash-improved"] }
+		}
+	}
 }
 ```
 
@@ -383,14 +383,14 @@ Custom/MCP ownership is **exact-name opt-in**, not wildcard or heuristic matchin
 
 ```json
 {
-  "components": {
-    "toolDisplay": {
-      "customToolOverrides": {
-        "my_lookup": { "enabled": true, "kind": "generic", "outputMode": "summary" },
-        "mcp__example__lookup": { "enabled": true, "kind": "mcp" }
-      }
-    }
-  }
+	"components": {
+		"toolDisplay": {
+			"customToolOverrides": {
+				"my_lookup": { "enabled": true, "kind": "generic", "outputMode": "summary" },
+				"mcp__example__lookup": { "enabled": true, "kind": "mcp" }
+			}
+		}
+	}
 }
 ```
 

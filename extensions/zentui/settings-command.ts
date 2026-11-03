@@ -1939,9 +1939,9 @@ export function registerZentuiSettingsCommand(pi: ExtensionAPI, deps: SettingsCo
 								activeSection === "appearance"
 									? "selectorBorders"
 									: activeSection === "editor" ||
-											activeSection === "userMessages" ||
-											activeSection === "workingLine" ||
-											activeSection === "footer"
+										  activeSection === "userMessages" ||
+										  activeSection === "workingLine" ||
+										  activeSection === "footer"
 										? activeSection
 										: undefined;
 							if (colorOwner)

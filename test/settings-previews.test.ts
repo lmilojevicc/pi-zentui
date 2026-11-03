@@ -44,7 +44,7 @@ function plain(lines: string[]): string {
 function expectOnlyTrustedSgr(rows: string[], hostileText: readonly string[] = []): void {
 	for (const row of rows) {
 		expect(row).not.toMatch(/[\r\n]/);
-		for (let index = 0; index < row.length; ) {
+		for (let index = 0; index < row.length;) {
 			const code = row.charCodeAt(index);
 			if (code === 0x1b) {
 				const sgr = /^\x1b\[[0-9:;]*m/.exec(row.slice(index));

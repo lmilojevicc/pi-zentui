@@ -18,15 +18,15 @@ A complete left/right layout:
 
 ```json
 {
-  "components": {
-    "footer": {
-      "styles": {
-        "starship": {
-          "format": "$os $username $cwd($sep$session_name)( on $git_branch)( $git_status)( via $runtime)$fill($context)($sep$tokens)($sep$cost)($sep$time)"
-        }
-      }
-    }
-  }
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$os $username $cwd($sep$session_name)( on $git_branch)( $git_status)( via $runtime)$fill($context)($sep$tokens)($sep$cost)($sep$time)"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -34,15 +34,15 @@ Center the branch between directory and cost:
 
 ```json
 {
-  "components": {
-    "footer": {
-      "styles": {
-        "starship": {
-          "format": "$cwd $fill $git_branch $fill $cost"
-        }
-      }
-    }
-  }
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$cwd $fill $git_branch $fill $cost"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -56,13 +56,12 @@ Add `$model $provider( $thinkingLevel)` to `components.footer.styles.starship.co
 
 In OMP, include the independent fast-mode token with `/zentui format "$model $provider( $thinkingLevel)( · $fast_mode)"`. Add it to `compactFormat` separately if needed. `$fast_mode` uses the active model's service-tier family and OMP's model capability checks, not another provider family's saved priority preference.
 
-
 To keep metadata on the right, set both templates independently:
 
 ```json
 {
-  "format": "$cwd( in $session_name)( on $git_branch)( $git_status)( $git_state)( via $runtime)$fill$model($sep$provider)($sep$thinkingLevel)($sep$context)( $auto_compaction)($sep$tokens)( $cache_read)( $cache_write)($sep$cost)( $subscription)",
-  "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$fill$model$wrap_sep($provider)$wrap_sep($thinkingLevel)$wrap_sep$context$wrap_sep$tokens"
+	"format": "$cwd( in $session_name)( on $git_branch)( $git_status)( $git_state)( via $runtime)$fill$model($sep$provider)($sep$thinkingLevel)($sep$context)( $auto_compaction)($sep$tokens)( $cache_read)( $cache_write)($sep$cost)( $subscription)",
+	"compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$fill$model$wrap_sep($provider)$wrap_sep($thinkingLevel)$wrap_sep$context$wrap_sep$tokens"
 }
 ```
 
@@ -81,40 +80,40 @@ The released flat `footerFormat` and `footerSegments` keys remain accepted only 
 
 ## Variables
 
-| Token | Aliases | Renders |
-| --- | --- | --- |
-| `$cwd` | `$directory` | current directory |
-| `$session_name` | | current Pi session name |
-| `$git_branch` | `$branch` | Git branch with icon |
-| `$git_status` | `$status` | `[!?↑]` status block |
-| `$git_state` | `$state` | `REBASING`, `MERGING`, and similar state, with optional `n/m` |
-| `$git_commit` | `$commit` | short commit hash and exact-match tag when present |
-| `$git_tag` | `$tag` | exact-match tag at HEAD |
-| `$git_metrics` | | aggregate line changes `+added −deleted` |
-| `$git_added` | | added line count (`+N`) |
-| `$git_deleted` | | deleted line count (`−N`) |
-| `$runtime` | | runtime icon and version |
-| `$model` | | selected Footer model label |
-| `$provider` | | formatted provider label |
-| `$thinkingLevel` | | current thinking level; empty when unavailable or `off` |
-| `$fast_mode` | | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
-| `$package` | | project package version as `is <glyph> <version>` |
-| `$package_version` | | raw project package version |
-| `$session_duration` | `$duration` | session running time |
-| `$username` | | `user@host` |
-| `$os` | | operating-system icon |
-| `$time` | | current time `HH:MM` |
-| `$context` | | context usage; finite percentages use one decimal |
-| `$codex_quota` | | remaining account quota, for example `5h 80% | week 60%`; gated by `components.footer.codexQuota` |
-| `$tokens` | | input/output totals and existing cache-hit percentage |
-| `$cache_read` | | cache-read total (`R1.2k`); empty at zero or when unavailable |
-| `$cache_write` | | cache-write total (`W300`); empty at zero or when unavailable |
-| `$cost` | | session cost |
-| `$subscription` | | `(sub)` in subscription mode; otherwise empty |
-| `$auto_compaction` | | `(auto)` when automatic compaction is enabled |
-| `$sep` | `$separator` | themed `|` using `colors.separator` |
-| `$join_sep` | — | join populated sibling fields with the styled surface separator |
-| `$fill` | — | wide or compact layout boundary |
+| Token               | Aliases      | Renders                                                                                     |
+| ------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| `$cwd`              | `$directory` | current directory                                                                           |
+| `$session_name`     |              | current Pi session name                                                                     |
+| `$git_branch`       | `$branch`    | Git branch with icon                                                                        |
+| `$git_status`       | `$status`    | `[!?↑]` status block                                                                        |
+| `$git_state`        | `$state`     | `REBASING`, `MERGING`, and similar state, with optional `n/m`                               |
+| `$git_commit`       | `$commit`    | short commit hash and exact-match tag when present                                          |
+| `$git_tag`          | `$tag`       | exact-match tag at HEAD                                                                     |
+| `$git_metrics`      |              | aggregate line changes `+added −deleted`                                                    |
+| `$git_added`        |              | added line count (`+N`)                                                                     |
+| `$git_deleted`      |              | deleted line count (`−N`)                                                                   |
+| `$runtime`          |              | runtime icon and version                                                                    |
+| `$model`            |              | selected Footer model label                                                                 |
+| `$provider`         |              | formatted provider label                                                                    |
+| `$thinkingLevel`    |              | current thinking level; empty when unavailable or `off`                                     |
+| `$fast_mode`        |              | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
+| `$package`          |              | project package version as `is <glyph> <version>`                                           |
+| `$package_version`  |              | raw project package version                                                                 |
+| `$session_duration` | `$duration`  | session running time                                                                        |
+| `$username`         |              | `user@host`                                                                                 |
+| `$os`               |              | operating-system icon                                                                       |
+| `$time`             |              | current time `HH:MM`                                                                        |
+| `$context`          |              | context usage; finite percentages use one decimal                                           |
+| `$codex_quota`      |              | remaining account quota, for example `5h 80%                                                | week 60%`; gated by `components.footer.codexQuota` |
+| `$tokens`           |              | input/output totals and existing cache-hit percentage                                       |
+| `$cache_read`       |              | cache-read total (`R1.2k`); empty at zero or when unavailable                               |
+| `$cache_write`      |              | cache-write total (`W300`); empty at zero or when unavailable                               |
+| `$cost`             |              | session cost                                                                                |
+| `$subscription`     |              | `(sub)` in subscription mode; otherwise empty                                               |
+| `$auto_compaction`  |              | `(auto)` when automatic compaction is enabled                                               |
+| `$sep`              | `$separator` | themed `                                                                                    | `using`colors.separator`                           |
+| `$join_sep`         | —            | join populated sibling fields with the styled surface separator                             |
+| `$fill`             | —            | wide or compact layout boundary                                                             |
 
 Each variable renders its core value without prose prefixes such as `on` or `via`; add those words as literals.
 
@@ -134,8 +133,8 @@ For example:
 
 ```json
 {
-  "format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $loop_mode)$fill$context( · $active_time)( · $token_rate)",
-  "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
+	"format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $loop_mode)$fill$context( · $active_time)( · $token_rate)",
+	"compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
 }
 ```
 
@@ -172,25 +171,25 @@ Repository mode recognizes normal repositories and `.git` file worktrees. If the
 
 `components.footer.styles.starship.compactFormat` also supports:
 
-| Token | Behavior |
-| --- | --- |
-| `$wrap` | starts a new compact chunk with a space boundary; the packer keeps it on the current line when it fits or wraps it to the next line |
-| `$wrap_sep` | starts a new compact chunk with the configured `$sep` boundary instead of a plain space |
+| Token         | Behavior                                                                                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `$wrap`       | starts a new compact chunk with a space boundary; the packer keeps it on the current line when it fits or wraps it to the next line       |
+| `$wrap_sep`   | starts a new compact chunk with the configured `$sep` boundary instead of a plain space                                                   |
 | `$extensions` | expands active third-party statuses into independently packable compact chunks, preserving their rendered text and configured color modes |
 
 Example:
 
 ```json
 {
-  "components": {
-    "footer": {
-      "styles": {
-        "starship": {
-          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep$extensions"
-        }
-      }
-    }
-  }
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep$extensions"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -205,18 +204,18 @@ template:
 
 ```json
 {
-  "components": {
-    "footer": {
-      "styles": {
-        "starship": {
-          "variables": { "quota": "@scope/usage:quota" },
-          "extensionColorMode": "original",
-          "format": "$cwd$fill($quota)($sep$cost)",
-          "compactFormat": "$cwd$fill($quota)$wrap_sep$tokens"
-        }
-      }
-    }
-  }
+	"components": {
+		"footer": {
+			"styles": {
+				"starship": {
+					"variables": { "quota": "@scope/usage:quota" },
+					"extensionColorMode": "original",
+					"format": "$cwd$fill($quota)($sep$cost)",
+					"compactFormat": "$cwd$fill($quota)$wrap_sep$tokens"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -251,12 +250,12 @@ surface does not evict a value still consumed by another owned surface.
 
 In the wide template:
 
-| Count | Layout |
-| ---: | --- |
-| 0 | everything left-aligned |
-| 1 | tokens before are left-aligned; tokens after are right-aligned |
-| 2 | before first is left, between is truly centered, after second is right |
-| 3+ | first two count; extras are ignored |
+| Count | Layout                                                                 |
+| ----: | ---------------------------------------------------------------------- |
+|     0 | everything left-aligned                                                |
+|     1 | tokens before are left-aligned; tokens after are right-aligned         |
+|     2 | before first is left, between is truly centered, after second is right |
+|    3+ | first two count; extras are ignored                                    |
 
 The centered middle zone uses `floor((gap - middle) / 2)`, matching third-party statuses placed in the middle. During responsive two-row reflow, custom templates with a top-level `$fill` keep the right-bearing row right-aligned; a middle zone sharing that row retains its order, not centering.
 
@@ -295,8 +294,8 @@ content. Retained fields keep their ANSI styles, hyperlinks, Unicode and icons.
 **Do not pad the marker with spaces:** the surface's already styled separator
 owns its spacing. Retained field output is not implicitly trimmed; any literal
 padding inside a populated field remains template-owned. Footer uses its existing
-styled ` | `, Minimalist its configured ` – ` or ` · `, and both Opencode variants
-use neutral border-styled ` · ` for this marker only.
+styled `|`, Minimalist its configured `–` or `·`, and both Opencode variants
+use neutral border-styled `·` for this marker only.
 
 Each parenthesized group is a local sibling scope. For example,
 `$a$join_sep($b$join_sep$c)` joins the group as a whole to `a`, while
