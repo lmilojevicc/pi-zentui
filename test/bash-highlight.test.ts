@@ -153,13 +153,11 @@ const CORPUS = [
 	`python3 - <<'PY'\nprint(1)\nPY`,
 	`3<<<x`,
 	`a=1 b=2; echo $a`,
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion.
 	"echo ${x%.*}.png",
 	`echo a\necho b`,
 	`echo\t"tab"\r\necho done`,
 	`echo \\\n  continued`,
 	`echo "$(printf '%s' "$HOME")"`,
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell nested parameter expansion.
 	"echo ${A:-${B:-c}}",
 	`cat file | while read -r line; do echo "$line"; done`,
 	`git diff --stat HEAD~3 -- "*.ts"`,
@@ -831,11 +829,9 @@ describe("bash-highlight tokenizer", () => {
 			],
 		],
 		[
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion.
 			"echo ${x}#y",
 			[
 				["builtin", "echo"],
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion.
 				["variable", "${x}"],
 				["arg", "#y"],
 			],

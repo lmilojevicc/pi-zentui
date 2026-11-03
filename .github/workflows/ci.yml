@@ -6,20 +6,26 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify:
+  static:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -27,23 +33,72 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify static checks
-        run: npm run lint && npm run typecheck
+      - name: Lint
+        run: npm run lint
 
-      - name: Test clean-terminal Auto fallback
-        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET -u ZENTUI_NERD_FONTS TERM=dumb CI=true npm test
+      - name: Format
+        run: npm run fmt:check
 
-      - name: Test forced ASCII override
-        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET TERM=dumb CI=true ZENTUI_NERD_FONTS=0 npm test
-
-      - name: Test known Nerd terminal
-        run: env -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET -u ZENTUI_NERD_FONTS TERM=dumb CI=true TERM_PROGRAM=WezTerm npm test
-
-      - name: Test forced Nerd override
-        run: env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET TERM=dumb CI=true ZENTUI_NERD_FONTS=1 npm test
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Dry-run pack
         run: npm run pack:check
+
+  # The same suite under each terminal/glyph detection mode, in parallel instead
+  # of four runs in a row.
+  test:
+    name: test (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [auto-fallback, forced-ascii, known-nerd-terminal, forced-nerd]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test ${{ matrix.mode }}
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          base=(env -u TERM_PROGRAM -u KITTY_WINDOW_ID -u ALACRITTY_SOCKET -u ZENTUI_NERD_FONTS TERM=dumb CI=true)
+          case "$MODE" in
+            auto-fallback)       "${base[@]}" npm test ;;
+            forced-ascii)        "${base[@]}" ZENTUI_NERD_FONTS=0 npm test ;;
+            known-nerd-terminal) "${base[@]}" TERM_PROGRAM=WezTerm npm test ;;
+            forced-nerd)         "${base[@]}" ZENTUI_NERD_FONTS=1 npm test ;;
+            *) echo "unknown mode $MODE" >&2; exit 1 ;;
+          esac
+
+  # The required check. One always-running job, so a failed, skipped or
+  # cancelled dependency can never report green.
+  verify:
+    if: always()
+    needs: [static, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Require every check
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do test "$result" = success; done
 
   thinking-experimental-tui:
     runs-on: ubuntu-latest
@@ -51,10 +106,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -71,10 +128,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -96,10 +155,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm

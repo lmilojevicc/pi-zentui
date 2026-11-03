@@ -27,15 +27,15 @@ Editor, User messages, Thinking (Experimental), Working line, Tool display, and 
 
 ## Highlights
 
-| Surface | Default | Available treatments |
-| --- | --- | --- |
-| Editor | `opencode` | Opencode, copy-friendly, Accent Rail, Minimalist |
-| User messages | `framed` | Framed, copy-friendly, Compact, Labeled |
-| Thinking (Experimental) | disabled (`tree`) | Rail, Tree, Streaming |
-| Working line | disabled | Five spinner presets, live tool/time/thinking/token segments, turn summary |
-| Tool display | disabled (`opencode`) | Native, Opencode, Balanced, Verbose |
-| Footer | `starship` | Native, Starship, Hidden |
-| Selector borders | `zentui` | Independent enablement and color source |
+| Surface                 | Default               | Available treatments                                                       |
+| ----------------------- | --------------------- | -------------------------------------------------------------------------- |
+| Editor                  | `opencode`            | Opencode, copy-friendly, Accent Rail, Minimalist                           |
+| User messages           | `framed`              | Framed, copy-friendly, Compact, Labeled                                    |
+| Thinking (Experimental) | disabled (`tree`)     | Rail, Tree, Streaming                                                      |
+| Working line            | disabled              | Five spinner presets, live tool/time/thinking/token segments, turn summary |
+| Tool display            | disabled (`opencode`) | Native, Opencode, Balanced, Verbose                                        |
+| Footer                  | `starship`            | Native, Starship, Hidden                                                   |
+| Selector borders        | `zentui`              | Independent enablement and color source                                    |
 
 The Starship Footer shows directory, Git, runtime, context, tokens, and cost. Optional segments include model/provider, package version, session duration, `user@host`, time, OS, Git commit, Git metrics, and third-party extension statuses. The layout is segment-driven by default and supports a complete Starship-style format template.
 
@@ -139,7 +139,6 @@ OMP also exposes opt-in [template data](./docs/configuration.md#omp-template-dat
 
 **Statusline → Starship** replaces OMP's native status content rather than adding another line. **Hidden** suppresses native main status content and shows only permitted extension statuses; **Native** restores OMP's own line. This works with Zentui Editor enabled or disabled. OMP's inert `setFooter()` API is adapted through guarded, session-scoped native renderer decoration; native settings and other sessions/previews are left alone. All built-in composer layouts are supported; unfamiliar frame/message shapes fail open. See [OMP compatibility](./docs/configuration.md#oh-my-pi-compatibility).
 
-
 ## Configure
 
 Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking (Experimental), Working line, Tool display, Footer, and Extension statuses. With Starship selected, Footer contains **Segments →** and **Git →** child pages. Use `Tab` and `Shift+Tab` to switch sections; compact help follows your configured selection keys. Every section has a direct route (for example, `/zentui footer`). `/zentui segments` and `/zentui git` open Footer child pages when Starship is active; under Native or Hidden they open Footer with a requires-Starship explanation. `/zentui extensions` always opens independent default/per-key status visibility, without changing Footer style or other keys' saved Starship placement/color preferences. Per-key Off hides that status in every Footer style, including Starship, and clears the key's placement in the current mode only, leaving other modes' saved placements untouched. The configured cancel key returns from a child to Footer; at the top level it closes settings. Extension statuses are published keyed Footer statuses, not extension management or Working line integrations. Inactive options retain their saved preferences. Most changes apply live. Active Streaming can switch live to Rail or Tree, and Rail and Tree can switch live between each other. Entering Streaming from a structural mode, first enable, and re-enable after a live disable require restarting Pi. Configuration is saved to:
@@ -152,12 +151,12 @@ Run `/zentui` inside Pi to configure Appearance, Editor, User messages, Thinking
 
 Choose **Appearance → Preset** in `/zentui`, or run `/zentui preset <id>`:
 
-| ID | Editor (enabled) | Footer | User messages |
-| --- | --- | --- | --- |
-| `opencode` | Opencode | Starship | Framed |
-| `opencode-copy-friendly` | Opencode (copy-friendly) | Starship | Framed (copy-friendly) |
-| `rail` | Accent Rail | Starship | Compact (accent rail) |
-| `minimalist` | Minimalist | Hidden (statuses only) | Zentui styling disabled |
+| ID                       | Editor (enabled)         | Footer                 | User messages           |
+| ------------------------ | ------------------------ | ---------------------- | ----------------------- |
+| `opencode`               | Opencode                 | Starship               | Framed                  |
+| `opencode-copy-friendly` | Opencode (copy-friendly) | Starship               | Framed (copy-friendly)  |
+| `rail`                   | Accent Rail              | Starship               | Compact (accent rail)   |
+| `minimalist`             | Minimalist               | Hidden (statuses only) | Zentui styling disabled |
 
 Presets apply once, saving only these component selections. Colors, color sources, style options, icons, Footer segments/formats, selector borders, Working line, and Thinking remain unchanged. Minimalist preserves the dormant message style and leaves Pi's native message presentation alone. Hidden suppresses main Footer segments, not allowed extension statuses; it is not Native.
 
@@ -171,9 +170,9 @@ Change only what you need. For example, this changes only the Editor's accent:
 
 ```json
 {
-  "components": {
-    "editor": { "colors": { "accent": "bold blue" } }
-  }
+	"components": {
+		"editor": { "colors": { "accent": "bold blue" } }
+	}
 }
 ```
 
@@ -183,10 +182,10 @@ The vertical rail glyph is configurable per surface as well. `components.editor.
 
 ```json
 {
-  "components": {
-    "editor": { "rail": "┃" },
-    "userMessages": { "rail": "▌" }
-  }
+	"components": {
+		"editor": { "rail": "┃" },
+		"userMessages": { "rail": "▌" }
+	}
 }
 ```
 
@@ -196,12 +195,12 @@ To adopt **only User messages**, explicitly leave the other default-enabled surf
 
 ```json
 {
-  "components": {
-    "editor": { "enabled": false },
-    "userMessages": { "enabled": true, "style": "framed" },
-    "selectorBorders": { "enabled": false },
-    "footer": { "style": "native" }
-  }
+	"components": {
+		"editor": { "enabled": false },
+		"userMessages": { "enabled": true, "style": "framed" },
+		"selectorBorders": { "enabled": false },
+		"footer": { "style": "native" }
+	}
 }
 ```
 

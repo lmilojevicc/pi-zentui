@@ -446,9 +446,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 			// rendered safe border geometry before the separately owned Working row can hide.
 			return Boolean(
 				sessionLifecycle.isCurrent() &&
-					effectiveEditorEnabled() &&
-					currentConfig.components.editor.style !== "accent-rail" &&
-					visibleEditor()?.canEmbedWorkingLineBorder(),
+				effectiveEditorEnabled() &&
+				currentConfig.components.editor.style !== "accent-rail" &&
+				visibleEditor()?.canEmbedWorkingLineBorder(),
 			);
 		},
 	);
@@ -549,8 +549,8 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 	const ownsInstalledFooter = () =>
 		Boolean(
 			activeTuiContext &&
-				installedFooterToken &&
-				ctxFooterOwner(activeTuiContext) === installedFooterToken,
+			installedFooterToken &&
+			ctxFooterOwner(activeTuiContext) === installedFooterToken,
 		);
 	const installedFooterReferences = () =>
 		installedFooterKind === "starship" && ownsInstalledFooter()
@@ -586,9 +586,9 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				{
 					editor: Boolean(
 						current &&
-							effectiveEditorEnabled() &&
-							editorConsumerActive() &&
-							visibleEditor()?.isMetadataDecorated() === true,
+						effectiveEditorEnabled() &&
+						editorConsumerActive() &&
+						visibleEditor()?.isMetadataDecorated() === true,
 					),
 					footer: Boolean(current && installedFooterKind === "starship" && ownsInstalledFooter()),
 					workingLine: Boolean(

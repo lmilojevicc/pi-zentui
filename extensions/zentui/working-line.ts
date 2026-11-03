@@ -1631,11 +1631,11 @@ export class WorkingLineController {
 			ownsCurrentRow = this.isAvailable() && workingLineUi(ctx) === ui;
 			canEmbed = Boolean(
 				this.agentActive &&
-					ownsCurrentRow &&
-					this.getConfig().components.workingLine.placement === "border" &&
-					ui &&
-					typeof ui.setWorkingVisible === "function" &&
-					this.canEmbedBorder(ctx),
+				ownsCurrentRow &&
+				this.getConfig().components.workingLine.placement === "border" &&
+				ui &&
+				typeof ui.setWorkingVisible === "function" &&
+				this.canEmbedBorder(ctx),
 			);
 		} catch {
 			// Capability probes, including predecessor editor getters, must fail open.

@@ -1,0 +1,13 @@
+# Fast local checks before every push. Install once per clone: `lefthook install`.
+pre-push:
+  parallel: true
+  jobs:
+    - name: oxfmt
+      glob: "*.{ts,js,mjs,json,jsonc,md,yml,yaml}"
+      run: npx oxfmt --check --no-error-on-unmatched-pattern {push_files}
+    - name: oxlint
+      glob: "*.{ts,js,mjs}"
+      run: npm run lint
+    - name: typecheck
+      glob: "*.ts"
+      run: npm run typecheck

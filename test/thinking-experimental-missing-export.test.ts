@@ -9,9 +9,8 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 
 describe("Streaming (Experimental) optional private export", () => {
 	it("loads fail-open and preserves the selected mode when the private constructor is absent", async () => {
-		const { ThinkingExperimentalController } = await import(
-			"../extensions/zentui/thinking-experimental"
-		);
+		const { ThinkingExperimentalController } =
+			await import("../extensions/zentui/thinking-experimental");
 		const config = { enabled: true, mode: "streaming" as const };
 		const value = new ThinkingExperimentalController(() => config);
 		const ctx = {
