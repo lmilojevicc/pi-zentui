@@ -516,8 +516,12 @@ export function composeEditorMetadataLine(
 	)}${rightText}`;
 }
 
+/** Visible text: drops SGR/CSI, OSC and APC sequences. Pi 1.4+ marks the fake
+ * cursor with zero-width APC markers (`\x1b_pi:fc\x07`) inside editor rows. */
 function ansiStrippedText(line: string): string {
-	return line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+	return line
+		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+		.replace(/\x1b[\]_][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
 }
 
 function plainRenderedText(line: string): string {
