@@ -76,6 +76,7 @@ interface BashSpinnerState {
 		text: Text;
 		args: BashCallArgs;
 		theme: BashCallRenderTheme;
+		commandHint?: string;
 		invalidate?: () => void;
 	};
 	frameIndex: number;
@@ -180,6 +181,7 @@ function buildBashCallText(
 	spinnerFrame: string | undefined,
 	elapsedMs: number | undefined,
 	commandSegment: string,
+	commandHint?: string,
 ): string {
 	const shellSuffix =
 		typeof args.shellPath === "string" &&
@@ -197,7 +199,8 @@ function buildBashCallText(
 	// The semantic painter returns color bytes for the command only; the legacy `pi`
 	// path returns its historical accent-wrapped display (prefix included). Neither is
 	// wrapped again here.
-	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${commandSegment}${shellSuffix}${timeoutSuffix}${elapsedSuffix}`;
+	const hintSuffix = commandHint ? theme.fg("muted", ` ${commandHint}`) : "";
+	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${commandSegment}${shellSuffix}${timeoutSuffix}${elapsedSuffix}${hintSuffix}`;
 }
 
 // Only foreground SGR is permitted: resets/backgrounds/styles could change the host card.
@@ -904,6 +907,7 @@ export function createBashProgress(
 		args: BashCallArgs,
 		theme: BashCallRenderTheme,
 		context: BashCallRenderContextLike,
+		commandHint?: string,
 	): Text {
 		const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 		const carrier = toStateCarrier(context.state);
@@ -924,13 +928,20 @@ export function createBashProgress(
 		if (!shouldSpin) {
 			stopSpinner(toolCallId, spinnerState);
 			text.setText(
-				buildBashCallText(args, theme, undefined, undefined, commandSegment(args, theme, admit)),
+				buildBashCallText(
+					args,
+					theme,
+					undefined,
+					undefined,
+					commandSegment(args, theme, admit),
+					commandHint,
+				),
 			);
 			return text;
 		}
 
 		if (spinnerState) {
-			spinnerState.target = { text, args, theme, invalidate: context.invalidate };
+			spinnerState.target = { text, args, theme, commandHint, invalidate: context.invalidate };
 			spinnerState.admit = admit;
 			spinnerState.startedAt ??= Date.now();
 			if (!spinnerState.timer && typeof context.invalidate === "function") {
@@ -945,6 +956,7 @@ export function createBashProgress(
 							BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 							Date.now() - (spinnerState.startedAt ?? Date.now()),
 							commandSegment(target.args, target.theme, spinnerState.admit === true),
+							target.commandHint,
 						),
 					);
 					target.invalidate?.();
@@ -957,7 +969,14 @@ export function createBashProgress(
 		const elapsedMs =
 			spinnerState?.startedAt !== undefined ? Date.now() - spinnerState.startedAt : undefined;
 		text.setText(
-			buildBashCallText(args, theme, spinnerFrame, elapsedMs, commandSegment(args, theme, admit)),
+			buildBashCallText(
+				args,
+				theme,
+				spinnerFrame,
+				elapsedMs,
+				commandSegment(args, theme, admit),
+				commandHint,
+			),
 		);
 		return text;
 	}

@@ -249,6 +249,7 @@ export function createToolDisplayController(
 				config.mcpOutputMode,
 				config.bashOutputMode,
 				config.bashSyntax,
+				config.bashCommandMaxChars,
 				config.previewLines,
 				config.expandedPreviewMaxLines,
 				config.bashCollapsedLines,

@@ -134,7 +134,8 @@ and unrelated surfaces remain unchanged.
 | Field                     | Default  | Accepted values                   |
 | ------------------------- | -------- | --------------------------------- |
 | `previewLines`            | 8        | 1–80                              |
-| `bashCollapsedLines`      | 10       | 0–80                              |
+| `bashCollapsedLines`      | 10       | 0–80 Bash output lines            |
+| `bashCommandMaxChars`     | 0        | 0–2000; 0 shows full command      |
 | `bashSyntax`              | semantic | semantic, pi                      |
 | `expandedPreviewMaxLines` | 4000     | 0–20000; 0 uses the safety cap    |
 | `diffViewMode`            | auto     | auto, split, unified              |
@@ -143,6 +144,11 @@ and unrelated surfaces remain unchanged.
 | `diffCollapsedLines`      | 24       | 4–240 visual rows                 |
 | `diffWordWrap`            | true     | boolean                           |
 | `showTruncationHints`     | false    | optional backend truncation hints |
+
+Set **Bash command preview** in `/zentui tool-display` (for example, to `160`)
+to show just the first line of a collapsed Bash command, up to that character
+limit. Press Ctrl+O (or your configured tool expansion key) to see the rest,
+subject to the existing renderer safety limits. Bash output has its own settings.
 
 Finite numbers are floored and clamped; invalid values use defaults (preset
 counts where applicable). Auto diffs prefer split above the threshold. Narrow

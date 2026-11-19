@@ -227,17 +227,33 @@ export function createToolDisplayRenderers(
 				switch (name) {
 					case "read":
 						return presentation.renderReadDisplayCall(input, theme);
-					case "bash":
-						return boundedComponent(
-							progress.renderCall(
-								callCapped
-									? { ...input, command: `${String(input.command ?? "")} … (call preview capped)` }
-									: input,
-								theme,
-								ctx,
-							),
-							20000,
-						);
+					case "bash": {
+						const limit = ctx.expanded ? 0 : getConfig().bashCommandMaxChars;
+						const command = input.command;
+						let commandHint: string | undefined;
+						if (limit && typeof command === "string") {
+							const newline = command.indexOf("\n");
+							const preview = graphemePrefix(
+								command,
+								limit,
+								0,
+								newline < 0 ? command.length : newline,
+							);
+							if (preview.length < command.length) {
+								const host = ctx as ToolDisplayRenderContext & {
+									keyHint?: (keybinding: string, description: string) => string;
+								};
+								const hint =
+									host.keyHint?.("app.tools.expand", "to expand command") ??
+									"Ctrl+O to expand command";
+								input.command = preview;
+								commandHint = hint ? `… • ${hint}` : "…";
+							}
+						}
+						if (callCapped && !commandHint)
+							input.command = `${typeof command === "string" ? command : ""} … (call preview capped)`;
+						return boundedComponent(progress.renderCall(input, theme, ctx, commandHint), 20000);
+					}
 					case "grep":
 						return presentation.formatSearchCallLine(
 							name,

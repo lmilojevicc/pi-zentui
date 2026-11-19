@@ -94,6 +94,43 @@ describe("tool-display/renderers", () => {
 					expect(visibleWidth(line)).toBeLessThanOrEqual(Number.isFinite(width) ? width : 0);
 		},
 	);
+	it("folds a Bash heredoc independently of output and reveals it on tool expansion", () => {
+		initTheme("dark", false);
+		const args = { command: "cat >/dev/null <<'EOF'\nfirst body line\nlast body line\nEOF" };
+		const cfg = () => normalizeToolDisplayConfig({ enabled: true, bashCommandMaxChars: 80 });
+		const controller = createToolDisplayController(
+			{
+				getAllTools: () => [
+					{ name: "bash", sourceInfo: { source: "builtin", path: "builtin:bash" } },
+				],
+			},
+			cfg,
+			{ nativeRenderers: {} },
+		);
+		const row = new ToolExecutionComponent(
+			"bash",
+			"heredoc",
+			args,
+			{ showImages: false },
+			controller.resolver("bash", () => undefined),
+			{ requestRender() {} } as unknown as TUI,
+			"/sandbox",
+		);
+		row.updateResult({ ...result(""), isError: false });
+		const collapsed = plain(row.render(110));
+		expect(collapsed).toContain("$ cat >/dev/null <<'EOF' …");
+		expect(collapsed).toContain("to expand command");
+		expect(collapsed).toContain("(no output)");
+		expect(collapsed).not.toContain("body line");
+		row.setExpanded(true);
+		const expanded = plain(row.render(110));
+		expect(expanded).toContain("first body line\n last body line\n EOF");
+		expect(expanded).toContain("(no output)");
+		expect(expanded).not.toContain("to expand command");
+		row.setExpanded(false);
+		expect(plain(row.render(110))).toBe(collapsed);
+		controller.dispose();
+	});
 	it("F7 native read preview retains complete upstream word-wrap output", () => {
 		const renderer = createToolDisplayRenderers("read", () =>
 			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview", previewLines: 1 }),

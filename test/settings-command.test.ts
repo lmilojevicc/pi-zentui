@@ -52,6 +52,7 @@ const toolDisplayRowLabels = [
 	"Bash output",
 	"Bash syntax",
 	"Preview lines",
+	"Bash command preview",
 	"Bash collapsed lines",
 	"Expanded preview limit",
 	"Diff layout",
@@ -3259,6 +3260,7 @@ describe("native Tool display settings", () => {
 		const config = cloneConfig();
 		Object.assign(config.components.toolDisplay, {
 			previewLines: 7,
+			bashCommandMaxChars: 135,
 			bashCollapsedLines: 13,
 			expandedPreviewMaxLines: 2345,
 			diffSplitMinWidth: 139,
@@ -3268,6 +3270,7 @@ describe("native Tool display settings", () => {
 		await h.command().handler("tool-display", h.ctx);
 		for (const [label, value, next] of [
 			["Preview lines", 7, 4],
+			["Bash command preview", 135, 0],
 			["Bash collapsed lines", 13, 0],
 			["Expanded preview limit", 2345, 0],
 			["Split minimum width", 139, 70],
@@ -3279,6 +3282,7 @@ describe("native Tool display settings", () => {
 		}
 		expect(h.calls.toolDisplay).toEqual([
 			{ previewLines: 4 },
+			{ bashCommandMaxChars: 0 },
 			{ bashCollapsedLines: 0 },
 			{ expandedPreviewMaxLines: 0 },
 			{ diffSplitMinWidth: 70 },
