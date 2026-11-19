@@ -91,7 +91,7 @@ export function normalizeToolDisplayConfig(value: unknown): ToolDisplayConfig {
 		bashOutputMode: choice(raw.bashOutputMode, BASH_OUTPUT_MODES, modes.bashOutputMode),
 		// Unknown values fall back to semantic; presets never change this choice.
 		bashSyntax: choice(raw.bashSyntax, BASH_SYNTAX_MODES, "semantic"),
-		bashCommandMaxChars: integer(raw.bashCommandMaxChars, d.bashCommandMaxChars, 0, 2000),
+		bashCommandPreviewLines: integer(raw.bashCommandPreviewLines, d.bashCommandPreviewLines, 0, 80),
 		previewLines: integer(raw.previewLines, modes.previewLines, 1, 80),
 		expandedPreviewMaxLines: integer(
 			raw.expandedPreviewMaxLines,

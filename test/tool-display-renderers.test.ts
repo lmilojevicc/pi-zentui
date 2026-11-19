@@ -96,8 +96,12 @@ describe("tool-display/renderers", () => {
 	);
 	it("folds a Bash heredoc independently of output and reveals it on tool expansion", () => {
 		initTheme("dark", false);
-		const args = { command: "cat >/dev/null <<'EOF'\nfirst body line\nlast body line\nEOF" };
-		const cfg = () => normalizeToolDisplayConfig({ enabled: true, bashCommandMaxChars: 80 });
+		const args = {
+			command:
+				"cat >/dev/null <<'EOF' # \x1b[32mcolored comment\x1b[0m\nfirst body line\nlast body line\nEOF",
+		};
+		let lines: number | undefined;
+		const cfg = () => normalizeToolDisplayConfig({ enabled: true, bashCommandPreviewLines: lines });
 		const controller = createToolDisplayController(
 			{
 				getAllTools: () => [
@@ -118,28 +122,24 @@ describe("tool-display/renderers", () => {
 		);
 		row.updateResult({ ...result(""), isError: false });
 		const collapsed = plain(row.render(110));
-		expect(collapsed).toContain("$ cat >/dev/null <<'EOF' …");
-		expect(collapsed).toContain("to expand command");
+		expect(collapsed).toContain("$ cat >/dev/null <<'EOF' # colored comment…");
 		expect(collapsed).toContain("(no output)");
 		expect(collapsed).not.toContain("body line");
+		const narrow = plain(row.render(36));
+		expect(narrow).toContain("…");
+		expect(narrow).not.toMatch(/colored comment|body line|\x1b/);
+		lines = 2;
+		row.invalidate();
+		expect(plain(row.render(110))).toContain("first body line…");
+		lines = undefined;
 		row.setExpanded(true);
 		const expanded = plain(row.render(110));
 		expect(expanded).toContain("first body line\n last body line\n EOF");
 		expect(expanded).toContain("(no output)");
-		expect(expanded).not.toContain("to expand command");
+		expect(expanded).not.toContain("…");
 		row.setExpanded(false);
 		expect(plain(row.render(110))).toBe(collapsed);
 		controller.dispose();
-	});
-	it("does not leave a partial color code at the Bash preview cut", () => {
-		const prefix = `echo \x1b[32mok\x1b[0m ${"x".repeat(59)}`;
-		const args = { command: `${prefix}\x1b[31mred\x1b[0m` };
-		const renderer = createToolDisplayRenderers("bash", () =>
-			normalizeToolDisplayConfig({ bashCommandMaxChars: prefix.length + 3 }),
-		);
-		const rows = renderer.renderCall!(args, theme, context(args)).render(140);
-		expect(rows.join("")).toContain("\x1b[32mok\x1b[0m");
-		expect(plain(rows)).toBe(`$ echo ok ${"x".repeat(59)} … • ctrl+o to expand command`);
 	});
 	it("F7 native read preview retains complete upstream word-wrap output", () => {
 		const renderer = createToolDisplayRenderers("read", () =>

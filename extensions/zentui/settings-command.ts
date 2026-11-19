@@ -1087,11 +1087,10 @@ const toolDisplayOptions: Array<{
 		values: ["4", "8", "12", "16", "24", "32", "80"],
 	},
 	{
-		key: "bashCommandMaxChars",
+		key: "bashCommandPreviewLines",
 		label: "Bash command preview",
-		description:
-			"Maximum characters from the first command line when collapsed. Zero shows the full command.",
-		values: ["0", "80", "120", "160", "240", "400"],
+		description: "Maximum rows at the current pane width. Zero shows the full command.",
+		values: ["0", "1", "2", "3", "5", "10"],
 	},
 	{
 		key: "bashCollapsedLines",

@@ -228,31 +228,21 @@ export function createToolDisplayRenderers(
 					case "read":
 						return presentation.renderReadDisplayCall(input, theme);
 					case "bash": {
-						const limit = ctx.expanded ? 0 : getConfig().bashCommandMaxChars;
-						const command = input.command;
-						let commandHint: string | undefined;
-						if (limit && typeof command === "string") {
-							const newline = command.indexOf("\n");
-							const preview = graphemePrefix(
-								command,
-								limit,
-								0,
-								newline < 0 ? command.length : newline,
-							);
-							if (preview.length < command.length) {
-								const host = ctx as ToolDisplayRenderContext & {
-									keyHint?: (keybinding: string, description: string) => string;
-								};
-								const hint =
-									host.keyHint?.("app.tools.expand", "to expand command") ??
-									"Ctrl+O to expand command";
-								input.command = preview.replace(/\x1b(?:\[[0-9;]*)?$/, "");
-								commandHint = hint ? `… • ${hint}` : "…";
-							}
-						}
-						if (callCapped && !commandHint)
-							input.command = `${typeof command === "string" ? command : ""} … (call preview capped)`;
-						return boundedComponent(progress.renderCall(input, theme, ctx, commandHint), 20000);
+						if (callCapped)
+							input.command = `${typeof input.command === "string" ? input.command : ""} … (call preview capped)`;
+						const call = boundedComponent(progress.renderCall(input, theme, ctx), 20000);
+						const limit = getConfig().bashCommandPreviewLines;
+						if (ctx.expanded || !limit) return call;
+						return {
+							invalidate: call.invalidate,
+							render(rawWidth: number) {
+								const width = safeWidth(rawWidth);
+								const rows = call.render(width);
+								if (rows.length <= limit) return rows;
+								const last = truncateToWidth(rows[limit - 1].trimEnd(), width - 1, "");
+								return [...rows.slice(0, limit - 1), last + theme.fg("muted", "…")];
+							},
+						};
 					}
 					case "grep":
 						return presentation.formatSearchCallLine(

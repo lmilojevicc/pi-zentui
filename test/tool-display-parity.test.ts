@@ -355,8 +355,10 @@ describe("tool-display pinned complete public-card parity", () => {
 						enabled: true,
 						builtinRendererOverrides: { bash: true },
 						...fixture.config,
-						// Stored rows were generated through the host highlightCode path.
-						...(fixture.name === "bash" ? { bashSyntax: "pi" as const } : {}),
+						// Compare the uncollapsed command to the stored host highlightCode rows.
+						...(fixture.name === "bash"
+							? { bashSyntax: "pi" as const, bashCommandPreviewLines: 0 }
+							: {}),
 						customToolOverrides: fixture.kind
 							? {
 									[fixture.name]: {
@@ -502,6 +504,7 @@ describe("tool-display pinned complete public-card parity", () => {
 						builtinRendererOverrides: { bash: true },
 						...fixture.config,
 						bashSyntax: "semantic",
+						bashCommandPreviewLines: 0,
 					});
 					const baseRenderers = createToolDisplayRenderers("bash", () => cfg, {});
 					const baseRenderCall = baseRenderers.renderCall;
