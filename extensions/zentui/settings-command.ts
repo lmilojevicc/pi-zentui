@@ -1087,9 +1087,15 @@ const toolDisplayOptions: Array<{
 		values: ["4", "8", "12", "16", "24", "32", "80"],
 	},
 	{
+		key: "bashCommandPreviewLines",
+		label: "Bash command preview",
+		description: "Maximum rows at the current pane width. Zero shows the full command.",
+		values: ["0", "1", "2", "3", "5", "10"],
+	},
+	{
 		key: "bashCollapsedLines",
 		label: "Bash collapsed lines",
-		description: "Opencode Bash lines (0–80).",
+		description: "Opencode Bash output lines (0–80).",
 		values: ["0", "5", "10", "15", "20", "30", "80"],
 	},
 	{

@@ -227,17 +227,23 @@ export function createToolDisplayRenderers(
 				switch (name) {
 					case "read":
 						return presentation.renderReadDisplayCall(input, theme);
-					case "bash":
-						return boundedComponent(
-							progress.renderCall(
-								callCapped
-									? { ...input, command: `${String(input.command ?? "")} … (call preview capped)` }
-									: input,
-								theme,
-								ctx,
-							),
-							20000,
-						);
+					case "bash": {
+						if (callCapped)
+							input.command = `${typeof input.command === "string" ? input.command : ""} … (call preview capped)`;
+						const call = boundedComponent(progress.renderCall(input, theme, ctx), 20000);
+						const limit = getConfig().bashCommandPreviewLines;
+						if (ctx.expanded || !limit) return call;
+						return {
+							invalidate: call.invalidate,
+							render(rawWidth: number) {
+								const width = safeWidth(rawWidth);
+								const rows = call.render(width);
+								if (rows.length <= limit) return rows;
+								const last = truncateToWidth(rows[limit - 1].trimEnd(), width - 1, "");
+								return [...rows.slice(0, limit - 1), last + theme.fg("muted", "…")];
+							},
+						};
+					}
 					case "grep":
 						return presentation.formatSearchCallLine(
 							name,

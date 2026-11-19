@@ -674,7 +674,9 @@ describe("tool-display/bash-display semantic syntax", () => {
 			commandPrefix: "env\x07",
 		};
 		const source = `env echo \x1b]0;attack\x07\x1b[2J${"界".repeat(MAX_PREVIEW_LINE_CHARS + 100)}`;
-		const rows = renderer.renderCall?.(args, catTheme as Theme, ctx(args)).render(80) ?? [];
+		const rows =
+			renderer.renderCall?.(args, catTheme as Theme, { ...ctx(args), expanded: true }).render(80) ??
+			[];
 		expect(tokenize).toHaveBeenCalledTimes(1);
 		const sanitized = tokenize.mock.calls[0][0];
 		expect(sanitized).not.toMatch(/[\x00-\x08\x1b\x7f-\x9f]/);

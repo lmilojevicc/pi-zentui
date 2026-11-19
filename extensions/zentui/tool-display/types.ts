@@ -65,6 +65,7 @@ export interface ToolDisplayConfig {
 	bashOutputMode: (typeof BASH_OUTPUT_MODES)[number];
 	/** Command-row syntax colors: semantic lexical palette or the host highlighter. */
 	bashSyntax: BashSyntaxMode;
+	bashCommandPreviewLines: number;
 	previewLines: number;
 	expandedPreviewMaxLines: number;
 	bashCollapsedLines: number;
@@ -95,6 +96,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	mcpOutputMode: "hidden",
 	bashOutputMode: "opencode",
 	bashSyntax: "semantic",
+	bashCommandPreviewLines: 1,
 	previewLines: 8,
 	expandedPreviewMaxLines: 4000,
 	bashCollapsedLines: 10,
