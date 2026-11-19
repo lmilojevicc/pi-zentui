@@ -246,7 +246,7 @@ export function createToolDisplayRenderers(
 								const hint =
 									host.keyHint?.("app.tools.expand", "to expand command") ??
 									"Ctrl+O to expand command";
-								input.command = preview;
+								input.command = preview.replace(/\x1b(?:\[[0-9;]*)?$/, "");
 								commandHint = hint ? `… • ${hint}` : "…";
 							}
 						}

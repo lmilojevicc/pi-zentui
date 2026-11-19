@@ -131,6 +131,16 @@ describe("tool-display/renderers", () => {
 		expect(plain(row.render(110))).toBe(collapsed);
 		controller.dispose();
 	});
+	it("does not leave a partial color code at the Bash preview cut", () => {
+		const prefix = `echo \x1b[32mok\x1b[0m ${"x".repeat(59)}`;
+		const args = { command: `${prefix}\x1b[31mred\x1b[0m` };
+		const renderer = createToolDisplayRenderers("bash", () =>
+			normalizeToolDisplayConfig({ bashCommandMaxChars: prefix.length + 3 }),
+		);
+		const rows = renderer.renderCall!(args, theme, context(args)).render(140);
+		expect(rows.join("")).toContain("\x1b[32mok\x1b[0m");
+		expect(plain(rows)).toBe(`$ echo ok ${"x".repeat(59)} … • ctrl+o to expand command`);
+	});
 	it("F7 native read preview retains complete upstream word-wrap output", () => {
 		const renderer = createToolDisplayRenderers("read", () =>
 			normalizeToolDisplayConfig({ enabled: true, readOutputMode: "preview", previewLines: 1 }),
