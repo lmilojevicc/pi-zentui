@@ -95,9 +95,9 @@
 		"@oh-my-pi/pi-coding-agent": "18.14.0",
 		"@oh-my-pi/pi-tui": "18.14.0",
 		"@types/node": "^26.6.2",
-		"oxfmt": "0.75.0",
-		"oxlint": "1.90.0",
-		"oxlint-tsgolint": "7.0.2005",
+		"oxfmt": "0.79.0",
+		"oxlint": "1.94.0",
+		"oxlint-tsgolint": "7.0.2007",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.1"
 	}
