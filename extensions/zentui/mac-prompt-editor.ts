@@ -301,7 +301,10 @@ export class MacPromptEditor extends CustomEditor {
 	// ── keyboard ───────────────────────────────────────────────────────
 
 	handleInput(data: string): void {
-		if (!this.macEditing) return void super.handleInput(data);
+		if (!this.macEditing) {
+			super.handleInput(data);
+			return;
+		}
 		this.handleKey(data);
 	}
 
@@ -310,13 +313,17 @@ export class MacPromptEditor extends CustomEditor {
 		const kb = getKeybindings();
 
 		// Paste: replace the selection with the pasted text.
-		if (I.isInPaste || I.jumpMode !== null) return void super.handleInput(data);
+		if (I.isInPaste || I.jumpMode !== null) {
+			super.handleInput(data);
+			return;
+		}
 		if (data.includes("\x1b[200~")) {
 			// Bracketed paste may arrive in several chunks. The snapshot taken by deleteSelection
 			// covers the whole replacement, so skip the one handlePaste pushes when it completes.
 			if (this.deleteSelection()) this.skipNextPasteSnapshot = true;
 			this.anchor = null;
-			return void super.handleInput(data);
+			super.handleInput(data);
+			return;
 		}
 
 		const motions = this.motions();
@@ -332,7 +339,8 @@ export class MacPromptEditor extends CustomEditor {
 				if (!this.selection()) this.setAnchor(this.cursor());
 				motions[motion]?.();
 				this.anchorText = this.getText();
-				return void finishMove();
+				finishMove();
+				return;
 			}
 		}
 
@@ -341,7 +349,8 @@ export class MacPromptEditor extends CustomEditor {
 			if (matchesKey(data, key)) {
 				this.anchor = null;
 				motions[motion]?.();
-				return void finishMove();
+				finishMove();
+				return;
 			}
 		}
 
@@ -351,13 +360,25 @@ export class MacPromptEditor extends CustomEditor {
 		if (matchesKey(data, "super+a")) {
 			this.setAnchor({ line: 0, col: 0 });
 			this.setCursor(this.docEnd());
-			return void finishMove();
+			finishMove();
+			return;
 		}
-		if (matchesKey(data, "super+c") || (sel && kb.matches(data, "tui.input.copy")))
-			return void this.copy(false);
-		if (matchesKey(data, "super+x")) return void this.copy(true);
-		if (matchesKey(data, "super+z")) return void I.undo();
-		if (matchesKey(data, "super+shift+z") || matchesKey(data, "super+y")) return void this.redo();
+		if (matchesKey(data, "super+c") || (sel && kb.matches(data, "tui.input.copy"))) {
+			this.copy(false);
+			return;
+		}
+		if (matchesKey(data, "super+x")) {
+			this.copy(true);
+			return;
+		}
+		if (matchesKey(data, "super+z")) {
+			I.undo();
+			return;
+		}
+		if (matchesKey(data, "super+shift+z") || matchesKey(data, "super+y")) {
+			this.redo();
+			return;
+		}
 		if (matchesKey(data, "super+backspace") || matchesKey(data, "super+u")) {
 			if (!this.deleteSelection()) super.handleInput("\x15"); // ctrl+u
 			return;
@@ -367,18 +388,23 @@ export class MacPromptEditor extends CustomEditor {
 			if (!this.deleteSelection()) super.handleInput("\x0b"); // ctrl+k
 			return;
 		}
-		if (!sel) return void super.handleInput(data);
+		if (!sel) {
+			super.handleInput(data);
+			return;
+		}
 
 		// ── there is a non-empty selection ──
 
 		if (matchesKey(data, "escape")) {
 			this.anchor = null;
-			return void this.tui.requestRender();
+			this.tui.requestRender();
+			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorLeft") || kb.matches(data, "tui.editor.cursorRight")) {
 			this.setCursor(kb.matches(data, "tui.editor.cursorLeft") ? sel.start : sel.end);
 			this.anchor = null;
-			return void finishMove();
+			finishMove();
+			return;
 		}
 
 		const deletes = [
@@ -398,8 +424,10 @@ export class MacPromptEditor extends CustomEditor {
 			return;
 		}
 
-		if (this.isInsertion(data, kb))
-			return void this.replaceSelection(() => super.handleInput(data));
+		if (this.isInsertion(data, kb)) {
+			this.replaceSelection(() => super.handleInput(data));
+			return;
+		}
 
 		// Anything else (submit, history, app shortcuts, …): drop the selection and pass through.
 		this.anchor = null;

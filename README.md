@@ -25,7 +25,7 @@ Zentui lets you shape Pi’s interface one component at a time. Customize your e
 
 Editor, User messages, Thinking (Experimental), Working line, Tool display, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
-## macOS prompt editing (fork)
+## macOS prompt editing
 
 On macOS, Zentui's own Pi editor keeps the selected frame and palette and adds
 Mac-style editing. This does not replace a foreign editor wrapped by Zentui,
@@ -45,7 +45,7 @@ send bracketed paste for Command+V. This remains a terminal editor, not an
 AppKit text field; system services and native context menus aren't supplied.
 
 Editing behavior is based on [pi-ghostty-native-editor](https://github.com/k7d/pi-ghostty-native-editor).
-Do not load that separate editor extension alongside this fork.
+If you already use that extension, remove it to let Zentui manage the editor.
 
 ## Highlights
 

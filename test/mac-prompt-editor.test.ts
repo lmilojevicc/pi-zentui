@@ -39,9 +39,16 @@ function editor(style: EditorStyle = "minimalist", macEditing = true) {
 	return result;
 }
 
+const styles = [
+	"minimalist",
+	"opencode",
+	"opencode-copy-friendly",
+	"accent-rail",
+] as const satisfies readonly EditorStyle[];
+
 describe("macOS prompt editing inside Zentui's frame", () => {
-	it("replaces a selected word and undoes/redoes the whole edit", () => {
-		const input = editor();
+	it.each(styles)("replaces a selected word and undoes/redoes the whole edit in %s", (style) => {
+		const input = editor(style);
 		input.setText("one two three");
 		input.render(80);
 		input.handleInput(keyboard.wordLeft);
@@ -67,19 +74,16 @@ describe("macOS prompt editing inside Zentui's frame", () => {
 		expect(input.getText()).toBe("first line\n");
 	});
 
-	it.each(["minimalist", "opencode", "opencode-copy-friendly", "accent-rail"] as const)(
-		"keeps the %s styling and renders themed selection within the frame",
-		(style) => {
-			const native = editor(style, false);
-			const input = editor(style);
-			for (const item of [native, input]) item.setText("alpha界 beta");
-			expect(input.render(72)).toEqual(native.render(72));
-			input.handleInput(keyboard.selectAll);
-			const selected = input.render(72);
-			expect(selected.some((row) => row.includes(`${esc}[48;5;24m`))).toBe(true);
-			expect(selected.every((row) => visibleWidth(row) <= 72)).toBe(true);
-		},
-	);
+	it.each(styles)("keeps the %s styling and renders themed selection within the frame", (style) => {
+		const native = editor(style, false);
+		const input = editor(style);
+		for (const item of [native, input]) item.setText("alpha界 beta");
+		expect(input.render(72)).toEqual(native.render(72));
+		input.handleInput(keyboard.selectAll);
+		const selected = input.render(72);
+		expect(selected.some((row) => row.includes(`${esc}[48;5;24m`))).toBe(true);
+		expect(selected.every((row) => visibleWidth(row) <= 72)).toBe(true);
+	});
 
 	it("keeps Enter as submit and Shift+Enter as newline", () => {
 		const input = editor();
