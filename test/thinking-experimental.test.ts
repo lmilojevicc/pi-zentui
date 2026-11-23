@@ -1825,7 +1825,11 @@ describe("Thinking (Experimental) private assistant decorator", () => {
 						const child = first === undefined ? undefined : visibleNativeChild(children[first]);
 						if (child && mismatch === "text")
 							Reflect.set(child, "text", "__ZENTUI_MISMATCH_MARKER__");
-						if (child && mismatch === "constructor") Object.setPrototypeOf(child, {});
+						// A foreign Markdown class (another module copy): same behavior,
+						// different prototype. Pi 1.5+ reuses this instance on rerender, so
+						// it must keep working.
+						if (child && mismatch === "constructor")
+							Object.setPrototypeOf(child, Object.create(Object.getPrototypeOf(child)));
 					}
 					return result;
 				},

@@ -152,9 +152,9 @@ function matchesDetection(
 	if (spec.excludedFiles && hasAnyFile(cwd, spec.excludedFiles)) return false;
 	return Boolean(
 		(spec.files && hasAnyFile(cwd, spec.files)) ||
-			(spec.folders && hasAnyFolder(cwd, spec.folders)) ||
-			(spec.extensions && hasAnyExtension(entries, spec.extensions)) ||
-			spec.env?.(env),
+		(spec.folders && hasAnyFolder(cwd, spec.folders)) ||
+		(spec.extensions && hasAnyExtension(entries, spec.extensions)) ||
+		spec.env?.(env),
 	);
 }
 

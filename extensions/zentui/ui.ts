@@ -517,8 +517,12 @@ export function composeEditorMetadataLine(
 	)}${rightText}`;
 }
 
+/** Visible text: drops SGR/CSI, OSC and APC sequences. Pi 1.4+ marks the fake
+ * cursor with zero-width APC markers (`\x1b_pi:fc\x07`) inside editor rows. */
 function ansiStrippedText(line: string): string {
-	return line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+	return line
+		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+		.replace(/\x1b[\]_][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
 }
 
 function plainRenderedText(line: string): string {
@@ -758,8 +762,8 @@ function inspectPolishedFrameProvenance(
 	const provenance = POLISHED_FRAME_SPLITS.get(rendered);
 	const provenanceMatches = Boolean(
 		provenance &&
-			provenance.rows.length === rendered.length &&
-			provenance.rows.every((line, index) => line === rendered[index]),
+		provenance.rows.length === rendered.length &&
+		provenance.rows.every((line, index) => line === rendered[index]),
 	);
 	const ownedFrame = provenanceMatches ? provenance?.split : undefined;
 	const unsafe =
@@ -769,7 +773,7 @@ function inspectPolishedFrameProvenance(
 		(!ownedFrame &&
 			Boolean(
 				splitPolishedFrame(rendered, config, uiTheme) ||
-					splitPolishedFrame(rendered, config, uiTheme, true),
+				splitPolishedFrame(rendered, config, uiTheme, true),
 			));
 	return { safe: !unsafe, ownedFrame };
 }
@@ -903,9 +907,9 @@ function renderMinimalistFrameFromBase({
 		width >= MIN_WORKING_LINE_BORDER_WIDTH &&
 			Boolean(
 				ownedFrame ||
-					frame.nativeFrame ||
-					(typeof autocompleteSource.isShowingAutocomplete === "function" &&
-						autocompleteCapture?.compatible),
+				frame.nativeFrame ||
+				(typeof autocompleteSource.isShowingAutocomplete === "function" &&
+					autocompleteCapture?.compatible),
 			),
 	);
 	const metadata = getMetadata();
@@ -967,9 +971,9 @@ function renderPolishedFrame({
 		width >= MIN_WORKING_LINE_BORDER_WIDTH &&
 			Boolean(
 				ownedFrame ||
-					frame.nativeFrame ||
-					(typeof autocompleteSource.isShowingAutocomplete === "function" &&
-						autocompleteCapture?.compatible),
+				frame.nativeFrame ||
+				(typeof autocompleteSource.isShowingAutocomplete === "function" &&
+					autocompleteCapture?.compatible),
 			),
 	);
 	const workingLineFrame = getWorkingLineFrame();

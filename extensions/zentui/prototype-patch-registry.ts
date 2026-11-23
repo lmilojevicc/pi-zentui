@@ -187,9 +187,9 @@ export function isPrototypePatchCurrent(
 	const record = existingRegistry(target)?.get(adapter);
 	return Boolean(
 		record &&
-			record.method === method &&
-			target[method] === record.wrapper &&
-			(token === undefined || record.registration?.token === token),
+		record.method === method &&
+		target[method] === record.wrapper &&
+		(token === undefined || record.registration?.token === token),
 	);
 }
 

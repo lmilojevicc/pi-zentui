@@ -22,9 +22,9 @@ Change just one surface:
 
 ```json
 {
-  "components": {
-    "footer": { "colors": { "cwd": "bold green" } }
-  }
+	"components": {
+		"footer": { "colors": { "cwd": "bold green" } }
+	}
 }
 ```
 
@@ -32,12 +32,12 @@ To adopt only User messages while leaving the other default-enabled surfaces nat
 
 ```json
 {
-  "components": {
-    "editor": { "enabled": false },
-    "userMessages": { "enabled": true, "style": "framed" },
-    "selectorBorders": { "enabled": false },
-    "footer": { "style": "native" }
-  }
+	"components": {
+		"editor": { "enabled": false },
+		"userMessages": { "enabled": true, "style": "framed" },
+		"selectorBorders": { "enabled": false },
+		"footer": { "style": "native" }
+	}
 }
 ```
 
@@ -116,12 +116,12 @@ Use the first **Appearance → Preset** row, or one of these exact commands:
 /zentui preset minimalist
 ```
 
-| Preset ID | `components.editor` | `components.footer.style` | `components.userMessages` |
-| --- | --- | --- | --- |
-| `opencode` | `enabled: true`, `style: "opencode"` | `"starship"` | `enabled: true`, `style: "framed"` |
-| `opencode-copy-friendly` | `enabled: true`, `style: "opencode-copy-friendly"` | `"starship"` | `enabled: true`, `style: "framed-copy-friendly"` |
-| `rail` | `enabled: true`, `style: "accent-rail"` | `"starship"` | `enabled: true`, `style: "compact"` |
-| `minimalist` | `enabled: true`, `style: "minimalist"` | `"hidden"` | `enabled: false` (style preserved) |
+| Preset ID                | `components.editor`                                | `components.footer.style` | `components.userMessages`                        |
+| ------------------------ | -------------------------------------------------- | ------------------------- | ------------------------------------------------ |
+| `opencode`               | `enabled: true`, `style: "opencode"`               | `"starship"`              | `enabled: true`, `style: "framed"`               |
+| `opencode-copy-friendly` | `enabled: true`, `style: "opencode-copy-friendly"` | `"starship"`              | `enabled: true`, `style: "framed-copy-friendly"` |
+| `rail`                   | `enabled: true`, `style: "accent-rail"`            | `"starship"`              | `enabled: true`, `style: "compact"`              |
+| `minimalist`             | `enabled: true`, `style: "minimalist"`             | `"hidden"`                | `enabled: false` (style preserved)               |
 
 These are one-time, atomic selection patches, not ongoing profiles. Only the listed leaves are written, with the existing obsolete copy-friendly/Footer-enabled migration flags removed when their styles are explicitly selected. Colors and color sources, per-style options, icons, Footer segments/templates/path settings, all other components, and unknown fields remain untouched. Unsupported future style IDs are preserved unless the preset explicitly replaces that style; Minimalist even preserves an unsupported dormant message style. Existing legacy option resolution continues to work.
 
@@ -137,12 +137,12 @@ Selecting presets keeps the settings panel open and preserves its focus. Config,
 
 ```json
 {
-  "components": {
-    "extensionStatuses": {
-      "defaultVisibility": "show",
-      "visibility": { "github-pr": "hide" }
-    }
-  }
+	"components": {
+		"extensionStatuses": {
+			"defaultVisibility": "show",
+			"visibility": { "github-pr": "hide" }
+		}
+	}
 }
 ```
 
@@ -152,15 +152,15 @@ With Hidden selected, default placement starts at Left. To restore inheritance i
 
 ```json
 {
-  "components": {
-    "extensionStatuses": {
-      "hidden": {
-        "defaultPlacement": "left",
-        "placements": { "github-pr": "right", "sync": "middle" },
-        "colorModes": { "github-pr": "zentui" }
-      }
-    }
-  }
+	"components": {
+		"extensionStatuses": {
+			"hidden": {
+				"defaultPlacement": "left",
+				"placements": { "github-pr": "right", "sync": "middle" },
+				"colorModes": { "github-pr": "zentui" }
+			}
+		}
+	}
 }
 ```
 
@@ -191,245 +191,250 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 
 ```json
 {
-  "projectRefreshIntervalMs": 30000,
-  "components": {
-    "editor": {
-      "enabled": true,
-      "codexQuota": false,
-      "style": "opencode",
-      "colorSource": "terminal",
-      "borderColorMode": "static",
-      "modelLabel": "id",
-      "viewportIndicators": true,
-      "styles": {
-        "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
-          "completionMenu": "palette"
-        },
-        "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
-          "completionMenu": "palette"
-        },
-        "accent-rail": {
-          "rail": "▎",
-          "asciiRail": "|",
-          "transparent": false
-        },
-        "minimalist": {
-          "formats": {
-            "bottomLeft": "$session_name$join_sep($git_branch)"
-          },
-          "pathDisplay": "compact",
-          "contextFormat": "percent-total",
-          "contextGauge": false,
-          "showSessionName": false,
-          "showTimer": false,
-          "showCost": true,
-          "showCacheHit": false,
-          "showGit": true,
-          "contextThresholds": {
-            "warning": 70,
-            "error": 90
-          },
-          "separator": "dash"
-        }
-      }
-    },
-    "userMessages": {
-      "enabled": true,
-      "style": "framed",
-      "colorSource": "terminal",
-      "styles": {
-        "framed": {},
-        "framed-copy-friendly": {},
-        "compact": {},
-        "labeled": {}
-      }
-    },
-    "toolDisplay": {
-      "enabled": false,
-      "style": "opencode",
-      "registerToolOverrides": {
-        "read": true, "write": true, "edit": true, "bash": true,
-        "grep": true, "find": true, "ls": true
-      },
-      "builtinRendererOverrides": {},
-      "compatibleToolSources": {},
-      "customToolOverrides": {},
-      "readOutputMode": "hidden",
-      "searchOutputMode": "hidden",
-      "mcpOutputMode": "hidden",
-      "bashOutputMode": "opencode",
-      "bashSyntax": "semantic",
-      "previewLines": 8,
-      "expandedPreviewMaxLines": 4000,
-      "bashCollapsedLines": 10,
-      "diffViewMode": "auto",
-      "diffIndicatorMode": "bars",
-      "diffSplitMinWidth": 120,
-      "diffCollapsedLines": 24,
-      "diffWordWrap": true,
-      "showTruncationHints": false
-    },
-    "thinkingSteps": {
-      "enabled": false,
-      "mode": "tree"
-    },
-    "workingLine": {
-      "enabled": true,
-      "placement": "border",
-      "turnSummary": true,
-      "turnSummaryFormat": "Turn took $turn_duration$join_sep(thought for $thought_duration)$join_sep(↑$input_tokens ↓$output_tokens)$join_sep$token_rate",
-      "spinner": "star-bloom",
-      "spinnerIntervalMs": 100,
-      "animateSpinnerColor": false,
-      "textIntervalMs": 60,
-      "textAnimation": "classic",
-      "colorSource": "terminal",
-      "messages": {
-        "custom": true,
-        "values": [
-          "Sautéing…",
-          "Cooking…",
-          "Ionizing…",
-          "Zigzagging…",
-          "Razzle-dazzling…",
-          "Photosynthesizing…",
-          "Nucleating…",
-          "Brewing…",
-          "Combobulating…",
-          "Boogieing…",
-          "Befuddling…",
-          "Alchemizing…",
-          "Conjuring…",
-          "Baking…",
-          "Simmering…",
-          "Blanching…"
-        ]
-      },
-      "segments": {
-        "tool": true,
-        "elapsed": true,
-        "thought": true,
-        "tokens": true,
-        "tokenRate": true
-      }
-    },
-    "extensionStatuses": {
-      "defaultVisibility": "show",
-      "visibility": {}
-    },
-    "selectorBorders": {
-      "enabled": true,
-      "style": "zentui",
-      "colorSource": "terminal"
-    },
-    "footer": {
-      "style": "starship",
-      "codexQuota": false,
-      "colorSource": "terminal",
-      "modelLabel": "id",
-      "styles": {
-        "starship": {
-          "format": "",
-          "responsive": true,
-          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
-          "compactMaxLines": 2,
-          "separator": "pipe",
-          "contextStyle": "text",
-          "contextThresholds": {
-            "warning": 70,
-            "error": 90
-          },
-          "pathDisplay": {
-            "mode": "basename",
-            "depth": 0
-          },
-          "segments": {
-            "cwd": true,
-            "sessionName": true,
-            "gitBranch": true,
-            "gitStatus": true,
-            "gitCounts": false,
-            "runtime": true,
-            "modelInfo": false,
-            "context": true,
-            "tokens": true,
-            "cost": true,
-            "sessionDuration": false,
-            "username": false,
-            "time": false,
-            "os": false,
-            "packageVersion": false,
-            "gitCommit": false,
-            "gitMetrics": false
-          },
-          "gitBranch": {
-            "maxLength": "full"
-          },
-          "gitCommit": {
-            "hashLength": 7,
-            "onlyDetached": true,
-            "showTag": true
-          },
-          "gitMetrics": {
-            "onlyNonzero": true,
-            "ignoreSubmodules": false
-          },
-          "extensionStatuses": {
-            "defaultPlacement": "right",
-            "placements": {},
-            "colorModes": {}
-          }
-        }
-      }
-    }
-  },
-  "icons": {
-    "mode": "auto",
-    "cwd": "",
-    "git": "",
-    "ahead": "↑",
-    "behind": "↓",
-    "diverged": "⇕",
-    "conflicted": "=",
-    "untracked": "?",
-    "stashed": "$",
-    "modified": "!",
-    "staged": "+",
-    "renamed": "»",
-    "deleted": "✘",
-    "typechanged": "T",
-    "cacheHit": "󰆼",
-    "editorPrompt": "",
-    "rail": "│",
-    "username": "",
-    "time": "",
-    "os": "",
-    "package": ""
-  },
-  "colors": {
-    "cwd": "bold cyan",
-    "sessionName": "bold green",
-    "gitBranch": "bold purple",
-    "gitStatus": "bold red",
-    "contextNormal": "bright-black",
-    "contextWarning": "bold yellow",
-    "contextError": "bold red",
-    "tokens": "bright-black",
-    "cost": "bold green",
-    "extensionStatus": "bright-black",
-    "separator": "bright-black",
-    "runtimePrefix": "",
-    "sessionDuration": "yellow",
-    "packageVersion": "208",
-    "gitCommit": "bold green",
-    "gitMetricsAdded": "bold green",
-    "gitMetricsDeleted": "bold red",
-    "username": "bold yellow",
-    "time": "bold yellow",
-    "os": "bold white"
-  }
+	"projectRefreshIntervalMs": 30000,
+	"components": {
+		"editor": {
+			"enabled": true,
+			"codexQuota": false,
+			"style": "opencode",
+			"colorSource": "terminal",
+			"borderColorMode": "static",
+			"modelLabel": "id",
+			"viewportIndicators": true,
+			"styles": {
+				"opencode": {
+					"metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
+					"completionMenu": "palette"
+				},
+				"opencode-copy-friendly": {
+					"metadataFormat": "$model  $provider(  $thinking)(  $fast_mode)(  $codex_quota)",
+					"completionMenu": "palette"
+				},
+				"accent-rail": {
+					"rail": "▎",
+					"asciiRail": "|",
+					"transparent": false
+				},
+				"minimalist": {
+					"formats": {
+						"bottomLeft": "$session_name$join_sep($git_branch)"
+					},
+					"pathDisplay": "compact",
+					"contextFormat": "percent-total",
+					"contextGauge": false,
+					"showSessionName": false,
+					"showTimer": false,
+					"showCost": true,
+					"showCacheHit": false,
+					"showGit": true,
+					"contextThresholds": {
+						"warning": 70,
+						"error": 90
+					},
+					"separator": "dash"
+				}
+			}
+		},
+		"userMessages": {
+			"enabled": true,
+			"style": "framed",
+			"colorSource": "terminal",
+			"styles": {
+				"framed": {},
+				"framed-copy-friendly": {},
+				"compact": {},
+				"labeled": {}
+			}
+		},
+		"toolDisplay": {
+			"enabled": false,
+			"style": "opencode",
+			"registerToolOverrides": {
+				"read": true,
+				"write": true,
+				"edit": true,
+				"bash": true,
+				"grep": true,
+				"find": true,
+				"ls": true
+			},
+			"builtinRendererOverrides": {},
+			"compatibleToolSources": {},
+			"customToolOverrides": {},
+			"readOutputMode": "hidden",
+			"searchOutputMode": "hidden",
+			"mcpOutputMode": "hidden",
+			"bashOutputMode": "opencode",
+			"bashSyntax": "semantic",
+			"previewLines": 8,
+			"expandedPreviewMaxLines": 4000,
+			"bashCollapsedLines": 10,
+			"diffViewMode": "auto",
+			"diffIndicatorMode": "bars",
+			"diffSplitMinWidth": 120,
+			"diffCollapsedLines": 24,
+			"diffWordWrap": true,
+			"showTruncationHints": false
+		},
+		"thinkingSteps": {
+			"enabled": false,
+			"mode": "tree"
+		},
+		"workingLine": {
+			"enabled": true,
+			"placement": "border",
+			"turnSummary": true,
+			"turnSummaryFormat": "Turn took $turn_duration$join_sep(thought for $thought_duration)$join_sep(↑$input_tokens ↓$output_tokens)$join_sep$token_rate",
+			"spinner": "star-bloom",
+			"spinnerIntervalMs": 100,
+			"animateSpinnerColor": false,
+			"textIntervalMs": 60,
+			"textAnimation": "classic",
+			"colorSource": "terminal",
+			"messages": {
+				"custom": true,
+				"values": [
+					"Sautéing…",
+					"Cooking…",
+					"Ionizing…",
+					"Zigzagging…",
+					"Razzle-dazzling…",
+					"Photosynthesizing…",
+					"Nucleating…",
+					"Brewing…",
+					"Combobulating…",
+					"Boogieing…",
+					"Befuddling…",
+					"Alchemizing…",
+					"Conjuring…",
+					"Baking…",
+					"Simmering…",
+					"Blanching…"
+				]
+			},
+			"segments": {
+				"tool": true,
+				"elapsed": true,
+				"thought": true,
+				"tokens": true,
+				"tokenRate": true
+			}
+		},
+		"extensionStatuses": {
+			"defaultVisibility": "show",
+			"visibility": {}
+		},
+		"selectorBorders": {
+			"enabled": true,
+			"style": "zentui",
+			"colorSource": "terminal"
+		},
+		"footer": {
+			"style": "starship",
+			"codexQuota": false,
+			"colorSource": "terminal",
+			"modelLabel": "id",
+			"styles": {
+				"starship": {
+					"format": "",
+					"responsive": true,
+					"compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep($codex_quota)",
+					"compactMaxLines": 2,
+					"separator": "pipe",
+					"contextStyle": "text",
+					"contextThresholds": {
+						"warning": 70,
+						"error": 90
+					},
+					"pathDisplay": {
+						"mode": "basename",
+						"depth": 0
+					},
+					"segments": {
+						"cwd": true,
+						"sessionName": true,
+						"gitBranch": true,
+						"gitStatus": true,
+						"gitCounts": false,
+						"runtime": true,
+						"modelInfo": false,
+						"context": true,
+						"tokens": true,
+						"cost": true,
+						"sessionDuration": false,
+						"username": false,
+						"time": false,
+						"os": false,
+						"packageVersion": false,
+						"gitCommit": false,
+						"gitMetrics": false
+					},
+					"gitBranch": {
+						"maxLength": "full"
+					},
+					"gitCommit": {
+						"hashLength": 7,
+						"onlyDetached": true,
+						"showTag": true
+					},
+					"gitMetrics": {
+						"onlyNonzero": true,
+						"ignoreSubmodules": false
+					},
+					"extensionStatuses": {
+						"defaultPlacement": "right",
+						"placements": {},
+						"colorModes": {}
+					}
+				}
+			}
+		}
+	},
+	"icons": {
+		"mode": "auto",
+		"cwd": "",
+		"git": "",
+		"ahead": "↑",
+		"behind": "↓",
+		"diverged": "⇕",
+		"conflicted": "=",
+		"untracked": "?",
+		"stashed": "$",
+		"modified": "!",
+		"staged": "+",
+		"renamed": "»",
+		"deleted": "✘",
+		"typechanged": "T",
+		"cacheHit": "󰆼",
+		"editorPrompt": "",
+		"rail": "│",
+		"username": "",
+		"time": "",
+		"os": "",
+		"package": ""
+	},
+	"colors": {
+		"cwd": "bold cyan",
+		"sessionName": "bold green",
+		"gitBranch": "bold purple",
+		"gitStatus": "bold red",
+		"contextNormal": "bright-black",
+		"contextWarning": "bold yellow",
+		"contextError": "bold red",
+		"tokens": "bright-black",
+		"cost": "bold green",
+		"extensionStatus": "bright-black",
+		"separator": "bright-black",
+		"runtimePrefix": "",
+		"sessionDuration": "yellow",
+		"packageVersion": "208",
+		"gitCommit": "bold green",
+		"gitMetricsAdded": "bold green",
+		"gitMetricsDeleted": "bold red",
+		"username": "bold yellow",
+		"time": "bold yellow",
+		"os": "bold white"
+	}
 }
 ```
 
@@ -459,10 +464,10 @@ Reference only—not a starter file. Prefer the minimal overrides above. Optiona
 
 ```json
 {
-  "components": {
-    "editor": { "codexQuota": true },
-    "footer": { "codexQuota": false }
-  }
+	"components": {
+		"editor": { "codexQuota": true },
+		"footer": { "codexQuota": false }
+	}
 }
 ```
 
@@ -503,14 +508,14 @@ Use sparse `components.<owner>.colors` objects to change only one surface:
 
 ```json
 {
-  "colors": { "editorAccent": "blue", "cwdText": "bold cyan" },
-  "components": {
-    "editor": { "colors": { "accent": "fg:202", "gitBranch": "bold blue" } },
-    "userMessages": { "colors": { "accent": "", "border": "bright-black" } },
-    "selectorBorders": { "colors": { "border": "borderMuted" } },
-    "footer": { "colors": { "cwd": "bold green" } },
-    "workingLine": { "colors": { "high": "bold cyan" } }
-  }
+	"colors": { "editorAccent": "blue", "cwdText": "bold cyan" },
+	"components": {
+		"editor": { "colors": { "accent": "fg:202", "gitBranch": "bold blue" } },
+		"userMessages": { "colors": { "accent": "", "border": "bright-black" } },
+		"selectorBorders": { "colors": { "border": "borderMuted" } },
+		"footer": { "colors": { "cwd": "bold green" } },
+		"workingLine": { "colors": { "high": "bold cyan" } }
+	}
 }
 ```
 
@@ -518,18 +523,18 @@ Resolution is **component override → historical shared `colors` fallback → e
 
 Empty strings and whitespace-only strings mean deliberately **unstyled**, not missing. **Reset / inherit** deletes the local key; hand-deleting a key does the same. Unsupported values are ignored at runtime, while invalid and unknown future JSON keys remain preserved on disk. The settings editor validates supported style strings, distinguishes Escape from an empty submission, and offers role selection within one **Color overrides** action per component (selector borders use Appearance). Thinking (Experimental) and Tool display have no raw color object or control; Tool display uses Pi semantic theme colors.
 
-| Owner | Local keys | Historical shared fallback |
-| --- | --- | --- |
-| `footer` | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key |
-| `editor` | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration` | Same-named shared key; used by Minimalist metadata and quota |
-| `editor` | `cacheHit` | Optional shared `cacheHit`, then Editor `contextNormal`; used only by Minimalist cache-hit metadata |
-| `editor` | `gitBranch` | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default |
-| `editor` | `accent`, `border`, `prompt`, `rail`, `shellRail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax` | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorShellRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
-| `userMessages` | `accent`, `border` | `editorAccent`, `editorBorder` |
-| `selectorBorders` | `border` | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder` |
-| `workingLine` | `low`, `mid`, `high` | `workingLineLow`, `workingLineMid`, `workingLineHigh` |
-| `editor`, `footer` | `prNumber`, `prUrl`, `ci`, `tokenRate` | No shared raw keys; existing neutral border/extension-status fallback |
-| `workingLine` | `tokenRate` | No shared raw key; Static-only override, otherwise inherits mid; Classic/KITT use whole-row tiers |
+| Owner              | Local keys                                                                                                                                                                                                                                                                               | Historical shared fallback                                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `footer`           | `cwd`, `sessionName`, `gitBranch`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`, `tokens`, `separator`, `runtimePrefix`, `extensionStatus`, `packageVersion`, `gitCommit`, `gitMetricsAdded`, `gitMetricsDeleted`, `username`, `time`, `os` | Same-named shared key                                                                                                                                                         |
+| `editor`           | `cwd`, `sessionName`, `gitStatus`, `contextNormal`, `contextWarning`, `contextError`, `cost`, `sessionDuration`                                                                                                                                                                          | Same-named shared key; used by Minimalist metadata and quota                                                                                                                  |
+| `editor`           | `cacheHit`                                                                                                                                                                                                                                                                               | Optional shared `cacheHit`, then Editor `contextNormal`; used only by Minimalist cache-hit metadata                                                                           |
+| `editor`           | `gitBranch`                                                                                                                                                                                                                                                                              | `editorGitBranch`, then explicitly configured shared `gitBranch` / `git`; never the generated Footer branch default                                                           |
+| `editor`           | `accent`, `border`, `prompt`, `rail`, `shellRail`, `model`, `provider`, `thinking`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax`                                                                                                   | `editorAccent`, `editorBorder`, `editorPrompt`, `editorRail`, `editorShellRail`, `editorModel`, `editorProvider`, `editorThinking`, and matching `editorThinking*` level keys |
+| `userMessages`     | `accent`, `border`                                                                                                                                                                                                                                                                       | `editorAccent`, `editorBorder`                                                                                                                                                |
+| `selectorBorders`  | `border`                                                                                                                                                                                                                                                                                 | No shared raw key: defaults to theme `borderMuted` / terminal `bright-black`; never inherits `editorBorder`                                                                   |
+| `workingLine`      | `low`, `mid`, `high`                                                                                                                                                                                                                                                                     | `workingLineLow`, `workingLineMid`, `workingLineHigh`                                                                                                                         |
+| `editor`, `footer` | `prNumber`, `prUrl`, `ci`, `tokenRate`                                                                                                                                                                                                                                                   | No shared raw keys; existing neutral border/extension-status fallback                                                                                                         |
+| `workingLine`      | `tokenRate`                                                                                                                                                                                                                                                                              | No shared raw key; Static-only override, otherwise inherits mid; Classic/KITT use whole-row tiers                                                                             |
 
 Shared aliases `cwdText → cwd` and `git → gitBranch` remain accepted. Footer model/provider are plain text and the detected runtime label uses its runtime module's style, not invented Footer color keys.
 
@@ -548,19 +553,19 @@ Role-specific defaults and chains remain intact:
 
 The vertical rail drawn beside the editor input and beside previous user messages is a configurable character. Each owner keeps its own choice, so changing one never rewrites the other.
 
-| Owner | Key | Applies to |
-| --- | --- | --- |
-| Editor | `components.editor.rail` | Editor styles that draw a rail (Opencode, Accent Rail), in every icon mode |
-| Editor | `components.editor.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
-| User messages | `components.userMessages.rail` | `framed` and `compact` previous-message styles, in every icon mode |
-| User messages | `components.userMessages.asciiRail` | Overrides the same rail while the effective icon mode is `ascii` |
+| Owner         | Key                                 | Applies to                                                                 |
+| ------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| Editor        | `components.editor.rail`            | Editor styles that draw a rail (Opencode, Accent Rail), in every icon mode |
+| Editor        | `components.editor.asciiRail`       | Overrides the same rail while the effective icon mode is `ascii`           |
+| User messages | `components.userMessages.rail`      | `framed` and `compact` previous-message styles, in every icon mode         |
+| User messages | `components.userMessages.asciiRail` | Overrides the same rail while the effective icon mode is `ascii`           |
 
 ```json
 {
-  "components": {
-    "editor": { "rail": "┃", "asciiRail": "|" },
-    "userMessages": { "rail": "▌", "asciiRail": "|" }
-  }
+	"components": {
+		"editor": { "rail": "┃", "asciiRail": "|" },
+		"userMessages": { "rail": "▌", "asciiRail": "|" }
+	}
 }
 ```
 
@@ -622,21 +627,21 @@ with `variables`, then reference those names in any slot:
 
 ```json
 {
-  "components": {
-    "editor": {
-      "style": "minimalist",
-      "styles": {
-        "minimalist": {
-          "variables": { "claude_quota": "@scope/usage:quota" },
-          "formats": {
-            "topMiddle": "$claude_quota",
-            "bottomMiddle": "$session_name"
-          },
-          "extensionColorMode": "original"
-        }
-      }
-    }
-  }
+	"components": {
+		"editor": {
+			"style": "minimalist",
+			"styles": {
+				"minimalist": {
+					"variables": { "claude_quota": "@scope/usage:quota" },
+					"formats": {
+						"topMiddle": "$claude_quota",
+						"bottomMiddle": "$session_name"
+					},
+					"extensionColorMode": "original"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -699,10 +704,10 @@ const capability = { supported: false, active: false, key };
 pi.events.emit("zentui:variable-capability", capability);
 
 if (capability.active) {
-  pi.events.emit("zentui:variable", { key, text: "CC $459/1200" });
-  ctx.ui.setStatus(key, undefined); // remove this publisher's own fallback
+	pi.events.emit("zentui:variable", { key, text: "CC $459/1200" });
+	ctx.ui.setStatus(key, undefined); // remove this publisher's own fallback
 } else {
-  ctx.ui.setStatus(key, "CC $459/1200");
+	ctx.ui.setStatus(key, "CC $459/1200");
 }
 
 // Remove a value on publisher shutdown or when no longer applicable.
@@ -747,7 +752,7 @@ Tip: with `opencode-copy-friendly`, set Pi's `editorPaddingX` to `1` for a small
 Each Opencode variant owns an independent `metadataFormat`:
 
 Both support `$join_sep` / `${join_sep}` to join populated fields with neutral
-border-styled ` · `, for example `$model$join_sep$provider$join_sep$thinking`.
+border-styled `·`, for example `$model$join_sep$provider$join_sep$thinking`.
 Missing middle fields leave exactly one separator; single fields have none.
 Do not pad the marker: it owns its spaces. Joins are local to groups and never
 cross `$fill` zones. Legacy `$sep` / `$separator` still render empty in Opencode.
@@ -757,18 +762,18 @@ version, and does not rewrite defaults, saved templates, or other components.
 
 ```json
 {
-  "components": {
-    "editor": {
-      "styles": {
-        "opencode": {
-          "metadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
-        },
-        "opencode-copy-friendly": {
-          "metadataFormat": "$model( · $provider)"
-        }
-      }
-    }
-  }
+	"components": {
+		"editor": {
+			"styles": {
+				"opencode": {
+					"metadataFormat": "$model_name ($model_id)( · $provider)( · $thinking)( · $session_name)"
+				},
+				"opencode-copy-friendly": {
+					"metadataFormat": "$model( · $provider)"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -780,20 +785,20 @@ $model( · $provider)$fill($session_name)$fill($context · $tokens · $cache_hit
 
 The configured right zone and Pi's operational right status are right-aligned together, with the operational status kept first when space is limited. Configured left content is kept next, then configured right content. The middle zone is centered within the remaining gap between those sides, not at the terminal's absolute center, and is omitted completely if it cannot fit with one-cell separation. Narrow layouts truncate configured left/right content without an ellipsis. `$fill` inside a conditional group remains non-structural and renders empty.
 
-| Token | Renders |
-| --- | --- |
-| `$model` | label selected by `components.editor.modelLabel` |
-| `$model_id` | active Pi model ID |
-| `$model_name` | display name; empty when unset |
-| `$provider` | formatted provider label |
-| `$thinking` | current level; empty when `off` |
-| `$fast_mode` | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi |
-| `$session_name` | current Pi session name; empty when unnamed |
-| `$context` | compact current context usage and window, for example `26.8%/272k` |
-| `$tokens` | cumulative session input/output tokens only, for example `↑76k ↓1.6k` |
-| `$cache_hit` | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable |
-| `$codex_quota` | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` or official `openai` |
-| `$join_sep` | conditional join with neutral border-styled ` · ` |
+| Token           | Renders                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `$model`        | label selected by `components.editor.modelLabel`                                                                    |
+| `$model_id`     | active Pi model ID                                                                                                  |
+| `$model_name`   | display name; empty when unset                                                                                      |
+| `$provider`     | formatted provider label                                                                                            |
+| `$thinking`     | current level; empty when `off`                                                                                     |
+| `$fast_mode`    | OMP's supported `fast` or `ultrafast` selection; empty when off, unsupported, or running Pi                         |
+| `$session_name` | current Pi session name; empty when unnamed                                                                         |
+| `$context`      | compact current context usage and window, for example `26.8%/272k`                                                  |
+| `$tokens`       | cumulative session input/output tokens only, for example `↑76k ↓1.6k`                                               |
+| `$cache_hit`    | latest assistant prompt cache-hit rate to one decimal; `0.0%` when unavailable                                      |
+| `$codex_quota`  | remaining 5-hour/weekly account quota; requires Editor quota consent and active `openai-codex` or official `openai` |
+| `$join_sep`     | conditional join with neutral border-styled `·`                                                                     |
 
 `$context` uses Pi's current context snapshot and the live assistant context override, refreshing on the existing 250 ms streaming render cadence. `$tokens` and `$cache_hit` use authoritative persisted session snapshots, so they update at normal session synchronization boundaries rather than estimating in-progress totals. These variables are independent of Footer visibility, style, color source, and configuration.
 
@@ -804,21 +809,21 @@ Each style has independent `variables` and `extensionColorMode` settings:
 
 ```json
 {
-  "components": {
-    "editor": {
-      "styles": {
-        "opencode": {
-          "variables": { "quota": "@scope/usage:quota" },
-          "metadataFormat": "$model( · $quota)$fill($session_name)",
-          "extensionColorMode": "original"
-        },
-        "opencode-copy-friendly": {
-          "variables": { "quota": "@scope/usage:quota" },
-          "metadataFormat": "$model$fill($quota)"
-        }
-      }
-    }
-  }
+	"components": {
+		"editor": {
+			"styles": {
+				"opencode": {
+					"variables": { "quota": "@scope/usage:quota" },
+					"metadataFormat": "$model( · $quota)$fill($session_name)",
+					"extensionColorMode": "original"
+				},
+				"opencode-copy-friendly": {
+					"variables": { "quota": "@scope/usage:quota" },
+					"metadataFormat": "$model$fill($quota)"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -885,10 +890,10 @@ protocol and do not consume these maps.
 
 ```json
 {
-  "components": {
-    "editor": { "customValueColors": { "vendor.package/value": "bold fg:202" } },
-    "footer": { "customValueColors": { "vendor.package/value": "" } }
-  }
+	"components": {
+		"editor": { "customValueColors": { "vendor.package/value": "bold fg:202" } },
+		"footer": { "customValueColors": { "vendor.package/value": "" } }
+	}
 }
 ```
 
@@ -907,28 +912,32 @@ rewrite templates.
 Minimalist's six slots, both Opencode metadata formats, and Starship wide and
 responsive compact templates support these explicit opt-in references:
 
-| Variable | Pi | OMP |
-| --- | --- | --- |
-| `$pr_number`, `$pr_url` | Open PR number and safe plain HTTPS URL for a non-default branch | Same shared collector |
-| `$ci` | `CI passing`, `CI running`, `CI failed`, `CI no checks`, or `CI stale` | Same shared collector |
-| `$token_rate` | Completed model-work average for the current interaction, e.g. `48 tok/s avg`; unknown is `— tok/s avg` | Existing native last-assistant / streaming worker rate unchanged |
+| Variable                | Pi                                                                                                      | OMP                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `$pr_number`, `$pr_url` | Open PR number and safe plain HTTPS URL for a non-default branch                                        | Same shared collector                                            |
+| `$ci`                   | `CI passing`, `CI running`, `CI failed`, `CI no checks`, or `CI stale`                                  | Same shared collector                                            |
+| `$token_rate`           | Completed model-work average for the current interaction, e.g. `48 tok/s avg`; unknown is `— tok/s avg` | Existing native last-assistant / streaming worker rate unchanged |
 
 No default or saved template is rewritten. For example:
 
 ```json
 {
-  "components": {
-    "editor": {
-      "colors": { "ci": "bold blue", "tokenRate": "fg:202" },
-      "styles": { "opencode": { "metadataFormat": "$model( · PR #$pr_number)( · $ci)( · $token_rate)" } }
-    },
-    "footer": {
-      "styles": { "starship": {
-        "format": "$cwd( · PR #$pr_number)( · $ci)$fill$context",
-        "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($ci)$wrap($token_rate)"
-      } }
-    }
-  }
+	"components": {
+		"editor": {
+			"colors": { "ci": "bold blue", "tokenRate": "fg:202" },
+			"styles": {
+				"opencode": { "metadataFormat": "$model( · PR #$pr_number)( · $ci)( · $token_rate)" }
+			}
+		},
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$cwd( · PR #$pr_number)( · $ci)$fill$context",
+					"compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($ci)$wrap($token_rate)"
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -1019,7 +1028,7 @@ Committed totals stay provider-reported across tool loops, retries, compaction r
 
 When Pi settles, the default-on boolean **Turn summary** (`turnSummary`) appends a persistent context-free row such as `Turn took 56s · thought for 10s · ↑7.1k ↓779 · 42 tok/s avg`. Thought is cumulative wall-clock time from Pi's public thinking stream; overlaps count once and zero is omitted. Output already includes reasoning tokens, so reasoning is not added separately. The default template includes both token totals even when live Tokens or **Thinking time** is hidden or zero. Summaries are inactive while Working line is disabled.
 
-`turnSummaryFormat` is a terminal-safe single-line template (maximum 2048 code units and eight nested optional groups). Missing, invalid, empty or whitespace-only values use the default shown above; use `turnSummary: false` to hide new summaries. Supported variables are `$turn_duration`, `$thought_duration`, `$input_tokens`, `$output_tokens`, and `$token_rate`. Braced variables and optional `(groups)` use the existing format grammar; unknown names are empty. `$sep`/`$separator` emit ` · `; `$join_sep` joins only nonempty fields. Zero thought is empty; known-zero counts remain `0`.
+`turnSummaryFormat` is a terminal-safe single-line template (maximum 2048 code units and eight nested optional groups). Missing, invalid, empty or whitespace-only values use the default shown above; use `turnSummary: false` to hide new summaries. Supported variables are `$turn_duration`, `$thought_duration`, `$input_tokens`, `$output_tokens`, and `$token_rate`. Braced variables and optional `(groups)` use the existing format grammar; unknown names are empty. `$sep`/`$separator` emit `·`; `$join_sep` joins only nonempty fields. Zero thought is empty; known-zero counts remain `0`.
 
 Summary `$token_rate` is a complete label such as `42 tok/s avg`, or empty when exact final usage/timing coverage is unavailable (never an unknown dash). It sums provider-reported final assistant output divided by summed observed `turn_start` → accepted `message_end` durations, including initial wait/client preparation and excluding tools/gaps, across the **whole settled interaction**, including model selections and continuations. Non-idle settlement includes only settled runs, not an already-running successor. Summary-only collection is passive: it does not enable live Token rate, Editor/Footer slots or sampling timers. Enabling collection late cannot claim a partial exact average.
 
@@ -1027,10 +1036,10 @@ Summary `$token_rate` is a complete label such as `42 tok/s avg`, or empty when 
 
 Classic and KITT sweep across the entire row: Message, Tool, Elapsed, Thought, Tokens, Token rate (including `— tok/s`), and extension segments. A saved `colors.tokenRate` override never creates a fixed-color segment in animated modes; it applies only in Static (`textAnimation: "disabled"`). **Animate spinner color** optionally includes spinner cells and separator. Static uses the mid tier except for an explicit Token rate override; an omitted or invalid override inherits mid, while an empty style deliberately leaves Token rate unstyled. Static ignores text speed/spinner-color participation without changing saved values. Spinner glyph motion always remains active.
 
-| Setting | Default | Presets | Applies to |
-| --- | ---: | --- | --- |
-| `spinnerIntervalMs` | 100 ms | Fast 60 / Normal 100 / Slow 160 / Custom | glyph motion |
-| `textIntervalMs` | 60 ms | Fast 40 / Normal 60 / Slow 100 / Custom | Classic/KITT color motion |
+| Setting             | Default | Presets                                  | Applies to                |
+| ------------------- | ------: | ---------------------------------------- | ------------------------- |
+| `spinnerIntervalMs` |  100 ms | Fast 60 / Normal 100 / Slow 160 / Custom | glyph motion              |
+| `textIntervalMs`    |   60 ms | Fast 40 / Normal 60 / Slow 100 / Custom  | Classic/KITT color motion |
 
 Both speeds accept `30..1000` ms. Classic/KITT combine both cadences through one Pi Loader interval; exact cycles are used within 1024-frame/512-KiB limits. Pathological custom pairs use a bounded evenly distributed schedule with at most half a spinner-cycle and half a text-step rounding. Legacy `intervalMs` is accepted only as migration input for `spinnerIntervalMs` when the canonical field is absent.
 
@@ -1049,10 +1058,10 @@ const capability = { supported: false, active: false };
 pi.events.emit("zentui:working-line-segment-capability", capability);
 
 if (capability.active) {
-  pi.events.emit("zentui:working-line-segment", {
-    key: "@scope/my-extension:throughput",
-    text: "24.3 tok/s · TTFT 820ms",
-  });
+	pi.events.emit("zentui:working-line-segment", {
+		key: "@scope/my-extension:throughput",
+		text: "24.3 tok/s · TTFT 820ms",
+	});
 }
 ```
 
@@ -1060,8 +1069,8 @@ Update a segment by emitting the same key with new text. Remove it when the inte
 
 ```typescript
 pi.events.emit("zentui:working-line-segment", {
-  key: "@scope/my-extension:throughput",
-  text: undefined,
+	key: "@scope/my-extension:throughput",
+	text: undefined,
 });
 ```
 
@@ -1071,19 +1080,19 @@ Zentui accepts at most 16 unique keys, keys up to 64 code units, and values up t
 
 ## Git status icons
 
-| Icon | Meaning |
-| --- | --- |
-| `!` | Modified |
-| `?` | Untracked |
-| `+` | Staged |
-| `✘` | Deleted |
-| `»` | Renamed |
-| `T` | Type changed (`icons.typechanged`) |
-| `=` | Conflicted |
-| `$` | Stashed |
-| `↑` | Ahead |
-| `↓` | Behind |
-| `⇕` | Diverged |
+| Icon | Meaning                            |
+| ---- | ---------------------------------- |
+| `!`  | Modified                           |
+| `?`  | Untracked                          |
+| `+`  | Staged                             |
+| `✘`  | Deleted                            |
+| `»`  | Renamed                            |
+| `T`  | Type changed (`icons.typechanged`) |
+| `=`  | Conflicted                         |
+| `$`  | Stashed                            |
+| `↑`  | Ahead                              |
+| `↓`  | Behind                             |
+| `⇕`  | Diverged                           |
 
 ## Icon Auto detection
 
@@ -1095,65 +1104,65 @@ This is conservative terminal-environment detection, not font probing: terminal 
 
 Runtime/language modules use Starship Nerd Font symbols and defaults such as `bold green` for Node.js. Theme mode maps those styles through Pi; Footer terminal mode uses the terminal colorscheme's ANSI colors. In Auto mode, runtime, OS, package, rail, and gauge symbols all use the same derived effective icon mode.
 
-| Runtime/language | Detection examples |
-| --- | --- |
-| Buf | `buf.yaml`, `buf.gen.yaml`, `buf.work.yaml` |
-| Bun | `bun.lock`, `bun.lockb` |
-| C | `.c`, `.h` files |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` files |
-| CMake | `CMakeLists.txt`, `CMakeCache.txt` |
-| COBOL | `.cbl`, `.cob` files |
-| Conda | `CONDA_DEFAULT_ENV` environment |
-| Crystal | `.cr` files, `shard.yml` |
-| Dart | `.dart` files, `pubspec.yaml`, `.dart_tool/` |
-| Deno | `deno.json`, `deno.jsonc`, `deno.lock` |
-| .NET | `.csproj`, `.fsproj`, `global.json`, `Directory.Build.*` |
-| Elixir | `mix.exs` |
-| Elm | `.elm` files, `elm.json`, `elm-stuff/` |
-| Erlang | `rebar.config`, `erlang.mk` |
-| Fennel | `.fnl` files |
-| Fortran | `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.f18`, `fpm.toml` |
-| Gleam | `.gleam` files, `gleam.toml` |
-| Go | `go.mod` |
-| Gradle | `build.gradle`, `build.gradle.kts`, `gradle/` |
-| Guix shell | `GUIX_ENVIRONMENT` environment |
-| Haskell | `.hs`, `.cabal`, `stack.yaml`, `cabal.project` |
-| Haxe | `.hx`, `.hxml`, `haxelib.json`, `.haxerc` |
-| Helm | `helmfile.yaml`, `Chart.yaml` |
-| Java | `.java-version` |
-| Julia | `.jl` files, `Project.toml`, `Manifest.toml` |
-| Kotlin | `.kt`, `.kts` files |
-| Lua | `.lua` files, `stylua.toml`, `.luarc.json`, `lua/` directory |
-| Maven | `pom.xml` |
-| Meson | `MESON_DEVENV=1` and `MESON_PROJECT_NAME` |
-| Mojo | `.mojo` files |
-| Nim | `.nim`, `.nims`, `.nimble`, `nim.cfg` |
-| Nix shell | `IN_NIX_SHELL=pure` or `IN_NIX_SHELL=impure` |
-| Node.js | `package.json`, `.nvmrc`, `.node-version` |
-| OCaml | `.opam`, `.ml`, `.mli`, `dune`, `_opam/`, `esy.lock/` |
-| Odin | `.odin` files |
-| OPA/Rego | `.rego` files |
-| Perl | `.pl`, `.pm`, `Makefile.PL`, `cpanfile`, `META.*` |
-| PHP | `composer.json` |
-| Pixi | `pixi.toml`, `pixi.lock`, `PIXI_ENVIRONMENT_NAME` |
-| Pulumi | `Pulumi.yaml`, `Pulumi.yml` |
-| PureScript | `.purs` files, `spago.dhall`, `spago.yaml`, `spago.lock` |
-| Python | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile` |
-| R | `.R`, `.Rmd`, `.Rproj`, `DESCRIPTION`, `.Rproj.user/` |
-| Raku | `.raku`, `.rakumod`, `.p6`, `.pm6`, `META6.json` |
-| Red | `.red`, `.reds` files |
-| Ruby | `Gemfile`, `.ruby-version` |
-| Rust | `Cargo.toml` |
-| Scala | `.scala`, `.sbt`, `build.sbt`, `.metals/` |
-| Solidity | `.sol` files |
-| Spack | `SPACK_ENV` environment |
-| Swift | `.swift` files, `Package.swift` |
-| Terraform | `.tf`, `.tfplan`, `.tfstate`, `.terraform/` |
-| Typst | `.typ` files, `template.typ` |
-| Vagrant | `Vagrantfile` |
-| V | `.v` files, `v.mod`, `vpkg.json` |
-| Xmake | `xmake.lua` |
-| Zig | `.zig` files, `build.zig` |
+| Runtime/language | Detection examples                                           |
+| ---------------- | ------------------------------------------------------------ |
+| Buf              | `buf.yaml`, `buf.gen.yaml`, `buf.work.yaml`                  |
+| Bun              | `bun.lock`, `bun.lockb`                                      |
+| C                | `.c`, `.h` files                                             |
+| C++              | `.cpp`, `.cc`, `.cxx`, `.hpp` files                          |
+| CMake            | `CMakeLists.txt`, `CMakeCache.txt`                           |
+| COBOL            | `.cbl`, `.cob` files                                         |
+| Conda            | `CONDA_DEFAULT_ENV` environment                              |
+| Crystal          | `.cr` files, `shard.yml`                                     |
+| Dart             | `.dart` files, `pubspec.yaml`, `.dart_tool/`                 |
+| Deno             | `deno.json`, `deno.jsonc`, `deno.lock`                       |
+| .NET             | `.csproj`, `.fsproj`, `global.json`, `Directory.Build.*`     |
+| Elixir           | `mix.exs`                                                    |
+| Elm              | `.elm` files, `elm.json`, `elm-stuff/`                       |
+| Erlang           | `rebar.config`, `erlang.mk`                                  |
+| Fennel           | `.fnl` files                                                 |
+| Fortran          | `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.f18`, `fpm.toml`     |
+| Gleam            | `.gleam` files, `gleam.toml`                                 |
+| Go               | `go.mod`                                                     |
+| Gradle           | `build.gradle`, `build.gradle.kts`, `gradle/`                |
+| Guix shell       | `GUIX_ENVIRONMENT` environment                               |
+| Haskell          | `.hs`, `.cabal`, `stack.yaml`, `cabal.project`               |
+| Haxe             | `.hx`, `.hxml`, `haxelib.json`, `.haxerc`                    |
+| Helm             | `helmfile.yaml`, `Chart.yaml`                                |
+| Java             | `.java-version`                                              |
+| Julia            | `.jl` files, `Project.toml`, `Manifest.toml`                 |
+| Kotlin           | `.kt`, `.kts` files                                          |
+| Lua              | `.lua` files, `stylua.toml`, `.luarc.json`, `lua/` directory |
+| Maven            | `pom.xml`                                                    |
+| Meson            | `MESON_DEVENV=1` and `MESON_PROJECT_NAME`                    |
+| Mojo             | `.mojo` files                                                |
+| Nim              | `.nim`, `.nims`, `.nimble`, `nim.cfg`                        |
+| Nix shell        | `IN_NIX_SHELL=pure` or `IN_NIX_SHELL=impure`                 |
+| Node.js          | `package.json`, `.nvmrc`, `.node-version`                    |
+| OCaml            | `.opam`, `.ml`, `.mli`, `dune`, `_opam/`, `esy.lock/`        |
+| Odin             | `.odin` files                                                |
+| OPA/Rego         | `.rego` files                                                |
+| Perl             | `.pl`, `.pm`, `Makefile.PL`, `cpanfile`, `META.*`            |
+| PHP              | `composer.json`                                              |
+| Pixi             | `pixi.toml`, `pixi.lock`, `PIXI_ENVIRONMENT_NAME`            |
+| Pulumi           | `Pulumi.yaml`, `Pulumi.yml`                                  |
+| PureScript       | `.purs` files, `spago.dhall`, `spago.yaml`, `spago.lock`     |
+| Python           | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile`  |
+| R                | `.R`, `.Rmd`, `.Rproj`, `DESCRIPTION`, `.Rproj.user/`        |
+| Raku             | `.raku`, `.rakumod`, `.p6`, `.pm6`, `META6.json`             |
+| Red              | `.red`, `.reds` files                                        |
+| Ruby             | `Gemfile`, `.ruby-version`                                   |
+| Rust             | `Cargo.toml`                                                 |
+| Scala            | `.scala`, `.sbt`, `build.sbt`, `.metals/`                    |
+| Solidity         | `.sol` files                                                 |
+| Spack            | `SPACK_ENV` environment                                      |
+| Swift            | `.swift` files, `Package.swift`                              |
+| Terraform        | `.tf`, `.tfplan`, `.tfstate`, `.terraform/`                  |
+| Typst            | `.typ` files, `template.typ`                                 |
+| Vagrant          | `Vagrantfile`                                                |
+| V                | `.v` files, `v.mod`, `vpkg.json`                             |
+| Xmake            | `xmake.lua`                                                  |
+| Zig              | `.zig` files, `build.zig`                                    |
 
 ## Pi fullscreen mode
 
@@ -1161,7 +1170,7 @@ Pi 0.84 adds a native fullscreen TUI with sticky Editor and Footer plus an indep
 
 ```json
 {
-  "tuiMode": "fullscreen"
+	"tuiMode": "fullscreen"
 }
 ```
 
@@ -1173,12 +1182,12 @@ OMP 18.4.10+ uses `omp.ts` as a deliberately focused skin for **Editor, User mes
 
 `npm run omp:dev` launches with only this extension; `npm run omp:install-local` links the checkout with `omp plugin link`. OMP remaps shared Pi package imports to its own host modules, avoiding duplicate runtime classes/theme state.
 
-| Surface | OMP behavior |
-| --- | --- |
-| Editor | All Zentui styles support OMP's built-in Box, Band, Claude, Pi, Borderless, Rule, Field, and Rail layouts, preserving multiline input, cursor markers, shell submission, and autocomplete. Public composer row capture leaves native input layout/preferences unchanged. Unknown/ambiguous chrome fails open; decorated mouse geometry is not guessed. |
-| Fast mode | `$fast_mode` is `fast` for supported priority service and `ultrafast` for supported OpenAI ultrafast service. Other families' preferences, off/default/flex tiers, and unsupported models render empty. This reports the selected supported tier, not a latency guarantee. |
-| User messages | Normal Markdown messages support Zentui styles. Native image, badge, synthetic, and unfamiliar message surfaces remain native. |
-| Statusline | Starship replaces the native lower status slot and suppresses native attached status content; there is no persistent footer widget or duplicate main line. Hidden suppresses main status content and retains only permitted extension statuses; Native delegates exact native behavior. Editor enablement is independent. |
+| Surface       | OMP behavior                                                                                                                                                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Editor        | All Zentui styles support OMP's built-in Box, Band, Claude, Pi, Borderless, Rule, Field, and Rail layouts, preserving multiline input, cursor markers, shell submission, and autocomplete. Public composer row capture leaves native input layout/preferences unchanged. Unknown/ambiguous chrome fails open; decorated mouse geometry is not guessed. |
+| Fast mode     | `$fast_mode` is `fast` for supported priority service and `ultrafast` for supported OpenAI ultrafast service. Other families' preferences, off/default/flex tiers, and unsupported models render empty. This reports the selected supported tier, not a latency guarantee.                                                                             |
+| User messages | Normal Markdown messages support Zentui styles. Native image, badge, synthetic, and unfamiliar message surfaces remain native.                                                                                                                                                                                                                         |
+| Statusline    | Starship replaces the native lower status slot and suppresses native attached status content; there is no persistent footer widget or duplicate main line. Hidden suppresses main status content and retains only permitted extension statuses; Native delegates exact native behavior. Editor enablement is independent.                              |
 
 OMP's `setFooter()` is inert, so the adapter decorates exported native status renderers and restores only its own methods. Scope is established by matching session identity and mounted public `editor.composerFacts` identity. Verified ownership survives temporary dialog unmounting, but editor replacement, detached containers, session changes, and foreign method displacement release it; native startup/preview and other sessions remain untouched. The guarded runtime `session` field is the private compatibility boundary—changed/uninspectable shapes fail open to native. Native preferences/status maps are not rewritten. Extension statuses are recorded from successful public publications starting at extension initialization, including earlier `session_start` handlers; publications predating observation cannot be recovered. In TSP terminals, custom status is plain semantic composer text rather than ANSI frame/color parity; host-owned model-picker action/icon chrome remains native.
 
@@ -1192,46 +1201,46 @@ OMP segment IDs are not automatically template variables. These names are
 reserved built-ins, except the explicit `ci` alias compatibility rule; `$extensions` is unchanged.
 Pi supplies the [shared PR/CI and live rate variables](#live-metadata); other host-only or unavailable capabilities render empty.
 
-| Variable | Data and distinctions |
-| --- | --- |
-| `$session_id` | Current session's full ID, not its human-readable `$session_name`. |
-| `$pr_number`, `$pr_url` | Current non-default branch's GitHub PR number and safe plain HTTPS URL. |
-| `$ci` | Shared GitHub PR-head CI state; see [live metadata](#live-metadata). |
-| `$subagent_count` | Native active subagent badge count; background Bash/Eval jobs are not subagents. A known zero renders `0`. |
-| `$token_rate` | Output tokens/second, for example `42.5 tok/s`. Uses OMP's last-assistant average; observed live Vibe workers add the current streaming main rate, not an idle previous reply. Unknown timings remain empty. |
-| `$active_time` | Native accumulated active-processing time, including the open interval and excluding idle time, for example `1m 5s`. Not wall-clock `$session_duration` or current/completed `$turn_duration`; a known zero renders `0s`. |
-| `$hostname` | Machine hostname without the username. |
-| `$usage_quota` | Proven current-provider/model/account quota windows, for example `5 Hour: 80% left`. Distinct from independently consented `$codex_quota`. |
-| `$collaboration` | Native role and participant count, for example `host · 3 participants`; participants include the host. |
-| `$stream_state` | Native publisher state and remote viewer count. `live · 0 viewers` is active; no publisher renders empty. |
-| `$vim_mode` | Current native editor `insert`, `normal`, `visual`, or `visual-line` state. Disabled Vim renders empty. |
-| `$plan_mode`, `$goal_mode` | `Plan`/`Goal`, or `Plan paused`/`Goal paused` when the native paused state is known. |
-| `$prewalk_mode` | `Prewalk` while the attached session has a Prewalk target. |
-| `$vibe_mode` | `Vibe` while enabled. |
-| `$loop_mode` | `Loop waiting`, `Loop running`, or `Loop paused`; no loop renders empty. |
+| Variable                   | Data and distinctions                                                                                                                                                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$session_id`              | Current session's full ID, not its human-readable `$session_name`.                                                                                                                                                        |
+| `$pr_number`, `$pr_url`    | Current non-default branch's GitHub PR number and safe plain HTTPS URL.                                                                                                                                                   |
+| `$ci`                      | Shared GitHub PR-head CI state; see [live metadata](#live-metadata).                                                                                                                                                      |
+| `$subagent_count`          | Native active subagent badge count; background Bash/Eval jobs are not subagents. A known zero renders `0`.                                                                                                                |
+| `$token_rate`              | Output tokens/second, for example `42.5 tok/s`. Uses OMP's last-assistant average; observed live Vibe workers add the current streaming main rate, not an idle previous reply. Unknown timings remain empty.              |
+| `$active_time`             | Native accumulated active-processing time, including the open interval and excluding idle time, for example `1m 5s`. Not wall-clock `$session_duration` or current/completed `$turn_duration`; a known zero renders `0s`. |
+| `$hostname`                | Machine hostname without the username.                                                                                                                                                                                    |
+| `$usage_quota`             | Proven current-provider/model/account quota windows, for example `5 Hour: 80% left`. Distinct from independently consented `$codex_quota`.                                                                                |
+| `$collaboration`           | Native role and participant count, for example `host · 3 participants`; participants include the host.                                                                                                                    |
+| `$stream_state`            | Native publisher state and remote viewer count. `live · 0 viewers` is active; no publisher renders empty.                                                                                                                 |
+| `$vim_mode`                | Current native editor `insert`, `normal`, `visual`, or `visual-line` state. Disabled Vim renders empty.                                                                                                                   |
+| `$plan_mode`, `$goal_mode` | `Plan`/`Goal`, or `Plan paused`/`Goal paused` when the native paused state is known.                                                                                                                                      |
+| `$prewalk_mode`            | `Prewalk` while the attached session has a Prewalk target.                                                                                                                                                                |
+| `$vibe_mode`               | `Vibe` while enabled.                                                                                                                                                                                                     |
+| `$loop_mode`               | `Loop waiting`, `Loop running`, or `Loop paused`; no loop renders empty.                                                                                                                                                  |
 
 Defaults and saved templates are never augmented. Add only the desired variables,
 with optional groups around labels:
 
 ```json
 {
-  "components": {
-    "editor": {
-      "styles": {
-        "opencode": {
-          "metadataFormat": "$model( · $session_id)( · PR #$pr_number)( · $subagent_count agents)( · $active_time)( · $token_rate)( · $vim_mode)"
-        }
-      }
-    },
-    "footer": {
-      "styles": {
-        "starship": {
-          "format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $goal_mode)( · $loop_mode)$fill$context",
-          "compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
-        }
-      }
-    }
-  }
+	"components": {
+		"editor": {
+			"styles": {
+				"opencode": {
+					"metadataFormat": "$model( · $session_id)( · PR #$pr_number)( · $subagent_count agents)( · $active_time)( · $token_rate)( · $vim_mode)"
+				}
+			}
+		},
+		"footer": {
+			"styles": {
+				"starship": {
+					"format": "$cwd( · PR #$pr_number)( · $plan_mode)( · $goal_mode)( · $loop_mode)$fill$context",
+					"compactFormat": "$cwd$wrap(PR #$pr_number)$wrap($active_time)$wrap($token_rate)"
+				}
+			}
+		}
+	}
 }
 ```
 

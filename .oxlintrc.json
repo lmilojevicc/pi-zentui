@@ -1,0 +1,18 @@
+// Replaces biome.json. Oxlint's default correctness rules plus type-aware
+// TypeScript rules (oxlint --type-aware); warnings show, errors fail.
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["typescript", "unicorn", "oxc"],
+	"ignorePatterns": ["**/node_modules", "**/.agents", "**/.pi-subagents"],
+	"rules": {
+		// Terminal rendering matches ANSI escape sequences on purpose (Biome had this off too).
+		"no-control-regex": "off"
+	},
+	"overrides": [
+		{
+			// vitest passes methods as values (expect(obj.fn), vi.spyOn); not a this-binding bug.
+			"files": ["test/**"],
+			"rules": { "typescript/unbound-method": "off" }
+		}
+	]
+}

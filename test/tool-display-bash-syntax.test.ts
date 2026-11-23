@@ -505,7 +505,7 @@ describe("tool-display/bash-display semantic syntax", () => {
 		let escapes = 0;
 		let openVisible = 0;
 		let lastReset = -1;
-		for (let index = 0; index < painted.length; ) {
+		for (let index = 0; index < painted.length;) {
 			if (painted.charCodeAt(index) === 27) {
 				const match = /^\x1b\[([0-9;]*)m/.exec(painted.slice(index));
 				if (!match) throw new Error("unexpected escape");

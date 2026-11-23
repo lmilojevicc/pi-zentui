@@ -8,7 +8,7 @@ Requirements: Node.js and npm. pi-zentui is a Pi extension package, so you'll al
 
 ```bash
 npm install
-npm run verify      # biome check + tsc --noEmit + vitest run
+npm run verify      # oxlint + oxfmt --check + tsc --noEmit + vitest run
 npm run pack:check  # npm pack --dry-run, sanity-checks published contents
 ```
 

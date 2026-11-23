@@ -114,7 +114,7 @@ function isNormalizedWhitespace(code: number): boolean {
 
 export function sanitizeEditorMetadataText(value: string): string {
 	let sanitized = "";
-	for (let index = 0; index < value.length; ) {
+	for (let index = 0; index < value.length;) {
 		const code = value.charCodeAt(index);
 		if (code === ESC) {
 			index = consumeEscape(value, index);

@@ -66,7 +66,7 @@ describe("Pi minimum version policy", () => {
 		expect(() => expectCoherentOmpPins(pins, "18.4.10")).toThrow();
 	});
 
-	it("retains all compatibility jobs at exact 1.0.0 and 1.0.3", () => {
+	it("retains all compatibility jobs at exact 1.0.0 and 1.0.3, plus the previous minor", () => {
 		const ci = read(".github/workflows/ci.yml");
 		for (const job of [
 			"thinking-experimental-tui",
@@ -75,7 +75,8 @@ describe("Pi minimum version policy", () => {
 		]) {
 			expect(ci).toContain(`  ${job}:`);
 		}
-		expect(ci).toContain('pi-version: ["1.0.0", "1.0.3"]');
+		// The lockfile carries the newest Pi; the matrix keeps the minimum, 1.0.3 and 1.4.
+		expect(ci).toContain('pi-version: ["1.0.0", "1.0.3", "1.4.0"]');
 		expect(ci).toContain("run: npm run typecheck");
 		expect(ci).toContain("15m npm test");
 		for (const path of compatibilityScripts) {

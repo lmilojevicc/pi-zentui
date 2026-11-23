@@ -285,7 +285,8 @@ for (const adapter of adapters) {
 							expect(active[0]).toContain("✧");
 							const cursor = active.find((line) => line.includes(CURSOR_MARKER));
 							expect(cursor).toBeDefined();
-							expect(cursor).toContain("\x1b[7m");
+							// Pi 1.4+ emits fake-cursor markers that the TUI turns into reverse video.
+							expect(cursor).toMatch(/\x1b\[7m|\x1b_pi:fc\x07/);
 						}
 						expect(h.editor.getText()).toBe(text);
 					}

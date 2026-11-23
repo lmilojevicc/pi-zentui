@@ -109,16 +109,16 @@ Original upstream source hashes remain verified.
 
 Across **21366 cases**, provenance records:
 
-| Divergence | Vectors | Rows | Unchanged vectors |
-| --- | ---: | ---: | ---: |
-| `genericInlineArgs` | 702 | 702 | 20664 |
-| `mcpInlineArgs` (retained intermediate) | 2358 | 6345 | 19008 |
-| `mcpArgsExpansion` (retained intermediate) | 1134 | 1134 | 20232 |
-| `mcpOpenCode` | 2358 | 8274 | 19008 |
-| `writeContentWithoutPreimage` | 2808 | 2808 | 18558 |
-| `searchResultSeparator` | 702 | 702 | 20664 |
-| `unicodeCorrection` | 1998 | 3123 | 19368 |
-| `bashSyntaxColorOnly` | 486 | 486 | 20880 |
+| Divergence                                 | Vectors | Rows | Unchanged vectors |
+| ------------------------------------------ | ------: | ---: | ----------------: |
+| `genericInlineArgs`                        |     702 |  702 |             20664 |
+| `mcpInlineArgs` (retained intermediate)    |    2358 | 6345 |             19008 |
+| `mcpArgsExpansion` (retained intermediate) |    1134 | 1134 |             20232 |
+| `mcpOpenCode`                              |    2358 | 8274 |             19008 |
+| `writeContentWithoutPreimage`              |    2808 | 2808 |             18558 |
+| `searchResultSeparator`                    |     702 |  702 |             20664 |
+| `unicodeCorrection`                        |    1998 | 3123 |             19368 |
+| `bashSyntaxColorOnly`                      |     486 |  486 |             20880 |
 
 Search/expanded-args row counts mean inserted rows, not shifted indices. Other
 row counts mean changed/added indices (MCP therefore includes shifted result
@@ -172,10 +172,11 @@ first-touch miss is admitted one time in eight (one in 32 during a sequential sc
 over rows that were never cached) and a second visit is admitted at once, so a
 scan-back keeps a partially warm window instead of flushing it. Ingress
 sanitization/source caps run first in both modes. The declared charges (96 B/entry
-+ 8 B per token per array, two arrays, + 2 B/command byte; 96 B + 2 B/painted byte)
-are deliberate upper bounds and charge 10 MiB in total; they bound the working set
-to roughly 2,000 short or ≈950 two-KB painted rows. A full rescan of 1,000 two-KB
-rows hits 98%, and older rows are re-highlighted when they scroll back in.
+
+- 8 B per token per array, two arrays, + 2 B/command byte; 96 B + 2 B/painted byte)
+  are deliberate upper bounds and charge 10 MiB in total; they bound the working set
+  to roughly 2,000 short or ≈950 two-KB painted rows. A full rescan of 1,000 two-KB
+  rows hits 98%, and older rows are re-highlighted when they scroll back in.
 
 Only foreground SGR with exactly preserved text is accepted. Semantic mode
 validates each cache miss with a foreground-strip equality pass (strict SGR
