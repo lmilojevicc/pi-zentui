@@ -1151,6 +1151,7 @@ export default function (pi: ExtensionAPI, host: ZentuiHost = {}) {
 				},
 				() => editorBorderCapabilityChanged(editor, generation),
 				() => editorMetadataDecorationChanged(editor, generation),
+				process.platform === "darwin" && host.wrapEditor !== false,
 			);
 			registerConstructedEditor(ctx, factory, generation, editor, tui);
 			return editor;
