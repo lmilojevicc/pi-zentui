@@ -25,6 +25,28 @@ Zentui lets you shape Pi’s interface one component at a time. Customize your e
 
 Editor, User messages, Thinking (Experimental), Working line, Tool display, and selector borders have independent `enabled` fields. Footer uses one `style`: `native`, `starship`, or `hidden`. Use `/zentui` to configure each component without coupling it to the others.
 
+## macOS prompt editing
+
+On macOS, Zentui's own Pi editor keeps the selected frame and palette and adds
+Mac-style editing. This does not replace a foreign editor wrapped by Zentui,
+change Oh My Pi, or change your editor theme.
+
+- Shift+arrows select; Option+arrows move by word or paragraph; Command+arrows
+  move to line or prompt boundaries. Add Shift to select while moving.
+- Command+A/C/X/V select all, copy, cut, and paste. Typing or pasting replaces
+  a selection. Command+Z and Command+Shift+Z undo and redo.
+- Command+Backspace or Command+U deletes to line start; Command+Delete deletes
+  to line end. Enter still submits, and Shift+Enter inserts a newline.
+- In Pi's fullscreen mode, click to place the caret, drag to select, or
+  double-/triple-click to select a word or line.
+
+The terminal must forward Command keys using the Kitty keyboard protocol and
+send bracketed paste for Command+V. This remains a terminal editor, not an
+AppKit text field; system services and native context menus aren't supplied.
+
+Editing behavior is based on [pi-ghostty-native-editor](https://github.com/k7d/pi-ghostty-native-editor).
+If you already use that extension, remove it to let Zentui manage the editor.
+
 ## Highlights
 
 | Surface                 | Default               | Available treatments                                                       |

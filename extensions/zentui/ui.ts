@@ -1,4 +1,4 @@
-import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
+import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type AutocompleteProvider,
 	type Component,
@@ -33,6 +33,7 @@ import {
 import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format.ts";
 import { bashModeLabel } from "./format.ts";
 import type { HostTemplateValues } from "./host-template-values.ts";
+import { MacPromptEditor } from "./mac-prompt-editor.ts";
 import { type MinimalistEditorMetadata, renderMinimalistFrame } from "./minimalist-editor.ts";
 import { minimalistTemplateReferences } from "./minimalist-template.ts";
 import { getOmpEditorFrame, renderWithOmpEditorFrame } from "./omp-editor-frame.ts";
@@ -1161,7 +1162,7 @@ export function renderPolishedEditorFrame({
 	return clampRenderedLines(renderedLines, width);
 }
 
-export class PolishedEditor extends CustomEditor {
+export class PolishedEditor extends MacPromptEditor {
 	private readonly getModelMeta: () => EditorMeta;
 	private readonly getThinkingLevel: () => string | undefined;
 	private readonly getMinimalistMetadata: () => MinimalistEditorMetadata;
@@ -1186,8 +1187,14 @@ export class PolishedEditor extends CustomEditor {
 		onMinimalistDecorationChange: (active: boolean) => void = () => {},
 		private readonly onWorkingLineBorderCapabilityChange: () => void = () => {},
 		private readonly onMetadataDecorationChange: () => void = () => {},
+		macEditing = false,
 	) {
-		super(tui, theme, keybindings, { paddingX: 0 });
+		super(
+			tui,
+			theme,
+			keybindings,
+			macEditing ? (text) => uiTheme.bg("selectedBg", text) : undefined,
+		);
 		// OMP accepts the legacy constructor but ignores its options argument.
 		this.setPaddingX(0);
 		this.borderColor = (text: string) => safeThemeFg(uiTheme, "border", text);
